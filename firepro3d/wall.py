@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from .colour_tokens import normalize_colour, resolve_colour
 
 _DEFAULT_COLOUR = "#cccccc"
-from .constants import (DEFAULT_LEVEL,
+from .constants import (DEFAULT_LEVEL, MATERIAL_NONE_ID,
                        MITER_TOL, MAX_MITER_FACTOR,
                        WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL)
 from .view_scale import scene_hit_width
@@ -109,6 +109,7 @@ def compute_wall_quad(
 # ── WallSegment ──────────────────────────────────────────────────────────────
 
 from .displayable_item import DisplayableItemMixin
+from . import materials
 from .paper_display import shows_selection
 
 
@@ -122,6 +123,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Thickness, Colour, Fill Mode, Base Level, Top Level, Height
     """
 
+    material_category = "Wall"
     HALO_AREA = True  # HALO: cursor inside = direct hit
 
     @property
@@ -180,6 +182,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._thickness_mm = float(thickness_mm)
         self._colour: str = normalize_colour(color, _DEFAULT_COLOUR)
         self._fill_mode: str = FILL_NONE
+        self.material_id: str = MATERIAL_NONE_ID
 
         # Shared display-manager attributes
         self.init_displayable()
@@ -707,7 +710,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             # replaces the element fill; a By element pattern uses the
             # element's normal line colour and weight.
             draw_section_type(painter, clip, self.scene(), self,
-                              getattr(self, "_display_section_type", None),
+                              materials.fill_type_of(self),
                               line_col,
                               # canvas cosmetic px width (paper uses hatch_line_mm)
                               line_width=pen.widthF() if pen.isCosmetic() else 1.0,
@@ -870,6 +873,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                              "value_mm": self._thickness_mm},
             "Fill Mode":    {"type": "enum",      "value": self._fill_mode,
                              "options": ["None", "Solid", "Section"]},
+            materials.ROW_KEY: materials.property_row(self),
             "Alignment":    {"type": "enum",      "value": self._alignment,
                              "options": ["Center", "Left", "Right"]},
             "Base Level":   {"type": "level_ref", "value": self._base_level},
@@ -923,6 +927,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         elif key == "Fill Mode":
             self._fill_mode = str(value)
             self.update()
+        elif key == materials.ROW_KEY:
+            materials.set_from_row(self, value)
         elif key == "Alignment":
             self._alignment = str(value)
             self.invalidate_geometry()
@@ -988,7 +994,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "join_mode_pt2": self._join_mode_pt2,
             "openings":      openings_data,
         }
-        return self.display_overrides_to_dict(d)       # L283: Hide / section_type / colours
+        materials.write_element(self, d)
+        return self.display_overrides_to_dict(d)       # L283: Hide / colours
 
     @classmethod
     def from_dict(cls, data: dict) -> "WallSegment":
@@ -1047,6 +1054,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if wall._join_mode_pt2 == "Miter":
             wall._join_mode_pt2 = "Solid"
         wall.display_overrides_from_dict(data)         # L283 (canonical_id on section_type)
+        materials.read_element(wall, data)             # M7: after the canonical_id re-point
         # Openings restored by caller after wall_opening module is available
         return wall
 

@@ -8,6 +8,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import fill_types as ft
+from firepro3d import materials as mt
 from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.floor_slab import FloorSlab
 from firepro3d.gridline import GridlineItem
@@ -51,10 +52,13 @@ def test_mixin_from_dict_routes_section_type_through_canonical_id(qapp, monkeypa
     slab = FloorSlab(points=list(SQUARE))
     slab._display_overrides["section_type"] = "keep"
     rec = slab.to_dict()
-    assert FloorSlab.from_dict(rec)._display_overrides["section_type"] == "keep"   # a kept id is itself
-    assert FloorSlab.from_dict({"points": [[0, 0], [1, 0], [1, 1]],
-                                "display_overrides": {"section_type": "nope"}}
-                               )._display_overrides["section_type"] == "nope"      # unknown id unchanged
+    # M7: a slab's section_type is converted to a material on load, so the kept id
+    # shows up as the material's Fill Type and the override key is gone.
+    back = FloorSlab.from_dict(rec)
+    assert mt.fill_type_of(back) == "keep" and "section_type" not in back._display_overrides
+    unknown = FloorSlab.from_dict({"points": [[0, 0], [1, 0], [1, 1]],
+                                   "display_overrides": {"section_type": "nope"}})
+    assert mt.fill_type_of(unknown) is None and not unknown._display_overrides   # unknown id: None
     seen = []
     monkeypatch.setattr(ft, "canonical_id", lambda tid, table=None: seen.append(tid) or f"kept-{tid}")
     gl = GridlineItem(QPointF(0.0, 0.0), QPointF(5000.0, 0.0), label="A")
@@ -143,12 +147,14 @@ def test_every_holder_to_dict_from_dict_carries_overrides(qapp):
     roof = RoofItem(points=list(SQUARE))
     for it in (wall, op, room, roof):
         it._display_overrides["visible"] = False
+    ft.project_table().add(ft.FillType("some-id", "Some Cut", RED))
     wall._display_overrides["section_type"] = "some-id"
     w2 = WallSegment.from_dict(wall.to_dict())
     o2 = WallOpening.from_dict(op.to_dict(), wall=w2)
     r2 = Room.from_dict(room.to_dict())
     rf2 = RoofItem.from_dict(roof.to_dict())
-    assert w2._display_overrides == {"visible": False, "section_type": "some-id"}
+    assert w2._display_overrides == {"visible": False}          # M7: section_type became a material
+    assert mt.fill_type_of(w2) == "some-id"
     assert o2._display_overrides == {"visible": False}
     assert r2._display_overrides == {"visible": False}
     assert rf2._display_overrides == {"visible": False}
@@ -173,7 +179,8 @@ def test_g4_fpd_round_trip_and_paste_carry_hide_and_section_type(qapp, tmp_path)
     ms.addItem(roof)
     ms._roofs.append(roof)
     ms._hide_items([wall, op, room, roof])                       # Model Browser Hide
-    wall._display_overrides["section_type"] = "some-id"          # Fill Type section override
+    ft.project_table().add(ft.FillType("some-id", "Some Cut", RED))
+    wall._display_overrides["section_type"] = "some-id"          # legacy Fill Type section override
     f = tmp_path / "ov.fpd"
     assert ms.save_to_file(str(f))
     rec = json.loads(f.read_text(encoding="utf-8"))
@@ -189,13 +196,15 @@ def test_g4_fpd_round_trip_and_paste_carry_hide_and_section_type(qapp, tmp_path)
     for it in (w2, o2, r2, rf2):
         assert it._display_overrides.get("visible") is False
         assert it.isVisible() is False                           # hidden on the canvas after open
-    assert w2._display_overrides["section_type"] == "some-id"
+    assert "section_type" not in w2._display_overrides           # M7: converted on open
+    assert mt.fill_type_of(w2) == "some-id"
     # Paste (Ctrl+V, Array, Duplicate Level all rebuild from to_dict records).
     new = ms2.paste_items(QPointF(10000.0, 0.0), data=ms2._clipboard_item_dicts([w2, r2, rf2]))
     pw = next(i for i in new if isinstance(i, WallSegment))
     pr = next(i for i in new if isinstance(i, Room))
     prf = next(i for i in new if isinstance(i, RoofItem))
-    assert pw._display_overrides == {"visible": False, "section_type": "some-id"} and pw.isVisible() is False
+    assert pw._display_overrides == {"visible": False} and pw.isVisible() is False
+    assert mt.fill_type_of(pw) == "some-id"                      # the paste carries the material
     assert pw.openings[0]._display_overrides == {"visible": False} and pw.openings[0].isVisible() is False
     assert pr._display_overrides == {"visible": False} and pr.isVisible() is False
     assert prf._display_overrides == {"visible": False} and prf.isVisible() is False

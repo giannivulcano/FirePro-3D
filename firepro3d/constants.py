@@ -461,6 +461,8 @@ FILL_TYPE_FALLBACK_NAME = "Solid Grey 20%"   # HF5: missing-type look (D-A14) + 
 FILL_TYPE_FALLBACK_COLOR = "#808080"
 FILL_TYPE_FALLBACK_OPACITY = 0.20
 FILL_TYPE_SOLID_BLACK = "Solid Black"
+MATERIAL_NONE_ID = "material-none"      # the permanent None material (materials.md)
+MATERIAL_NONE_NAME = "None"
 FILL_TYPE_CUSTOM_LABEL = "(Custom)"           # region panel: no type, own fill (R2)
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 

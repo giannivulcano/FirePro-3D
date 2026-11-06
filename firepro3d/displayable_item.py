@@ -40,8 +40,8 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
         clip_path: Section boundary; empty -> nothing.
         scene: The item's scene (drafting factor / registry) or None.
         item: The cut item (colour tokens resolve on its surface).
-        type_id: Fill Type id; None = the default look (diagonal, By element,
-            no body); an id the table lacks draws the missing-type fallback.
+        type_id: Fill Type id; None draws nothing; an id the table lacks
+            draws the missing-type fallback.
         element_colour: The element's resolved line colour (By element).
         line_width: Canvas hatch line width in px.
         to_scene: Item->scene transform (pattern in scene axes, anchored at
@@ -53,20 +53,18 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
     from . import fill_types
     from .colour_tokens import resolve_colour, section_fill_colour
     from .constants import TOKEN_ELEMENT
-    from .fill_layers import FillLayers, PatternLayer
-    from .hatch_patterns import DEFAULT_TILE_REF
     from .hatch_render import paint_fill
-    if clip_path.isEmpty():
+    if clip_path.isEmpty() or not type_id:
         return
-    if type_id:
-        layers, _missing = fill_types.resolve(type_id, None)
-    else:
-        layers = FillLayers(None, PatternLayer(DEFAULT_TILE_REF, TOKEN_ELEMENT))
+    layers, _missing = fill_types.resolve(type_id, None)
     bg = pat = None
     paper_bg = paper_body if paper_body is not None else getattr(
         item, "_display_section_color", None)
     if paper_bg is not None:
-        bg = section_fill_colour(paper_bg, item)
+        # M15: the paper Section colour stands in for a body the type has; a
+        # hatch-only type prints its hatch with no body.
+        if layers.background is not None:
+            bg = section_fill_colour(paper_bg, item)
     elif layers.background is not None:
         bg = resolve_colour(layers.background.color, item=item)
         bg.setAlpha(round(bg.alpha() * layers.background.opacity))
@@ -170,8 +168,6 @@ class DisplayableItemMixin:
         self._is_section_cut: bool = False            # set by LevelManager view-range pass
         # Paper pass only (HF5): the paper body-colour override; None in model.
         self._display_section_color: str | None = None
-        # Fill Type id of the cut (Display Manager, HF5); None = the default look.
-        self._display_section_type: str | None = None
 
     # -- Per-instance Display-Manager overrides: one serializer for both paths --
 

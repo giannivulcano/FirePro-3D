@@ -286,7 +286,7 @@ def element_colour(value, element_value):
     return element_value if value == TOKEN_ELEMENT else value
 
 
-# -- section cuts (HF5 R4 / R7) ---------------------------------------------
+# -- legacy section conversion (HF5 R4; load only, M7) ---------------------------------------------
 def legacy_section_layers(section, pattern, scale) -> FillLayers:
     """R4: a pre-HF5 section cell (colour + pattern + scale) as a look.
 
@@ -307,37 +307,6 @@ def legacy_section_layers(section, pattern, scale) -> FillLayers:
                                        1.0, sc if sc > 0 else 1.0))
 
 
-def category_section_type(key: str, vals: dict) -> str | None:
-    """The project type id a category's section settings name (R7), converting legacy (R4).
-
-    ``section_type`` (a name) + ``section_look`` (a fill record) win: the project
-    type of that name, else a type added from the look. Without a name, legacy
-    ``section`` / ``section_pattern`` / ``section_scale`` convert to one type per
-    distinct look (``<key> Section`` / ``<key> Section N``).
-    """
-    table = project_table()
-    name = vals.get("section_type")
-    if name:
-        rec = vals.get("section_look")
-        look = from_record(rec) if rec else None
-        if look is None or look.is_empty:
-            look = legacy_section_layers(vals.get("section"), vals.get("section_pattern"),
-                                         vals.get("section_scale"))
-        before = len(table.all())
-        t = table.ensure_named(name, look)
-        if len(table.all()) != before:
-            notify_changed()
-        return t.id
-    if vals.get("section") is not None or vals.get("section_pattern"):
-        before = len(table.all())
-        t = table.ensure_look(f"{key} Section", legacy_section_layers(
-            vals.get("section"), vals.get("section_pattern"), vals.get("section_scale")))
-        if len(table.all()) != before:
-            notify_changed()
-        return t.id
-    return None
-
-
 def convert_item_section_override(key: str, ov: dict,
                                   base: FillLayers | None = None) -> None:
     """Per-item legacy section override keys -> one ``section_type`` id (R4), in place.
@@ -345,8 +314,9 @@ def convert_item_section_override(key: str, ov: dict,
     Args:
         key: Category key (names the converted types ``<key> Section N``).
         ov: The item's ``_display_overrides`` (mutated).
-        base: The category's look; a legacy override carried only some of
-            colour / pattern / scale and the rest inherited the category's.
+        base: A look the legacy override's missing parts inherit. The load
+            path passes None, so a legacy partial override takes the default
+            pattern and no body.
     """
     legacy = [k for k in ("section", "section_pattern", "section_scale") if k in ov]
     if not legacy or "section_type" in ov:
@@ -402,10 +372,10 @@ def import_name(name: str) -> str:
     return s
 
 
-def type_users(type_id: str, scene) -> list[str]:
+def type_users(type_id: str, scene, material_table=None) -> list[str]:
     """Who uses a type (D-A15 "used by N"): typed region primitives in block
-    definitions, Filled Regions in the plan and open Block Editors, Display
-    Manager categories (by name) and per-item section overrides.
+    definitions, Filled Regions in the plan and open Block Editors, and
+    materials.
 
     Ids are compared through :func:`canonical_id`, so a record that kept a
     load-time duplicate's id still counts for the type that absorbed it.
@@ -413,6 +383,8 @@ def type_users(type_id: str, scene) -> list[str]:
     Args:
         type_id: The type's id.
         scene: The project ``Model_Space``.
+        material_table: The Materials tab's working copy, else the project
+            table.
 
     Returns:
         Human-readable user labels; empty when the type is unused.
@@ -424,27 +396,20 @@ def type_users(type_id: str, scene) -> list[str]:
     for d in getattr(scene, "_block_definitions", {}).values():
         if any(canonical_id(r) == canon for r in fill_type_refs(d.primitives)):
             out.append(f"block {d.name}")
-    if t is not None:
-        from .display_manager import _CATEGORIES, _read_category_from_settings
-        for c in _CATEGORIES:
-            name = _read_category_from_settings(c["key"]).get("section_type")
-            if name and str(name).casefold() == t.name.casefold():
-                out.append(f"{c['key']} sections")
+    from . import materials
+    table = material_table if material_table is not None else materials.project_table()
+    for m in table.all():
+        if m.fill_type and canonical_id(m.fill_type) == canon:
+            out.append(f"material {m.name}")
     scenes = [s for _label, s in scene._user_scenes()] if hasattr(scene, "_user_scenes") else [scene]
-    n_regions = n_items = 0
+    n_regions = 0
     for sc in scenes:
         for it in sc.items():
             ft_id = getattr(it, "fill_type", None)
             if isinstance(ft_id, str) and ft_id and canonical_id(ft_id) == canon:
                 n_regions += 1
-            ov = getattr(it, "_display_overrides", None)
-            if isinstance(ov, dict) and isinstance(ov.get("section_type"), str) \
-                    and canonical_id(ov["section_type"]) == canon:
-                n_items += 1
     if n_regions:
         out.append(f"{n_regions} region(s)")
-    if n_items:
-        out.append(f"{n_items} element section override(s)")
     return out
 
 

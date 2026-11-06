@@ -15,7 +15,6 @@ this module — so Qt / block imports stay inside the functions.
 from __future__ import annotations
 
 import json
-import logging
 import os
 
 # The folder walk + log-once are shared with the Linetypes folder (LT3 H3-i).
@@ -184,9 +183,6 @@ def picker_exclude(scene) -> frozenset:
     return frozenset({host} | {b for b in reg.ids() if reg.would_cycle(host, b)})
 
 
-_log = logging.getLogger(__name__)
-
-
 def library_patterns(folder: str | None = None) -> list[tuple[str, str, str]]:
     """Pattern blocks of the read-only System tier, then the Hatch patterns
     folder (SB1b D4; D-A37) -- the ``tile`` blocks of
@@ -292,11 +288,10 @@ def project_pattern_refs(scene) -> set[str]:
     """Every pattern ref a project uses or will draw with (D-A39).
 
     Collected (canonical ids): 2D items' pattern layer (``fill_layers.pattern``); every block
-    definition's primitive pattern fills; every category section look's pattern
-    (QSettings, via the DM reader); every Fill Type's pattern (HF5: the
-    Display Manager section cells and Filled Regions name table types, so the
-    types' patterns cover every section cut); and ``DEFAULT_TILE_REF`` — the
-    pattern walls / floors / roofs fall back to.
+    definition's primitive pattern fills; every Fill Type's pattern (HF5:
+    Materials and Filled Regions name table types, so the types' patterns
+    cover every section cut); and ``DEFAULT_TILE_REF`` — the
+    pattern a new pattern layer starts with.
 
     Args:
         scene: The project ``Model_Space``.
@@ -317,17 +312,6 @@ def project_pattern_refs(scene) -> set[str]:
     for t in project_table().all():           # HF5: a table type's pattern is a use too
         if t.layers.pattern is not None:
             refs.add(t.layers.pattern.ref)
-    try:        # the app-wide category section looks (QSettings): a new scene has no walls yet
-        from .display_manager import _CATEGORIES, _read_category_from_settings
-        from .fill_layers import from_record
-        for cat in _CATEGORIES:
-            if cat.get("section_type") is None:
-                continue
-            look = from_record(_read_category_from_settings(cat["key"]).get("section_look"))
-            if look.pattern is not None:
-                refs.add(look.pattern.ref)
-    except Exception:                     # noqa: BLE001 — DM unavailable headless
-        _log.debug("Display Manager categories unreadable", exc_info=True)
     refs.discard(None)
     refs.discard("")
     return {r for r in refs if isinstance(r, str)}

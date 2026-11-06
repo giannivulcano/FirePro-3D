@@ -7998,6 +7998,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             else:
                 _ftmpl = self._get_floor_template()
                 slab = FloorSlab(color=_ftmpl._color.name())
+                slab.material_id = _ftmpl.material_id
                 # Name from the template (uniquified) BEFORE appending to _floor_slabs
                 # so the new slab is not counted against itself.
                 slab.name = self._unique_floor_name(self._floor_base_name())
@@ -8153,6 +8154,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             return True
         _ftmpl = self._get_floor_template()
         slab = FloorSlab(points=list(corners), color=_ftmpl._color.name())
+        slab.material_id = _ftmpl.material_id
         # Name from the template (uniquified) BEFORE appending to _floor_slabs.
         slab.name = self._unique_floor_name(self._floor_base_name())
         self._apply_floor_template_fields(slab)
@@ -9691,7 +9693,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 wall.translate(offset.x(), offset.y())
                 self.addItem(wall)
                 self._walls.append(wall)
-                apply_category_defaults(wall)
+                apply_category_defaults(wall, stamp_material=False)   # a paste keeps its material
                 if wall._display_overrides.get("visible") is False:
                     wall.setVisible(False)      # L283: the category apply re-showed a carried Hide
                 marks.mint(self, wall)

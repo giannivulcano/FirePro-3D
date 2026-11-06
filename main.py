@@ -57,6 +57,7 @@ from firepro3d import __version__ as APP_VERSION
 from firepro3d import theme as th
 from firepro3d import colour_picker
 from firepro3d import fill_types
+from firepro3d import materials
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -745,9 +746,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         pass  # level indicator removed
         self._place_default_gridlines()
         self.section_manager.seed_cardinals()
-        # HF5 R9: startup = the seed set -- BEFORE the display defaults, which add
-        # the category section types (Wall Section / Floor Section) to the table.
+        # HF5 R9: startup = the seed set, then the display defaults.
         fill_types.reset_project_table()
+        materials.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
@@ -763,7 +764,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # was built — seat the live one (I9).
         self.view_3d.reset_for_project(self.scene.scale_manager)
 
-        # Hatch D-A39: every referenced pattern (category section patterns,
+        # Hatch D-A39: every referenced pattern (Fill Type patterns,
         # the wall/floor/roof default) loads from the folder into the baseline.
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
@@ -2498,8 +2499,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         definitions recompile (their compiled ops bake the resolved look) and
         every live scene repaints (regions, wall / floor cuts and section views
         resolve their type at paint, so a repaint is enough there). Never
-        rebuilds a section view: ``SectionScene._category_section_type`` can add
-        types from a rebuild, and a rebuild here would loop."""
+        rebuilds a section view: cuts resolve at paint, so a repaint reaches them."""
         from PyQt6 import sip
         if sip.isdeleted(self) or self._ft_changed_busy:
             return
@@ -3428,6 +3428,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.display_manager import DisplayManager
         dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
         dlg.lineWeightsChanged.connect(self._on_line_weights_changed)
+        # The panel lists materials when its form is built, so a selected
+        # element or placement template re-queries after OK. accepted fires
+        # after the dialog has installed its tables.
+        dlg.accepted.connect(self.prop_manager._do_refresh)
         return dlg
 
     def _on_line_weights_changed(self):
@@ -3697,8 +3701,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # project's weight table; re-pen now that the file's table is live.
         self._refresh_weight_canvases()
         # Hatch D-A39: patterns the file references but doesn't embed (2D /
-        # block fills, DM category + instance section patterns) load from the
-        # Hatch patterns folder as part of the undo baseline (no undo step).
+        # block fills, Fill Types) load from the Hatch patterns folder as
+        # part of the undo baseline (no undo step).
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
         self._warn_missing_patterns()
@@ -3947,9 +3951,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._refresh_section_browser()
 
         # Apply saved display defaults to the new project
-        # HF5 R9: a new project = the seed set -- BEFORE the display defaults, which
-        # add the category section types (Wall Section / Floor Section) to the table.
+        # HF5 R9: a new project = the seed set, then the display defaults.
         fill_types.reset_project_table()
+        materials.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.

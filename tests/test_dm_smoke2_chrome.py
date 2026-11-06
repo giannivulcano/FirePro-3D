@@ -10,7 +10,8 @@ from firepro3d.theme import detect
 from tests._dm_theme_helpers import dispose_dm, mw, open_dm  # noqa: F401
 
 _HCENTER = int(Qt.AlignmentFlag.AlignHCenter.value)
-_GLYPH_COLS = ("VIS", "COLOUR", "FILL", "SECTION")
+_GLYPH_COLS = ("VIS", "COLOUR", "FILL")
+_PAPER_GLYPH_COLS = _GLYPH_COLS + ("SECTION",)
 
 
 def _flag(a) -> int:
@@ -76,10 +77,10 @@ def _tree_headers(tree: QTreeWidget):
     return [(hi.text(c), _flag(hi.textAlignment(c))) for c in range(tree.columnCount())]
 
 
-def _check_headers(pairs):
+def _check_headers(pairs, glyph_cols=_GLYPH_COLS):
     for text, align in pairs:
         assert text == text.upper(), text
-        if text in _GLYPH_COLS:
+        if text in glyph_cols:
             assert align & _HCENTER, (text, align)
 
 
@@ -89,9 +90,10 @@ def test_model_paper_and_lw_headers_are_caps_and_glyph_columns_centred(mw):
         model = _tree_headers(dlg._tree)
         paper = _tree_headers(dlg._ps_tree)
         assert {t for t, _ in model} >= set(_GLYPH_COLS)
-        assert {t for t, _ in paper} >= set(_GLYPH_COLS)
+        assert "SECTION" not in {t for t, _ in model}
+        assert {t for t, _ in paper} >= set(_PAPER_GLYPH_COLS)
         _check_headers(model)
-        _check_headers(paper)
+        _check_headers(paper, _PAPER_GLYPH_COLS)
         lw = dlg._lw_table
         lw_texts = [lw.horizontalHeaderItem(c).text() for c in range(lw.columnCount())]
         assert lw_texts and all(x == x.upper() for x in lw_texts), lw_texts
@@ -137,9 +139,9 @@ def test_model_tree_columns_are_retired_and_blocks_weight_lives_on_line_weights(
     dlg = open_dm(mw)
     try:
         tree = dlg._tree
-        assert tree.columnCount() == 7
-        assert [tree.headerItem().text(c) for c in range(7)] == [
-            "NAME", "VIS", "COLOUR", "FILL", "SECTION", "OPACITY", ""]
+        assert tree.columnCount() == 6
+        assert [tree.headerItem().text(c) for c in range(6)] == [
+            "NAME", "VIS", "COLOUR", "FILL", "OPACITY", ""]
         assert tree.findChildren(QDoubleSpinBox) == []
         combo = dlg._model_blocks_combo
         assert dlg._lw_tab.isAncestorOf(combo) and not tree.isAncestorOf(combo)

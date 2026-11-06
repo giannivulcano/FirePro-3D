@@ -141,6 +141,8 @@ class SceneIOMixin:
         paper_display_data = get_paper_display_for_save()
         from . import fill_types
         fill_types_data = fill_types.project_table().to_payload()
+        from . import materials
+        materials_data = materials.project_table().to_payload()
 
         # --- Assemble and write ---
         payload = {
@@ -154,6 +156,7 @@ class SceneIOMixin:
             "display_settings":    display_settings_data,
             "paper_display":       paper_display_data,
             "fill_types":          fill_types_data,
+            "materials":           materials_data,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
                                     if self._plan_view_manager else []),
@@ -267,6 +270,8 @@ class SceneIOMixin:
         # and region parse below resolve typed fills against THIS file's types.
         from . import fill_types
         fill_types.load_project_fill_types(payload.get("fill_types"))
+        from . import materials
+        materials.load_project_materials(payload.get("materials"))
 
         # --- Scale ---
         if "scale" in payload:
@@ -653,6 +658,10 @@ class SceneIOMixin:
                 self.removeItem(da)
         self.design_areas = []
         self.active_design_area = None
+        from .materials import MATERIAL_NONE_ID
+        for _tmpl in (self._wall_template, self._floor_template):
+            if _tmpl is not None:     # the old project's material id is unknown to the next table
+                _tmpl.material_id = MATERIAL_NONE_ID
         self._polylines = []
         self._polyline_active = None
         self._draw_lines = []

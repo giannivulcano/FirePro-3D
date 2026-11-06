@@ -65,3 +65,33 @@ def test_pasted_wall_takes_category_defaults(qapp):
     finally:
         s.remove("display/Wall/color")
         sc.cleanup()
+
+
+def test_a_paste_keeps_the_copied_material_even_on_none(qapp):
+    """The material stamp is for placement only: a wall deliberately on None
+    pastes as None (not the category default), a Concrete wall as Concrete."""
+    from firepro3d import fill_types as ft
+    from firepro3d import materials as mt
+    from firepro3d.constants import MATERIAL_NONE_ID
+    ft.reset_project_table()
+    mt.reset_project_table()
+    sc = Model_Space()
+    try:
+        table = mt.project_table()
+        concrete = table.by_name("Concrete").id
+        table.set_default("Wall", table.by_name("Brick").id)
+        none_wall = WallSegment(QPointF(0, 0), QPointF(1000, 0))
+        conc_wall = WallSegment(QPointF(0, 2000), QPointF(1000, 2000))
+        conc_wall.material_id = concrete
+        for w in (none_wall, conc_wall):
+            sc.addItem(w)
+            sc._walls.append(w)
+        assert none_wall.material_id == MATERIAL_NONE_ID
+        pasted_none, = _paste_walls(sc, [none_wall])
+        pasted_conc, = _paste_walls(sc, [conc_wall])
+        assert pasted_none.material_id == MATERIAL_NONE_ID
+        assert pasted_conc.material_id == concrete
+    finally:
+        sc.cleanup()
+        ft.reset_project_table()
+        mt.reset_project_table()

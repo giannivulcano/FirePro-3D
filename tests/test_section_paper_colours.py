@@ -24,12 +24,21 @@ def _rows(paper_visible=True, paper_opacity=100):
     s = QSettings("GV", "FirePro3D")
     s.setValue("display/Wall/color", "#ffffff")
     s.setValue("display/Wall/fill", "#999999")
-    s.setValue("display/Wall/section", "token:auto")
-    s.setValue("display/Wall/section_pattern", "builtin-hatch-concrete")
     cats = pd.load_paper_categories()
     cats["Wall"].update(color="token:auto", fill="", section_color="",
                         visible=paper_visible, opacity=paper_opacity)
     pd.save_paper_categories(cats)
+
+
+def _give_cut_a_body(cuts):
+    """Materials M15: the paper Section colour stands in for a body the cut's
+    type has, so the cut's wall carries a material with a body."""
+    from firepro3d import fill_types as ft, materials as mt
+    name = f"Cut body {ft.new_id()}"
+    t = ft.project_table().add(ft.FillType(ft.new_id(), name, ft.legacy_section_layers(
+        "#666666", "diagonal", 1.0)))
+    cuts[0]._section_element.material_id = mt.project_table().add(
+        mt.Material(ft.new_id(), name, t.id)).id
 
 
 def _scene(section_scene_for):
@@ -70,6 +79,7 @@ def test_proxies_plot_through_paper_row_colours(qapp, tmp_path, section_scene_fo
     save_paper_color_mode(mode)
     _rows()
     sec, cuts, beyond, centre = _scene(section_scene_for)
+    _give_cut_a_body(cuts)
     pdf = export_scene(tmp_path, sec, SCALE, centre, f"col_{mode.value}.pdf")
     for it in cuts + beyond:
         ds = _inside(pdf, it, centre)
@@ -101,6 +111,7 @@ def test_hex_paper_row_fill_and_section_reach_the_proxies(qapp, tmp_path, sectio
     cats["Wall"].update(color="#0000ff", fill="#ff0000", section_color="#00ff00")
     pd.save_paper_categories(cats)
     sec, cuts, beyond, centre = _scene(section_scene_for)
+    _give_cut_a_body(cuts)
     pdf = export_scene(tmp_path, sec, SCALE, centre, "col_hex.pdf")
     for it, body in [(c, (0.0, 1.0, 0.0)) for c in cuts] + [(b, (1.0, 0.0, 0.0)) for b in beyond]:
         ds = _inside(pdf, it, centre)

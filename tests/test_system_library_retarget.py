@@ -8,7 +8,6 @@ HF5 R4: a section cut's pattern lives in its Fill Type, checked on its own.
 The Display category defaults (H6, app-wide QSettings) are checked as NOT
 rewritten.
 """
-import json
 
 import pytest
 from PyQt6.QtCore import QPointF
@@ -122,26 +121,29 @@ def test_g8_retarget_and_undo(qapp, shipped_hatches, make, undoable):
 
 
 def test_g8_section_type_pattern_follows_the_retarget(qapp, shipped_hatches):
-    """H5 (HF5 R4): a cut's section pattern lives in its Fill Type -- walls and
-    floors name the type by id -- so the retarget re-points the type's pattern.
-    The table is outside undo (like line weights), the item keeps its id."""
+    """H5 (materials.md): a cut's section pattern lives in its Fill Type -- walls
+    and floors reach it through their material -- so the retarget re-points the
+    type's pattern. The table is outside undo (like line weights), the item and
+    the material keep their ids."""
     from firepro3d import fill_types as ft
+    from firepro3d import materials as mt
     ms = Model_Space()
     old, new = _tile_pair(ms, shipped_hatches)
     t = ft.project_table().ensure_named("Cut", FillLayers(None, PatternLayer(old)))
+    m = mt.project_table().add(mt.Material(ft.new_id(), "G8 Cut", t.id))
     w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
     ms.addItem(w)
     ms._walls.append(w)
-    w._display_overrides["section_type"] = t.id
+    w.material_id = m.id
     slab = FloorSlab(points=SQ)
     ms.addItem(slab)
     ms._floor_slabs.append(slab)
-    slab._display_overrides["section_type"] = t.id
+    slab.material_id = m.id
     ms.push_undo_state()
     assert ms.retarget_block_refs(old, new) >= 1
     assert ft.project_table().get(t.id).layers.pattern.ref == new
-    assert w._display_overrides["section_type"] == t.id
-    assert ms._floor_slabs[0]._display_overrides["section_type"] == t.id
+    assert mt.fill_type_of(w) == t.id
+    assert mt.fill_type_of(ms._floor_slabs[0]) == t.id
 
 
 def test_g8_every_holder_in_one_call_is_one_undo_step(qapp, shipped_hatches):
@@ -163,23 +165,6 @@ def test_g8_every_holder_in_one_call_is_one_undo_step(qapp, shipped_hatches):
     ms.undo()
     assert ms._draw_rects[0].fill_layers.pattern.ref == old
     assert _ref_of_prim_fill(ms._block_definitions[host.id].primitives[0]) == old
-
-
-def test_g8_category_defaults_are_not_rewritten(qapp, shipped_hatches):
-    """H6: the app-wide Display category default is excluded."""
-    from PyQt6.QtCore import QSettings
-    ms = Model_Space()
-    old, new = _tile_pair(ms, shipped_hatches)
-    s = QSettings("GV", "FirePro3D")
-    look = json.dumps({"pattern": {"ref": old}})
-    s.setValue("display/Floor/default_section_look", look)
-    r = RectangleItem(QPointF(0, 0), QPointF(200, 100))
-    ms.addItem(r)
-    ms._draw_rects.append(r)
-    r.fill_layers = FillLayers(pattern=PatternLayer(old))
-    ms.push_undo_state()
-    assert ms.retarget_block_refs(old, new) >= 1
-    assert s.value("display/Floor/default_section_look") == look
 
 
 def test_g8_unknown_or_same_id_is_a_noop(qapp, shipped_hatches):

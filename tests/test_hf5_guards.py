@@ -23,7 +23,9 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
 from firepro3d import app_data
+from firepro3d import fill_types as ft
 from firepro3d import hatch_patterns as hp
+from firepro3d import materials as mt
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
 from firepro3d.filled_region import FilledRegionItem
@@ -105,6 +107,12 @@ def mw(qapp, tmp_path, monkeypatch):
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
+def _give_cut_type(item, type_id):
+    """Give *item* a material drawing Fill Type *type_id* (id may be one the table lacks)."""
+    table = mt.project_table()
+    item.material_id = table.add(mt.Material(ft.new_id(), table.free_name("Cut look"), type_id)).id
+
+
 def _open_fixture(win, path=FIXTURE):
     """Real open path, then the cut flags + the per-item red line colour (wall
     per-item overrides are not serialized -- open bug -- so they are applied
@@ -115,6 +123,14 @@ def _open_fixture(win, path=FIXTURE):
     assert len(walls) == 2 and len(sc._floor_slabs) == 1
     for item in (*walls, *sc._floor_slabs):
         item._is_section_cut = True
+    # Materials M8: an old file opens as None, so its cuts draw nothing, and the
+    # open no longer leaves category types behind (M5). The cut looks these
+    # guards pin come back as materials on types named as the categories were:
+    # the file's own when it holds one, else the pre-materials factory look.
+    factory = ft.legacy_section_layers("#666666", "diagonal", 1.0)
+    for item, type_name in ((*[(w, "Wall Section") for w in walls],
+                             (sc._floor_slabs[0], "Floor Section"))):
+        _give_cut_type(item, ft.project_table().ensure_named(type_name, factory).id)
     walls[1]._display_color = "#ff0000"
     sc.update()
     return walls[0], walls[1], sc._floor_slabs[0]
@@ -292,11 +308,12 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     dlg = mw._make_display_manager("model")           # create the project type through the tab
     tab = _tab(dlg)
     tab.add_type()
-    assert tab.set_name("Concrete")
+    # "Concrete" is a starter Fill Type since M10 (materials seed), so the name is taken
+    assert tab.set_name("Poured Slab")
     tab.set_background(True, "#00aa00", 1.0)
     tab.set_pattern(False, None, "#000000", 1.0, 1.0)
     dlg.accept()
-    region = _place_typed_region_block(mw, "Concrete")
+    region = _place_typed_region_block(mw, "Poured Slab")
     mw.scene.update()
 
     before = _canvas_img(mw.scene)
@@ -309,7 +326,7 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     tab = _tab(dlg)
     assert tab.select_name("Wall Section")
     tab.set_background(True, "#ffaa00", 1.0)
-    assert tab.select_name("Concrete")
+    assert tab.select_name("Poured Slab")
     tab.set_background(True, "#0000ff", 1.0)
     dlg.accept()
 
@@ -336,7 +353,7 @@ def test_missing_type_cut_draws_fallback(mw):
     w1, _w2, _slab = _open_fixture(mw)
     gone = ft.project_table().add(ft.FillType(ft.new_id(), "Doomed", FillLayers(
         BackgroundLayer("#00ff00", 1.0))))
-    w1._display_section_type = gone.id
+    _give_cut_type(w1, gone.id)
     w1._display_fill_color = ""
     mw.scene.update()
     assert _share(_canvas_img(mw.scene), _body(w1), "#00ff00") > 0.9
@@ -355,11 +372,13 @@ def test_missing_type_cut_draws_fallback(mw):
 
 # -- VC9 M6 (AC6): the file's own table beats QSettings through the real open path --
 
-def test_open_file_category_type_takes_the_projects_look_not_qsettings(mw, tmp_path):
-    """A file whose display_settings names "Wall Section" and whose table holds that
-    type (green body) opens through ``_load_project`` -> ``_apply_loaded_file``: the
-    cut wall draws the project's green, not the look QSettings (red) or the file's
-    stale ``section_look`` (blue) carries (R7: the project type wins by name)."""
+def test_open_file_takes_the_files_own_table_and_ignores_old_section_keys(mw, tmp_path):
+    """A file whose table holds a "Wall Section" type (green body) and whose
+    display_settings still carry the old ``section_type`` / ``section_look`` (blue)
+    opens through ``_load_project`` -> ``_apply_loaded_file`` with the file's own
+    table and nothing else added: QSettings (red) and the stale look are ignored
+    (M8), so no category type is made from them. The wall then draws the file's
+    green only because the helper gives it a material on that type."""
     import json
     from PyQt6.QtCore import QSettings
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
@@ -378,11 +397,44 @@ def test_open_file_category_type_takes_the_projects_look_not_qsettings(mw, tmp_p
                 json.dumps({"background": {"color": "#ff0000", "opacity": 1.0}}))
     save_paper_color_mode(PaperColorMode.FULL_COLOR)
     w1, _w2, _slab = _open_fixture(mw, path)
+    assert ft.project_table().get("proj-ws") is not None
+    assert not [t for t in ft.project_table().all()
+                if t.layers.background is not None
+                and t.layers.background.color in ("#ff0000", "#0000ff")]
     w1._display_fill_color = ""                          # no element body: only the cut shows
     mw.scene.update()
     img = _canvas_img(mw.scene)
     assert _share(img, _body(w1), "#00aa00") > 0.8
     assert _share(img, _body(w1), "#ff0000") == 0 and _share(img, _body(w1), "#0000ff") == 0
+
+
+# -- Materials M8 / T7: an old file's category section keys are inert through the real open --
+
+@pytest.mark.parametrize("shape", ["legacy-colour-pattern", "hf5-type-and-look"])
+def test_old_file_with_category_section_keys_opens_and_draws_none(mw, tmp_path, shape):
+    """The saved ``display_settings`` of an old project carry the category's section
+    cell as legacy colour / pattern / scale (pre-HF5) or as ``section_type`` +
+    ``section_look`` (HF5). Either opens through ``_load_project`` without error,
+    makes no category Fill Type, and the cut walls and floor draw None."""
+    import json
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    for key in ("Wall", "Floor"):
+        ds = payload["display_settings"][key]
+        for k in ("section", "section_pattern", "section_scale", "section_type", "section_look"):
+            ds.pop(k, None)
+        if shape == "legacy-colour-pattern":
+            ds.update(section="#abcdef", section_pattern="diagonal", section_scale=2.0)
+        else:
+            ds.update(section_type=f"{key} Section",
+                      section_look={"background": {"color": "#123456", "opacity": 1.0}})
+    path = tmp_path / "old_keys.fpd"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    mw._load_project(str(path))
+    sc = mw.scene
+    assert len(sc._walls) == 2 and len(sc._floor_slabs) == 1
+    assert all(mt.fill_type_of(i) is None for i in (*sc._walls, *sc._floor_slabs))
+    names = {t.name for t in ft.project_table().all()}
+    assert "Wall Section" not in names and "Floor Section" not in names
 
 
 # -- VC9 M3: a B&W / custom paper pass forces the cut hatch to the element colour --
@@ -416,7 +468,7 @@ def test_bw_paper_cut_hatch_is_element_colour_not_the_types_literal_red(mw, tmp_
     w1, _w2, _slab = _open_fixture(mw)
     red = ft.project_table().add(ft.FillType(ft.new_id(), "Red Hatch", FillLayers(
         None, PatternLayer(hp.BUILTIN_DIAGONAL, "#ff0000", 1.0, 1.0))))
-    w1._display_section_type = red.id
+    _give_cut_type(w1, red.id)
     w1._display_fill_color = ""
     for it in mw.scene.items():                    # only the typed wall plots (the
         if it.parentItem() is None and it is not w1:   # fixture's red region would

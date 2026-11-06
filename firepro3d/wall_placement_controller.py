@@ -158,6 +158,7 @@ class WallPlacementController:
             self._scene._next_wall_num += 1
             wall._alignment = _tmpl._alignment
             wall._fill_mode = _tmpl._fill_mode
+            wall.material_id = _tmpl.material_id
             wall.level = _tmpl.level if _tmpl.level else self._scene.active_level
             wall._base_level = _tmpl._base_level if _tmpl._base_level else self._scene.active_level
             wall._top_level = getattr(_tmpl, "_top_level", "")
@@ -650,6 +651,7 @@ class WallPlacementController:
             self._scene._next_wall_num += 1
             wall._alignment = _rect_align
             wall._fill_mode = _tmpl._fill_mode
+            wall.material_id = _tmpl.material_id
             wall.level = _tmpl.level if _tmpl.level else self._scene.active_level
             wall._base_level = _tmpl._base_level if _tmpl._base_level else self._scene.active_level
             wall._top_level = getattr(_tmpl, "_top_level", "")

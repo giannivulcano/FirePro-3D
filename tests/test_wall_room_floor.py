@@ -771,7 +771,7 @@ class TestWallProperties:
         props = horiz_wall.get_properties()
         expected_keys = {
             "Type", "Name", "Mark", "Colour", "Thickness", "Fill Mode",
-            "Alignment", "Base Level", "Base Offset", "Top Level",
+            "Building Material", "Alignment", "Base Level", "Base Offset", "Top Level",
             "Top Offset", "Height", "Join Start", "Join End",
         }
         assert expected_keys == set(props.keys())

@@ -18,22 +18,19 @@ from PyQt6.QtWidgets import (
     QHeaderView, QWidget, QLabel, QComboBox,
     QAbstractItemView,
 )
-from PyQt6.QtGui import (QColor, QFont, QPen,
-                         QIcon)
+from PyQt6.QtGui import QColor, QFont, QPen
 from PyQt6.QtCore import Qt, QSettings, QByteArray, QSize, pyqtSignal
 from PyQt6.QtSvg import QSvgRenderer
 
-import json
 import os
 import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
 from . import fill_types
 from .house_dialog import HouseDialog
-from .ui_kit import EyeToggle, Selector, Swatch, TopTabs, glyph_button
+from .ui_kit import EyeToggle, Swatch, TopTabs, glyph_button
 from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO
 from .colour_tokens import is_token, resolve_colour, token_label
-from .fill_layers import to_record
 
 _DM_ICON = "placeholder_icon.svg"   # header glyph; the ribbon button uses the same placeholder (no dedicated art yet)
 
@@ -264,13 +261,13 @@ _CATEGORIES: list[dict] = [
     {"key": "Node",             "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Design Area",      "color": "#dc1e1e", "fill": "#ffc800", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal", "section_type": "Wall Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Door",            "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Window",          "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Opening",         "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": None,      "section_pattern": None,         "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal", "section_type": "Floor Section",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Grid Line",        "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     # SB4d D7: the marker rows act on the LINE only (the heads are annotation blocks).
@@ -289,9 +286,8 @@ _COL_NAME    = 0
 _COL_VIS     = 1
 _COL_COLOR   = 2
 _COL_FILL    = 3
-_COL_SECTION = 4
-_COL_OPACITY = 5
-_COL_RESET   = 6
+_COL_OPACITY = 4
+_COL_RESET   = 5
 
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
 _MODEL_BLOCKS_KEY = "Blocks"
@@ -326,9 +322,9 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     priority over QSettings, which in turn takes priority over factory
     defaults from ``_CATEGORIES``.
 
-    Returns dict with keys: color, fill, section_type (a Fill Type *name*, or
-    None for a category without a section cell), section_look (its fill
-    record), scale, opacity, visible, font.
+    Returns dict with keys: color, fill, scale, opacity, visible, font. A
+    stored section cell (an old file or QSettings) is
+    ignored: the cut look is the element's Material (M5, M8).
     """
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
@@ -344,24 +340,6 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
 
     color   = _s("color", cat_def["color"])
     fill    = _s("fill", cat_def.get("fill"))
-    section_type = section_look = None
-    if cat_def.get("section_type"):
-        # HF5 R7: the category names a Fill Type and stores its look. Legacy
-        # colour / pattern / scale (a pre-HF5 file or QSettings) are conversion
-        # input only; an override carrying them and no type wins over a stored one.
-        legacy_ov = ("section_type" not in ov
-                     and any(k in ov for k in _LEGACY_SECTION_PROPS))
-        section_type = (cat_def["section_type"] if legacy_ov
-                        else _s("section_type", None) or cat_def["section_type"])
-        section_look = None if legacy_ov else _parse_section_look(_s("section_look", None))
-    if section_type and section_look is None:
-        # Read "section" key, falling back to legacy "hatch" key in QSettings
-        section = _s("section", None)
-        if section is None:
-            section = _s("hatch", cat_def.get("section"))
-        section_look = to_record(fill_types.legacy_section_layers(
-            section, _s("section_pattern", cat_def.get("section_pattern")),
-            float(_s("section_scale", 1.0))))
     # Scale / Font columns are retired (smoke round 2): the factory values
     # always apply; a stored scale/font (QSettings, project, override) is ignored.
     scale   = float(cat_def["scale"])
@@ -373,34 +351,9 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
         visible = bool(visible)
     font = cat_def.get("font")
 
-    return {"color": color, "fill": fill, "section_type": section_type,
-            "section_look": section_look,
+    return {"color": color, "fill": fill,
             "scale": scale, "opacity": opacity, "visible": visible,
             "font": font}
-
-
-def _store_section_cell(settings: QSettings, key: str, vals: dict,
-                        prefix: str = "") -> None:
-    """Write category *key*'s section cell (HF5 R7) as ``section_type`` (the
-    Fill Type's name) + ``section_look`` (its fill record, JSON) under
-    ``display/{key}/{prefix}...``; the legacy colour / pattern / scale keys
-    are retired (removed), never written again.
-
-    Args:
-        settings: The QSettings store.
-        key: Category key.
-        vals: Category values carrying ``section_type`` / ``section_look``.
-        prefix: ``"default_"`` for the "Set as Default" keys, else ``""``.
-    """
-    name = vals.get("section_type")
-    if not (_category_has_section(key) and name):
-        return
-    settings.setValue(f"display/{key}/{prefix}section_type", name)
-    if vals.get("section_look"):
-        settings.setValue(f"display/{key}/{prefix}section_look",
-                          json.dumps(vals["section_look"]))
-    for legacy in (*_LEGACY_SECTION_PROPS, "hatch"):
-        settings.remove(f"display/{key}/{prefix}{legacy}")
 
 
 def _write_category_to_settings(key: str, vals: dict,
@@ -413,7 +366,6 @@ def _write_category_to_settings(key: str, vals: dict,
     settings.setValue(f"display/{key}/visible", str(vals["visible"]).lower())
     if vals.get("fill") is not None:
         settings.setValue(f"display/{key}/fill", vals["fill"])
-    _store_section_cell(settings, key, vals)
 
 
 def _apply_to_scene_items(scene, key: str, vals: dict,
@@ -429,19 +381,8 @@ def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True,
     """Apply one category's display *vals* to *obj* (its per-item
     ``_display_overrides`` win when *respect_overrides*).
 
-    *key* names the category: with a section cell, the item's cut Fill Type is
-    the category's (``vals["section_type"]`` / ``section_look``, legacy
-    converted) unless a per-item override names another (legacy per-item
-    section keys convert here, once -- R4)."""
-    tid = None
-    if key is not None and _category_has_section(key):
-        tid = fill_types.category_section_type(key, vals)
-        if respect_overrides:
-            ov = getattr(obj, "_display_overrides", None)
-            if isinstance(ov, dict):
-                fill_types.convert_item_section_override(
-                    key, ov, fill_types.resolve(tid, None)[0] if tid else None)
-                tid = ov.get("section_type", tid)
+    *key* names the category. The cut look is the element's Material, not a
+    category cell (M5), so nothing here touches it."""
     if respect_overrides:
         ov = getattr(obj, "_display_overrides", {})
         c = ov.get("color", vals["color"])
@@ -453,8 +394,7 @@ def _apply_vals_to_item(obj, vals: dict, respect_overrides: bool = True,
     else:
         c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
         f, fn = vals.get("fill"), vals.get("font")
-    apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn,
-                          section_type=tid)
+    apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn)
 
 
 def refresh_category_display(item) -> None:
@@ -476,37 +416,8 @@ def _category_has_fill(key: str) -> bool:
     return c is not None and c["fill"] is not None
 
 
-def _category_has_section(key: str) -> bool:
-    """Return True if this category's section cell picks a Fill Type (HF5)."""
-    c = _CATEGORY_MAP.get(key)
-    return c is not None and c.get("section_type") is not None
-
-
-_LEGACY_SECTION_PROPS = ("section", "section_pattern", "section_scale")
-_SECTION_PROPS = ("section_type", "section_look") + _LEGACY_SECTION_PROPS
-
-
-def _parse_section_look(raw) -> dict | None:
-    """A stored ``section_look`` (a JSON string in QSettings, a dict in a
-    project payload) as a fill record; None when absent or unreadable."""
-    if isinstance(raw, str) and raw.strip():
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            return None
-    return raw if isinstance(raw, dict) and raw else None
-
-
-def _fill_type_icon(layers, registry=None) -> QIcon:
-    """40x20 swatch of a Fill Type's look for the section selector: body behind
-    the pattern; By element (R8) previews in Automatic (the element's colour is
-    only known at paint)."""
-    from .fill_types_tab import look_pixmap
-    return QIcon(look_pixmap(layers, registry, 40, 20))
-
-
 # Cut-item state the live preview writes (walls, floors): restored on Cancel.
-_CUT_ATTRS = ("_display_section_type", "_display_color", "_display_fill_color",
+_CUT_ATTRS = ("_display_color", "_display_fill_color",
               "_display_scale", "_fill_mode")
 
 _NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line", "Level Datum",
@@ -531,8 +442,7 @@ def _category_has_font(key: str) -> bool:
 def apply_display_to_item(item, color: str | None, scale: float,
                           opacity: float, visible: bool,
                           fill_color: str | None = None,
-                          font_size: int | None = None,
-                          section_type: str | None = None):
+                          font_size: int | None = None):
     """Apply display settings to *item* (Pipe, Sprinkler, Fitting, Node,
     WaterSupply, GridlineItem, or HydraulicNodeBadge).  Called both by the
     live-preview loop and at project load."""
@@ -557,8 +467,6 @@ def apply_display_to_item(item, color: str | None, scale: float,
                 item._fill_mode = "Section"
             else:
                 item._fill_mode = "Solid"
-        if section_type is not None:
-            item._display_section_type = section_type
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -610,8 +518,6 @@ def apply_display_to_item(item, color: str | None, scale: float,
         if hasattr(item, '_display_fill_color') and fill_color is not None:
             _mode, _hex = _parse_fill_value(fill_color)
             item._display_fill_color = _hex
-        if section_type is not None and hasattr(item, '_display_section_type'):
-            item._display_section_type = section_type
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -880,12 +786,21 @@ def _project_entry(display_dict: dict, key: str) -> dict:
     return {}
 
 
-def apply_category_defaults(item):
+def apply_category_defaults(item, stamp_material: bool = True):
     """Read QSettings for the item's category and apply display settings.
 
     Call this whenever a new item is added to the scene so it inherits
     the user's current Display Manager preferences.
+
+    Args:
+        item: The item just added to the scene.
+        stamp_material: Whether a wall or slab still on None takes its
+            category default material. The wall paste passes False so a
+            copied material (or None) is kept.
     """
+    if stamp_material:
+        from . import materials
+        materials.stamp_default(item)
     from .pipe import Pipe
     from .sprinkler import Sprinkler
     from .fitting import Fitting
@@ -966,20 +881,9 @@ def apply_category_defaults(item):
         visible = visible.lower() not in ("false", "0")
     fill = _vc("fill", cat_def.get("fill"))
     font = cat_def.get("font")
-    section_type = None
-    if _category_has_section(key):
-        section_scale_raw = _v("section_scale", None)
-        section_type = fill_types.category_section_type(key, {
-            "section_type": _vc("section_type", cat_def["section_type"]),
-            "section_look": _parse_section_look(_vc("section_look", None)),
-            "section": _vc("section", cat_def.get("section")),
-            "section_pattern": _v("section_pattern", cat_def.get("section_pattern")),
-            "section_scale": float(section_scale_raw) if section_scale_raw else None,
-        })
 
     apply_display_to_item(item, color, scale, opacity, visible,
-                          fill_color=fill, font_size=font,
-                          section_type=section_type)
+                          fill_color=fill, font_size=font)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1063,12 +967,12 @@ class DisplayManager(HouseDialog):
             self._snapshot[id(item)] = entry
 
         # Cut items (walls, floors) are not in _iter_all_items: snapshot their
-        # section-type state so a previewed pick never survives Cancel (HF5).
+        # preview state so a previewed pick never survives Cancel (HF5).
         self._section_snapshot = [
             (it, {a: getattr(it, a) for a in _CUT_ATTRS if hasattr(it, a)},
              dict(it._display_overrides), it.isVisible(), it.opacity())
             for it in self._scene.items()
-            if hasattr(it, "_display_section_type")
+            if hasattr(it, "_display_section_color")
             and isinstance(getattr(it, "_display_overrides", None), dict)]
 
         # Also snapshot Fitting wrappers (not QGraphicsItems themselves)
@@ -1102,13 +1006,10 @@ class DisplayManager(HouseDialog):
         self._elev_settings_snapshot: dict[str, dict] = {}
         for key in ("Grid Line", "Level Datum", "Elevation Marker", "Section Marker", "Wall", "Roof", "Floor"):
             snap: dict = {}
-            for prop in ("color", "fill", "section", "section_pattern", "section_scale", "opacity", "visible"):
+            for prop in ("color", "fill", "opacity", "visible"):
                 v = self._settings.value(f"display/{key}/{prop}")
                 if v is not None:
                     snap[prop] = v
-            for prop in ("section_type", "section_look"):
-                # None = absent: a Cancel removes what the live preview wrote.
-                snap[prop] = self._settings.value(f"display/{key}/{prop}")
             self._elev_settings_snapshot[key] = snap
 
     def _restore_snapshot(self):
@@ -1274,8 +1175,7 @@ class DisplayManager(HouseDialog):
     def _read_item_display_state(self, item, category_key: str) -> dict:
         """Read the *current* display properties directly from a scene item.
 
-        Returns a dict with keys: color, fill, section_type, scale, opacity,
-        visible, font.
+        Returns a dict with keys: color, fill, scale, opacity, visible, font.
         This ensures the dialog always reflects what is actually on screen.
         """
         from .gridline import GridlineItem
@@ -1355,8 +1255,6 @@ class DisplayManager(HouseDialog):
         return {
             "color": color,
             "fill": fill,
-            # The cut's Fill Type id (None = not applied yet: the category's).
-            "section_type": getattr(item, "_display_section_type", None),
             "scale": scale,
             "opacity": opa,
             "visible": vis,
@@ -1386,10 +1284,10 @@ class DisplayManager(HouseDialog):
         # ── Tree widget ──────────────────────────────────────────────
         self._tree = QTreeWidget()
         self._tree.setObjectName("underlayTable")   # Underlay Manager table look (theme.build_dialog_qss)
-        self._tree.setColumnCount(7)
+        self._tree.setColumnCount(6)
         self._tree.setHeaderLabels(
-            ["NAME", "VIS", "COLOUR", "FILL", "SECTION", "OPACITY", ""])
-        _center_headers(self._tree, (_COL_VIS, _COL_COLOR, _COL_FILL, _COL_SECTION))
+            ["NAME", "VIS", "COLOUR", "FILL", "OPACITY", ""])
+        _center_headers(self._tree, (_COL_VIS, _COL_COLOR, _COL_FILL))
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(20)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -1400,13 +1298,11 @@ class DisplayManager(HouseDialog):
         hdr.setSectionResizeMode(_COL_VIS, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_COLOR, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_FILL, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(_COL_SECTION, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_OPACITY, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_RESET, QHeaderView.ResizeMode.Fixed)
         self._tree.setColumnWidth(_COL_VIS, 40)
         self._tree.setColumnWidth(_COL_COLOR, 60)
         self._tree.setColumnWidth(_COL_FILL, 60)
-        self._tree.setColumnWidth(_COL_SECTION, 130)
         self._tree.setColumnWidth(_COL_OPACITY, 90)
         self._tree.setColumnWidth(_COL_RESET, 40)
 
@@ -1436,14 +1332,16 @@ class DisplayManager(HouseDialog):
         self._tabs.add_tab("line_weights", "Line Weights", self._lw_tab)
         # HF5 R5: the Fill Types tab edits a working copy; OK installs it.
         from .fill_types_tab import FillTypesTab
-        # Cancel puts the live table back if the tab was edited (a pending type
-        # picked in a section cell is previewed into it). Taken after the tree
-        # build, which converts legacy section cells into types.
-        self._ft_table_snapshot = fill_types.project_table().copy()
         self._ft_tab = FillTypesTab(self._scene, parent=self)
-        self._ft_tab.edited.connect(self._refresh_section_selectors)
         self._tabs.add_tab("fill_types", "Fill Types", self._ft_tab)
-        fill_types.fill_type_bus().changed.connect(self._on_fill_type_bus)
+        # materials.md M16: a working copy too; the selector lists the Fill
+        # Types tab's working table, so a type added this session can be picked.
+        from .materials_tab import MaterialsTab
+        self._mat_tab = MaterialsTab(self._scene, parent=self,
+                                     fill_table=self._ft_tab.table)
+        self._ft_tab.material_table = self._mat_tab.table
+        self._ft_tab.edited.connect(self._mat_tab.refresh_fill_types)
+        self._tabs.add_tab("materials", "Materials", self._mat_tab)
 
         if self._active_context == "paper":
             self._tabs.setCurrentIndex(1)  # Paper Space tab
@@ -1514,7 +1412,6 @@ class DisplayManager(HouseDialog):
                 saved_fill    = _first["fill"]
                 saved_opacity = _first["opacity"]
                 saved_visible = _first["visible"]
-                saved_section_type = _first.get("section_type")
             else:
                 saved_color = self._settings.value(
                     f"display/{key}/color", cat_def["color"])
@@ -1526,13 +1423,6 @@ class DisplayManager(HouseDialog):
                     f"display/{key}/visible", cat_def["visible"])
                 if isinstance(saved_visible, str):
                     saved_visible = saved_visible.lower() not in ("false", "0")
-                saved_section_type = None
-            if _category_has_section(key):
-                cat_tid = fill_types.category_section_type(
-                    key, _read_category_from_settings(key, self._settings))
-                saved_section_type = saved_section_type or cat_tid
-            else:
-                cat_tid = None
 
             # ── Category row (child of its group) ─────────────────────
             grp_name = cat_def.get("group", "Other")
@@ -1552,8 +1442,7 @@ class DisplayManager(HouseDialog):
             cat_widgets = self._make_row_widgets(
                 cat_item, saved_visible, saved_color, saved_fill,
                 saved_opacity,
-                is_category=True, category_key=key,
-                section_type=saved_section_type)
+                is_category=True, category_key=key)
 
             self._cat_data[key] = {
                 "items": items,
@@ -1569,7 +1458,6 @@ class DisplayManager(HouseDialog):
                 inst_fill    = _ist["fill"]
                 inst_opacity = _ist["opacity"]
                 inst_visible = _ist["visible"]
-                inst_section_type = _ist.get("section_type") or cat_tid
 
                 child = QTreeWidgetItem(cat_item)
                 child.setText(_COL_NAME, self._label_for_item(obj, i, key))
@@ -1579,8 +1467,7 @@ class DisplayManager(HouseDialog):
                     child, inst_visible, inst_color, inst_fill,
                     inst_opacity,
                     is_category=False, category_key=key,
-                    item_ref=obj,
-                    section_type=inst_section_type)
+                    item_ref=obj)
 
                 self._inst_data[id(obj)] = {
                     "tree_item": child,
@@ -1588,10 +1475,6 @@ class DisplayManager(HouseDialog):
                     "item_ref": obj,
                     "category": key,
                 }
-
-        # A later category may have added its section type to the table: every
-        # selector lists the final set.
-        self._refresh_section_selectors()
 
     def _on_model_blocks_weight(self, name: str):
         if self._suppress or not name:
@@ -1624,12 +1507,10 @@ class DisplayManager(HouseDialog):
                           opacity: int, *,
                           is_category: bool,
                           category_key: str,
-                          item_ref=None,
-                          section_type: str | None = None) -> dict:
+                          item_ref=None) -> dict:
         """Create and embed widgets for one tree row. Returns widget dict."""
         _t = th.detect()
         has_fill = _category_has_fill(category_key)
-        has_section = _category_has_section(category_key)
 
         # Every column: QTreeView clamps the row to each fixed-height index
         # widget (the 22 px spin boxes) and only a later column's delegate hint
@@ -1660,17 +1541,6 @@ class DisplayManager(HouseDialog):
             fill_btn.setEnabled(False)       # not applicable: dimmed chip
         self._tree.setItemWidget(tree_item, _COL_FILL, fill_btn)
 
-        # ── Section cell: a Fill Type selector (HF5; Wall / Floor only) ──
-        section_sel = None
-        if has_section:
-            section_sel = Selector()
-            section_sel.setShowIcon(True)           # swatch + name (user ruling 2026-10-23)
-            section_sel.setIconSize(QSize(40, 20))
-            # Filled by the build's final _refresh_section_selectors (one icon
-            # set for every row; a later category may still add a type).
-            section_sel.setProperty("_section_tid", section_type)
-            self._tree.setItemWidget(tree_item, _COL_SECTION, section_sel)
-
         # ── Opacity spinbox ──────────────────────────────────────────
         opacity_spin = QSpinBox()
         opacity_spin.setRange(0, 100)
@@ -1697,10 +1567,6 @@ class DisplayManager(HouseDialog):
             if has_fill:
                 fill_btn.clicked.connect(
                     lambda k=category_key: self._pick_category_prop(k, "fill"))
-            if has_section:
-                section_sel.currentTextChanged.connect(
-                    lambda name, k=category_key: self._on_category_changed(
-                        k, "section_type", name))
             opacity_spin.valueChanged.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "opacity", v))
         else:
@@ -1711,9 +1577,6 @@ class DisplayManager(HouseDialog):
             if has_fill:
                 fill_btn.clicked.connect(
                     lambda ref=item_ref: self._pick_instance_prop(ref, "fill"))
-            if has_section:
-                section_sel.currentTextChanged.connect(
-                    lambda name, ref=item_ref: self._on_instance_section_picked(ref, name))
             opacity_spin.valueChanged.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "opacity", v))
             if reset_btn:
@@ -1724,7 +1587,6 @@ class DisplayManager(HouseDialog):
             "vis": vis_cb,
             "color_btn": color_btn,
             "fill_btn": fill_btn,
-            "section_sel": section_sel,
             "opacity": opacity_spin,
             "reset": reset_btn,
         }
@@ -1774,107 +1636,6 @@ class DisplayManager(HouseDialog):
         # color and fill are both solid swatches
         _, hex_col = _parse_fill_value(hex_color)
         btn.set_hex(hex_col)
-
-    # ── Section cell: Fill Type selector (HF5) ─────────────────────────
-
-    def _type_icons(self, table) -> dict:
-        """One ``{type id: QIcon}`` for *table* -- built once per refresh and
-        shared by every section selector (HF5 VC9 I1: the swatch render is the
-        cost, never rebuilt per row). Swatches are memoised by look, so a tab
-        edit re-renders only the edited type; the table bus clears the memo
-        (a retarget can change a pattern block behind an unchanged look). The
-        memo assumes the pattern blocks, pattern files and theme stay put while
-        the (modal) dialog is open; looks no longer in *table* are dropped."""
-        reg = self._scene.block_registry
-        memo = self.__dict__.setdefault("_icon_memo", {})
-        out = {}
-        for t in table.all():
-            icon = memo.get(t.layers)
-            if icon is None:
-                icon = memo[t.layers] = _fill_type_icon(t.layers, reg)
-            out[t.id] = icon
-        live = {t.layers for t in table.all()}
-        for look in [k for k in memo if k not in live]:
-            del memo[look]
-        return out
-
-    def _fill_section_selector(self, sel: Selector, type_id, icons=None) -> None:
-        """(Re)fill *sel* with the project's Fill Types (name + look swatch) and
-        select *type_id*; an id the table lacks gets a "? <id8>" entry so the
-        row shows it (never silently another type). No signals fire. *icons* is
-        a ``_type_icons`` map shared across selectors (built here when None)."""
-        table = self._section_table()
-        if icons is None:
-            icons = self._type_icons(table)
-        types = table.all()
-        cur = table.get(type_id) if type_id else None
-        missing = type_id if cur is None and type_id else None
-        listed = (tuple((t.id, t.name) for t in types), missing)
-        sel.blockSignals(True)
-        try:
-            if getattr(sel, "_ft_listed", None) == listed:
-                # Same entries (a restyle): swap only the changed swatches.
-                for i, t in enumerate(types):
-                    if sel.itemIcon(i).cacheKey() != icons[t.id].cacheKey():
-                        sel.setItemIcon(i, icons[t.id])
-            else:
-                sel.clear()
-                for t in types:
-                    sel.addItem(icons[t.id], t.name, t.id)
-                if missing:
-                    sel.addItem(fill_types.missing_type_label(missing), missing)
-                sel._ft_listed = listed
-            if cur is not None:
-                sel.setCurrentIndex(sel.findData(cur.id))
-            elif missing:
-                sel.setCurrentIndex(sel.count() - 1)
-        finally:
-            sel.blockSignals(False)
-
-    def _section_table(self):
-        """The table the section selectors list: the Fill Types tab's working
-        copy once it is edited (so a type added / renamed there is pickable
-        before OK), else the project's."""
-        tab = getattr(self, "_ft_tab", None)
-        return tab.table() if tab is not None and tab.dirty else fill_types.project_table()
-
-    def _on_fill_type_bus(self) -> None:
-        """The project table changed (OK, a restyle, a retarget): re-list the
-        section selectors. Selector refills block their signals, so this never
-        re-applies a preview."""
-        from PyQt6 import sip
-        if not sip.isdeleted(self):
-            self.__dict__.pop("_icon_memo", None)
-            self._refresh_section_selectors()
-
-    def done(self, result):
-        """Stop listening to the table bus once the dialog closes."""
-        try:
-            fill_types.fill_type_bus().changed.disconnect(self._on_fill_type_bus)
-        except (TypeError, RuntimeError):
-            pass
-        super().done(result)
-
-    def _refresh_section_selectors(self) -> None:
-        """Re-list the Fill Types in every section selector (the table changed:
-        add / rename / restyle / delete), keeping each row's selection by id."""
-        icons = self._type_icons(self._section_table())
-        for data in (*self._cat_data.values(), *self._inst_data.values()):
-            sel = data["widgets"].get("section_sel")
-            if sel is not None:
-                tid = sel.currentData() if sel.count() else sel.property("_section_tid")
-                self._fill_section_selector(sel, tid, icons)
-
-    def _on_instance_section_picked(self, item_ref, name: str) -> None:
-        """An instance row picked a Fill Type by name: store its id as the
-        item's override (R7: per-item overrides store the id)."""
-        t = self._section_table().by_name(name)
-        if t is not None:
-            live = fill_types.project_table()
-            if live.get(t.id) is None and live.by_name(t.name) is None:
-                live.add(t)             # a pending type: same id, so OK keeps the override
-                fill_types.notify_changed()
-            self._on_instance_changed(item_ref, "section_type", t.id)
 
     # Legacy aliases so existing internal calls still work
     _update_color_btn = lambda self, btn, v: self._update_swatch(btn, "color", v)
@@ -1934,19 +1695,16 @@ class DisplayManager(HouseDialog):
                 fill_val = cat_widgets["fill_btn"].property("_color")
                 if fill_val is not None:
                     self._update_fill_btn(w["fill_btn"], fill_val)
-            if _category_has_section(cat_key):
-                self._fill_section_selector(
-                    w["section_sel"], cat_widgets["section_sel"].currentData())
             w["opacity"].setValue(cat_widgets["opacity"].value())
         finally:
             self._suppress = False
         self._apply_preview()
 
     def _sync_tab_buttons(self, _idx=None) -> None:
-        """Reset All / Set as Default do not apply to the Fill Types tab (the
-        table is per project, not an app-wide default): disable them there."""
-        on_ft = self._tabs.currentWidget() is self._ft_tab
-        tip = "Fill Types are per-project: there is no default to reset or save."
+        """Reset All / Set as Default do not apply to the Fill Types or Materials
+        tab (the tables are per project, not an app-wide default): disable them."""
+        on_ft = self._tabs.currentWidget() in (self._ft_tab, self._mat_tab)
+        tip = "Fill Types and Materials are per-project: there is no default to reset or save."
         for btn, own in ((self._reset_btn, self._reset_tip),
                          (self._default_btn, self._default_tip)):
             btn.setEnabled(not on_ft)
@@ -1964,7 +1722,6 @@ class DisplayManager(HouseDialog):
 
     def _reset_model_tab(self):
         """Reset all Model tab categories and instances to factory defaults."""
-        icons = self._type_icons(self._section_table())
         self._suppress = True
         try:
             for cat_def in _CATEGORIES:
@@ -1974,9 +1731,6 @@ class DisplayManager(HouseDialog):
                 self._update_color_btn(cw["color_btn"], cat_def["color"])
                 if _category_has_fill(key) and cat_def["fill"]:
                     self._update_fill_btn(cw["fill_btn"], cat_def["fill"])
-                factory_tid = self._factory_section_type(cat_def)
-                if factory_tid is not None:
-                    self._fill_section_selector(cw["section_sel"], factory_tid, icons)
                 cw["opacity"].setValue(cat_def["opacity"])
 
                 for obj in self._cat_data[key]["items"]:
@@ -1989,28 +1743,10 @@ class DisplayManager(HouseDialog):
                         self._update_color_btn(iw["color_btn"], cat_def["color"])
                         if _category_has_fill(key) and cat_def["fill"]:
                             self._update_fill_btn(iw["fill_btn"], cat_def["fill"])
-                        if factory_tid is not None:
-                            self._fill_section_selector(iw["section_sel"], factory_tid, icons)
                         iw["opacity"].setValue(cat_def["opacity"])
         finally:
             self._suppress = False
         self._apply_preview()
-
-    @staticmethod
-    def _factory_section_type(cat_def: dict):
-        """Id of a category's factory section type (the project's of that
-        name wins, else it is added from the factory look); None when the
-        category has no section cell."""
-        name = cat_def.get("section_type")
-        if not name:
-            return None
-        before = len(fill_types.project_table().all())
-        t = fill_types.project_table().ensure_named(
-            name, fill_types.legacy_section_layers(
-                cat_def.get("section"), cat_def.get("section_pattern"), 1.0))
-        if len(fill_types.project_table().all()) != before:
-            fill_types.notify_changed()
-        return t.id
 
     def _reset_paper_space_tab(self):
         """Reset Paper Space tab to B&W factory defaults."""
@@ -2086,14 +1822,12 @@ class DisplayManager(HouseDialog):
             self._settings.setValue(f"display/{key}/default_visible", s["visible"])
             if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/default_fill", s["fill"])
-            _store_section_cell(self._settings, key, s, prefix="default_")
             # Also save as current settings so they persist across sessions
             self._settings.setValue(f"display/{key}/color", s["color"])
             self._settings.setValue(f"display/{key}/opacity", s["opacity"])
             self._settings.setValue(f"display/{key}/visible", s["visible"])
             if s.get("fill") is not None:
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
-            _store_section_cell(self._settings, key, s)
         self._settings.sync()
 
     def _set_model_blocks_as_default(self):
@@ -2120,19 +1854,6 @@ class DisplayManager(HouseDialog):
         elif prop == "fill":
             if widgets["fill_btn"].isEnabled() and value is not None:
                 self._update_fill_btn(widgets["fill_btn"], value)
-        elif prop == "section_type":
-            sel = widgets.get("section_sel")
-            t = self._section_table().by_name(value) if sel is not None else None
-            if t is not None:
-                at = sel.findData(t.id)
-                if at >= 0:             # listed already: just move the selection
-                    sel.blockSignals(True)
-                    try:
-                        sel.setCurrentIndex(at)
-                    finally:
-                        sel.blockSignals(False)
-                else:
-                    self._fill_section_selector(sel, t.id)
         elif prop == "opacity":
             widgets["opacity"].setValue(value)
 
@@ -2151,15 +1872,6 @@ class DisplayManager(HouseDialog):
             result["fill"] = w["fill_btn"].property("_color")
         else:
             result["fill"] = None
-        if _category_has_section(key):
-            # The picked Fill Type's name + its current look (R7: QSettings and
-            # the project payload store both; the project's type wins by name).
-            t = self._section_table().get(w["section_sel"].currentData())
-            result["section_type"] = t.name if t is not None else _CATEGORY_MAP[key]["section_type"]
-            result["section_look"] = to_record(t.layers) if t is not None else None
-        else:
-            result["section_type"] = None
-            result["section_look"] = None
         return result
 
     # ------------------------------------------------------------------
@@ -2178,8 +1890,6 @@ class DisplayManager(HouseDialog):
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
             cat_settings = self._read_category_settings(key)
-            cat_tid = (fill_types.category_section_type(key, cat_settings)
-                       if _category_has_section(key) else None)
 
             for obj in self._cat_data[key]["items"]:
                 overrides = getattr(obj, "_display_overrides", {})
@@ -2189,17 +1899,11 @@ class DisplayManager(HouseDialog):
                 eff_visible = overrides.get("visible", cat_settings["visible"])
                 eff_fill = overrides.get("fill", cat_settings.get("fill"))
                 eff_font = cat_settings.get("font")     # retired: factory only
-                eff_tid = cat_tid
-                if cat_tid is not None and isinstance(overrides, dict):
-                    fill_types.convert_item_section_override(
-                        key, overrides, fill_types.resolve(cat_tid, None)[0])
-                    eff_tid = overrides.get("section_type", cat_tid)
 
                 apply_display_to_item(obj, eff_color, eff_scale,
                                       eff_opacity, eff_visible,
                                       fill_color=eff_fill,
-                                      font_size=eff_font,
-                                      section_type=eff_tid)
+                                      font_size=eff_font)
 
             # Sync elevation-related categories to QSettings so elevation
             # scene rebuilds pick up changes during live preview.
@@ -2209,7 +1913,6 @@ class DisplayManager(HouseDialog):
                 self._settings.setValue(f"display/{key}/visible", cat_settings["visible"])
                 if cat_settings.get("fill") is not None:
                     self._settings.setValue(f"display/{key}/fill", cat_settings["fill"])
-                _store_section_cell(self._settings, key, cat_settings)
                 elev_dirty = True
 
         self._scene.update()
@@ -2996,15 +2699,20 @@ class DisplayManager(HouseDialog):
         """Persist category settings to QSettings and keep scene state."""
         if self._ft_tab.dirty:
             # HF5 R5: install the Fill Types working copy first (outside undo,
-            # dirties the project like a line-weight edit) so the category
-            # write below stores a type renamed in the tab by its new name.
+            # dirties the project like a line-weight edit) so a material
+            # installed below names a type that exists.
             fill_types.set_project_table(self._ft_tab.table().copy())
             self._scene._dirty = True
             self._scene.sceneModified.emit()
-            self._apply_preview()       # re-resolve every section cell against it
+            self._apply_preview()
+        if self._mat_tab.dirty:         # after Fill Types: a material may name a pending type
+            from . import materials
+            materials.set_project_table(self._mat_tab.table().copy())
+            self._scene._dirty = True
+            self._scene.sceneModified.emit()
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
-            # One writer (HF5): the shared helper stores the section type + look.
+            # One writer (HF5): the shared helper stores the category's values.
             _write_category_to_settings(
                 key, self._read_category_settings(key), self._settings)
         from .paper_display import model_blocks_weight
@@ -3012,9 +2720,8 @@ class DisplayManager(HouseDialog):
                                 model_blocks_weight())
         self._settings.sync()
 
-        # D-A39: a category section pattern the user OK'd draws in this project
-        # too — load it (and any instance override's) from the Hatch patterns
-        # folder as part of the undo baseline. Not on Cancel: nothing to load.
+        # D-A39: a Fill Type pattern the user OK'd draws in this project too —
+        # load it from the Hatch patterns folder as part of the undo baseline. Not on Cancel: nothing to load.
         from .hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self._scene)
 
@@ -3029,8 +2736,6 @@ class DisplayManager(HouseDialog):
     def reject(self):
         """Cancel — revert all changes."""
         self._restore_snapshot()
-        if self._ft_tab.dirty:          # HF5: drop the tab's edits + any previewed pending type
-            fill_types.set_project_table(self._ft_table_snapshot.copy())
         # Weights first: un-renaming rewrites paper categories, so the
         # categories snapshot below must land after it and win (LT1-3).
         # Only when the table was edited: a no-op Cancel must not dirty.
@@ -3071,9 +2776,7 @@ def apply_saved_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys so they win over current keys
         default_ov: dict = {}
-        for prop in ("color", "fill", "section_type", "section_look", "section",
-                      "section_pattern", "section_scale", "opacity",
-                      "visible"):
+        for prop in ("color", "fill", "opacity", "visible"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -3100,9 +2803,7 @@ def apply_default_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys (fall back to regular keys)
         default_ov: dict = {}
-        for prop in ("color", "fill", "section_type", "section_look", "section",
-                     "section_pattern", "section_scale", "opacity",
-                     "visible"):
+        for prop in ("color", "fill", "opacity", "visible"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv
@@ -3111,10 +2812,6 @@ def apply_default_display_settings(scene):
         # Also save as current settings so Display Manager shows them
         _write_category_to_settings(key, vals, settings)
 
-        if _category_has_section(key):
-            # HF5 VC9 M1: the category's section type lands in the (just reset)
-            # project table even when the new project has no wall / floor yet.
-            fill_types.category_section_type(key, vals)
         _apply_to_scene_items(scene, key, vals, respect_overrides=False)
     _apply_model_blocks_weight(None, settings, prefer_default=True)
 
@@ -3184,9 +2881,7 @@ def apply_project_display_settings(scene, display_dict: dict):
 
         # User defaults win over project-embedded values
         merged = dict(proj)
-        for prop in ("color", "fill", "section_type", "section_look", "section",
-                      "section_pattern", "section_scale", "opacity",
-                      "visible"):
+        for prop in ("color", "fill", "opacity", "visible"):
             user_default = settings.value(f"display/{key}/default_{prop}")
             if user_default is not None:
                 merged[prop] = user_default

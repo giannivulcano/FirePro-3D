@@ -17,19 +17,19 @@ def _cut_items(sec, src):
 
 def test_cut_wall_rect_uses_section_colour_and_pattern(qapp, section_scene_for):
     s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Wall/section", "#aa0000")
-    s.setValue("display/Wall/section_pattern", "crosshatch")
     s.setValue("display/Wall/color", "#004400")
-    s.setValue("display/Wall/section_scale", 2.0)
+    from firepro3d import fill_types, materials
+    from firepro3d.constants import TOKEN_ELEMENT
     ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
     w = _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))
+    # The wall's material draws the cut (body = #aa0000, pattern By element at scale 2).
+    t = fill_types.project_table().add(fill_types.FillType(
+        fill_types.new_id(), f"Cut look {fill_types.new_id()}", fill_types.legacy_section_layers("#aa0000", "crosshatch", 2.0)))
+    w.material_id = materials.project_table().add(
+        materials.Material(fill_types.new_id(), t.name, t.id)).id
     sec.rebuild()
     (item,) = _cut_items(sec, w)
-    # HF5 R4: the legacy QSettings cell converts to a Fill Type (body = the old
-    # section colour, pattern By element at the old scale).
-    from firepro3d import fill_types
-    from firepro3d.constants import TOKEN_ELEMENT
-    lay = fill_types.project_table().get(item._section_type).layers
+    lay = fill_types.project_table().get(materials.fill_type_of(item._section_element)).layers
     assert lay.background.color == "#aa0000"
     assert lay.pattern.ref == "crosshatch" and lay.pattern.color == TOKEN_ELEMENT
     assert lay.pattern.scale == 2.0
@@ -47,7 +47,7 @@ def test_cut_wall_rect_uses_section_colour_and_pattern(qapp, section_scene_for):
         item.paint(p, QStyleOptionGraphicsItem(), None)
     p.end()
     assert hatch.call_count == 1
-    assert hatch.call_args.args[4] == item._section_type     # the Fill Type id
+    assert hatch.call_args.args[4] == t.id                    # the material's Fill Type id
     assert hatch.call_args.args[5].name() == "#004400"       # By element = the cut's pen colour
 
 

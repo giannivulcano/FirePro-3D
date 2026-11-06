@@ -125,7 +125,7 @@ def test_dm_tree_carries_three_line_only_marker_rows_model_and_paper(qapp):
             data = dlg._cat_data[k]
             assert data["tree_item"].parent().text(0).startswith("Grids & Levels")
             w = data["widgets"]
-            assert not w["fill_btn"].isEnabled() and w["section_sel"] is None
+            assert not w["fill_btn"].isEnabled() and "section_sel" not in w
             assert w["color_btn"].isEnabled() and w["opacity"].isEnabled()
             pdata = dlg._paper_cat_data[k]
             assert pdata["tree_item"].parent().text(0) == "Grids & Levels"
