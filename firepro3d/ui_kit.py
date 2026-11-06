@@ -1022,7 +1022,7 @@ class Selector(QComboBox):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
-        self._show_icon = False      # opt-in: swatch left of the text (HF5 section cell)
+        self._show_icon = False      # opt-in: swatch left of the text (Materials Section selector)
         # Size lives in the widget's OWN QSS: setFont() loses to the app QSS
         # ``QWidget { font-size }`` (13 px everywhere outside the property
         # panel's field rule — ui-design-system.md).

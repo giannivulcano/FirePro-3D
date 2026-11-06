@@ -24,8 +24,6 @@ def _rows(paper_visible=True, paper_opacity=100):
     s = QSettings("GV", "FirePro3D")
     s.setValue("display/Wall/color", "#ffffff")
     s.setValue("display/Wall/fill", "#999999")
-    s.setValue("display/Wall/section", "token:auto")
-    s.setValue("display/Wall/section_pattern", "builtin-hatch-concrete")
     cats = pd.load_paper_categories()
     cats["Wall"].update(color="token:auto", fill="", section_color="",
                         visible=paper_visible, opacity=paper_opacity)

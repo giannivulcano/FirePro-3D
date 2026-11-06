@@ -291,7 +291,7 @@ def project_pattern_refs(scene) -> set[str]:
     definition's primitive pattern fills; every Fill Type's pattern (HF5:
     Materials and Filled Regions name table types, so the types' patterns
     cover every section cut); and ``DEFAULT_TILE_REF`` — the
-    pattern walls / floors / roofs fall back to.
+    pattern a new pattern layer starts with.
 
     Args:
         scene: The project ``Model_Space``.

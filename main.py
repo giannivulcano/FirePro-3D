@@ -3428,6 +3428,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.display_manager import DisplayManager
         dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
         dlg.lineWeightsChanged.connect(self._on_line_weights_changed)
+        # The panel lists materials when its form is built, so a selected
+        # element or placement template re-queries after OK. accepted fires
+        # after the dialog has installed its tables.
+        dlg.accepted.connect(self.prop_manager._do_refresh)
         return dlg
 
     def _on_line_weights_changed(self):
@@ -3697,8 +3701,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # project's weight table; re-pen now that the file's table is live.
         self._refresh_weight_canvases()
         # Hatch D-A39: patterns the file references but doesn't embed (2D /
-        # block fills, DM category + instance section patterns) load from the
-        # Hatch patterns folder as part of the undo baseline (no undo step).
+        # block fills, Fill Types) load from the Hatch patterns folder as
+        # part of the undo baseline (no undo step).
         from firepro3d.hatch_patterns import ensure_project_patterns
         ensure_project_patterns(self.scene)
         self._warn_missing_patterns()

@@ -279,6 +279,12 @@ class MaterialsTab(QWidget):
         self._select(keep)
         self._fill_defaults()
 
+    def _refresh_list_icons(self) -> None:
+        """Redraw the list's icons (a Fill Type may have been restyled)."""
+        for r in range(self._list.count()):
+            it = self._list.item(r)
+            it.setIcon(self._icon(self._work.get(it.data(Qt.ItemDataRole.UserRole))))
+
     def _layers(self, m) -> FillLayers:
         t = self._fill_table().get(m.fill_type) if m is not None and m.fill_type else None
         return t.layers if t is not None else FillLayers()
@@ -313,6 +319,10 @@ class MaterialsTab(QWidget):
     def _select_section(self, m) -> None:
         tid = m.fill_type if m is not None else None
         sel = self._section
+        table = self._fill_table()
+        for i in reversed(range(1, sel.count())):   # the last material's stand-in row
+            if table.get(sel.itemData(i)) is None:
+                sel.removeItem(i)
         idx = sel.findData(tid) if tid else 0
         if idx < 0:                # a type the table lacks stays visible, never swapped
             sel.addItem(fill_types.missing_type_label(tid), tid)
@@ -365,9 +375,11 @@ class MaterialsTab(QWidget):
         self._del_btn.setToolTip(_NONE_TIP if none else used if users else "Delete this Material")
 
     def showEvent(self, event):  # noqa: N802 (Qt API)
-        """Re-scan on show: the plan may have changed who uses a material."""
+        """Re-scan on show: the plan may have changed who uses a material, and
+        the Fill Types tab may have restyled what the list icons draw."""
         self._users.clear()
         self.refresh_fill_types()
+        self._refresh_list_icons()
         self._refresh_chrome()
         super().showEvent(event)
 

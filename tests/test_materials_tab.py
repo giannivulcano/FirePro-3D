@@ -346,3 +346,84 @@ def test_saving_a_project_opened_from_an_old_file_writes_no_section_keys(
     assert saved["display_settings"]
     for cat, entry in saved["display_settings"].items():
         assert not banned & set(entry), (cat, sorted(banned & set(entry)))
+
+
+def _panel_row(win):
+    sel = win.prop_manager._prop_widgets[mt.ROW_KEY]
+    return sel.currentText(), [sel.itemText(i) for i in range(sel.count())]
+
+
+def _rename_brick_and_add_through_ok(win):
+    dlg = win._make_display_manager("model")
+    added = dlg._mat_tab.add_material()
+    dlg._mat_tab.select_name("Brick")
+    dlg._mat_tab.set_name("Masonry")
+    dlg.accept()
+    dlg.deleteLater()
+    return added.name
+
+
+def test_ok_refreshes_the_panel_of_a_selected_wall(mw):
+    """VC9 I1: a material added or renamed on the tab can be picked straight after OK."""
+    from PyQt6.QtWidgets import QApplication
+    w = _wall(mw.scene, mt.project_table().by_name("Brick"))
+    w.level = "Level 1"
+    w.setSelected(True)
+    QApplication.processEvents()
+    mw.update_property_manager()
+    assert _panel_row(mw)[0] == "Brick"
+    added = _rename_brick_and_add_through_ok(mw)
+    current, options = _panel_row(mw)
+    assert current == "Masonry"
+    assert added in options and "Masonry" in options and "Brick" not in options
+    mw.prop_manager._prop_widgets[mt.ROW_KEY].setCurrentText(added)
+    assert mt.material_of(w).name == added
+
+
+def test_ok_refreshes_the_panel_of_a_placement_template(mw):
+    """VC9 I1: the wall template's panel is the same form and stays on the template."""
+    template = mw.scene._get_wall_template()
+    mw.prop_manager.show_properties(template)
+    added = _rename_brick_and_add_through_ok(mw)
+    assert added in _panel_row(mw)[1]
+    assert mw.prop_manager._targets == [template]
+
+
+def test_a_fill_type_restyle_reaches_the_material_list_icon(qapp, model_space):
+    """VC9 M1: a type restyled on Fill Types shows on the Materials list at the tab switch."""
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.fill_layers import BackgroundLayer, FillLayers
+    d = _dialog(model_space)
+    d.show()
+    d._tabs.set_current("materials")
+    QApplication.processEvents()
+    tab = d._mat_tab
+    tab.select_name("Brick")
+    row = tab._list.currentRow()
+    image = lambda: tab._list.item(row).icon().pixmap(32, 16).toImage()
+    before = image()
+    d._tabs.set_current("fill_types")
+    QApplication.processEvents()
+    t = d._ft_tab.table().get(tab.current().fill_type)
+    d._ft_tab.table().replace(
+        ft.FillType(t.id, t.name, FillLayers(BackgroundLayer("#ff0000", 1.0))))
+    d._ft_tab._touch(select=t.id, rebuild=True)
+    d._tabs.set_current("materials")
+    QApplication.processEvents()
+    assert image() != before
+    assert image() == tab._icon(tab.current()).pixmap(32, 16).toImage()
+    d.reject()
+    d.deleteLater()
+
+
+def test_a_missing_type_row_leaves_the_selector_with_its_material(qapp, model_space):
+    """VC9 M2: the row only stands in for the material that names the lost type."""
+    gone = mt.project_table().add(mt.Material(ft.new_id(), "Gone", "no-such-type"))
+    tab = MaterialsTab(model_space)
+    sel = tab.section_selector()
+    normal = sel.count()
+    tab.select_name(gone.name)
+    assert sel.count() == normal + 1
+    assert sel.findData("no-such-type") == sel.currentIndex()
+    tab.select_name("Brick")
+    assert sel.count() == normal and sel.findData("no-such-type") < 0
