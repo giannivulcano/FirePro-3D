@@ -325,14 +325,25 @@ def test_hatch_flows_across_t_junction(qapp, shipped_hatches):
     sides of the T seam (the seam is not a hatch-free gap).  The shipped
     hatch blocks are loaded through the real registry path (without them
     paint draws a flat tone, not strokes)."""
+    from firepro3d import fill_types as ft
+    from firepro3d import materials as mt
+    from firepro3d.constants import TOKEN_ELEMENT
+    from firepro3d.fill_layers import FillLayers, PatternLayer
+    from firepro3d.hatch_patterns import BUILTIN_DIAGONAL
     from firepro3d.wall import FILL_HATCH
     s = _ms()
     shipped_hatches(s)
     host = _wall(s, (0, 0), (5000, 0))
     stub = _wall(s, (2500, 0), (2500, 2500))
+    # materials.md M9: a wall on None draws nothing, so the look is a material.
+    hatch = ft.project_table().ensure_named(
+        "Junction Hatch", FillLayers(None, PatternLayer(BUILTIN_DIAGONAL, TOKEN_ELEMENT)))
+    table = mt.project_table()
+    material = table.add(mt.Material(ft.new_id(), table.free_name("Junction Hatch"), hatch.id))
     for wall in (host, stub):
         wall._colour = "#ff0000"
         wall._fill_mode = FILL_HATCH
+        wall.material_id = material.id
         wall.update()
     rect = QRectF(1500, -1000, 2000, 2000)
     img = _render(s, rect)
