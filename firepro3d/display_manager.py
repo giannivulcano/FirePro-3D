@@ -1452,6 +1452,14 @@ class DisplayManager(HouseDialog):
         self._ft_tab = FillTypesTab(self._scene, parent=self)
         self._ft_tab.edited.connect(self._refresh_section_selectors)
         self._tabs.add_tab("fill_types", "Fill Types", self._ft_tab)
+        # materials.md M16: a working copy too; the selector lists the Fill
+        # Types tab's working table, so a type added this session can be picked.
+        from .materials_tab import MaterialsTab
+        self._mat_tab = MaterialsTab(self._scene, parent=self,
+                                     fill_table=self._ft_tab.table)
+        self._ft_tab.material_table = self._mat_tab.table
+        self._ft_tab.edited.connect(self._mat_tab.refresh_fill_types)
+        self._tabs.add_tab("materials", "Materials", self._mat_tab)
         fill_types.fill_type_bus().changed.connect(self._on_fill_type_bus)
 
         if self._active_context == "paper":
@@ -1952,10 +1960,10 @@ class DisplayManager(HouseDialog):
         self._apply_preview()
 
     def _sync_tab_buttons(self, _idx=None) -> None:
-        """Reset All / Set as Default do not apply to the Fill Types tab (the
-        table is per project, not an app-wide default): disable them there."""
-        on_ft = self._tabs.currentWidget() is self._ft_tab
-        tip = "Fill Types are per-project: there is no default to reset or save."
+        """Reset All / Set as Default do not apply to the Fill Types or Materials
+        tab (the tables are per project, not an app-wide default): disable them."""
+        on_ft = self._tabs.currentWidget() in (self._ft_tab, self._mat_tab)
+        tip = "Fill Types and Materials are per-project: there is no default to reset or save."
         for btn, own in ((self._reset_btn, self._reset_tip),
                          (self._default_btn, self._default_tip)):
             btn.setEnabled(not on_ft)
@@ -3011,6 +3019,11 @@ class DisplayManager(HouseDialog):
             self._scene._dirty = True
             self._scene.sceneModified.emit()
             self._apply_preview()       # re-resolve every section cell against it
+        if self._mat_tab.dirty:         # after Fill Types: a material may name a pending type
+            from . import materials
+            materials.set_project_table(self._mat_tab.table().copy())
+            self._scene._dirty = True
+            self._scene.sceneModified.emit()
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
             # One writer (HF5): the shared helper stores the section type + look.
