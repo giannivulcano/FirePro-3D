@@ -242,9 +242,8 @@ owns only the tokens it reads:
   old theme-independent blue `SELECTION_OUTLINE_COLOR` style is retired for
   selection; that constant survives only on the polyline close-ring indicator
   (`geometry_drawing_controller.py`).
-- **Size** — paper-scene handles are true paper-mm (`SELECTION_GRIP_SIZE_MM`,
-  `SELECTION_GRIP_OUTLINE_WIDTH_MM` in `constants.py`); model-scene handles are
-  screen-pixel sized (`ItemIgnoresTransformations`).
+- **Size** — handles are screen-pixel sized in every scene
+  (`ItemIgnoresTransformations`, `selection-manipulator.md`).
 - **Distinct states keep distinct looks** — e.g. sheet text inline-*editing*
   uses its own lighter `#88aaff` dashed frame; only the *selected* state uses
   the manipulator style.

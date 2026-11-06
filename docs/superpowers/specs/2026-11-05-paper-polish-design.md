@@ -34,7 +34,7 @@ criteria. Also closes the `3/4"=1'-0"` backlog bug (same table).
   `1"=1'-0"`.
 - **D8 Model scale:** shares the one preset table, so it gains the same entries.
 
-As-proposed, for the plan gate: a custom value is stored as a ratio only, so `1"=15'` reads back as `1:180`
+Ratified at the plan gate: a custom value is stored as a ratio only, so `1"=15'` reads back as `1:180`
 (no label is stored; `1:600` would be ambiguous otherwise).
 
 ## Acceptance criteria and guards
