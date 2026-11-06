@@ -122,6 +122,10 @@
 
 - [ ] [type:feature] Notes on schematics: text box polish, paper-correct text size, three-click Note placement [P1] [subject:Text]
   - Details: user request 2026-11-05; end goal is adding notes to schematics. Four parts, one run. (1) Constrained text resists grip drags: a centre or mid-edge pin leaves the grip about half way over a 30 mm drag (`manip_handle.GripHandle._solve_frame` reach passes), and a bound text can balloon in height. (2) Text is not truly centred: the line box reserves space above caps and below the baseline, so mixed-case text in an auto box shows 3.65 mm above and 1.03 mm below. (3) Text in a schematic scales with the viewport, against schematics D-S7, with no paper-fixed sizing. (4) Note placement becomes tip click, elbow click, text box click. Design D11 keeps the Note button off schematic canvases today. Probes: `.todo/text-notes-1b-findings.md`.
+- [ ] [type:bug] A rectangle's grip lags the cursor when a centre or mid-edge is pinned [P3] [subject:Constraints]
+  - Details: filed from the notes-on-schematics design (N2). Rect handles are derived, so `pin_vars` pins every variable and `GripHandle._solve_frame` halves the gap per pass, as text did. That run fixes text only. Reuse its re-aim.
+- [ ] [type:feature] V Align on sheet text [P3] [subject:Text]
+  - Details: filed from the notes-on-schematics design (N8). The paper panel has no V Align row and `TextItem.paint`'s document path ignores `_layout_offsets`, so sheet text always draws at the top. Check caret and mouse mapping when the document shifts.
 - [ ] [type:feature] Text style presets + per-property overrides + SHX (draft-spec phase 2) [P2] [subject:UX]
   - Details: the deferred larger vision from `Downloads/Ribbon Text Group — Spec.md` (seed): named `TextStyle` bundles (font/height/width-factor/B-I-U) + per-entity overrides + the launcher/style-manager dialog + SHX fonts (FontSelect already has a font-source seam). ref: text-annotation-system D1/D2.
 - [ ] [type:feature] Extend the ribbon Text/Frame groups to model/Block-Editor text (undo-routed) [P2] [subject:UX]
