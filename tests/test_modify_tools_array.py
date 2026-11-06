@@ -29,8 +29,10 @@ def test_array_typed_count_is_total(qapp, name):
         lst = getattr(scene, attr)
         assert len(lst) == 4                                # [RED]
         for k in range(1, 4):
-            assert grips(lst[k]) == pytest.approx(
-                [(x + 200 * k, y) for x, y in before], abs=0.5)
+            # Flat lists: pytest.approx on nested tuples compares exactly, so a
+            # 1e-14 float residue on one coordinate failed the whole copy.
+            assert [c for g in grips(lst[k]) for c in g] == pytest.approx(
+                [c for x, y in before for c in (x + 200 * k, y)], abs=0.5)
         assert grips(lst[0]) == pytest.approx(before, abs=1e-6)
         assert scene._undo_pos == p0 + 1
         assert scene.mode in (None, "select")

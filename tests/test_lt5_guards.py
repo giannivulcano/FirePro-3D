@@ -94,7 +94,9 @@ def test_q14_ends_grow_bounds_never_the_pick_shape(qapp):
     capped = _line(ms, L, finish={"end": h.id, "visible": True})
     assert capped.shape() == bare.shape()
     bb, cb = bare.boundingRect(), capped.boundingRect()
-    assert cb.contains(bb) and cb.height() > bb.height()
+    eps = 1e-6                         # float residue (3.5e-15) on the shared edge
+    assert (cb.adjusted(-eps, -eps, eps, eps).contains(bb)
+            and cb.height() > bb.height())
 
 
 # ── Q8: text + hatch-fill end content in the line colour ────────────────────

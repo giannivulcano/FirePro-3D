@@ -14,7 +14,7 @@ from firepro3d.model_space import Model_Space
 from firepro3d.room import Room
 
 OPS_GOLDEN = "b60538501a12a5d09616e6731ed2f5407c89761203a0e0e76744696d9cfaf43a"      # re-captured: L96 true cap (AC4, G8)
-RENDER_GOLDEN = "58438ac46ec7eb774eda9a1b19aed8e29ecc40c50924a738f1e11fdd853124b2"   # re-captured: L96 true cap (AC4, G8)
+RENDER_GOLDEN = "1cb4fa707631ea8eba6a180754c0e5212758623de07d1b5b98e99964985158e1"   # re-captured: stroke_pen FlatCap + MiterJoin (0be9aacd, stroke-corner-joins AC1/AC5); prior 58438ac4 (L96 true cap)
 
 
 def _room(name="Office"):
