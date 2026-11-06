@@ -95,8 +95,8 @@ def test_host_category_row_enum_and_unknown(qapp):
     info = BlockPropertiesInfo(w.editor_scene, "B", editor=w)
     row = info.get_properties()["Host category"]
     assert row["type"] == "enum" and row["value"] == "Door"
-    assert row["options"] == ["(none)", "Room", "Pipe", "Sprinkler", "Wall", "Door",
-                              "Window", "Opening", "Gridline", "Level"]
+    from firepro3d.element_params import CATEGORIES
+    assert row["options"] == ["(none)", *CATEGORIES]
     info.set_property("Host category", "(none)")
     assert w.editor_scene.block_meta["host_category"] == ""
     w.editor_scene.set_block_meta({**w.editor_scene.block_meta, "host_category": "Foo"})

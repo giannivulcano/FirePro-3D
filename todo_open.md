@@ -16,18 +16,6 @@
   - Details: the regenerate-and-retry in `settings/template.py` sits in an `except Exception`, but a parse failure returns False (it returned None before this fix, so the gap predates it). Check the return value and regenerate on False.
 - [ ] [type:bug] `project_backup._prune` matches the extension case-sensitively, so `.fpd` and `.FPD` saves prune apart [P4] [subject:Architecture]
   - Details: `_prune` builds its pattern from the saved name's own extension, so the same project saved under both spellings on Windows keeps up to 10 of each. Match on `re.IGNORECASE`.
-- [ ] [type:bug] `test_sb2b_settings_dialog_size.py::test_g_s1_marks_table_fits` fails at the default and minimum sizes [P4] [subject:Testing]
-  - Details: found by the data-loss keep-green, 2026-11-04. `test_g_s1_marks_table_fits_at_default_size` and `_at_minimum_size` fail identically at base `5185b8cc` (VC7, detached worktree) and at HEAD `d09406ca`, so this branch did not cause them. Cause not investigated.
-  - +1 occurrence 2026-11-04 (SB4f T7 keep-green, VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 4fbeabaf, identical both: `'Detail' == 'Room'`).
-  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
-- [ ] [type:bug] `test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails against the restyled SectionHead seed [P4] [subject:Testing]
-  - Details: found by SB4f T6 keep-green, 2026-11-04. VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 1ad57b24, identical both: `m._rk()` 400.1088 against 406.4 expected. The implementer's read, not yet confirmed: the test pins the old 2R circle and the seed moved to a 4 mm radius at the SB4d Q19 smoke. Decide whether the pin or the tangency is wrong. +1 occurrence 2026-11-05 (paper polish keep-green): alternating runs at base 8643452c and head ccf9679e, 1 failed each.
-  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
-  - +1 occurrence 2026-11-05 (section piping keep-green, VC7-proved in a detached worktree, alternating runs at base 6af322cc and HEAD 7567fe73, 1 failed all four, same message at base).
-- [ ] [type:bug] `test_sb2a_pickers.py::test_host_category_row_enum_and_unknown` pins an old host category list [P4] [subject:Testing]
-  - Details: found in SB4f keep-green, 2026-11-04. The test's literal `options` list misses later categories (first extra: `Elevation`). Fails at branch base `b29294aa` and HEAD (VC7, worktrees), so an earlier task left it behind; SB4f's `View Title` adds one more. Derive the list from `element_params.CATEGORIES` instead of a literal.
-  - +1 occurrence 2026-11-05 (block stacking keep-green): failed at base `bc039e14` and HEAD `abc1cc24`.
-  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 
 ## Paper-space sheet output
 
@@ -556,8 +544,6 @@
   - +1 occurrence 2026-11-05 (block stacking keep-green): same digests at base `bc039e14` and HEAD `abc1cc24`.
   - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
   - +1 occurrence 2026-11-05 (section piping keep-green, VC7-proved in a detached worktree, alternating runs at base 6af322cc and HEAD 7567fe73, 1 failed all four, same message at base).
-- [ ] [type:bug] `tests/test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails: shipped SectionHead seed radius is 400.1, the test expects 406.4 [P4] [subject:Architecture]
-  - Details: wall-joint fix round 2 keep-green 2026-11-04, VC7-proved pre-existing in a detached worktree, alternating runs at branch base b29294aa and tip d4a4f3f9 (1 failed each, all four runs). `m._rk()` returns 400.109, `2.0 * BUBBLE_RADIUS_MM` is 406.4, rel tolerance 1e-3. Likely from the SB4d seed restyle at smoke (9ac77afe), not checked. Decide which is right: the seed or the test.
 
 ## Block Editor constraint system (spec: `docs/specs/parametric-constraint-system.md`)
 
