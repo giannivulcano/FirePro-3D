@@ -213,3 +213,44 @@ def test_the_selector_follows_a_fill_type_edit_made_in_the_same_session(qapp, mo
     d._ft_tab.set_name("Fancy Hatch")
     sel = d._mat_tab.section_selector()
     assert sel.findText("Fancy Hatch") >= 0 and sel.findData(added.id) >= 0
+
+
+def test_a_selector_rebuild_keeps_a_hatched_materials_look(qapp, model_space):
+    """clear() fires the selector with no data; that must not read as a pick of No hatch."""
+    tab = MaterialsTab(model_space)
+    tab.select_name("Brick")
+    before = tab.current().fill_type
+    assert before
+    tab.refresh_fill_types()
+    assert tab.current().fill_type == before
+    assert not tab.dirty
+
+
+def test_going_back_to_fill_types_shows_a_materials_new_claim(qapp, model_space):
+    """A shown dialog, real tab switches: no cache cleared by hand, same row kept."""
+    d = _dialog(model_space)
+    d.show()
+    try:
+        d._tabs.setCurrentWidget(d._ft_tab)
+        qapp.processEvents()
+        added = d._ft_tab.add_type()
+        assert d._ft_tab.delete_button().isEnabled()
+
+        d._tabs.setCurrentWidget(d._mat_tab)
+        qapp.processEvents()
+        d._mat_tab.select_name("Brick")
+        d._mat_tab.set_fill_type(added.id)
+        d._tabs.setCurrentWidget(d._ft_tab)
+        qapp.processEvents()
+        assert d._ft_tab.current_type().id == added.id
+        assert not d._ft_tab.delete_button().isEnabled()
+        assert "material Brick" in d._ft_tab.delete_button().toolTip()
+
+        d._tabs.setCurrentWidget(d._mat_tab)
+        qapp.processEvents()
+        d._mat_tab.set_fill_type(None)
+        d._tabs.setCurrentWidget(d._ft_tab)
+        qapp.processEvents()
+        assert d._ft_tab.delete_button().isEnabled()
+    finally:
+        d.close()
