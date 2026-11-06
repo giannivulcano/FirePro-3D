@@ -134,7 +134,9 @@ class BlockPropertiesInfo:
             from .stroke_style import model_scale_from_label
             n = model_scale_from_label(value)
             if n is not None and self._editor is not None:
-                self._editor.set_text_scale(n)      # refused: the panel re-reads the row
+                # A refusal needs no signal: PropertyManager._apply_property always
+                # starts its refresh timer, which rebuilds the row from get_properties.
+                self._editor.set_text_scale(n)
             return
         if key == "Scale mode":
             self._scene.set_block_meta({**self._scene.block_meta,

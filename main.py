@@ -4713,6 +4713,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     _BE_ATTR_SCHEMATIC_TIP = "Schematics have no attributes"
     # Build's Note is schematic-only (notes design N26).
     _BE_NOTE_BLOCK_TIP = "Block tabs use Text with Leader on"
+    _ARCH_NOTE_SCHEMATIC_TIP = "Schematic tabs use Note on the Build tab"
     # Off-tooltip for groups a canvas can't use (editor-build design §1 (b)).
     _NOT_IN_VIEW_TIP = "Not available in this view"
     # Canvas kinds (design §1) and the one table of which group is live where.
@@ -5237,6 +5238,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             live = kind in self._GROUP_LIVE_KINDS[group]
             if live:
                 b.setToolTip(tip)
+            elif group == "annotate" and kind == "schematic":
+                b.setToolTip(self._ARCH_NOTE_SCHEMATIC_TIP)
             elif group == "annotate":
                 b.setToolTip(NOTE_OFF_HINT)
             elif group == "schematic_note" and kind == "block":

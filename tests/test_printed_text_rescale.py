@@ -2,6 +2,8 @@
 about each anchor, one undo step, printed size unchanged (N14, N16, AC4)."""
 import pytest
 from PyQt6.QtCore import QPointF
+from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.annotative import editor_text_scale
 from firepro3d.block_definition import BlockDefinition
@@ -10,6 +12,7 @@ from firepro3d.block_properties_info import BlockPropertiesInfo
 from firepro3d.constraint_controller import CONFLICT_STATUS
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
+from firepro3d.property_manager import PropertyManager
 from firepro3d.text_item import TextAnnotationData, TextItem
 from firepro3d.text_leader import normalise
 from tests.test_printed_text_pdf import _cap_mm, _export
@@ -155,6 +158,39 @@ def test_a_tie_that_refuses_reverts_the_row_with_a_status(qapp, monkeypatch):
     assert not w.is_dirty()
     props = BlockPropertiesInfo(sc, "X", editor=w).get_properties()
     assert props["Drawing scale"]["value"] == "1:20"
+
+
+def test_a_refused_pick_puts_the_shown_row_back(qapp):
+    """N14 in the real panel: the shown Selector returns to the kept scale one panel
+    refresh after the pick, and the refusal posts no undo step."""
+    _p, w, t = _setup(x=100.0, y=100.0, wrap=True, wrap_width_mm=400.0, box_height_mm=200.0)
+    sc = w.editor_scene
+    a, b = LineItem(QPointF(100, 100), QPointF(0, 0)), LineItem(QPointF(500, 300), QPointF(600, 400))
+    w._add_primitive(a)
+    w._add_primitive(b)
+    ctl = sc.constraint_ctl
+    ctl.add("fix", [{"uid": a._uid, "h": "item"}])
+    ctl.add("fix", [{"uid": b._uid, "h": "item"}])
+    assert ctl.add("coincident", [{"uid": t._uid, "h": "tl"}, {"uid": a._uid, "h": "p1"}])
+    assert ctl.add("coincident", [{"uid": t._uid, "h": "br"}, {"uid": b._uid, "h": "p1"}])
+    pm = PropertyManager()
+    pm.show()
+    pm.show_properties(BlockPropertiesInfo(sc, "X", editor=w))
+    QApplication.processEvents()
+    row = pm._prop_widgets["Drawing scale"]
+    assert row.currentText() == "1:20"
+    depth = len(sc._undo_stack)
+    row.setCurrentIndex(row.findText("1:50"))
+    assert ctl.edit_refused
+    QTest.qWait(150)                       # the panel's refresh timer
+    shown = pm._prop_widgets["Drawing scale"]
+    assert shown.currentText() == "1:20"
+    assert shown.isVisible()
+    assert editor_text_scale(sc) == 20.0
+    assert len(sc._undo_stack) == depth
+    pm.close()
+    pm.deleteLater()
+    QApplication.processEvents()
 
 
 def test_a_row_edit_ends_a_live_text_edit_first(qapp):

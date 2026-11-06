@@ -58,10 +58,13 @@ def test_note_follows_the_canvas_kind(main_window):
     live = btn.toolTip()
     main_window._set_canvas_context("plan")
     assert btn.isEnabled()
-    for kind in ("section", "paper", "3d", "block", "schematic"):
+    for kind in ("section", "paper", "3d", "block"):
         main_window._set_canvas_context(kind)
         assert not btn.isEnabled()
         assert btn.toolTip() == NOTE_OFF_HINT          # names where Note works, not "open a block"
+    main_window._set_canvas_context("schematic")
+    assert not btn.isEnabled()
+    assert "Build tab" in btn.toolTip()                # the live Note there is the Build tab's
     main_window._set_canvas_context("detail")
     assert btn.isEnabled() and btn.toolTip() == live
     main_window._set_canvas_context("plan")
