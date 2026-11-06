@@ -1,7 +1,7 @@
 ---
-status: proposal         # ratified 2026-11-05 (Phase 2 criteria + design approval); unbuilt
-last-verified: 2026-11-05
-verified-commit: 6af322cc
+status: built            # ratified 2026-11-05 (Phase 2 criteria + design approval); N5 extended in review; N10, N13, AC5 changed at smoke 2026-11-06
+last-verified: 2026-11-06
+verified-commit: bfe51a30  # merge on main (v0.93.0)
 applies-to:
   - firepro3d/text_item.py          # apply_grip clamp order, ink voff, printed paint in a pass
   - firepro3d/manip_handle.py       # GripHandle reach for text
@@ -11,6 +11,9 @@ applies-to:
   - firepro3d/block_definition.py   # text_sizing, text_scale keys
   - firepro3d/block_properties_info.py # Text sizing + Drawing scale rows
   - firepro3d/block_editor.py       # seeding, new-schematic defaults
+  - firepro3d/scene_io.py           # N13 call at the end of load
+  - firepro3d/property_manager.py   # dimension rows commit real edits
+  - firepro3d/dimension_edit.py     # set_mixed
   - firepro3d/schematic_scene.py    # render scene printed flag
   - firepro3d/model_space.py        # Note modes, previews, note_allowed
   - firepro3d/note_controller.py    # place with a preset leader
@@ -62,7 +65,7 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
 | N2 | **Reach by re-aim.** After the first solve, each local axis with gain above a floor re-applies the grip at the point the measured gain predicts lands on target; an axis the constraints hold keeps today's slide. Scope: text. Rectangles share the lag; filed, not fixed here. |
 | N3 | **Clamp before anchoring.** `TextItem.apply_grip` limits the dragged edge to the minimum before re-anchoring, so the opposite edge never moves. Root cause of the refusal: `_reanchor` ran before `_commit_box_size` clamped, the box slid off its tie and the solve did not converge. This also fixes the silent slide on an untied box. |
 | N4 | **A tied box stops at its text, silently.** Past the minimum height the grip stops with no status. A width drag on a tied box stops at the narrowest width whose wrapped text fits the current box height. An untied box keeps growing in height as today. |
-| N5 | **Real conflicts still report.** `CONFLICT_STATUS` stays for an edit the constraints truly forbid. A grip on the pinned point itself still does nothing, and moving a box its tie holds is still refused. |
+| N5 | **Real conflicts still report.** `CONFLICT_STATUS` stays for an edit the constraints truly forbid. A grip on the pinned point itself still does nothing, and moving a box its tie holds is still refused. A grip drag on a tied corner slides on the corner's free axis; a grip with no free axis stays put (user ruling, 2026-11-06). Text grips post no status, a box held by two corners included, so only a move reports. A rotated box's far corner holds. |
 
 ### Part 2: Centring
 
@@ -103,40 +106,40 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
 
 ## Acceptance Criteria
 
-- [ ] AC1 A box tied by one point resizes from every other grip with no refusal and the grip at
+- [x] AC1 A box tied by one point resizes from every other grip with no refusal and the grip at
       the cursor; a centre pin grows both sides; the tied point never moves. Moving is refused only
       when the tie really holds the box.
-- [ ] AC2 A tied box dragged past its text stops there with no status; width stops where wrapped text
+- [x] AC2 A tied box dragged past its text stops there with no status; width stops where wrapped text
       fits the current height.
-- [ ] AC3 At V Align Middle, typed text has equal ink gaps in the editor, on placements and in PDF;
+- [x] AC3 At V Align Middle, typed text has equal ink gaps in the editor, on placements and in PDF;
       `@[Field]` text keeps today's look.
-- [ ] AC4 New schematics: text prints at its printed height in every viewport, NTS included; the
+- [x] AC4 New schematics: text prints at its printed height in every viewport, NTS included; the
       Drawing scale row sets its editor size only.
-- [ ] AC5 An old schematic turns Printed when its project opens: its text prints at the size its first
+- [x] AC5 An old schematic turns Printed when its project opens: its text prints at the size its first
       viewport gave at base, and no longer follows the viewport. Real size chosen by the row and saved
-      stays Real size.
-- [ ] AC6 Note places by tip, elbow, box edge, then typing, on plan, detail and schematic; in a schematic
+      stays Real size. A text leader past the drawing counts toward the extent (N17), so such a schematic's NTS fit can differ from base.
+- [x] AC6 Note places by tip, elbow, box edge, then typing, on plan, detail and schematic; in a schematic
       it saves as a text with a leader. Esc at any step leaves nothing.
-- [ ] AC7 Save / reload and undo keep `text_sizing`, `text_scale`, and a schematic note.
+- [x] AC7 Save / reload and undo keep `text_sizing`, `text_scale`, and a schematic note.
 
 ## Verification Checklist
 
 Guards drive the real path and are shown RED with the change reverted (VC3).
 
-- [ ] G1 Shown view, Blue Stair network rebuilt in a fixture with `bl` tied to a line: drag grips
+- [x] G1 Shown view, Blue Stair network rebuilt in a fixture with `bl` tied to a line: drag grips
       2, 3, 1, inward and out; no `CONFLICT_STATUS`, tied point unmoved, grip at cursor. Centre pin:
       `rm +30` gives width 180. Untied box past its text: far edge unmoved.
-- [ ] G2 `TextItem` paint and a Note's real `bound_text_ops` output: ink gaps equal at M, with and
+- [x] G2 `TextItem` paint and a Note's real `bound_text_ops` output: ink gaps equal at M, with and
       without a descender, in three fonts. Placed `@[Field]` text keeps a shared baseline.
-- [ ] G3 Exported PDF: 3 mm text in 1:10, 1:20 and NTS viewports measures 3 mm cap height; a version
+- [x] G3 Exported PDF: 3 mm text in 1:10, 1:20 and NTS viewports measures 3 mm cap height; a version
       11 file reopened measures the same in its first viewport, and stays that size in a resized one.
-- [ ] G4 Posted clicks on plan, detail and schematic: tip, knee and box edge land at the clicks, the
+- [x] G4 Posted clicks on plan, detail and schematic: tip, knee and box edge land at the clicks, the
       editor opens, shoulder perpendicular on all four edges; Esc at each step leaves nothing.
-- [ ] G5 Save / reload / undo round trip of both keys and a schematic note.
-- [ ] Keep-green by touched module (VC5). Rewrites sanctioned by this spec: two-corner Note in
+- [x] G5 Save / reload / undo round trip of both keys and a schematic note.
+- [x] Keep-green by touched module (VC5). Rewrites sanctioned by this spec: two-corner Note in
       `test_note_placement.py` and `test_note_small_items.py`.
-- [ ] Smoke on Blue Stair, a new schematic on a sheet at 1:20 and NTS, and a plan note.
-- [ ] Perf: ink measure cached; no new per-paint work on a text outside a printed pass.
+- [x] Smoke on Blue Stair, a new schematic on a sheet at 1:20 and NTS, and a plan note.
+- [x] Perf: ink measure cached; no new per-paint work on a text outside a printed pass.
 
 ## Existing Code Context
 
@@ -167,4 +170,4 @@ Guards drive the real path and are shown RED with the change reverted (VC3).
 
 ## Follow-ups
 
-Filed at Phase 6: rectangle grip reach; V Align on sheet text.
+Filed at Phase 6: rectangle grip reach; V Align on sheet text; slow redraw of a schematic with nested blocks (P1); old `.fpdb` schematics stay Real size. Verified by reduced keep-green, the panel set and user smoke: the full suite was waived by the user.

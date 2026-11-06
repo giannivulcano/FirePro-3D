@@ -889,54 +889,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                              "options": ["Auto", "Butt", "Solid"]},
         }
 
-    def _open_edit_dialog(self):
-        """Open the WallDialog to edit this wall's properties in-place."""
-        from .wall_dialog import WallDialog
-        sc = self.scene()
-        if sc is None:
-            return
-
-        lm = getattr(sc, "_level_manager", None)
-
-        parent = sc.views()[0] if sc.views() else None
-        sm = getattr(sc, "scale_manager", None)
-        dlg = WallDialog(
-            parent,
-            defaults={
-                "name":           self.name,
-                "thickness_mm":   self._thickness_mm,
-                "color":          self._colour,
-                "fill_mode":      self._fill_mode,
-                "alignment":      self._alignment,
-                "base_level":     self._base_level,
-                "base_offset_mm": self._base_offset_mm,
-                "top_level":      self._top_level,
-                "top_offset_mm":  self._top_offset_mm,
-            },
-            level_manager=lm,
-            scale_manager=sm,
-        )
-        from PyQt6.QtWidgets import QDialog
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            p = dlg.get_params()
-            self.name            = p["name"] or self.name
-            self._thickness_mm   = p["thickness_mm"]
-            self._colour         = normalize_colour(p["color"], _DEFAULT_COLOUR)
-            self._fill_mode      = p["fill_mode"]
-            self._alignment      = p["alignment"]
-            self._base_level     = p["base_level"]
-            self._base_offset_mm = p["base_offset_mm"]
-            self._top_level      = p["top_level"]
-            self._top_offset_mm  = p["top_offset_mm"]
-            self._height_mm      = p["height_mm"]
-            self.level           = p["base_level"]
-            self.invalidate_geometry()
-            self.update()
-            if sc and hasattr(sc, "sceneModified"):
-                sc.sceneModified.emit()
-            if sc and hasattr(sc, "push_undo_state"):
-                sc.push_undo_state()
-
     def _parse_dim(self, value) -> float | None:
         """Parse a dimension value (display-formatted or raw) to mm.
 
