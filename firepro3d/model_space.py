@@ -44,7 +44,7 @@ from .section_marker import SectionMarker
 from .colour_tokens import preview_colour, resolve_colour
 from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
-                       DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM,
+                       DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM, DEFAULT_TEXT_HEIGHT_MM,
                        DEFAULT_ANNOTATIVE_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
@@ -6775,17 +6775,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # An annotative Block Editor block is authored in printed mm
             # (SB1c): seed a printed size (D3). Plan / real-size blocks keep
             # the real-size scene-mm default, readable at editor zoom.
-            from .annotative import editor_is_annotative
+            # A Printed schematic stores printed mm x the drawing scale (N12).
+            from .annotative import editor_is_annotative, editor_text_printed, editor_text_scale
             annotative = editor_is_annotative(self)
+            if editor_text_printed(self):
+                n = editor_text_scale(self)
+                height, padding = (DEFAULT_TEXT_HEIGHT_MM * n,
+                                   DEFAULT_ANNOTATIVE_TEXT_PADDING_MM * n)
+            elif annotative:
+                height, padding = (DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM,
+                                   DEFAULT_ANNOTATIVE_TEXT_PADDING_MM)
+            else:
+                height, padding = DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM
             data = TextAnnotationData(
                 text="", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
-                height_mm=(DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM if annotative
-                           else DEFAULT_MODEL_TEXT_HEIGHT_MM))
+                height_mm=height)
             data.color = TOKEN_AUTO  # Automatic: theme ink on canvas, black on paper (HF1)
             data.border = True   # solid border on by default (border_line_type already "solid")
-            data.cell_padding_mm = (DEFAULT_ANNOTATIVE_TEXT_PADDING_MM if annotative
-                                    else DEFAULT_MODEL_TEXT_PADDING_MM)
+            data.cell_padding_mm = padding
             text = TextItem(data)
             self.addItem(text)
             data.box_height_mm = max(rect.height(), text._content_height_mm())

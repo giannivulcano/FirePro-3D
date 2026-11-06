@@ -1830,9 +1830,23 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         text. Real-size model / block text shows decimal mm (``2.50 mm``).
         Storage stays cap height in mm either way; the row commits mm. A Note's
         style item (``_printed_height``) is printed text too, with no editor.
+        Text in a Printed schematic shows ``height_mm / text_scale`` the same
+        way and commits scene mm (N10).
         """
-        from .annotative import editor_is_annotative
+        from .annotative import (editor_is_annotative, editor_text_printed,
+                                 editor_text_scale)
         d = self._data
+        if editor_text_printed(self.scene()):
+            n = editor_text_scale(self.scene())
+
+            def parse(text, dd=d):
+                mm = _parse_height_pt(dd, text)
+                return None if mm is None else mm * n
+
+            return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
+                    "parser": parse,
+                    "formatter": lambda mm, dd=d: _format_height_pt(dd, mm / n),
+                    "minimum": 0.0}
         if getattr(self, "_printed_height", False) or editor_is_annotative(self.scene()):
             return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
                     "parser": lambda text, dd=d: _parse_height_pt(dd, text),

@@ -14,6 +14,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
                              QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
+from .annotative import _drawing_scale
 from .model_space import Model_Space
 from .model_view import Model_View
 from .block_definition import is_scaffold, is_scaffold_item
@@ -567,6 +568,21 @@ class BlockEditorWidget(QWidget):
         # placed there; the definition origin itself is always (0,0) (D4).
         self._seed_base = None       # QPointF | None
         self.editor_scene.sceneModified.connect(self._on_scene_modified)
+        if kind == "schematic" and block_id is None:
+            self._seed_printed_text()
+
+    def _seed_printed_text(self) -> None:
+        """A new schematic starts Printed at the project drawing scale (N12).
+
+        Joins the undo baseline, so undoing the first edit keeps it."""
+        sc = self.editor_scene
+        sc.set_block_meta({**sc.block_meta, "text_sizing": "printed",
+                           "text_scale": self.project_text_scale()}, push_undo=False)
+        self._rebaseline_undo()
+
+    def project_text_scale(self) -> float:
+        """The project drawing scale N, the Printed starting scale (N12, N13)."""
+        return _drawing_scale(self._project_scene)
 
     @property
     def _edit_block_id(self):
