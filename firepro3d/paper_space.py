@@ -158,18 +158,24 @@ from .mime_types import MIME_VIEW  # noqa: F401 (re-export)
 # ─────────────────────────────────────────────────────────────────────────────
 
 SCALE_PRESETS: list[tuple[str, float]] = [
-    ("1:200", 1 / 200), ("1:100", 1 / 100), ("1:75", 1 / 75),
+    ("1:1000", 1 / 1000), ("1:500", 1 / 500), ("1:250", 1 / 250),
+    ("1:200", 1 / 200), ("1:150", 1 / 150), ("1:100", 1 / 100), ("1:75", 1 / 75),
     ("1:50", 1 / 50), ("1:30", 1 / 30), ("1:25", 1 / 25), ("1:20", 1 / 20),
     ("1:10", 1 / 10), ("1:5", 1 / 5), ("1:1", 1.0),
-    ('1/8"=1\'-0"', 1 / 96), ('3/16"=1\'-0"', 3 / 192),
-    ('1/4"=1\'-0"', 1 / 48), ('3/8"=1\'-0"', 3 / 96),
-    ('1/2"=1\'-0"', 1 / 24), ('3/4"=1\'-0"', 3 / 36),
-    ('1"=1\'-0"', 1 / 12), ('1-1/2"=1\'-0"', 1.5 / 12),
-    ('3"=1\'-0"', 3 / 12),
+    ('1/32"=1\'-0"', 1 / 384), ('1/16"=1\'-0"', 1 / 192),
+    ('3/32"=1\'-0"', 1 / 128), ('1/8"=1\'-0"', 1 / 96),
+    ('3/16"=1\'-0"', 3 / 192), ('1/4"=1\'-0"', 1 / 48),
+    ('3/8"=1\'-0"', 3 / 96), ('1/2"=1\'-0"', 1 / 24),
+    ('3/4"=1\'-0"', 0.75 / 12), ('1"=1\'-0"', 1 / 12),
+    ('1-1/2"=1\'-0"', 1.5 / 12), ('3"=1\'-0"', 3 / 12),
+    ('1"=10\'', 1 / 120), ('1"=20\'', 1 / 240), ('1"=30\'', 1 / 360),
+    ('1"=40\'', 1 / 480), ('1"=50\'', 1 / 600), ('1"=60\'', 1 / 720),
+    ('1"=100\'', 1 / 1200),
 ]
 _PRESET_MAP: dict[str, float] = {label: ratio for label, ratio in SCALE_PRESETS}
 _RE_METRIC = re.compile(r"^1\s*:\s*(\d+(?:\.\d+)?)$")
 _RE_IMPERIAL = re.compile(r'^(\d+(?:-\d+/\d+|\.\d+)?(?:/\d+)?)\s*"\s*=\s*1\'-0"$')
+_RE_ENGINEERING = re.compile(r'^1\s*"\s*=\s*(\d+(?:\.\d+)?)\s*\'$')
 
 
 def _parse_imperial_inches(s: str) -> float:
@@ -182,37 +188,53 @@ def _parse_imperial_inches(s: str) -> float:
     return float(s)
 
 
-def scale_to_float(s: str) -> float:
-    """Parse a scale string and return the corresponding ratio (model/paper).
-
-    Args:
-        s: A scale string such as ``"1:100"``, ``'1/4"=1\\'-0"'``, or
-           ``"1:125"`` (custom metric).
-
-    Returns:
-        The dimensionless scale ratio (e.g. 0.01 for 1:100).
-
-    Raises:
-        ValueError: If *s* cannot be recognised as a valid scale string.
-    """
-    s = s.strip()
-    if s in _PRESET_MAP:
-        return _PRESET_MAP[s]
+def _parse_scale(s: str) -> "float | None":
+    """The ratio *s* spells, or None when it matches no scale form."""
     m = _RE_METRIC.match(s)
     if m:
         return 1.0 / float(m.group(1))
     m = _RE_IMPERIAL.match(s)
     if m:
         return _parse_imperial_inches(m.group(1)) / 12.0
-    raise ValueError(f"Cannot parse scale string: {s!r}")
+    m = _RE_ENGINEERING.match(s)
+    if m:
+        return 1.0 / (12.0 * float(m.group(1)))
+    return None
+
+
+def scale_to_float(s: str) -> float:
+    """Parse a scale string and return the corresponding ratio (model/paper).
+
+    Args:
+        s: A scale string such as ``"1:100"``, ``"1:12.5"``,
+           ``'1/4"=1\\'-0"'`` or ``'1"=15\\''`` (engineering).
+
+    Returns:
+        The dimensionless scale ratio (e.g. 0.01 for 1:100), always above 0.
+
+    Raises:
+        ValueError: If *s* cannot be recognised as a valid scale string,
+            or spells a zero scale.
+    """
+    s = s.strip()
+    if s in _PRESET_MAP:
+        return _PRESET_MAP[s]
+    try:
+        ratio = _parse_scale(s)
+    except ZeroDivisionError:
+        ratio = None
+    if ratio is None or ratio <= 0.0:
+        raise ValueError(f"Cannot parse scale string: {s!r}")
+    return ratio
 
 
 def float_to_scale_str(ratio: float) -> str:
     """Return the human-readable scale label closest to *ratio*.
 
     Prefers a known preset label when the ratio is within 0.1 % of a preset;
-    otherwise falls back to a ``"1:N"`` metric string.  A ratio of ``0.0``
-    returns ``"NTS"`` (Not To Scale).
+    otherwise falls back to a ``"1:N"`` metric string with up to three
+    decimals (``"1:12.5"``).  A ratio of ``0.0`` returns ``"NTS"`` (Not To
+    Scale).
 
     Args:
         ratio: Dimensionless scale ratio (model units / paper units).
@@ -225,8 +247,7 @@ def float_to_scale_str(ratio: float) -> str:
     for label, preset_ratio in SCALE_PRESETS:
         if abs(ratio - preset_ratio) < preset_ratio * 0.001:
             return label
-    n = round(1.0 / ratio)
-    return f"1:{n}"
+    return f"1:{1.0 / ratio:.3f}".rstrip("0").rstrip(".")
 
 
 def _compute_scale_field(sheet: "Sheet") -> str:
