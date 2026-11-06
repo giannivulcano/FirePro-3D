@@ -1879,7 +1879,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
             "Height":   self._height_row(),
-            "Padding":  {"type": "number", "value": int(round(d.cell_padding_mm)), "minimum": 0},
+            "Padding":  self._box_length_row(d.cell_padding_mm),
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
                          "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},
@@ -1903,8 +1903,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                          "options": [("square", "corner_square.svg"),
                                      ("round", "corner_fillet.svg"),
                                      ("chamfer", "corner_chamfer.svg")]},
-            "Corner Radius": {"type": "number", "value": int(round(d.border_corner_radius_mm)),
-                              "minimum": 0},
+            "Corner Radius": self._box_length_row(d.border_corner_radius_mm),
             "Fill":     {"type": "header", "value": "Fill"},
             "Fill Color":   {"type": "color", "value": d.fill_color},
             "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity),
@@ -1978,6 +1977,26 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 "parser": _parse_text_height_mm,
                 "formatter": _format_height_mm,
                 "minimum": 0.0}
+
+    def _box_length_row(self, mm: float) -> dict:
+        """A Padding / Corner Radius row (N10): printed mm in a Printed schematic
+        and on a Note's style item, so a row reads the same armed and placed;
+        whole scene mm elsewhere. Decimals, since a small printed length must
+        not read 0. The row commits scene mm, as the Height row does."""
+        from .annotative import editor_text_printed, editor_text_scale
+        if editor_text_printed(self.scene()):
+            n = editor_text_scale(self.scene())
+        elif getattr(self, "_printed_height", False):
+            n = 1.0
+        else:
+            return {"type": "number", "value": int(round(mm)), "minimum": 0}
+
+        def parse(text):
+            parsed = _parse_text_height_mm(text)
+            return None if parsed is None else parsed * n
+
+        return {"type": "dimension", "value": mm, "value_mm": mm, "parser": parse,
+                "formatter": lambda v: _format_height_mm(v / n), "minimum": 0.0}
 
     def set_property(self, key: str, value) -> None:
         if self._on_paper():

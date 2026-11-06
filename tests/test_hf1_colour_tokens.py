@@ -511,7 +511,7 @@ def test_g9_v10_project_file_round_trip(qapp, tmp_path):
     out = tmp_path / "v11.fpd"
     ms.save_to_file(str(out))
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["version"] == 11
+    assert payload["version"] == Model_Space.SAVE_VERSION
     ms2 = Model_Space()
     ms2.load_from_file(str(out))
     assert ms2.block_registry.get("leg").primitives[0]["style"]["colour"] == TOKEN_AUTO

@@ -77,10 +77,10 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
 | # | Decision |
 |---|---|
 | N9 | **Two definition keys, schematics only.** `text_sizing: "printed"` (absent = real size) and `text_scale: float` (the drawing scale N of 1:N; absent = real size). |
-| N10 | **Printed height = `height_mm / text_scale`.** Everything else in the box scales with it. The Height row shows and parses printed size through the `_printed_height` format. |
+| N10 | **Printed height = `height_mm / text_scale`.** Everything else in the box scales with it. The Height row shows and parses printed size through the `_printed_height` format. Padding and Corner Radius show and parse printed mm the same way, so the armed Note rows read the same before and after placement (smoke, 2026-11-06). |
 | N11 | **Rows.** Schematic Block view gains **Text sizing** (Real size, Printed) and **Drawing scale** (shown when Printed). Drawing scale only sets how large text looks in the editor. |
 | N12 | **New schematics start Printed**, at the project drawing scale, stored on the definition so a template carries it. A new text defaults to `DEFAULT_TEXT_HEIGHT_MM` printed. |
-| N13 | **Old schematics stay Real size** and print as they do today. Switching keeps the editor look unchanged; only the print changes. |
+| N13 | **Old schematics turn Printed once, on opening a project saved below `SAVE_VERSION` 12** (user ruling at smoke, 2026-11-06, reversing "old schematics stay Real size"). A schematic with text takes N = 1 / S of its first viewport in sheet order, so its text starts at today's printed size and stops following the viewport. A schematic with no text, or on no sheet, takes the project drawing scale. Stored heights do not change, and the editor looks the same. Real size stays a row choice: chosen and saved at version 12 it stays. Switching by the row keeps the editor look unchanged; only the print changes. |
 | N14 | **Changing Drawing scale** resizes the text on the canvas about each anchor (N16), one undo step; printed size stays. If a tie refuses, the row reverts with a status. |
 | N15 | **Viewport paint.** A new `TextItem` branch in `apply_paper_overrides`, with restore, sets the pass factor. Text paints scaled `k = 1 / (text_scale * S)`, where S is the viewport's paper mm per model mm, so it prints at N10 at any scale and at NTS. Border weight plots true mm in this pass. A Real size schematic is untouched by the branch, border included. |
 | N16 | **Anchor.** With no leader the box scales about its alignment point (`align` + `valign`), the rule bound text follows. With a leader, the tip and elbow stay put and box and shoulder scale about the elbow. |
@@ -112,7 +112,9 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
       `@[Field]` text keeps today's look.
 - [ ] AC4 New schematics: text prints at its printed height in every viewport, NTS included; the
       Drawing scale row sets its editor size only.
-- [ ] AC5 Old schematics print as at base until switched by the Text sizing row.
+- [ ] AC5 An old schematic turns Printed when its project opens: its text prints at the size its first
+      viewport gave at base, and no longer follows the viewport. Real size chosen by the row and saved
+      stays Real size.
 - [ ] AC6 Note places by tip, elbow, box edge, then typing, on plan, detail and schematic; in a schematic
       it saves as a text with a leader. Esc at any step leaves nothing.
 - [ ] AC7 Save / reload and undo keep `text_sizing`, `text_scale`, and a schematic note.
@@ -126,8 +128,8 @@ Guards drive the real path and are shown RED with the change reverted (VC3).
       `rm +30` gives width 180. Untied box past its text: far edge unmoved.
 - [ ] G2 `TextItem` paint and a Note's real `bound_text_ops` output: ink gaps equal at M, with and
       without a descender, in three fonts. Placed `@[Field]` text keeps a shared baseline.
-- [ ] G3 Exported PDF: 3 mm text in 1:10, 1:20 and NTS viewports measures 3 mm cap height; an old
-      schematic measures the same as at base.
+- [ ] G3 Exported PDF: 3 mm text in 1:10, 1:20 and NTS viewports measures 3 mm cap height; a version
+      11 file reopened measures the same in its first viewport, and stays that size in a resized one.
 - [ ] G4 Posted clicks on plan, detail and schematic: tip, knee and box edge land at the clicks, the
       editor opens, shoulder perpendicular on all four edges; Esc at each step leaves nothing.
 - [ ] G5 Save / reload / undo round trip of both keys and a schematic note.
@@ -160,6 +162,8 @@ Guards drive the real path and are shown RED with the change reverted (VC3).
 
 - Rectangles keep the grip lag (N2); filed as a follow-up.
 - `schematics.md` D-S7 claimed paper-fixed text with no code behind it; true for Printed once built.
+- An old `.fpdb` schematic or template loaded into a project stays Real size until switched: N13 runs
+  on project open only. Filed as a follow-up.
 
 ## Follow-ups
 

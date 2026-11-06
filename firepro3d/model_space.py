@@ -187,7 +187,7 @@ def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
 
 class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 11  # 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
+    SAVE_VERSION = 12  # 12: old schematics turn Printed once (schematic_scene.migrate_old_schematics); 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
     UNDO_MAX = 50
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display). Declared so the per-paint read in
