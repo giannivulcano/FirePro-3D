@@ -7,6 +7,7 @@ from tests._mainwindow_helpers import dispose_main_window
 from PyQt6.QtCore import QPointF
 
 from firepro3d.block_definition import BlockDefinition
+from firepro3d.block_properties_info import BlockPropertiesInfo
 from firepro3d.block_editor import BlockEditorWidget, BlockSaveDialog
 from firepro3d.capabilities import SCHEMATIC_CAP_REASON
 from firepro3d.geometry_2d import LineItem
@@ -63,6 +64,8 @@ def _new_saved_schematic(win, monkeypatch, name="Riser A"):
     win.project_browser.createSchematic.emit()
     w = win.central_tabs.currentWidget()
     assert isinstance(w, BlockEditorWidget) and w.kind == "schematic"
+    # These guards pin a Real size schematic; a new one starts Printed (N12, N17).
+    BlockPropertiesInfo(w.editor_scene, name, editor=w).set_property("Text sizing", "Real size")
     w._add_primitive(LineItem(QPointF(0, 0), QPointF(100, 0)))
     w.editor_scene.place_block_instance(plain.id, (50.0, 20.0))
     w.editor_scene.push_undo_state()

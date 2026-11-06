@@ -822,6 +822,10 @@ class ViewResolver:
             return None
         return (scene, mgr.extent(block_id))
 
+    def schematic_text_scale(self, block_id: str) -> float:
+        """A Printed schematic's drawing scale N, else 1 (N17)."""
+        return self._schematics.text_scale(block_id) if self._schematics is not None else 1.0
+
     def display_name(self, view_type: str, view_name: str) -> str:
         """Human name for a source view: a schematic's current definition name
         (falls back to the id when it no longer exists); other kinds are
@@ -2043,8 +2047,10 @@ class PaperGraphicsView(QGraphicsView):
         max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H - title_mm
 
         if scale == 0.0 and is_schematic:
-            # Extent at 1 mm = 1 mm, clamped to the sheet below (concept SD3).
-            vp_w, vp_h = src_rect.width(), src_rect.height()
+            # Extent at 1 mm = 1 mm (concept SD3); a Printed schematic at 1:N, so
+            # it opens matching its editor (N17). Clamped to the sheet below.
+            n = resolver.schematic_text_scale(view_name)
+            vp_w, vp_h = src_rect.width() / n, src_rect.height() / n
         elif scale == 0.0:
             # NTS: fit to a reasonable default viewport size
             target_w = max_w * 0.6
