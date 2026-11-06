@@ -298,11 +298,11 @@ def _dist_point_line(p, a, b):
 
 def test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side(qapp, real_system_library):
     """SB4d D1: the triangle is built from the head outline's R_k; the shipped
-    SectionHead seed is today's 2R circle at drawing scale 100."""
-    from firepro3d.gridline import BUBBLE_RADIUS_MM
+    SectionHead seed is a 4 mm authored-radius circle (Q19 smoke restyle,
+    pinned by test_sb4d_categories::test_shipped_seed) at drawing scale 100."""
     ms, m = _plan_with_marker()                        # A(0,0) B(6000,0), look side = scene-up
     m.refresh_heads()
-    R = 2.0 * BUBBLE_RADIUS_MM
+    R = 4.0 * 100.0
     assert m._rk() == pytest.approx(R, rel=1e-3)
     for end in (m.cut_a, m.cut_b):
         tri = m._triangle(end)

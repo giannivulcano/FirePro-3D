@@ -2,6 +2,26 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Testing -- three red tests cleared: marks table, host category list, section head radius -- 2026-11-06
+- [x] [type:bug] `test_sb2b_settings_dialog_size.py::test_g_s1_marks_table_fits` fails at the default and minimum sizes [P4] [subject:Testing] [done:2026-11-06]
+  - Details: found by the data-loss keep-green, 2026-11-04. `test_g_s1_marks_table_fits_at_default_size` and `_at_minimum_size` fail identically at base `5185b8cc` (VC7, detached worktree) and at HEAD `d09406ca`, so this branch did not cause them. Cause not investigated.
+  - +1 occurrence 2026-11-04 (SB4f T7 keep-green, VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 4fbeabaf, identical both: `'Detail' == 'Room'`).
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
+  - Fixed 2026-11-06 on `todo/2026-11-06-ea`: stale pin, not a product bug. `marks.MARK_CATEGORIES` gained Section and Detail (SB4d), so the table's last row is `Detail`. `_assert_fits` now asserts the row texts equal `marks.MARK_CATEGORIES` in order; RED with the pane's row order reversed.
+- [x] [type:bug] `test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails against the restyled SectionHead seed [P4] [subject:Testing] [done:2026-11-06]
+  - Details: found by SB4f T6 keep-green, 2026-11-04. VC7-proved by the orchestrator in a detached worktree at base b29294aa and HEAD 1ad57b24, identical both: `m._rk()` 400.1088 against 406.4 expected. The implementer's read, not yet confirmed: the test pins the old 2R circle and the seed moved to a 4 mm radius at the SB4d Q19 smoke. Decide whether the pin or the tangency is wrong. +1 occurrence 2026-11-05 (paper polish keep-green): alternating runs at base 8643452c and head ccf9679e, 1 failed each.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
+  - +1 occurrence 2026-11-05 (section piping keep-green, VC7-proved in a detached worktree, alternating runs at base 6af322cc and HEAD 7567fe73, 1 failed all four, same message at base).
+  - Fixed 2026-11-06 on `todo/2026-11-06-ea`: the test was wrong, the seed is right. 9ac77afe restyled the SectionHead seed to a 4 mm authored radius on purpose (Q19 smoke; `test_sb4d_categories::test_shipped_seed` pins it) and the spec ties the triangle to the head's own `R_k`. The guard now expects 4.0 mm x drawing scale 100; RED with `_rk()` falling back to the old radius. L559 was a second filing of the same failure.
+- [x] [type:bug] `test_sb2a_pickers.py::test_host_category_row_enum_and_unknown` pins an old host category list [P4] [subject:Testing] [done:2026-11-06]
+  - Details: found in SB4f keep-green, 2026-11-04. The test's literal `options` list misses later categories (first extra: `Elevation`). Fails at branch base `b29294aa` and HEAD (VC7, worktrees), so an earlier task left it behind; SB4f's `View Title` adds one more. Derive the list from `element_params.CATEGORIES` instead of a literal.
+  - +1 occurrence 2026-11-05 (block stacking keep-green): failed at base `bc039e14` and HEAD `abc1cc24`.
+  - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
+  - Fixed 2026-11-06 on `todo/2026-11-06-ea`: the expected list now derives from `element_params.CATEGORIES` instead of a literal; RED with one category dropped from `category_choice`.
+- [x] [type:bug] `tests/test_section_marker.py::test_section_head_triangle_is_tangent_to_the_bubble_apex_on_the_look_side` fails: shipped SectionHead seed radius is 400.1, the test expects 406.4 [P4] [subject:Architecture] [done:2026-11-06]
+  - Details: wall-joint fix round 2 keep-green 2026-11-04, VC7-proved pre-existing in a detached worktree, alternating runs at branch base b29294aa and tip d4a4f3f9 (1 failed each, all four runs). `m._rk()` returns 400.109, `2.0 * BUBBLE_RADIUS_MM` is 406.4, rel tolerance 1e-3. Likely from the SB4d seed restyle at smoke (9ac77afe), not checked. Decide which is right: the seed or the test.
+  - Duplicate of the section-marker line above; closed by the same 2026-11-06 fix on `todo/2026-11-06-ea`.
+
 ## Block System -- block stacking, opaque blocks, Constraint Points per placement -- 2026-11-05
 - [x] [type:feature] Blocks in the schematic editor are opaque, with a settable stacking height so an overlapping block hides the one below [P2] [subject:Blocks] [done:2026-11-05]
   - Details: user ask 2026-11-04. Blocks paint only their linework and fill ops, so a block below shows through; no bring-forward / send-back exists anywhere in the app, and the editor scene has no z rule for instances. `to_nested_dict` stores no stacking value, and nested instances gather after primitives on Save (block-system: draw order across a round-trip is by type). `block_instance.py`, `block_editor.py`, `schematic_scene.py`, `docs/specs/schematics.md`.

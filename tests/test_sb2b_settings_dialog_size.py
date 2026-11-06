@@ -37,7 +37,8 @@ def _assert_fits(table):
     vp = table.viewport().rect()
     last = table.visualItemRect(table.item(table.rowCount() - 1, 0))
     assert last.height() > 0 and vp.contains(last)
-    assert table.item(table.rowCount() - 1, 0).text() == "Room"
+    from firepro3d import marks
+    assert [table.item(r, 0).text() for r in range(table.rowCount())] == list(marks.MARK_CATEGORIES)
     # all three columns fully inside the viewport
     assert sum(table.columnWidth(c) for c in range(3)) <= vp.width()
 
