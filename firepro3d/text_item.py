@@ -1613,7 +1613,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         from .manip_handle import default_grip_handles
         # S2: the centre move grip is a TranslateGripHandle (handle snap).
         return default_grip_handles(self, circular={0, 2, 4, 6, 8, 9, 10},
-                                    translate={self.MOVE_GRIP_INDEX})
+                                    translate={self.MOVE_GRIP_INDEX},
+                                    reach=frozenset(range(self.MOVE_GRIP_INDEX)))
 
     def manip_box_extra_handles(self):
         from .manip_handle import TranslateGripHandle
