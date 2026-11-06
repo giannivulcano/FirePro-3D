@@ -68,7 +68,7 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
 
 | # | Decision |
 |---|---|
-| N6 | **V Align Middle centres the ink.** Gaps above and below the glyph outlines are equal, in fixed and auto boxes, with or without descenders. The baseline moves with the typed content (user ruling). Top and Bottom are unchanged. Empty text uses today's rule. |
+| N6 | **V Align Middle centres the ink.** Gaps above and below the glyph outlines are equal, in fixed and auto boxes, with or without descenders. The baseline moves with the typed content (user ruling). `@[Field]` text keeps today's line box, in the editor and on placements, so tags share a baseline and the approved Room Tag is unchanged (user ruling, 2026-11-05: a descender would move a value 0.39 mm at 3 mm). A Note's words are typed text. Top and Bottom are unchanged. Empty text uses today's rule. |
 | N7 | **One home.** `TextItem._layout_offsets` owns it, so glyphs, caret, selection, compile and `bound_text_ops` follow. Ink is measured from an outline with no vertical offset, cached until the layout changes. |
 | N8 | **Sheet text is out of scope.** It has no V Align row, and its paint ignores the offset. |
 
@@ -84,7 +84,7 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
 | N14 | **Changing Drawing scale** resizes the text on the canvas about each anchor (N16), one undo step; printed size stays. If a tie refuses, the row reverts with a status. |
 | N15 | **Viewport paint.** A new `TextItem` branch in `apply_paper_overrides`, with restore, sets the pass factor. Text paints scaled `k = 1 / (text_scale * S)`, where S is the viewport's paper mm per model mm, so it prints at N10 at any scale and at NTS. Border weight plots true mm in this pass. A Real size schematic is untouched by the branch, border included. |
 | N16 | **Anchor.** With no leader the box scales about its alignment point (`align` + `valign`), the rule bound text follows. With a leader, the tip and elbow stay put and box and shoulder scale about the elbow. |
-| N17 | **Extent reads editor size**, so S never feeds it and NTS has no loop. A printed schematic drops at `extent / text_scale`, clamped to the sheet, so it opens matching the editor. |
+| N17 | **Extent reads editor size**, so S never feeds it and NTS has no loop. It holds every text leader's elbow and tip, so a note past the drawing is not cropped (user ruling, 2026-11-05). A printed schematic drops at `extent / text_scale`, clamped to the sheet, so it opens matching the editor. |
 | N18 | **Overrun.** Printed text larger than an NTS box allows is clipped at the viewport edge. The drawing does not shrink to fit. |
 | N19 | **Nested blocks unchanged.** Annotative blocks already print at authored mm; real-size blocks scale with the view. |
 
@@ -94,8 +94,8 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
 |---|---|
 | N20 | **Clicks.** Tip, elbow, then the box edge where the elbow joins it. Replaces two-corner Note. |
 | N21 | **Third click.** With K the elbow and C the click: `|dx| >= |dy|` picks edge L or R at `C.x`, the shoulder level with K; otherwise T or B at `C.y`, the box centred on `K.x`. A shorter click lands at `TEXT_LEADER_MIN_SHOULDER_MM`. The click's other coordinate is ignored so the shoulder stays perpendicular (D3). |
-| N22 | **Box.** Starts 60 mm printed wide, one line tall, wrapped. It extends away from the elbow. New constant, no magic number. |
-| N23 | **While typing.** The editor opens at once. The box grows downward and the shoulder stays on the first line; on an L or R edge the attach fraction `t` follows the height. Commit keeps D13: empty text deletes the note. |
+| N22 | **Box.** Starts 60 mm printed wide, one line tall, wrapped. It extends away from the elbow. New constant, no magic number. Printed mm convert by the canvas: a Printed schematic's own scale, else the project drawing scale, a Real size schematic included (user ruling, 2026-11-05). |
+| N23 | **While typing.** The editor opens at once. The box grows downward and the shoulder stays on the first line; on an L or R edge the attach fraction `t` follows the height. On a B edge the box grows upward instead, so the elbow stays where it was clicked (user ruling, 2026-11-05). Commit keeps D13: empty text deletes the note. |
 | N24 | **Preview and cancel.** Tip to elbow to cursor previews live, with the box after the elbow. Esc at any step leaves nothing. Snap applies at each click. The input HUD anchors on the current step. |
 | N25 | **Where.** Plan and detail save a Note block (D8). A schematic saves a Text primitive with a leader, into the definition (D12). Block editors and sheets keep Text with Leader on. Section and elevation stay off. |
 | N26 | **Button.** Plan and detail keep Architecture > Annotations. A Note button sits beside Text on the Build tab, live on Schematic tabs and disabled on Block tabs with a tooltip. Amends D11 and D12. |
@@ -108,7 +108,8 @@ Ratified by the user 2026-11-05 (Phase 2 questions, Phase 3 questions, design ap
       when the tie really holds the box.
 - [ ] AC2 A tied box dragged past its text stops there with no status; width stops where wrapped text
       fits the current height.
-- [ ] AC3 At V Align Middle, ink gaps are equal in the editor, on placements and in PDF.
+- [ ] AC3 At V Align Middle, typed text has equal ink gaps in the editor, on placements and in PDF;
+      `@[Field]` text keeps today's look.
 - [ ] AC4 New schematics: text prints at its printed height in every viewport, NTS included; the
       Drawing scale row sets its editor size only.
 - [ ] AC5 Old schematics print as at base until switched by the Text sizing row.
@@ -123,8 +124,8 @@ Guards drive the real path and are shown RED with the change reverted (VC3).
 - [ ] G1 Shown view, Blue Stair network rebuilt in a fixture with `bl` tied to a line: drag grips
       2, 3, 1, inward and out; no `CONFLICT_STATUS`, tied point unmoved, grip at cursor. Centre pin:
       `rm +30` gives width 180. Untied box past its text: far edge unmoved.
-- [ ] G2 Real `bound_text_ops` output and `TextItem` paint: ink gaps equal at M, with and without a
-      descender, in three fonts.
+- [ ] G2 `TextItem` paint and a Note's real `bound_text_ops` output: ink gaps equal at M, with and
+      without a descender, in three fonts. Placed `@[Field]` text keeps a shared baseline.
 - [ ] G3 Exported PDF: 3 mm text in 1:10, 1:20 and NTS viewports measures 3 mm cap height; an old
       schematic measures the same as at base.
 - [ ] G4 Posted clicks on plan, detail and schematic: tip, knee and box edge land at the clicks, the
@@ -148,7 +149,7 @@ Guards drive the real path and are shown RED with the change reverted (VC3).
 ## Edge Cases & Error Handling
 
 - **Rotated text:** N2 measures in the box's local axes.
-- **Bound text:** a hugged box has no slack; N6 still centres ink within it.
+- **Bound text:** keeps the line box at Middle (N6).
 - **Note drag across an edge:** the third-click choice follows the click only; later knee drags stay D4.
 - **Leader in a printed viewport:** the End keeps its existing paper sizing.
 - **A tie at a different S:** ties hold at the drawing scale. A viewport at another scale draws the box
