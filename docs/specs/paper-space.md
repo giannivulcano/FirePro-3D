@@ -1,5 +1,7 @@
 # Paper Space — Design Spec
 
+> **Notes on schematics (2026-11-06):** printed schematic text, three-click Note, tied text grips and V Align Middle ink centring are governed by the consolidating contract [2026-11-05-text-notes-polish-design.md](../superpowers/specs/2026-11-05-text-notes-polish-design.md).
+
 **Date:** 2026-04-09
 **Complexity:** Large
 **Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; **viewport properties now populate the property panel** (`ViewportProperties`, §19.4) — superseding `SheetViewPropertiesDialog` for editing; the ribbon contextual Viewport tab is a filed follow-up. **Multi-sheet management is built (§19 — designed 2026-08-06, shipped + smoke-tested 2026-08-07): sheet create/rename/renumber/reorder/delete, pure-push browser sheet tree, sheet properties panel, uniform paper size, identity-derived title block fields, batch PDF export/print.**

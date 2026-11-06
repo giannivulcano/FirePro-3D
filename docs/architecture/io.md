@@ -9,7 +9,7 @@
 
 ## Project file format
 
-FirePro3D uses a versioned JSON format for project files (`.fpd`). The current version is **9** (`SAVE_VERSION = 9`; all dimensions stored in mm).
+FirePro3D uses a versioned JSON format for project files (`.fpd`). The current version is owned by [`scene-io.md`](../specs/scene-io.md); all dimensions are stored in mm.
 
 > The underlay/import pipeline (DXF/DWG/PDF data model, path resolution,
 > caching) has a dedicated subsystem spec — see
@@ -85,10 +85,9 @@ A failed load never reaches the file: see the failure contract in
 
 ### Backward compatibility
 
-The `version` field is **recorded** in every saved file (`SAVE_VERSION = 9`)
-but the load path does **not** branch on it — there is no version-gated
-migration code. Instead, backward compatibility is handled per-field by
-**key presence**:
+The `version` field is **recorded** in every saved file. The version-gated
+migrations are listed in [`scene-io.md`](../specs/scene-io.md); otherwise backward
+compatibility is handled per-field by **key presence**:
 
 - Old files that stored a node's ceiling offset in inches under `ceiling_offset`
   are converted to mm on load (`ceiling_offset * 25.4`); new files write
@@ -96,9 +95,6 @@ migration code. Instead, backward compatibility is handled per-field by
 - Removed keys from older formats (e.g. `user_layer`, `user_layers`, `z_offset`,
   `display_mode`) are simply not read — they fall through dict parsing and are
   silently ignored. No error, no migration step.
-
-(The `SAVE_VERSION` number is reserved for forward-compat decisions; it is not
-currently consumed by any conditional logic.)
 
 ## DXF import
 

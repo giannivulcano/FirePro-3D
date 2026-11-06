@@ -1,7 +1,7 @@
 ---
 status: current           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 built 2026-10-09 (Manager Kind column + gating, Duplicate, available_views group, kind frozen on load / reload). Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-11-05  # block stacking Account: stacking pointer only, rest not re-audited; prior 2026-11-04  # SB4f Account (D-S2 + D-S10 + the sheet-furniture pointers only; rest not re-audited); prior 2026-10-21  # SB1a Account (D-S14 delta (a2): Edit Attributes disabled; pointer only, rest not re-audited); prior 2026-10-20 paper-authored-weights Account: D-S12 named authored weights plot at their own mm (pointer to paper-space 6.2); prior disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
-verified-commit: d1221e2d   # block stacking merge on main (v0.89.0); prior dab5a2f2   # SB4f on main (v0.87.0; D-S2 / D-S10 / pointers only); prior 0c06b766   # SB1a Account (D-S14 only); prior d49eb6d6 paper-authored-weights (D-S12 only); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
+last-verified: 2026-11-06  # notes on schematics Account: pointer, D-S7, rest not re-audited; prior 2026-11-05  # block stacking Account: stacking pointer only, rest not re-audited; prior 2026-11-04  # SB4f Account (D-S2 + D-S10 + the sheet-furniture pointers only; rest not re-audited); prior 2026-10-21  # SB1a Account (D-S14 delta (a2): Edit Attributes disabled; pointer only, rest not re-audited); prior 2026-10-20 paper-authored-weights Account: D-S12 named authored weights plot at their own mm (pointer to paper-space 6.2); prior disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
+verified-commit: bfe51a30  # notes merge on main (v0.93.0; pointer, D-S7); prior d1221e2d  # block stacking merge on main (v0.89.0); prior dab5a2f2   # SB4f on main (v0.87.0; D-S2 / D-S10 / pointers only); prior 0c06b766   # SB1a Account (D-S14 only); prior d49eb6d6 paper-authored-weights (D-S12 only); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
 applies-to:               # seams this contract governs (SV1–SV4 seams built); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog + template toggle / save_schematic_template / save_as_template only (rest: block-system.md)
@@ -21,6 +21,8 @@ source-tasks: ["Schematic views concept — block-like definition authored in a 
 ---
 
 # Schematics — Design Spec
+
+> **Notes on schematics (2026-11-06):** printed schematic text, three-click Note, tied text grips and V Align Middle ink centring are governed by the consolidating contract [2026-11-05-text-notes-polish-design.md](../superpowers/specs/2026-11-05-text-notes-polish-design.md).
 
 > **Rule A.** This spec owns the *what*: decisions **D-S1…D-S18**, ratified in the
 > 2026-10-07 grill (Q1–Q18). The *how* (SD1–SD11) and the build slices SV1–SV4
@@ -151,8 +153,8 @@ one mechanism by which block content reaches paper.
 - **D-S7 Drawing space.** Real-size millimetres in the editor (block parity);
   the viewport scales for paper. **NTS is the default** for a schematic
   viewport (`scale == 0`, the shipped free-size letterbox mode); any scale
-  preset may be chosen afterwards. Text keeps the paper-fixed-mm sizing it has
-  in blocks.
+  preset may be chosen afterwards. Text sizing is the Text sizing row: Printed text keeps its
+  printed size in every viewport, Real size text scales with the viewport (notes design N9-N19).
 - **D-S9 New Schematic.** Browser root verb **New Schematic…** opens a dialog
   with two choices — **Blank** or **From template** (picker over the schematics
   folder). Either opens a `Schematic:` editor tab. **Save** writes the

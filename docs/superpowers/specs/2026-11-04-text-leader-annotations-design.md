@@ -1,7 +1,7 @@
 ---
 status: built            # ratified 2026-11-04 (grill Q1-Q12 + design approval); D4, D7, D8 amended at smoke
-last-verified: 2026-11-04
-verified-commit: 820f47c8  # merge on main (v0.85.0)
+last-verified: 2026-11-06  # notes on schematics Account: pointer, rest not re-audited; prior 2026-11-04  # 
+verified-commit: bfe51a30  # notes merge on main (v0.93.0; pointer); prior 820f47c8  # merge on main (v0.85.0)
 applies-to:
   - firepro3d/text_leader.py      # new: pure leader geometry + ops
   - firepro3d/text_item.py        # leader fields, paint, bounds, grips, panel rows
@@ -27,6 +27,8 @@ source-tasks:
 ---
 
 # Text Leaders, Annotations Group and View-Owned Notes -- Design Spec
+
+> **Notes on schematics (2026-11-06):** printed schematic text, three-click Note, tied text grips and V Align Middle ink centring are governed by the consolidating contract [2026-11-05-text-notes-polish-design.md](2026-11-05-text-notes-polish-design.md).
 
 Consolidating contract for a change spanning `text-annotation-system.md`,
 `ribbon-bar.md`, `model-space-containment-contract.md`, `system-blocks.md`,
