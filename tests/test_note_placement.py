@@ -85,7 +85,7 @@ def test_note_mode_is_refused_off_a_plan_or_detail_view(qapp, key):
 
 
 @pytest.mark.parametrize("role", ["block_editor"])
-def test_note_mode_is_refused_on_an_editor_scene(qapp, role):
+def test_note_mode_is_refused_on_a_block_editor_scene(qapp, role):
     ms = Model_Space(scene_role=role)
     ms.active_view_key = PLAN
     ms.set_mode("note")

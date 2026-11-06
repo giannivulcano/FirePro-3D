@@ -138,7 +138,10 @@ class NoteTemplate:
 
     def _prim(self) -> "dict | None":
         from .system_blocks import NOTE_BLOCK_ID
-        d = self._scene.ensure_system_block(NOTE_BLOCK_ID)
+        # A schematic editor borrows the project's registry, and its own definition
+        # dict is private to its undo: the Note block is embedded in the project.
+        owner = getattr(self._scene, "_block_registry_owner", None) or self._scene
+        d = owner.ensure_system_block(NOTE_BLOCK_ID)
         bps = d.bound_prims() if d is not None else []
         return bps[0].prim if bps else None
 
@@ -292,7 +295,33 @@ class NoteController:
         if not ensure_end_available(self.template.leader["end"], s, outside_history=True):
             s._show_status("The leader End could not be loaded")
             return
-        self._place_note(tip, knee, click, self._one_line_mm(prim))
+        if s.scene_role == "plan":
+            self._place_note(tip, knee, click, self._one_line_mm(prim))
+        else:
+            self._place_text(tip, knee, click, prim)
+
+    def _place_text(self, tip: QPointF, knee: QPointF, click: QPointF, prim: dict) -> None:
+        """A Text primitive with a leader in a schematic (D12, N25): it saves into
+        the definition. It wears the Note style at the schematic's scale, so one
+        armed tool stamps the same note on every surface (N27). No undo step
+        here: the edit session's commit pushes place + type as one."""
+        from .text_item import TextItem
+        s = self._scene
+        k = self._printed_k()
+        box, rec = _tl.box_from_clicks(knee, click, NOTE_BOX_WIDTH_MM * k,
+                                       self._one_line_mm(prim) * k,
+                                       TEXT_LEADER_MIN_SHOULDER_MM * k)
+        style = dict(prim, **self.template.style)
+        fields = dict(style, text="", x=box.x(), y=box.y(), wrap_width_mm=box.width(),
+                      box_height_mm=box.height(), **_scaled_lengths(style, k))
+        fields["leader"] = dict(rec, tip_x=tip.x(), tip_y=tip.y(), **self.template.leader)
+        fields.pop("uid", None)
+        item = TextItem.from_dict(fields)
+        s.addItem(item)
+        s._texts.append(item)
+        s.requestPropertyUpdate.emit(item)
+        s._end_placement_switch(item)
+        s._text_edit_ctl.begin(item, is_new=True)
 
     def _place_note(self, tip: QPointF, knee: QPointF, click: QPointF,
                     one_line: float) -> None:

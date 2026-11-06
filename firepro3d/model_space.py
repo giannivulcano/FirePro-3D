@@ -104,7 +104,7 @@ NO_VIEW_HINT = "Open a view from the Project Browser"
 
 # Status hint shown when the Note tool is refused: a Note is owned by one plan or
 # detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
-NOTE_OFF_HINT = "Notes can be placed on plan and detail views"
+NOTE_OFF_HINT = "Notes can be placed on plan, detail and schematic views"
 NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
 
 
@@ -222,6 +222,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         super().__init__()
         self.scene_role = scene_role
         self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
+        self.editor_kind = "block"       # a block_editor scene: "block" or "schematic" (D-S14)
         self._stack_members = weakref.WeakSet()   # BlockInstances in this scene (itemChange keeps it)
         self._opaque_stack = None        # (default, opaque blocks in paint order, memo) -- BlockInstance._opaque_rows
         # ET1 spec C: items whose last paint drew a Fixed-size end at the
@@ -1189,8 +1190,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).
             return
-        if mode == "note" and not self.note_allowed():
-            # Notes are view-owned (design D9 / D11): plan and detail canvases only.
+        if mode == "note" and not self.note_tool_allowed():
+            # Plan, detail and schematic canvases only (notes design N25).
             self.instructionChanged.emit(NOTE_OFF_HINT)
             return
         if (isinstance(mode, str) and mode.startswith("constrain_")
@@ -6751,10 +6752,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         inst.level = self.active_level
 
     def note_allowed(self) -> bool:
-        """Whether this canvas can hold a Note: a plan scene showing a plan or
-        detail view (design D11)."""
+        """Whether this canvas can hold a Note block: a plan scene showing a plan
+        or detail view (design D11). The paste gates ask this: a Note record is
+        view-owned, so it never lands in a schematic."""
         return (self.scene_role == "plan"
                 and self.active_view_key.partition(":")[0] in ("plan", "detail"))
+
+    def note_tool_allowed(self) -> bool:
+        """Whether the Note tool runs here: wherever a Note block can live, plus
+        a schematic editor, where it saves as a text with a leader (N25)."""
+        return self.note_allowed() or (self.scene_role == "block_editor"
+                                       and self.editor_kind == "schematic")
 
     def _press_note(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._note_ctl.tool_click(snapped)

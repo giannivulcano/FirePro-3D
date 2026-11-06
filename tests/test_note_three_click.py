@@ -383,3 +383,200 @@ def test_the_hud_measures_each_step_from_its_own_point_and_a_typed_step_places(
     key(view, Qt.Key.Key_H)                             # the keyboard reached the editor
     assert scene._note_ctl.overlay.toPlainText().lower() == "h"
     scene._text_edit_ctl.commit()
+
+
+# -- N25: a schematic note is a text with a leader, saved into the definition -------
+
+@pytest.fixture
+def schematic(qapp, real_system_library, monkeypatch):
+    """A shown Schematic editor at the conftest zoom, its text scale 20."""
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication
+
+    from firepro3d import annotative
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.model_space import Model_Space
+    from firepro3d.scale_manager import ScaleManager
+    from tests.conftest import _DropOsPointerInput
+
+    monkeypatch.setattr(annotative, "editor_text_scale", lambda scene: SCHEMATIC_SCALE)
+    proj = Model_Space()
+    proj._level_manager = LevelManager()
+    proj.scale_manager = ScaleManager()
+    w = BlockEditorWidget(proj, kind="schematic")
+    w.resize(900, 700)
+    view = w.view
+    view._os_pointer_filter = _DropOsPointerInput(view)
+    view.viewport().installEventFilter(view._os_pointer_filter)
+    view.installEventFilter(view._os_pointer_filter)
+    w.show()
+    QTest.qWaitForWindowExposed(w)
+    view.resetTransform()
+    view.scale(0.25, 0.25)
+    view.centerOn(0, 0)
+    view.setFocus()
+    QApplication.processEvents()
+    yield w, view, w.editor_scene, proj
+    w.editor_scene.set_mode(None)
+    w.close()
+
+
+SCHEMATIC_SCALE = 20.0
+
+
+def _committed_text(view, scene, third):
+    scene.set_mode("note")
+    assert scene.mode == "note"
+    three_clicks(view, scene, third=third)
+    item = scene._texts[-1]
+    assert editing_text_item(scene) is item                  # the editor opens at once
+    item.setPlainText("Hold")
+    scene._text_edit_ctl.commit()
+    return item
+
+
+@pytest.mark.parametrize("edge", ["L", "R", "T", "B"])
+def test_g4_schematic_clicks_make_a_text_with_a_leader_on_the_clicks(schematic, edge):
+    w, view, scene, _proj = schematic
+    item = _committed_text(view, scene, THIRD[edge])
+    assert scene._block_instances == []                      # no Note record in a definition
+    assert item.data.leader["edge"] == edge
+    a, k, tip = [_tl._to_parent(item, p) for p in _tl.box_frame_points(item)[:2]] + [
+        QPointF(item.data.leader["tip_x"], item.data.leader["tip_y"])]
+    assert_drawn_on_clicks(view, tip, k, a, edge, THIRD[edge])
+    box = item.mapRectToScene(item._box_rect_local())
+    side = {"L": box.left(), "R": box.right(), "T": box.top(), "B": box.bottom()}[edge]
+    want = landed(view, THIRD[edge])
+    assert side == pytest.approx(want.x() if edge in "LR" else want.y(), abs=px(view) * 1.5)
+    assert box.contains(k) is False
+
+
+def test_n22_the_schematic_box_is_60_printed_at_the_text_scale(schematic):
+    w, view, scene, _proj = schematic
+    item = _committed_text(view, scene, THIRD["L"])
+    box = item.mapRectToScene(item._box_rect_local())
+    assert box.width() == pytest.approx(60.0 * SCHEMATIC_SCALE)
+    assert item.data.height_mm == pytest.approx(3.0 * SCHEMATIC_SCALE)   # the Note style, printed
+    assert 5.0 * SCHEMATIC_SCALE < box.height() < 9.0 * SCHEMATIC_SCALE
+
+
+def test_n23_a_schematic_shoulder_stays_on_the_first_line(schematic):
+    w, view, scene, _proj = schematic
+    scene.set_mode("note")
+    three_clicks(view, scene, third=THIRD["L"])
+    item = scene._texts[-1]
+    item.setPlainText("one\ntwo\nthree")
+    scene._text_edit_ctl.commit()
+    k = _tl._to_parent(item, _tl.box_frame_points(item)[1])
+    assert k.y() == pytest.approx(landed(view, KNEE).y(), abs=px(view) * 1.5)
+
+
+@pytest.mark.parametrize("step", [0, 1, 2])
+def test_g4_schematic_esc_before_the_third_click_leaves_nothing(schematic, step):
+    w, view, scene, _proj = schematic
+    before = set(scene.items())
+    scene.set_mode("note")
+    for pt in (TIP, KNEE)[:step]:
+        click(view, pt)
+    key(view, Qt.Key.Key_Escape)
+    assert scene.mode != "note" and scene._texts == []
+    assert not [i for i in set(scene.items()) - before
+                if isinstance(i, (QGraphicsPathItem, QGraphicsRectItem)) and i.isVisible()]
+
+
+def test_g4_schematic_esc_in_the_empty_editor_leaves_nothing(schematic):
+    w, view, scene, _proj = schematic
+    depth = len(scene._undo_stack)
+    scene.set_mode("note")
+    three_clicks(view, scene)
+    key(view, Qt.Key.Key_Escape)
+    assert scene._texts == [] and editing_text_item(scene) is None
+    assert len(scene._undo_stack) == depth
+
+
+def test_n27_the_armed_rows_stamp_a_schematic_note(schematic):
+    w, view, scene, _proj = schematic
+    tmpl = scene._note_ctl.template
+    tmpl.set_property("Bold", True)
+    tmpl.set_property("Height", 5.0)
+    tmpl.set_property("Leader Weight", "Medium")
+    item = _committed_text(view, scene, THIRD["L"])
+    assert item.data.bold is True
+    assert item.data.height_mm == pytest.approx(5.0 * SCHEMATIC_SCALE)
+    assert item.data.leader["weight"] == "Medium"
+
+
+def test_a_block_tab_and_a_note_paste_stay_refused(qapp, real_system_library):
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.model_space import NOTE_OFF_HINT, NOTE_PASTE_REFUSED, Model_Space
+    proj = Model_Space()
+    block = BlockEditorWidget(proj, kind="block").editor_scene
+    hints = []
+    block.instructionChanged.connect(hints.append)
+    block.set_mode("note")
+    assert block.mode != "note" and hints[-1] == NOTE_OFF_HINT
+    sch = BlockEditorWidget(proj, kind="schematic").editor_scene
+    msgs = []
+    sch._show_status = lambda m, *a, **k: msgs.append(m)
+    d = proj.ensure_system_block(NOTE_BLOCK_ID)
+    assert d is not None and sch.note_tool_allowed() and not sch.note_allowed()
+    note = {"view": PLAN, "wrap_width_mm": 40.0, "box_height_mm": 8.0}
+    src = proj.place_block_instance(NOTE_BLOCK_ID, (0.0, 0.0), note=note)
+    assert sch.paste_items(QPointF(0.0, 0.0), data=[src.to_dict()]) in ([], None)
+    assert sch._block_instances == [] and msgs[-1] == NOTE_PASTE_REFUSED
+
+
+def test_n23_a_stale_hold_never_moves_a_dragged_knee_at_the_next_edit(schematic):
+    """A bound text swaps its display text in begin_edit, which fires the contents
+    signal: the hold must already be the new session's."""
+    w, view, scene, _proj = schematic
+    item = _committed_text(view, scene, THIRD["L"])
+    item.data.leader["t"] = 0.9                            # a knee drag after the first session
+    item._display_text = "shown"
+    scene._text_edit_ctl.begin(item)
+    assert item.data.leader["t"] == pytest.approx(0.9)
+    scene._text_edit_ctl.commit()
+
+
+# -- G5 / AC7: a schematic note round trips -----------------------------------------
+
+def _leader_tuple(item):
+    rec = item.data.leader
+    return (rec["edge"], rec["t"], rec["shoulder_mm"], rec["tip_x"] - item.data.x,
+            rec["tip_y"] - item.data.y, rec["end"])
+
+
+def test_g5_undo_and_redo_keep_a_schematic_note(schematic):
+    w, view, scene, _proj = schematic
+    item = _committed_text(view, scene, THIRD["R"])
+    want = _leader_tuple(item)
+    scene.undo()
+    assert scene._texts == []
+    scene.redo()
+    assert len(scene._texts) == 1
+    assert _leader_tuple(scene._texts[0]) == pytest.approx(want)
+    assert scene._texts[0].data.text == "Hold"
+
+
+def test_g5_a_saved_schematic_note_reopens_and_draws_on_a_placement(schematic):
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.constants import TEXT_LEADER_END_ID
+    w, view, scene, proj = schematic
+    item = _committed_text(view, scene, THIRD["R"])
+    want = _leader_tuple(item)
+    defn = w.commit_block("Sch", "", "")
+    assert defn is not None and defn.kind == "schematic"
+    back = BlockDefinition.from_dict(defn.to_dict())          # the .fpd / .fpdb record
+    assert [p["type"] for p in back.primitives] == ["text"]
+    assert back.primitives[0]["leader"]["end"] == TEXT_LEADER_END_ID
+    w2 = BlockEditorWidget(proj, block_id=defn.id, kind="schematic")
+    w2.seed_from_dicts(back.primitives)
+    again = w2.editor_scene._texts[0]
+    assert again.data.text == "Hold"
+    assert _leader_tuple(again) == pytest.approx(want)
+    inst = proj.place_block_instance(defn.id, (0.0, 0.0))
+    drawn = leader_op(inst)                                    # the leader reaches a placement
+    assert drawn.pieces[-1].x1 == pytest.approx(back.primitives[0]["leader"]["tip_x"])
+    assert proj.get_block_definition(TEXT_LEADER_END_ID) is not None
