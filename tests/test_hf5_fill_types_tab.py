@@ -520,24 +520,6 @@ def test_a_table_change_repaints_cut_walls(qapp, mw_fn, monkeypatch):
     assert calls
 
 
-def test_a_section_read_that_adds_a_type_does_not_rebuild_or_loop(qapp, mw_fn, monkeypatch):
-    """Carry-in M6: SectionScene._category_section_type adds types + notifies from a
-    rebuild/read path; the bus handler must not rebuild a section (loop guard)."""
-    from firepro3d.section_scene import SectionScene
-    rebuilds, handled = [], []
-    monkeypatch.setattr(mw_fn.section_manager, "rebuild_all", lambda *a, **k: rebuilds.append(1))
-    real = mw_fn._live_scenes
-    monkeypatch.setattr(mw_fn, "_live_scenes", lambda: (handled.append(1), real())[1])
-    s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Wall/section_type", "Brand New")
-    s.setValue("display/Wall/section_look", '{"background": {"color": "#123456", "opacity": 1.0}}')
-    tid = SectionScene._category_section_type("Wall", s)
-    assert ft.project_table().get(tid).name == "Brand New"
-    assert handled == [1] and rebuilds == []
-    assert SectionScene._category_section_type("Wall", s) == tid       # second read: no notify
-    assert handled == [1]
-
-
 def test_the_handler_is_not_reentrant(qapp, mw_fn):
     """A recompile that itself notifies must not recurse."""
     depth = []

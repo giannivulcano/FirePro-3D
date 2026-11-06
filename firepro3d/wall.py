@@ -710,7 +710,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             # replaces the element fill; a By element pattern uses the
             # element's normal line colour and weight.
             draw_section_type(painter, clip, self.scene(), self,
-                              getattr(self, "_display_section_type", None),
+                              materials.fill_type_of(self),
                               line_col,
                               # canvas cosmetic px width (paper uses hatch_line_mm)
                               line_width=pen.widthF() if pen.isCosmetic() else 1.0,

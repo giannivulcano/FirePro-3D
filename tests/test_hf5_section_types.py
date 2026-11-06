@@ -5,7 +5,10 @@ from collections import Counter
 from PyQt6.QtCore import QPointF, QRectF, QSettings
 from PyQt6.QtGui import QColor, QImage, QPainter
 
+import pytest
+
 from firepro3d import fill_types as ft
+from firepro3d import materials as mt
 from firepro3d.constants import TOKEN_ELEMENT
 from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer, to_record
 
@@ -60,7 +63,28 @@ def test_item_override_with_only_a_pattern_inherits_the_category_body():
     assert lay.pattern.ref == "builtin-hatch-horizontal" and lay.pattern.scale == 2.0
 
 
-# -- the real path: wall + floor through the Display Manager apply -----------------
+# -- the real path: a cut draws its element's material (materials.md M3) -----------
+
+@pytest.fixture(autouse=True)
+def _fresh_tables():
+    ft.reset_project_table()
+    mt.reset_project_table()
+    yield
+    ft.reset_project_table()
+    mt.reset_project_table()
+
+
+def _give_material(item, layers, name="Cut look"):
+    """Give *item* a material on a new Fill Type carrying *layers*; returns the type."""
+    t = ft.project_table().add(ft.FillType(ft.new_id(), name, layers))
+    item.material_id = mt.project_table().add(mt.Material(ft.new_id(), name, t.id)).id
+    return t
+
+
+def _factory_cut():
+    """The retired factory Wall category look: #666666 body, By element diagonal."""
+    return ft.legacy_section_layers("#666666", "diagonal", 1.0)
+
 
 def _wall(ms, x0=0.0, x1=1200.0):
     from firepro3d.wall import WallSegment
@@ -111,8 +135,8 @@ def test_wall_cut_pixels_follow_type_and_element_colour(qapp, model_space, shipp
     w = _wall(ms)
     w._display_overrides["fill"] = ""                 # no element fill under the cut
     _apply_wall_category(ms)
-    tid = w._display_section_type
-    assert ft.project_table().get(tid).name == "Wall Section"
+    tid = _give_material(w, _factory_cut()).id
+    assert ft.project_table().get(tid) is not None
 
     # 1. category default: body = the factory #666666, hatch lines = the wall line colour
     px = _render(ms, w)
@@ -136,23 +160,26 @@ def test_wall_cut_pixels_follow_type_and_element_colour(qapp, model_space, shipp
     ft.notify_changed()
     assert _body(_render(ms, w)) == "#0000ff"
 
-    # 4. an item override naming a type that does not exist draws the fallback grey
-    w._display_overrides["section_type"] = "no-such-type"
+    # 4. a material whose Fill Type is gone draws the fallback grey
+    w.material_id = mt.project_table().add(mt.Material(ft.new_id(), "Gone", "no-such-type")).id
     _apply_wall_category(ms)
     px = _render(ms, w)
     assert _near(QColor(_body(px)), (230, 230, 230), 3)     # #808080 at 20 % on white
     assert not [c for c in px if _near(c, (0, 0, 255), 30)]
 
 
-def test_wall_without_a_type_draws_the_default_look(qapp, model_space, shipped_hatches):
-    """An item no Display Manager apply has touched (type None) keeps the
-    pre-HF5 default: diagonal hatch in the line colour, no body."""
+def test_wall_with_a_hatch_only_material_draws_the_hatch_in_the_line_colour(
+        qapp, model_space, shipped_hatches):
+    """Materials M3 retired the category default look (an untyped cut drew a
+    diagonal in the line colour); a hatch-only material keeps what it proved:
+    By element hatch in the line colour, no body. None now draws nothing
+    (tests/test_materials_cut.py)."""
     ms = model_space
     shipped_hatches(ms)
     w = _wall(ms)
     w._display_color = "#aa0000"
+    _give_material(w, ft.legacy_section_layers("", "diagonal", 1.0), "Hatch only")
     px = _render(ms, w)
-    assert w._display_section_type is None
     assert _body(px) == "#ffffff"
     assert len([c for c in px if _near(c, (170, 0, 0), 30)]) > 10
 
@@ -165,6 +192,7 @@ def test_paper_body_colour_wins_over_the_type_background(qapp, model_space, ship
     w = _wall(ms)
     w._display_overrides["fill"] = ""
     _apply_wall_category(ms)
+    _give_material(w, _factory_cut())
     assert _body(_render(ms, w)) == "#666666"
     w._display_section_color = "#00ff00"
     assert _body(_render(ms, w)) == "#00ff00"
@@ -183,8 +211,7 @@ def test_floor_cut_follows_its_type(qapp, model_space, shipped_hatches):
     slab._is_section_cut = True
     slab._display_fill_color = ""
     dm._apply_to_scene_items(ms, "Floor", dm._read_category_from_settings("Floor"))
-    t = ft.project_table().get(slab._display_section_type)
-    assert t.name == "Floor Section"
+    t = _give_material(slab, ft.legacy_section_layers("#8888cc", "diagonal", 1.0), "Floor cut look")
     ft.project_table().replace(ft.FillType(t.id, t.name, FillLayers(BackgroundLayer("#ff00ff", 1.0))))
     ft.notify_changed()
     r = slab.sceneBoundingRect().adjusted(-20, -20, 20, 20)
@@ -297,6 +324,7 @@ def test_transparent_element_colour_draws_no_hatch(qapp, model_space, shipped_ha
     w._display_overrides["fill"] = ""
     w._display_overrides["color"] = ""
     _apply_wall_category(ms)
+    _give_material(w, _factory_cut())
     px = _render(ms, w)
     assert {c.name() for c in px} == {"#666666"}
 
@@ -306,21 +334,21 @@ def test_wall_token_body_renders_the_resolved_token(qapp, model_space, shipped_h
     from firepro3d.constants import TOKEN_ACCENT
     ms = model_space
     shipped_hatches(ms)
-    QSettings("GV", "FirePro3D").setValue("display/Wall/section", TOKEN_ACCENT)
     w = _wall(ms)
     w._display_overrides["fill"] = ""
     _apply_wall_category(ms)
+    _give_material(w, ft.legacy_section_layers(TOKEN_ACCENT, "diagonal", 1.0))
     assert _body(_render(ms, w)) == resolve_colour(TOKEN_ACCENT).name()
 
 
 def test_wall_no_fill_body_renders_no_body(qapp, model_space, shipped_hatches):
     ms = model_space
     shipped_hatches(ms)
-    QSettings("GV", "FirePro3D").setValue("display/Wall/section", "")
     w = _wall(ms)
     w._display_overrides["fill"] = ""
     w._display_overrides["color"] = "#aa0000"
     _apply_wall_category(ms)
+    _give_material(w, ft.legacy_section_layers("", "diagonal", 1.0))
     px = _render(ms, w)
     assert _body(px) == "#ffffff"
     assert len([c for c in px if _near(c, (170, 0, 0), 60)]) > 10      # hatch still draws

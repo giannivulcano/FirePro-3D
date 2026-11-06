@@ -23,7 +23,9 @@ from PyQt6.QtCore import QPointF, QRectF
 from PyQt6.QtGui import QColor, QImage, QPainter
 
 from firepro3d import app_data
+from firepro3d import fill_types as ft
 from firepro3d import hatch_patterns as hp
+from firepro3d import materials as mt
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
 from firepro3d.filled_region import FilledRegionItem
@@ -105,6 +107,12 @@ def mw(qapp, tmp_path, monkeypatch):
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
+def _give_cut_type(item, type_id):
+    """Give *item* a material drawing Fill Type *type_id* (id may be one the table lacks)."""
+    table = mt.project_table()
+    item.material_id = table.add(mt.Material(ft.new_id(), table.free_name("Cut look"), type_id)).id
+
+
 def _open_fixture(win, path=FIXTURE):
     """Real open path, then the cut flags + the per-item red line colour (wall
     per-item overrides are not serialized -- open bug -- so they are applied
@@ -115,6 +123,12 @@ def _open_fixture(win, path=FIXTURE):
     assert len(walls) == 2 and len(sc._floor_slabs) == 1
     for item in (*walls, *sc._floor_slabs):
         item._is_section_cut = True
+    # Materials M8: an old file opens as None, so its cuts draw nothing; the
+    # cut looks these guards pin come back as materials on the category types
+    # the open leaves in the table (the pre-materials look, through the new path).
+    for item, type_name in ((*[(w, "Wall Section") for w in walls],
+                             (sc._floor_slabs[0], "Floor Section"))):
+        _give_cut_type(item, ft.project_table().by_name(type_name).id)
     walls[1]._display_color = "#ff0000"
     sc.update()
     return walls[0], walls[1], sc._floor_slabs[0]
@@ -337,7 +351,7 @@ def test_missing_type_cut_draws_fallback(mw):
     w1, _w2, _slab = _open_fixture(mw)
     gone = ft.project_table().add(ft.FillType(ft.new_id(), "Doomed", FillLayers(
         BackgroundLayer("#00ff00", 1.0))))
-    w1._display_section_type = gone.id
+    _give_cut_type(w1, gone.id)
     w1._display_fill_color = ""
     mw.scene.update()
     assert _share(_canvas_img(mw.scene), _body(w1), "#00ff00") > 0.9
@@ -417,7 +431,7 @@ def test_bw_paper_cut_hatch_is_element_colour_not_the_types_literal_red(mw, tmp_
     w1, _w2, _slab = _open_fixture(mw)
     red = ft.project_table().add(ft.FillType(ft.new_id(), "Red Hatch", FillLayers(
         None, PatternLayer(hp.BUILTIN_DIAGONAL, "#ff0000", 1.0, 1.0))))
-    w1._display_section_type = red.id
+    _give_cut_type(w1, red.id)
     w1._display_fill_color = ""
     for it in mw.scene.items():                    # only the typed wall plots (the
         if it.parentItem() is None and it is not w1:   # fixture's red region would

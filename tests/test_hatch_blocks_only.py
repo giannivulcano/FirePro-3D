@@ -209,6 +209,11 @@ def test_new_project_section_cut_wall_renders_hatch(mw):
     w._display_color = "#ff0000"
     w._display_section_color = None                        # lines only, no body
     w._is_section_cut = True
+    # The wall's material is what draws the cut (materials.md M3): a hatch-only type.
+    from firepro3d import fill_types as ft, materials as mt
+    t = ft.project_table().add(ft.FillType(ft.new_id(), f"Cut hatch {ft.new_id()}",
+                                           ft.legacy_section_layers("", "diagonal", 1.0)))
+    w.material_id = mt.project_table().add(mt.Material(ft.new_id(), t.name, t.id)).id
     sc.update()
     br = w.sceneBoundingRect()
     rect = QRectF(-200, br.center().y() - 600, 4400, 1200)
