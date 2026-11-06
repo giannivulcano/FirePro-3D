@@ -3453,6 +3453,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn.text_sizing = norm_text_sizing(meta.get("text_sizing"))
             defn.text_scale = norm_text_scale(meta.get("text_scale"))
             return
+        defn.text_sizing = defn.text_scale = None       # a schematic saved as a block
         defn.attributes = list(meta.get("attributes", []))   # setter normalises
         defn.host_category = str(meta.get("host_category", ""))
         defn.scale_mode = str(meta.get("scale_mode", "real_size"))

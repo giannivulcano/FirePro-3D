@@ -4,6 +4,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d.annotative import editor_text_scale
+from firepro3d.block_definition import BlockDefinition
 from firepro3d.block_editor import BlockEditorWidget
 from firepro3d.block_properties_info import BlockPropertiesInfo
 from firepro3d.constraint_controller import CONFLICT_STATUS
@@ -176,3 +177,36 @@ def test_an_unreadable_label_is_ignored(qapp):
     _row(w, "banana")
     assert editor_text_scale(w.editor_scene) == 20.0
     assert t.data.height_mm == 60.0
+
+
+def test_a_dim_between_two_texts_keeps_its_value(qapp):
+    """N16: each text scales about its own anchor, so neither anchor moves and a dim
+    between them stays. Group B review: scaling it threw the texts 500 apart."""
+    _p, w, a = _setup(x=0.0, y=0.0, align="C", valign="M", wrap=True, wrap_width_mm=200.0,
+                      box_height_mm=100.0)
+    b = TextItem(TextAnnotationData(text="H", font_family="Arial", height_mm=60.0, x=1000.0,
+                                    y=0.0, align="C", valign="M", wrap=True,
+                                    wrap_width_mm=200.0, box_height_mm=100.0))
+    w._add_primitive(b)
+    ctl = w.editor_scene.constraint_ctl
+    assert ctl.add("dim_distance", [{"uid": a._uid, "h": "center"},
+                                    {"uid": b._uid, "h": "center"}], value=1000.0)
+    dim = ctl.constraints[-1]
+    w.editor_scene.push_undo_state()
+    before = (_point(a, 0.5, 0.5), _point(b, 0.5, 0.5))
+    _row(w, "1:40")
+    assert editor_text_scale(w.editor_scene) == 40.0
+    assert a.data.height_mm == pytest.approx(120.0)
+    assert dim.value == pytest.approx(1000.0)
+    assert _point(a, 0.5, 0.5).x() == pytest.approx(before[0].x())
+    assert _point(b, 0.5, 0.5).x() == pytest.approx(before[1].x())
+
+
+def test_a_schematic_saved_as_a_block_drops_the_keys(qapp):
+    """N9: the keys are schematics only."""
+    defn = BlockDefinition(id="x", name="X", kind="block", version=1, library="", series="",
+                           scale_mode="real_size", origin=(0.0, 0.0), attributes=[],
+                           primitives=[])
+    defn.text_sizing, defn.text_scale = "printed", 20.0
+    Model_Space._apply_block_meta(defn, {})
+    assert (defn.text_sizing, defn.text_scale) == (None, None)

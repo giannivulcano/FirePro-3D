@@ -584,7 +584,8 @@ class BlockEditorWidget(QWidget):
         """The Drawing scale row: re-size the canvas text for scale *n* (N14).
 
         Printed size stays: every text scales about its anchor by new / old,
-        one undo step, and a driving dim inside it follows. If the constraints
+        one undo step. Each anchor stays, so a dim between two texts keeps its
+        value, and a dim that sizes one text cannot exist. If the constraints
         refuse, the solver has restored the geometry and posted its status, and
         the fields it cannot reach are put back here.
 
@@ -600,7 +601,7 @@ class BlockEditorWidget(QWidget):
         texts = list(sc._texts)
         states = [(t, t.box_state()) for t in texts]
         ctl = sc.constraint_ctl
-        with ctl.edit(texts, typed=True, scale=factor):
+        with ctl.edit(texts, typed=True):
             for t in texts:
                 t.rescale_about_anchor(factor)
         if ctl.edit_refused:
