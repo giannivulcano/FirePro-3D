@@ -292,11 +292,12 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     dlg = mw._make_display_manager("model")           # create the project type through the tab
     tab = _tab(dlg)
     tab.add_type()
-    assert tab.set_name("Concrete")
+    # "Concrete" is a starter Fill Type since M10 (materials seed), so the name is taken
+    assert tab.set_name("Poured Slab")
     tab.set_background(True, "#00aa00", 1.0)
     tab.set_pattern(False, None, "#000000", 1.0, 1.0)
     dlg.accept()
-    region = _place_typed_region_block(mw, "Concrete")
+    region = _place_typed_region_block(mw, "Poured Slab")
     mw.scene.update()
 
     before = _canvas_img(mw.scene)
@@ -309,7 +310,7 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     tab = _tab(dlg)
     assert tab.select_name("Wall Section")
     tab.set_background(True, "#ffaa00", 1.0)
-    assert tab.select_name("Concrete")
+    assert tab.select_name("Poured Slab")
     tab.set_background(True, "#0000ff", 1.0)
     dlg.accept()
 

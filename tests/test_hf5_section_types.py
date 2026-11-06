@@ -251,14 +251,21 @@ def test_floor_slab_and_wall_section_overrides_round_trip(qapp, model_space):
     pinned the open bug)."""
     from firepro3d.floor_slab import FloorSlab
     from firepro3d.wall import WallSegment
+    from firepro3d import fill_types as ft
+    from firepro3d import materials as mt
+    from firepro3d.fill_layers import BackgroundLayer, FillLayers
+    ft.project_table().add(ft.FillType("some-id", "Some Cut", FillLayers(BackgroundLayer("#ff0000", 1.0))))
     w = _wall(model_space)
     w._display_overrides["section_type"] = "some-id"
     d = w.to_dict()
     assert d["display_overrides"] == {"section_type": "some-id"}
-    assert WallSegment.from_dict(d)._display_overrides["section_type"] == "some-id"
+    # M7: the retired override converts to a material on load; the key does not survive it
+    w2 = WallSegment.from_dict(d)
+    assert mt.fill_type_of(w2) == "some-id" and "section_type" not in w2._display_overrides
     slab = FloorSlab(points=[QPointF(0, 0), QPointF(100, 0), QPointF(100, 100)])
     slab._display_overrides["section_type"] = "some-id"
-    assert FloorSlab.from_dict(slab.to_dict())._display_overrides["section_type"] == "some-id"
+    s2 = FloorSlab.from_dict(slab.to_dict())
+    assert mt.fill_type_of(s2) == "some-id" and "section_type" not in s2._display_overrides
 
 
 def test_cancel_removes_the_preview_written_type_keys(qapp, model_space):

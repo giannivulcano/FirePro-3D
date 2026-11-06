@@ -194,10 +194,13 @@ def test_floor_override_alias_repoints_and_survives_save_open(qapp, tmp_path):
     ft.reset_project_table()
     ms2 = Model_Space()
     ms2.load_from_file(p1)
-    assert ms2._floor_slabs[0]._display_overrides["section_type"] == "keep"
+    from firepro3d import materials as mt
+    # M7: the alias re-points to the kept id, then the override becomes a material
+    assert mt.fill_type_of(ms2._floor_slabs[0]) == "keep"
+    assert "section_type" not in ms2._floor_slabs[0]._display_overrides
     ms2.save_to_file(p2)
     ft.reset_project_table()
     ms3 = Model_Space()
     ms3.load_from_file(p2)
-    assert ms3._floor_slabs[0]._display_overrides["section_type"] == "keep"
+    assert mt.fill_type_of(ms3._floor_slabs[0]) == "keep"
     assert ft.project_table().get("keep") is not None

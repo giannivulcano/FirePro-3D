@@ -57,6 +57,7 @@ from firepro3d import __version__ as APP_VERSION
 from firepro3d import theme as th
 from firepro3d import colour_picker
 from firepro3d import fill_types
+from firepro3d import materials
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -748,6 +749,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # HF5 R9: startup = the seed set -- BEFORE the display defaults, which add
         # the category section types (Wall Section / Floor Section) to the table.
         fill_types.reset_project_table()
+        materials.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
@@ -3950,6 +3952,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # HF5 R9: a new project = the seed set -- BEFORE the display defaults, which
         # add the category section types (Wall Section / Floor Section) to the table.
         fill_types.reset_project_table()
+        materials.reset_project_table()
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.

@@ -21,7 +21,7 @@ from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
 )
 
-from .constants import DEFAULT_LEVEL, MIN_FLOOR_THICKNESS_MM
+from .constants import DEFAULT_LEVEL, MATERIAL_NONE_ID, MIN_FLOOR_THICKNESS_MM
 from .view_scale import scene_hit_width
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -74,6 +74,7 @@ def _scene_hit_width(item) -> float:
 # ── FloorSlab ────────────────────────────────────────────────────────────────
 
 from .displayable_item import DisplayableItemMixin
+from . import materials
 from .paper_display import shows_selection
 
 
@@ -84,6 +85,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     3D mesh: flat polygon extruded downward by ``thickness_mm``.
     """
 
+    material_category = "Floor"
     HALO_AREA = True  # HALO: cursor inside = direct hit
 
     def __init__(self, points: list[QPointF] | None = None,
@@ -113,6 +115,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._cut_cache: list | None = None
 
         self.init_displayable()
+        self.material_id: str = MATERIAL_NONE_ID
         self.name: str = ""
 
         self.setZValue(-80)      # behind walls and pipes
@@ -417,11 +420,13 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         Rows CHANGE per boundary mode (level → Level+Offset; absolute → Z;
         thickness → Thickness input). The property panel re-queries this after
         every edit, so returning a different key set drives dynamic show/hide.
-        Appearance (Colour) is owned by the Display Manager, not this panel.
+        Appearance (Colour) is owned by the Display Manager, not this panel;
+        Building Material is set here (M6).
         """
         p = {
             "Type": {"type": "label", "value": "Floor Slab"},
             "Name": {"type": "string", "value": self.name},
+            materials.ROW_KEY: materials.property_row(self),
         }
         lm = self._level_manager()
         top_z = _resolve_boundary_z(
@@ -512,6 +517,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
+        elif key == materials.ROW_KEY:
+            materials.set_from_row(self, value)
         elif key == "Top Reference":
             mode = _TOP_MODE_REVERSE.get(value)
             if mode is not None:          # defensive: out-of-options label no-ops
@@ -570,6 +577,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         }
         if self.openings:               # only when non-empty: void-less files unchanged (AC7)
             d["openings"] = [op.to_dict() for op in self.openings]
+        materials.write_element(self, d)
         # Per-instance Display-Manager overrides: the shared mixin helper (L283).
         return self.display_overrides_to_dict(d)
 
@@ -599,6 +607,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._top_offset_mm = data.get("level_offset_mm", 0.0)
             slab._bottom_mode = "thickness"
         slab.display_overrides_from_dict(data)      # incl. the HF5 canonical_id re-point
+        materials.read_element(slab, data)
         if data.get("openings"):
             from .floor_opening import FloorOpening
             for rec in data["openings"]:            # re-attach owned voids (A2)

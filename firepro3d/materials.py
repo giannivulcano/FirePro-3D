@@ -208,3 +208,67 @@ def material_of(item) -> Material:
 def fill_type_of(item) -> str | None:
     """The one cut resolver: the Fill Type id *item* draws when cut, or None."""
     return material_of(item).fill_type
+
+
+# -- elements ----------------------------------------------------------------
+ROW_KEY = "Building Material"       # M14: rows key on their label; "Material" is a pipe row
+
+
+def write_element(item, d: dict) -> dict:
+    """Stamp ``material`` onto *d*; omitted when it is the None material."""
+    if item.material_id != MATERIAL_NONE_ID:
+        d["material"] = item.material_id
+    return d
+
+
+def read_element(item, data: dict) -> None:
+    """Restore ``material_id`` and retire a legacy section override (M7).
+
+    Called from ``from_dict`` after ``display_overrides_from_dict``, so the
+    Fill Type tables are loaded and aliases are already canonical. Re-running
+    on a snapshot is a no-op: the override keys are gone.
+    """
+    saved = data.get("material")
+    item.material_id = saved if isinstance(saved, str) and saved else MATERIAL_NONE_ID
+    ov = item._display_overrides
+    fill_types.convert_item_section_override(item.material_category, ov)
+    type_id = ov.pop("section_type", None)
+    if saved or not type_id:
+        return
+    t = fill_types.project_table().get(type_id)
+    if t is not None:
+        item.material_id = _material_for_fill_type(t).id
+
+
+def _material_for_fill_type(t) -> Material:
+    """A material already drawing Fill Type *t*, else a new one named after it."""
+    table = project_table()
+    for m in table.all():
+        if m.id != MATERIAL_NONE_ID and m.fill_type \
+                and fill_types.canonical_id(m.fill_type) == t.id:
+            return m
+    return table.add(Material(fill_types.new_id(), table.free_name(t.name), t.id))
+
+
+def property_row(item) -> dict:
+    """The Properties panel row for ``ROW_KEY``."""
+    return {"type": "enum", "value": material_of(item).name,
+            "options": [m.name for m in project_table().all()]}
+
+
+def set_from_row(item, name) -> bool:
+    """Apply a ``ROW_KEY`` panel value; True when the material changed.
+
+    A changed value asks for one undo step: ``set_property`` pushes none of
+    its own and the panel pushes only for ``Mark``. The panel's ``defer``
+    coalesces a multi-selection into one step.
+    """
+    m = project_table().by_name(name)
+    if m is None or m.id == item.material_id:
+        return False
+    item.material_id = m.id
+    item.update()
+    sc = item.scene()
+    if sc is not None and hasattr(sc, "request_undo_push"):
+        sc.request_undo_push()
+    return True
