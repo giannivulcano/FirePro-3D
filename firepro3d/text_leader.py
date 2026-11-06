@@ -69,6 +69,40 @@ def solve_knee(box: QRectF, drag: QPointF, rec: dict, snap_mm: float = 0.0) -> d
     return {"edge": edge, "t": t, "shoulder_mm": shoulder}
 
 
+def box_from_clicks(knee: QPointF, click: QPointF, width: float, height: float,
+                    min_shoulder: float) -> tuple[QRectF, dict]:
+    """The box and leader a third Note click makes (notes design N21, N22).
+
+    The larger axis of knee -> click picks the edge (a tie picks L or R). L and R
+    land the edge at ``click.x`` with the box centred on the knee's y; T and B
+    land it at ``click.y`` with the box centred on the knee's x. The click's
+    other coordinate is ignored, so the shoulder stays perpendicular (D3). The
+    box extends away from the knee. Every length is in one frame, the surface's.
+
+    Args:
+        knee: The elbow.
+        click: The third click.
+        width: The box width.
+        height: The box height.
+        min_shoulder: The shortest shoulder, in the same frame.
+
+    Returns:
+        ``(box, {"edge", "t", "shoulder_mm"})``; ``t`` is 0.5.
+    """
+    dx, dy = click.x() - knee.x(), click.y() - knee.y()
+    if abs(dx) >= abs(dy):
+        edge = "L" if dx >= 0.0 else "R"
+        s = max(abs(dx), min_shoulder)
+        left = knee.x() + s if edge == "L" else knee.x() - s - width
+        box = QRectF(left, knee.y() - height / 2.0, width, height)
+    else:
+        edge = "T" if dy > 0.0 else "B"
+        s = max(abs(dy), min_shoulder)
+        top = knee.y() + s if edge == "T" else knee.y() - s - height
+        box = QRectF(knee.x() - width / 2.0, top, width, height)
+    return box, {"edge": edge, "t": 0.5, "shoulder_mm": s}
+
+
 def knee_snap_mm(item, scene_per_mm: float = 1.0) -> float:
     """The knee's edge-midpoint snap band: the shared snap aperture at *item*'s
     view zoom, in the box frame. 0 while snapping or the Midpoint toggle is off.
