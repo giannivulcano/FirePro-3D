@@ -1,7 +1,7 @@
 ---
 status: current          # documents as-built behaviour plus the bugs still open (§16.1)
-last-verified: 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
-verified-commit: ff2b8636  # pipe polish merge on main (v0.90.0)
+last-verified: 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
+verified-commit: 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
 applies-to:
   - firepro3d/pipe.py
   - firepro3d/node.py
@@ -811,7 +811,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 | B9 | Preview length ignores Z difference | Low | `model_space.py:3554` |
 | B10 | ~~Fitting `determine_type` broken for through-risers (2 vertical pipes)~~ — **fixed** (pipe polish, 2026-11-05): `riser_through` / `tee_vertical` / `cross_vertical` (§2.3), with corrected equivalent lengths | Medium | `Fitting.determine_type` |
 | B11 | ~~Pipe labels show 2D length, not 3D~~ -- **fixed 2026-11-01** (SB4a) | Medium | -- |
-| B12 | `update_elevations()` doesn't refresh pipe labels (latent until B11 fixed) | Low | `level_manager.py:327` |
+| ~~B12~~ | Fixed 2026-11-05: `update_elevations()` refreshes pipe labels; the Length text already followed at paint, the cached bounds did not | -- | `level_manager.py` |
 
 ### 16.2 Enhancements
 
@@ -829,7 +829,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 4. ~~**B5** — Contextual snap reference~~ — **done 2026-08-17** (`25c7edb`)
 5. **B6** — Riser column move (panel edit done; drag / Move open)
 6. ~~**B10 + E1** — Fitting matrix + new SVGs~~ — done 2026-11-05 (types only, no new SVGs)
-7. ~~**B11**~~ done (SB4a); **B12** — elevation refresh
+7. ~~**B11**~~ done (SB4a); ~~**B12**~~ done (section piping)
 8. **B8 + B9** — Preview fixes
 9. **E2** — Vertical collinear extension
 10. **E3** — Preview elevation info

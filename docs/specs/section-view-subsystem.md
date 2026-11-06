@@ -1,11 +1,12 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-11-04  # SB4d Account: s5 depth-walk + annotation draw-order pointer, s6 glyphs / panel / persistence (heads are System blocks, upright label), s3.3 / s7.3 DM-row notes only, rest not re-audited; prior 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle; prior 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-11-05  # section piping Account: s4.2 pipe note, s5 Pipe row + pipe rules, s13 pipe edge case, R2 superseded, applies-to only, rest not re-audited; prior 2026-11-04  # SB4d Account: s5 depth-walk + annotation draw-order pointer, s6 glyphs / panel / persistence (heads are System blocks, upright label), s3.3 / s7.3 DM-row notes only, rest not re-audited; prior 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 539eda40   # section piping on main (v0.91.0); prior 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle; prior 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
   - firepro3d/section_marker.py     # git mv of view_marker.py (build)
+  - firepro3d/section_pipe_symbols.py # section piping: symbol paths + line trim
   - firepro3d/elevation_view.py     # SectionView widget (file keeps the elevation_ name)
   - firepro3d/hosted_blocks.py      # gridline-hosted blocks: pure frame math (s16)
   - firepro3d/block_drop.py         # block drag payload decode + refusal, shared plan / section (s16)
@@ -112,7 +113,7 @@ segment, slab / roof polygon, node point):
 
 | Zone | Rule | Rendering |
 |---|---|---|
-| **cut** | footprint intersects segment A->B (collinear overlap counts, at the overlap midpoint); point items are never cut | s5 cut column |
+| **cut** | footprint intersects segment A->B (collinear overlap counts, at the overlap midpoint); point items are never cut; a pipe lying in the cut plane is not cut (s5) | s5 cut column |
 | **behind** | not cut; footprint intersects the box; projected extent clipped to `[h_A, h_B]` laterally, never vertically | s5 behind column (today's rendering) |
 | **hidden** | otherwise: in front, beyond `depth_mm`, or laterally outside | not drawn |
 
@@ -141,7 +142,7 @@ elevation and break acceptance (d). **Cut** adds the section columns only.
 | Entity | cut | behind |
 |---|---|---|
 | Wall | cross-section rect: width = chord of the cut line through the mitered quad (along h), height = wall z-extent; brush = *Section colour* + *Section pattern* via `draw_section_hatch`; pen = Colour. A crossing inside an opening span draws only the wall above the head (and below the sill for windows) | today's rect + openings, clipped |
-| Pipe | filled circle at the crossing, diameter = the pipe's drawn OD, Section colour | today's line |
+| Pipe | plan riser symbol (circle + S curve) at the crossing, plan size, in the pipe colour; *Section colour* fills inside the circle; an angled pipe adds a line for the part beyond the cut | today's line, or the end-on "C" (below) |
 | Sprinkler / node | never cut | today's glyph |
 | Floor slab | chord x thickness rect, section hatch (with floor voids: one rect per material span, below) | today's mask + fill |
 | Roof | **not cut-rendered in v1** (follow-up: mesh / plane intersection); a crossing roof shows as today's projected rect | today's rect, fixed Z |
@@ -156,9 +157,22 @@ above every projected model item at any depth; the values and the rule are owned
 
 Shipped refinements of the table (plan reconciliations 2026-10-20, ratified at plan approval):
 
-- **Pipe cut colour.** The cut circle uses the Pipe Display Manager *Section colour* when set; the
-  Pipe row ships with no Section colour (`None`), so the circle falls back to the pipe's own line
-  colour (the `PIPE_COLORS` lookup).
+- **Pipe symbols (section piping, 2026-11-05; supersedes R2).** The plan SVGs are hard-coded white,
+  so `section_pipe_symbols.py` redraws them as paths in the pipe colour. *Section colour* unset or
+  `""` is No Fill; a set colour fills inside the circle, S on top. On a B&W or Custom sheet the
+  circle gets no fill, since a body in the row colour would hide the S.
+- **Along the cut.** A pipe whose centreline lies in the cut plane is a normal full-length line,
+  zone behind, not a symbol; a vertical pipe standing on the cut line included.
+- **End-on "C".** A pipe with zero projected length that does not cross the cut draws
+  `elbow_down.svg`'s C, sections and elevations alike, at the plan fitting size
+  (`Fitting.plan_symbol_mm`). Its gap faces the first in-view pipe joined at its near node, else
+  down. Coincident symbols draw the nearest only, cut first.
+- **Trim.** A line stops at a symbol it runs behind, at the drawn circle (`radius_of`); a line
+  passing in front draws over; a line ending at a symbol's centre always trims. A symbol selects
+  its source pipe.
+- **Pipe labels.** Lines (the part beyond an angled cut included) and vertical pipes carry the
+  plan's PipeLabel block, centred on the visible part, kept readable, following the pipe's Show
+  Label. Symbols carry none. Block contract: [`system-blocks.md`](system-blocks.md) 8a.
 - **Cut wall draws the cross-section only.** The receding face of an obliquely crossed wall is not
   drawn in v1 (follow-up).
 - **Concave slab chord.** The chord is `[min h, max h]` over every crossing of the cut segment with
@@ -392,7 +406,7 @@ undo elsewhere, the pipe OD source, marker level-visibility path.
 - Empty section: only datums and gridlines (no special handling).
 - Scale not calibrated: `_ppm()` falls back to 1.0 as today.
 - Wall parallel to and touching the cut line: collinear overlap counts as cut (s4.2).
-- Pipe exactly along the cut line: cut, circle at the overlap midpoint.
+- Pipe exactly along the cut line: not cut, a normal line (s5).
 - Coincident / sub-100 mm A, B: rejected at placement; `SectionScene` asserts `L > 0`.
 - A cardinal with `auto_extent` and an empty project: the +/-10 000 mm fallback box.
 - Hand-edited file missing a cardinal: `seed_cardinals()` restores it.
@@ -424,7 +438,7 @@ jogged / stepped sections; break lines; in-view dimensions; geometry editing in 
 | S4 | cardinals keep `"elevation"` identity; `get_or_build_scene` for sheets; no `_STATE_VERSION` bump | Phase 3 |
 | S5 | module moves, guard tests, FP6 groups | Phase 3 |
 | R1 | marker stores plan-scene coordinates; `SectionScene` converts to world via `_scene_to_world` (s6) | plan reconciliation 2026-10-20, ratified at plan approval |
-| R2 | pipe cut circle: Pipe *Section colour* when set, else the pipe's own line colour (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
+| R2 | **Superseded 2026-11-05 by section piping (s5).** Was: pipe cut circle in *Section colour* when set, else the pipe's own line colour | plan reconciliation 2026-10-20, ratified at plan approval |
 | R3 | cut wall draws the cross-section rect only; no receding face in v1 (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
 | R4 | slab chord = `[min h, max h]` over all boundary crossings; concave gap filled in v1 (s5) | plan reconciliation 2026-10-20, ratified at plan approval |
 | R5 | ribbon Section button reuses `detail_icon.svg` (s7.3) | plan reconciliation 2026-10-20, ratified at plan approval |
