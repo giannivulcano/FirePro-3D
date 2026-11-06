@@ -184,6 +184,10 @@
   - +1 occurrence 2026-11-05 (pipe polish Phase 6): VC7-proved on clean exports, fails at base `bc039e14` and at the branch tip.
 - [ ] [type:maint] SB4a `test_sb4a_perf.py::test_g8_*` full-view bars fail at main on this host [P3] [subject:Testing]
   - Details: Found 2026-11-04 by text-leaders keep-green: all three fail at base `660f7e75` and HEAD (`short_pipes`, `long_pipes`, `zoomed_twenty_pipes`). Also seen at branch start, by the implementer's proof, unverified by the orchestrator: `test_ghost_glow_cache::test_editor_rotate_cached_glow_matches_live` (flaky), `test_sb3_parity::test_ac10_bound_instance_render_unchanged_by_the_lift`, `test_block_select_all_perf`.
+- [ ] [type:bug] A tied text that grows on commit breaks its tie until the next solve [P3] [subject:Text]
+  - Details: notes on schematics seam review, 2026-11-06. A bottom-edge note with `tl` tied to a fixed line, re-edited to four lines: `tl` sits at y -1514.3 and the line at -1233.6, because `text_edit_controller` commit does not solve. Any tied text that grows on commit takes this path, so the class looks older than the note work; `_reanchor` going upward is what moves the top here. Not compared to base. Files: `firepro3d/text_edit_controller.py`, `firepro3d/text_item.py` (`_hold_leader_attach`).
+- [ ] [type:bug] Leader lengths in a Printed schematic mix printed and scene mm [P3] [subject:Text]
+  - Details: notes on schematics seam review, 2026-11-06, by reading. The third Note click floors the shoulder at 2 printed mm, a knee drag floors it at 2 scene mm (0.1 mm printed at 1:20), and turning Leader on gives a 6 scene mm shoulder. File: `firepro3d/text_leader.py`.
 
 ## UI follow-ups
 
