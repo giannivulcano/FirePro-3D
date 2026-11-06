@@ -354,3 +354,32 @@ def test_a_multi_line_note_saves_the_followed_fraction(shown_model_view, real_sy
     scene.redo()
     again = [i for i in scene._block_instances if i.note][-1]
     assert again.note["leader"]["t"] == rec["t"]
+
+
+def test_the_hud_measures_each_step_from_its_own_point_and_a_typed_step_places(
+        shown_model_view, real_system_library):
+    view, scene = shown_model_view
+    scene.active_view_key = PLAN
+    scene.set_mode("note")
+    _move(view, TIP)
+    assert scene.dynamic_input is None                  # the first click has nothing to measure from
+    click(view, TIP)
+    _move(view, QPointF(-1000.0, -600.0))                # off the ALIGN rays: the line schema
+    tip = landed(view, TIP)
+    assert scene.dynamic_input is not None
+    scene.begin_dynamic_input()
+    scene.dynamic_input.set_values({"Length": 900.0, "Angle": 0.0})
+    scene.dynamic_input._accept()
+    knee = scene.get_placement_anchor()
+    assert (knee.x(), knee.y()) == pytest.approx((tip.x() + 900.0, tip.y()))
+    _move(view, knee + QPointF(400.0, 250.0))
+    scene.begin_dynamic_input()
+    scene.dynamic_input.set_values({"Length": 700.0, "Angle": 0.0})
+    scene.dynamic_input._accept()
+    inst = scene._block_instances[-1]
+    assert inst.note_box_scene().left() == pytest.approx(knee.x() + 700.0)
+    assert editing_text_item(scene) is scene._note_ctl.overlay
+    assert scene.dynamic_input is None
+    key(view, Qt.Key.Key_H)                             # the keyboard reached the editor
+    assert scene._note_ctl.overlay.toPlainText().lower() == "h"
+    scene._text_edit_ctl.commit()

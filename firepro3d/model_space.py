@@ -4798,6 +4798,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # primitive (line/polyline → ``line``, rect → the 3-click
         # ``rect_side*`` / ``rect_depth*`` pair), mirroring draw_rectangle.
         "pipe": "line",
+        # note: Length / Angle from the current step's point, tip then elbow (N24).
+        "note": "line",
         # draw_rectangle is intentionally absent — active_schema special-cases
         # it per step (side → ``rect_side*``, depth → ``rect_depth*``), the
         # same way draw_arc is.
@@ -4830,6 +4832,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
         "polyline": "_commit_polyline_at",
+        "note": "_commit_note_at",
         # draw_rectangle is step-aware (like draw_arc): active_schema special-
         # cases it, and this router dispatches to the sizing-advance or the
         # rotate commit.
@@ -6755,6 +6758,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _press_note(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._note_ctl.tool_click(snapped)
+
+    def _commit_note_at(self, point) -> bool:
+        """A typed point: the same step a click at *point* takes (N24)."""
+        self._note_ctl.tool_click(point)
+        return True
 
     def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._text_anchor is None:
