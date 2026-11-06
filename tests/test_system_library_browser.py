@@ -25,7 +25,8 @@ def _top_texts(b):
 
 def _system_leaf(b, name="Diagonal"):
     lib = b._tree.topLevelItem(0)
-    ser = lib.child(0)
+    ser = next(lib.child(i) for i in range(lib.childCount())
+               if lib.child(i).text(0) == "Hatches")      # series sort order is not fixed
     return next(ser.child(i) for i in range(ser.childCount())
                 if ser.child(i).text(0) == name)
 

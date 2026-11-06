@@ -49,8 +49,10 @@ def _user_fpdb(root):
 
 def test_system_tier_lists_shipped_hatches(real_system_library):
     sys_entries = [e for e in bl.list_library() if e["tier"] == "system"]
-    assert sorted(e["name"] for e in sys_entries) == SHIPPED
-    assert {(e["library"], e["series"]) for e in sys_entries} == {("System", "Hatches")}
+    # Hatches only: other System series (End types, Tags, ...) ship beside them.
+    hatches = [e for e in sys_entries if e["series"] == "Hatches"]
+    assert sorted(e["name"] for e in hatches) == SHIPPED
+    assert {e["library"] for e in sys_entries} == {"System"}
     assert all(not e["duplicate"] for e in sys_entries)
 
 

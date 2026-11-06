@@ -181,7 +181,7 @@ def test_failed_solve_rolls_the_edit_back_and_reports(qapp, monkeypatch):
     msgs = []
     sc._show_status = lambda m, *a, **k: msgs.append(m)
     monkeypatch.setattr(ctl._solver, "solve",
-                        lambda s, g, w, active=None: SolveResult(s.x.copy(), False, 1.0))
+                        lambda s, g, w, active=None, **kw: SolveResult(s.x.copy(), False, 1.0))
     with ctl.edit([ln]):
         ln.translate(0, 25)
     assert (ln._pt1.y(), ln._pt2.y()) == (0.0, 0.0)
