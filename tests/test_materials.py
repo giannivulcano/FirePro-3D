@@ -105,3 +105,47 @@ def test_unknown_or_missing_id_reads_as_the_none_material():
     none = table.get(MATERIAL_NONE_ID)
     table.replace(mt.Material(none.id, none.name, "tid"))
     assert mt.fill_type_of(Unknown()) == "tid"
+
+
+def test_a_material_counts_as_a_fill_type_user(qapp, model_space):
+    ft.project_table().add(ft.FillType("t", "T", FillLayers(BackgroundLayer("#ff0000", 1.0))))
+    assert ft.type_users("t", model_space) == []
+    mt.project_table().add(mt.Material("m", "Steel", "t"))
+    assert ft.type_users("t", model_space) == ["material Steel"]
+
+
+def test_the_starter_fill_type_cannot_be_deleted_on_the_tab(qapp, model_space):
+    from firepro3d.fill_types_tab import FillTypesTab
+    tab = FillTypesTab(model_space)
+    assert tab.select_name("Cross Hatch")
+    assert not tab.delete_button().isEnabled()
+    assert "material Wood Framed" in tab.delete_button().toolTip()
+
+
+def test_a_working_copy_material_counts_on_the_fill_types_tab(qapp, model_space):
+    from firepro3d.fill_types_tab import FillTypesTab
+    ft.project_table().add(ft.FillType("t", "T", FillLayers(BackgroundLayer("#ff0000", 1.0))))
+    work = mt.project_table().copy()
+    work.add(mt.Material("m", "Pending", "t"))
+    tab = FillTypesTab(model_space)
+    tab.material_table = lambda: work
+    assert tab.select_name("T")
+    assert "material Pending" in tab.delete_button().toolTip()
+
+
+def test_material_users_counts_elements_and_defaults(qapp, model_space):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.floor_slab import FloorSlab
+    from firepro3d.wall import WallSegment
+    ms, table = model_space, mt.project_table()
+    brick = table.by_name("Brick")
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
+    w.material_id = brick.id
+    ms.addItem(w)
+    ms._walls.append(w)
+    s = FloorSlab([QPointF(0, 0), QPointF(9, 0), QPointF(9, 9)])
+    s.material_id = brick.id
+    ms.addItem(s)
+    ms._floor_slabs.append(s)
+    table.set_default("Floor", brick.id)
+    assert mt.material_users(brick.id, ms, table) == ["Floor default", "1 wall(s)", "1 floor(s)"]

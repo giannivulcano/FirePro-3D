@@ -283,3 +283,26 @@ def stamp_default(item) -> None:
     category = getattr(item, "material_category", None)
     if category and item.material_id == MATERIAL_NONE_ID:
         item.material_id = project_table().default_for(category)
+
+
+def material_users(material_id: str, scene, table: MaterialTable | None = None) -> list[str]:
+    """Who uses a material (M12): category defaults, then element counts.
+
+    Args:
+        material_id: The material's id.
+        scene: The project ``Model_Space``.
+        table: The table whose defaults count (the tab's working copy).
+
+    Returns:
+        Human-readable labels; empty when unused.
+    """
+    table = table if table is not None else project_table()
+    out = [f"{c} default" for c in CATEGORIES
+           if material_id != MATERIAL_NONE_ID and table.default_for(c) == material_id]
+    n_walls = sum(1 for w in scene._walls if w.material_id == material_id)
+    n_floors = sum(1 for s in scene._floor_slabs if s.material_id == material_id)
+    if n_walls:
+        out.append(f"{n_walls} wall(s)")
+    if n_floors:
+        out.append(f"{n_floors} floor(s)")
+    return out

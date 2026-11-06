@@ -11,6 +11,7 @@ from firepro3d import colour_picker
 from firepro3d import display_manager as dm
 from firepro3d import fill_types as ft
 from firepro3d import hatch_patterns as hp
+from firepro3d import materials as mt
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_ELEMENT
 from firepro3d.fill_layers import BackgroundLayer, FillLayers, PatternLayer
@@ -144,13 +145,18 @@ def test_a_rename_keeps_the_id_and_the_users(qapp, model_space):
 # -- delete guard (AC8) -------------------------------------------------------
 
 def test_delete_refused_while_used(qapp, model_space):
-    dm.apply_default_display_settings(model_space)       # Wall category -> "Wall Section"
-    d, tab = _open(model_space)
-    tab.select_name("Wall Section")
-    assert not tab.delete_button().isEnabled()
-    assert "Used by 1" in tab.delete_button().toolTip()
-    tab.select_name("Solid Black")
-    assert tab.delete_button().isEnabled()
+    dm.apply_default_display_settings(model_space)       # seeds "Wall Section"
+    ws = ft.project_table().by_name("Wall Section")
+    mt.project_table().add(mt.Material("m-hf5-del", "Hf5 Delete Guard", ws.id))
+    try:
+        d, tab = _open(model_space)
+        tab.select_name("Wall Section")
+        assert not tab.delete_button().isEnabled()
+        assert "Used by 1" in tab.delete_button().toolTip()
+        tab.select_name("Solid Black")
+        assert tab.delete_button().isEnabled()
+    finally:
+        mt.reset_project_table()
     tab.delete_button().click()
     d.accept()
     assert ft.project_table().by_name("Solid Black") is None
@@ -164,15 +170,17 @@ def test_type_users_counts_regions_blocks_and_item_overrides(qapp, model_space):
     region = FilledRegionItem.from_pieces([[LineItem(a, b), LineItem(b, c), LineItem(c, e), LineItem(e, a)]])
     region.set_fill_type(t.id)
     model_space.addItem(region)
-    wall = _wall(model_space)
-    wall._display_overrides = {"section_type": t.id}
+    mt.project_table().add(mt.Material("m-hf5-users", "Hf5 Users Material", t.id))
     rec = region.to_dict()
     model_space.commit_block_definition(block_id=None, name="Host", library="L", series="S",
                                         primitives=[rec], origin=(0.0, 0.0), place_instance=False)
-    users = ft.type_users(t.id, model_space)
-    assert "block Host" in users and "1 region(s)" in users
-    assert "1 element section override(s)" in users
-    assert ft.type_users("nobody", model_space) == []
+    try:
+        users = ft.type_users(t.id, model_space)
+        assert "block Host" in users and "1 region(s)" in users
+        assert "material Hf5 Users Material" in users
+        assert ft.type_users("nobody", model_space) == []
+    finally:
+        mt.reset_project_table()
 
 
 def test_type_users_follows_a_duplicate_alias(qapp, model_space):

@@ -76,6 +76,7 @@ class FillTypesTab(QWidget):
         self._sel: str | None = None
         self._loading = False
         self._users: dict[str, list[str]] = {}   # type id -> users (scene scan, cached)
+        self.material_table = None   # callable -> the Materials tab's working copy (Display Manager)
         self._last_bg = "#000000"
         self._last_pat = TOKEN_AUTO
         self._build()
@@ -475,7 +476,8 @@ class FillTypesTab(QWidget):
         """``type_users`` cached per type: restyling never changes who uses a
         type, so a look edit does not rescan the scene (cleared on show)."""
         if type_id not in self._users:
-            self._users[type_id] = fill_types.type_users(type_id, self._scene)
+            table = self.material_table() if self.material_table is not None else None
+            self._users[type_id] = fill_types.type_users(type_id, self._scene, table)
         return self._users[type_id]
 
     def showEvent(self, event):  # noqa: N802 (Qt API)

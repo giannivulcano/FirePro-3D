@@ -402,10 +402,10 @@ def import_name(name: str) -> str:
     return s
 
 
-def type_users(type_id: str, scene) -> list[str]:
+def type_users(type_id: str, scene, material_table=None) -> list[str]:
     """Who uses a type (D-A15 "used by N"): typed region primitives in block
-    definitions, Filled Regions in the plan and open Block Editors, Display
-    Manager categories (by name) and per-item section overrides.
+    definitions, Filled Regions in the plan and open Block Editors, and
+    materials.
 
     Ids are compared through :func:`canonical_id`, so a record that kept a
     load-time duplicate's id still counts for the type that absorbed it.
@@ -413,6 +413,8 @@ def type_users(type_id: str, scene) -> list[str]:
     Args:
         type_id: The type's id.
         scene: The project ``Model_Space``.
+        material_table: The Materials tab's working copy, else the project
+            table.
 
     Returns:
         Human-readable user labels; empty when the type is unused.
@@ -424,27 +426,20 @@ def type_users(type_id: str, scene) -> list[str]:
     for d in getattr(scene, "_block_definitions", {}).values():
         if any(canonical_id(r) == canon for r in fill_type_refs(d.primitives)):
             out.append(f"block {d.name}")
-    if t is not None:
-        from .display_manager import _CATEGORIES, _read_category_from_settings
-        for c in _CATEGORIES:
-            name = _read_category_from_settings(c["key"]).get("section_type")
-            if name and str(name).casefold() == t.name.casefold():
-                out.append(f"{c['key']} sections")
+    from . import materials
+    table = material_table if material_table is not None else materials.project_table()
+    for m in table.all():
+        if m.fill_type and canonical_id(m.fill_type) == canon:
+            out.append(f"material {m.name}")
     scenes = [s for _label, s in scene._user_scenes()] if hasattr(scene, "_user_scenes") else [scene]
-    n_regions = n_items = 0
+    n_regions = 0
     for sc in scenes:
         for it in sc.items():
             ft_id = getattr(it, "fill_type", None)
             if isinstance(ft_id, str) and ft_id and canonical_id(ft_id) == canon:
                 n_regions += 1
-            ov = getattr(it, "_display_overrides", None)
-            if isinstance(ov, dict) and isinstance(ov.get("section_type"), str) \
-                    and canonical_id(ov["section_type"]) == canon:
-                n_items += 1
     if n_regions:
         out.append(f"{n_regions} region(s)")
-    if n_items:
-        out.append(f"{n_items} element section override(s)")
     return out
 
 
