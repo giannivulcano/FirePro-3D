@@ -44,7 +44,7 @@ from .section_marker import SectionMarker
 from .colour_tokens import preview_colour, resolve_colour
 from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM,
-                       DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM,
+                       DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM, DEFAULT_TEXT_HEIGHT_MM,
                        DEFAULT_ANNOTATIVE_TEXT_PADDING_MM,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
@@ -104,7 +104,7 @@ NO_VIEW_HINT = "Open a view from the Project Browser"
 
 # Status hint shown when the Note tool is refused: a Note is owned by one plan or
 # detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
-NOTE_OFF_HINT = "Notes can be placed on plan and detail views"
+NOTE_OFF_HINT = "Notes can be placed on plan, detail and schematic views"
 NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
 
 
@@ -187,7 +187,7 @@ def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
 
 class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 11  # 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
+    SAVE_VERSION = 12  # 12: old schematics turn Printed once (schematic_scene.migrate_old_schematics); 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
     UNDO_MAX = 50
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display). Declared so the per-paint read in
@@ -222,6 +222,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         super().__init__()
         self.scene_role = scene_role
         self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
+        self.editor_kind = "block"       # a block_editor scene: "block" or "schematic" (D-S14)
         self._stack_members = weakref.WeakSet()   # BlockInstances in this scene (itemChange keeps it)
         self._opaque_stack = None        # (default, opaque blocks in paint order, memo) -- BlockInstance._opaque_rows
         # ET1 spec C: items whose last paint drew a Fixed-size end at the
@@ -1189,8 +1190,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # containment C1: loose-geometry/text/dimension authoring is refused
             # in the plan scene (permitted only in the Block-Editor scratchpad).
             return
-        if mode == "note" and not self.note_allowed():
-            # Notes are view-owned (design D9 / D11): plan and detail canvases only.
+        if mode == "note" and not self.note_tool_allowed():
+            # Plan, detail and schematic canvases only (notes design N25).
             self.instructionChanged.emit(NOTE_OFF_HINT)
             return
         if (isinstance(mode, str) and mode.startswith("constrain_")
@@ -1336,7 +1337,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # the per-primitive "keep if staying in that mode" guards live inside
         # clear(). Text/dimension teardown stays inline below (other concerns).
         self._geom_ctl.clear(mode)
-        if mode not in ("text", "note"):
+        if mode != "note":
+            self._note_ctl.cancel_tool()     # three-click Note: nothing placed yet (N24)
+        if mode != "text":
             self._text_anchor = None
             if self._text_preview is not None:
                 if self._text_preview.scene() is self:
@@ -1551,7 +1554,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "draw_arc":       "Pick center point",
             "polyline":       "Pick first point",
             "text":           "Pick first corner",
-            "note":           "Pick first corner",
+            "note":           "Pick arrow tip",
             "set_scale":      "Pick first calibration point",
             "move":           "Pick base point",
             "copy_base":      "Pick base point",
@@ -1765,7 +1768,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def set_block_meta(self, meta: dict, *, push_undo: bool = True) -> None:
         """Replace the edited block's attributes / host_category / scale_mode /
-        annotative_screen (SB1a S4, SB1c D2). ``attributes`` records are
+        annotative_screen (SB1a S4, SB1c D2) and a schematic's text_sizing /
+        text_scale (N9). ``attributes`` records are
         normalised. One undo step unless ``push_undo`` is False (undo restore
         / a composite edit)."""
         from .block_attributes import normalise_attr
@@ -1774,6 +1778,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                "scale_mode": str(meta.get("scale_mode", "real_size")),
                "annotative_screen": ("fixed" if meta.get("annotative_screen") == "fixed"
                                      else "scale")}
+        # Printed text (N9), sparse like the definition keys.
+        from .block_definition import norm_text_scale, norm_text_sizing
+        sizing, text_scale = (norm_text_sizing(meta.get("text_sizing")),
+                              norm_text_scale(meta.get("text_scale")))
+        if sizing is not None:
+            new["text_sizing"] = sizing
+        if text_scale is not None:
+            new["text_scale"] = text_scale
         if new == self.block_meta:
             return
         self.block_meta = new
@@ -2722,7 +2734,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             block_id=None, name=name, library=src.library, series=src.series,
             primitives=copy.deepcopy(src.primitives), origin=src.origin,
             place_instance=False, constraints=copy.deepcopy(src.constraints),
-            capability=capability, kind=src.kind)
+            capability=capability, kind=src.kind,
+            meta=({"text_sizing": src.text_sizing, "text_scale": src.text_scale}
+                  if src.kind == "schematic" else None))      # N9: the copy prints alike
 
     def retarget_block_refs(self, old_id: str, new_id: str) -> int:
         """Re-point every project holder of *old_id* to *new_id* (one undo step).
@@ -3435,8 +3449,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         annotative_screen onto *defn* (SB1a S4, SB1c D2). The caller's
         ``set_primitives`` (edit) clears the caches; the registry cascade to nesting parents is the
         ``_block_registry.invalidate`` that follows it."""
-        if meta is None or defn.kind == "schematic":
-            return                      # a schematic never carries block meta
+        from .block_definition import norm_text_scale, norm_text_sizing
+        if meta is None:
+            return
+        if defn.kind == "schematic":    # no block meta; its two text keys only (N9)
+            defn.text_sizing = norm_text_sizing(meta.get("text_sizing"))
+            defn.text_scale = norm_text_scale(meta.get("text_scale"))
+            return
+        defn.text_sizing = defn.text_scale = None       # a schematic saved as a block
         defn.attributes = list(meta.get("attributes", []))   # setter normalises
         defn.host_category = str(meta.get("host_category", ""))
         defn.scale_mode = str(meta.get("scale_mode", "real_size"))
@@ -4779,6 +4799,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # primitive (line/polyline → ``line``, rect → the 3-click
         # ``rect_side*`` / ``rect_depth*`` pair), mirroring draw_rectangle.
         "pipe": "line",
+        # note: Length / Angle from the current step's point, tip then elbow (N24).
+        "note": "line",
         # draw_rectangle is intentionally absent — active_schema special-cases
         # it per step (side → ``rect_side*``, depth → ``rect_depth*``), the
         # same way draw_arc is.
@@ -4811,6 +4833,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
         "polyline": "_commit_polyline_at",
+        "note": "_commit_note_at",
         # draw_rectangle is step-aware (like draw_arc): active_schema special-
         # cases it, and this router dispatches to the sizing-advance or the
         # rotate commit.
@@ -5689,7 +5712,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "text":                     "_move_text",
-        "note":                     "_move_text",
+        "note":                     "_move_note",
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
@@ -5879,6 +5902,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     if sm.is_calibrated else
                     f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
                 )
+
+    def _move_note(self, event, snapped):
+        self.preview_pipe.hide()
+        self._note_ctl.tool_move(snapped)
 
     def _move_place_import(self, event, snapped):
         self.preview_node.hide()
@@ -6705,8 +6732,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             self.set_mode(None)
 
     def _begin_text_box(self, snapped) -> None:
-        """First click of a two-corner text box (Text and Note): set the anchor
-        and create the dashed preview rectangle."""
+        """First click of a two-corner text box: set the anchor and create the
+        dashed preview rectangle."""
         self._text_anchor = snapped
         self.update_preview_node(snapped)
         preview = QGraphicsRectItem(QRectF(snapped, snapped))
@@ -6725,21 +6752,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         inst.level = self.active_level
 
     def note_allowed(self) -> bool:
-        """Whether this canvas can hold a Note: a plan scene showing a plan or
-        detail view (design D11)."""
+        """Whether this canvas can hold a Note block: a plan scene showing a plan
+        or detail view (design D11). The paste gates ask this: a Note record is
+        view-owned, so it never lands in a schematic."""
         return (self.scene_role == "plan"
                 and self.active_view_key.partition(":")[0] in ("plan", "detail"))
 
+    def note_tool_allowed(self) -> bool:
+        """Whether the Note tool runs here: wherever a Note block can live, plus
+        a schematic editor, where it saves as a text with a leader (N25)."""
+        return self.note_allowed() or (self.scene_role == "block_editor"
+                                       and self.editor_kind == "schematic")
+
     def _press_note(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._text_anchor is None:
-            self._begin_text_box(snapped)
-            return
-        rect = QRectF(self._text_anchor, snapped).normalized()
-        if self._text_preview is not None:
-            self.removeItem(self._text_preview)
-            self._text_preview = None
-        self._text_anchor = None
-        self._note_ctl.place(rect)
+        self._note_ctl.tool_click(snapped)
+
+    def _commit_note_at(self, point) -> bool:
+        """A typed point: the same step a click at *point* takes (N24)."""
+        self._note_ctl.tool_click(point)
+        return True
 
     def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._text_anchor is None:
@@ -6759,17 +6790,25 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # An annotative Block Editor block is authored in printed mm
             # (SB1c): seed a printed size (D3). Plan / real-size blocks keep
             # the real-size scene-mm default, readable at editor zoom.
-            from .annotative import editor_is_annotative
+            # A Printed schematic stores printed mm x the drawing scale (N12).
+            from .annotative import editor_is_annotative, editor_text_printed, editor_text_scale
             annotative = editor_is_annotative(self)
+            if editor_text_printed(self):
+                n = editor_text_scale(self)
+                height, padding = (DEFAULT_TEXT_HEIGHT_MM * n,
+                                   DEFAULT_ANNOTATIVE_TEXT_PADDING_MM * n)
+            elif annotative:
+                height, padding = (DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM,
+                                   DEFAULT_ANNOTATIVE_TEXT_PADDING_MM)
+            else:
+                height, padding = DEFAULT_MODEL_TEXT_HEIGHT_MM, DEFAULT_MODEL_TEXT_PADDING_MM
             data = TextAnnotationData(
                 text="", x=rect.x(), y=rect.y(),
                 wrap_width_mm=text_width,
-                height_mm=(DEFAULT_ANNOTATIVE_TEXT_HEIGHT_MM if annotative
-                           else DEFAULT_MODEL_TEXT_HEIGHT_MM))
+                height_mm=height)
             data.color = TOKEN_AUTO  # Automatic: theme ink on canvas, black on paper (HF1)
             data.border = True   # solid border on by default (border_line_type already "solid")
-            data.cell_padding_mm = (DEFAULT_ANNOTATIVE_TEXT_PADDING_MM if annotative
-                                    else DEFAULT_MODEL_TEXT_PADDING_MM)
+            data.cell_padding_mm = padding
             text = TextItem(data)
             self.addItem(text)
             data.box_height_mm = max(rect.height(), text._content_height_mm())

@@ -122,6 +122,7 @@ class TextAnnotationData:
     border_corner_radius_mm: float = 0.0         # 0 = auto proportional (TEXT_FRAME_CORNER_FRAC)
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     keep_upright: bool = False                   # SB1a A5: always readable in a block
+    line_box_middle: bool = False                # field text: Middle keeps the line box (N6)
     hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
     wrap: bool | None = None                     # D4: None = legacy (see wrap_on)
     shrink: bool | None = None                   # D4: None = legacy (see shrink_on)
@@ -176,6 +177,8 @@ class TextAnnotationData:
         }
         if self.keep_upright:
             d["keep_upright"] = True             # sparse (the `mirrored` convention)
+        if self.line_box_middle:
+            d["line_box_middle"] = True          # sparse
         if self.hide_empty:
             d["hide_empty"] = True               # sparse, same convention
         if self.wrap is not None:
@@ -212,6 +215,7 @@ class TextAnnotationData:
             border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
             angle=float(d.get("angle", 0.0)),
             keep_upright=bool(d.get("keep_upright", False)),
+            line_box_middle=bool(d.get("line_box_middle", False)),
             hide_empty=bool(d.get("hide_empty", False)),
             wrap=None if d.get("wrap") is None else bool(d["wrap"]),
             shrink=None if d.get("shrink") is None else bool(d["shrink"]),
@@ -444,6 +448,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
     # Text has no reference form (reference-geometry design AC10).
     _REFERENCE_CAPABLE = False
 
+    _ink_cache = None         # (layout key, ink band), filled by _ink_band
+
     _ALIGN = {
         "L": Qt.AlignmentFlag.AlignLeft,
         "C": Qt.AlignmentFlag.AlignCenter,
@@ -482,6 +488,9 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         # (itemChange live-syncs data.x/y from pos).
         self._shrink_eff = False
         self._shrink_off = QPointF(0.0, 0.0)
+        # ``(k, paper_scale)`` for the length of a printed viewport pass (N15),
+        # else None. Set only through set_print_pass.
+        self._print_pass: "tuple[float, float] | None" = None
 
         self.init_displayable(level=None)   # level-less primitive (C3)
         self.init_geometry2d()
@@ -496,6 +505,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         )
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setPos(data.x, data.y)
+        self._leader_hold = None        # box-top offset a side shoulder keeps while typing (N23)
         self._apply_format()
         self.document().contentsChanged.connect(self._on_contents_changed)
 
@@ -504,6 +514,31 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         if self._editing:
             self.prepareGeometryChange()
             self._apply_wrap_width()
+            self._hold_leader_attach()
+
+    def arm_leader_hold(self) -> None:
+        """A model-surface edit is starting: remember how far a side-edge
+        shoulder sits below the box top, or a bottom-edge box's height (notes
+        design N23)."""
+        rec = self._data.leader
+        h = _tl._box_mm(self).height()
+        self._leader_hold = (None if not rec or rec["edge"] == "T"
+                             else h if rec["edge"] == "B" else float(rec["t"]) * h)
+
+    def _hold_leader_attach(self) -> None:
+        """Keep the elbow where it was clicked as text is typed (N23). The box
+        grows downward: a side edge moves ``t`` so the shoulder stays on the
+        first line. A bottom-edge box grows upward instead, its bottom edge
+        fixed. A top edge needs nothing."""
+        rec, held = self._data.leader, self._leader_hold
+        if held is None or not rec:
+            return
+        h = _tl._box_mm(self).height()
+        if rec["edge"] == "B":
+            self._reanchor(0.0, (held - h) / (self.scale() or 1.0))
+            self._leader_hold = h
+        else:
+            rec["t"] = min(1.0, held / h)
 
     @property
     def data(self) -> "TextAnnotationData":
@@ -623,13 +658,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         ah = max(d.box_height_mm / s, h) if d.box_height_mm > 0 else h
         return QRectF(0.0, 0.0, aw, ah)
 
+    def _align_fractions(self) -> tuple[float, float]:
+        """The ``align`` x ``valign`` point of a box, as fractions of its size."""
+        return ({"L": 0.0, "C": 0.5, "R": 1.0}.get(self._data.align, 0.0),
+                {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0))
+
     def _shrink_offset(self) -> QPointF:
         """LOCAL offset of the hugged box: its ``align`` x ``valign`` point
         sits on the authored box's (D5, G3)."""
         a = self._authored_rect_local()
         w, h = self._box_size_local()
-        fx = {"L": 0.0, "C": 0.5, "R": 1.0}.get(self._data.align, 0.0)
-        fy = {"T": 0.0, "M": 0.5, "B": 1.0}.get(self._data.valign, 0.0)
+        fx, fy = self._align_fractions()
         return QPointF(fx * (a.width() - w), fy * (a.height() - h))
 
     def _freeze_shrink(self) -> None:
@@ -738,6 +777,40 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     # ── Box geometry ────────────────────────────────────────────────────────
 
+    def set_print_pass(self, value: "tuple[float, float] | None") -> None:
+        """Enter ``(k, paper_scale)`` or leave (None) a printed viewport pass
+        (N15). Paint and bounds change; no stored field or box size does."""
+        self.prepareGeometryChange()       # SB1c D6: painted size != model bounds
+        self._print_pass = value
+        self.update()
+
+    def _print_anchor_local(self) -> QPointF:
+        """The point a printed box scales about, LOCAL unscaled (N16): the knee
+        with a leader, else the box's ``align`` x ``valign`` point."""
+        rec = self._data.leader
+        if rec:
+            s = self.scale() or 1.0
+            _a, k = _tl.attach_and_knee(_tl._box_mm(self), rec)
+            return QPointF(k.x() / s, k.y() / s)
+        r = self._box_rect_local()
+        fx, fy = self._align_fractions()
+        return QPointF(r.left() + fx * r.width(), r.top() + fy * r.height())
+
+    def _print_transform(self, k: float) -> QTransform:
+        """The LOCAL scale by *k* about :meth:`_print_anchor_local`."""
+        a = self._print_anchor_local()
+        m = QTransform()
+        m.translate(a.x(), a.y())
+        m.scale(k, k)
+        m.translate(-a.x(), -a.y())
+        return m
+
+    def _painted_box_local(self) -> QRectF:
+        """The box as painted: :meth:`_box_rect_local`, scaled in a printed pass."""
+        r = self._box_rect_local()
+        pp = self._print_pass
+        return r if pp is None else self._print_transform(pp[0]).mapRect(r)
+
     def _box_rect_local(self) -> QRectF:
         """The box bounding rect in item-local UNSCALED coordinates.
 
@@ -822,11 +895,20 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         weight = self._data.border_weight if weight is None else weight
         line_type = self._data.border_line_type if line_type is None else line_type
         pen = QPen(resolve_colour(self._data.color, item=self))
+        pp = self._print_pass
         pen.setStyle({
             "solid": Qt.PenStyle.SolidLine, "dashed": Qt.PenStyle.DashLine,
             "dotted": Qt.PenStyle.DotLine, "dashdot": Qt.PenStyle.DashDotLine,
         }.get(line_type, Qt.PenStyle.SolidLine))
-        if self.is_device_independent():
+        if pp is not None:
+            # A printed pass (N15): true mm through the viewport, in the frame
+            # the painter is in here -- item scale x k x paper scale.
+            from .annotative import paper_scene_size
+            from .paper_display import resolve_line_weight_mm
+            local = (self.scale() or 1.0) * pp[0]
+            pen.setWidthF(max(paper_scene_size(resolve_line_weight_mm(weight), pp[1]) / local,
+                              1e-4))
+        elif self.is_device_independent():
             from .paper_display import resolve_line_weight_mm
             scale = self.scale() or 1.0
             pen.setWidthF(max(resolve_line_weight_mm(weight) / scale, 1e-4))
@@ -844,7 +926,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         is rotated (bake-at-rest), the padded rect's rotated footprint is
         returned so Qt's scene index / culling wraps the real shape.
         """
-        rect = self._box_rect_local()
+        rect = self._painted_box_local()
         s = self.scale() or 1.0
         pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
         base = rect.adjusted(-pad, -pad, pad, pad)
@@ -863,7 +945,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         narrowing shape() breaks Qt's paint culling.
         """
         path = QPainterPath()
-        path.addRect(self._box_rect_local())
+        path.addRect(self._painted_box_local())
         lp = self._leader_path_local()
         if not lp.isEmpty():
             from PyQt6.QtGui import QPainterPathStroker
@@ -1005,6 +1087,10 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         painter.save()
         if self._angle != 0.0:
             painter.setWorldTransform(self._rotation_transform(), True)
+        pp = self._print_pass
+        if pp is not None:
+            painter.save()
+            painter.setWorldTransform(self._print_transform(pp[0]), True)   # N15
         if self._data.fill_color:
             c = resolve_colour(self._data.fill_color, item=self)   # token-aware
             c.setAlphaF(max(0.0, min(1.0, self._data.fill_opacity / 100.0)))
@@ -1039,6 +1125,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             # Canvas (cosmetic) frame edges draw crisp on the axis (MW-7).
             _cs.stroke_cached(self._frame_split_cache, painter,
                               self._frame_path(), self._frame_pen())
+        if pp is not None:
+            painter.restore()             # the leader paints in the box frame (N16)
         if self._editing and self.is_device_independent():
             # Paper keeps its dashed EDITING frame; the model surface shows the
             # normal selection frame only (spec § Inline edit — no edit frame).
@@ -1083,7 +1171,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         rescaled by the item scale (the painter is scaled by 1/scale here)."""
         pen = self._frame_pen(self._data.leader.get("weight") or None, "solid")
         if not pen.isCosmetic():
-            pen.setWidthF(pen.widthF() * s)
+            k = self._print_pass[0] if self._print_pass is not None else 1.0
+            pen.setWidthF(pen.widthF() * s * k)   # the leader's painter has no k
         return pen
 
     def _paint_document_shifted(self, painter: QPainter, option, widget) -> None:
@@ -1155,7 +1244,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         applied: ``paint`` renders through an already-rotated painter and needs
         the unrotated glyphs, whereas block compilation needs them pre-rotated.
         """
-        offsets = self._layout_offsets()
+        return self._glyph_outline_at(self._layout_offsets())
+
+    def _glyph_outline_at(self, offsets: _LayoutOffsets) -> QPainterPath:
+        """Glyph outlines placed at *offsets*, in the frame of
+        :meth:`_glyph_outline_local`. The caller has forced the text layout."""
         font = self.font()
         doc = self.document()
         outline = QPainterPath()
@@ -1196,12 +1289,36 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         doc = self.document()
         doc.documentLayout().documentSize()   # force the lazy layout to run
-        vslack = max(0.0, self._box_rect_local().height()
-                     - super().boundingRect().height())
+        box_h = self._box_rect_local().height()
+        o = self._shrink_off
+        # N6: Middle centres typed ink on the model surface. Field text keeps the
+        # line box so tags share a baseline; N8: sheet text has no V Align row
+        # and its document paint ignores this offset.
+        ink = (self._ink_band() if self._centres_ink() else None)
+        if ink is not None:
+            return _LayoutOffsets((box_h - ink[0] - ink[1]) / 2.0 + o.y(), o.x())
+        vslack = max(0.0, box_h - super().boundingRect().height())
         voff = (vslack if self._data.valign == "B"
                 else vslack / 2.0 if self._data.valign == "M" else 0.0)
-        o = self._shrink_off
         return _LayoutOffsets(voff + o.y(), o.x())
+
+    def _centres_ink(self) -> bool:
+        """True when this text's Middle centres its ink (N6, N8)."""
+        d = self._data
+        return (d.valign == "M" and not d.line_box_middle
+                and not self.is_device_independent() and not self._bound_seed())
+
+    def _ink_band(self) -> "tuple[float, float] | None":
+        """``(top, bottom)`` of the glyph outlines, local, with no vertical
+        offset; None when nothing draws. Cached until the text, wrap width or
+        font changes, so a paint never re-outlines to place the block (N7).
+        The caller has forced the text layout."""
+        key = (self.document().revision(), self.textWidth(), self.font().key())
+        if self._ink_cache is None or self._ink_cache[0] != key:
+            path = self._glyph_outline_at(_LayoutOffsets(0.0))
+            r = path.boundingRect()
+            self._ink_cache = (key, None if path.isEmpty() else (r.top(), r.bottom()))
+        return self._ink_cache[1]
 
     def _line_origin(self, block, line, offsets: _LayoutOffsets | None = None) -> QPointF:
         """Painted top-left of *line*, in the LOCAL, UNSCALED, UN-rotated,
@@ -1410,6 +1527,62 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
     _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
+    _GRIP_LEFT = frozenset({0, 6, 7})
+    _GRIP_RIGHT = frozenset({2, 3, 4})
+    _GRIP_TOP = frozenset({0, 1, 2})
+    _GRIP_BOTTOM = frozenset({4, 5, 6})
+    _FIT_WIDTH_STEPS = 12     # bisection steps: the box width over 4096, ample for a grip
+
+    def _is_tied(self) -> bool:
+        """True when a live constraint references this box, so it cannot take
+        more height on its own (notes design N4). A suppressed or inert record
+        holds nothing."""
+        ctl = getattr(self.scene(), "constraint_ctl", None)
+        return ctl is not None and any(
+            c.enabled and not c.inert for c in ctl.constraints_on(self))
+
+    def _narrowest_fitting_width(self, width: float, box_h: float, limit: float) -> float:
+        """The narrowest local width in ``[width, limit]`` whose wrapped text
+        fits *box_h* (N4). Wrapped height never rises as width grows, so this
+        bisects; *limit* is the box's current width, which fits."""
+        from .sketch_adapters import _content_height_at
+        low, high = width, limit
+        for _ in range(self._FIT_WIDTH_STEPS):
+            mid = (low + high) / 2.0
+            if _content_height_at(self, mid) <= box_h:
+                high = mid
+            else:
+                low = mid
+        return high
+
+    def _clamp_grip_local(self, index: int, x: float, y: float, r: QRectF) -> tuple:
+        """Limit a resize grip's local target to the box minimums, so the edge
+        opposite the grip never moves (N3) and a tied box stops at its text (N4).
+
+        Args:
+            index: The resize grip, 0 to 7.
+            x: The target's local x.
+            y: The target's local y.
+            r: The current box rect, local unscaled.
+
+        Returns:
+            ``(x, y)``, the limited target.
+        """
+        from .sketch_adapters import _content_height_at
+        left, right = index in self._GRIP_LEFT, index in self._GRIP_RIGHT
+        width = r.width()
+        if left or right:
+            min_w = MIN_TEXT_WRAP_WIDTH_MM / (self.scale() or 1.0)
+            width = max(r.right() - x if left else x - r.left(), min_w)
+            if (width < r.width() and self._is_tied()
+                    and _content_height_at(self, width) > r.height()):
+                width = self._narrowest_fitting_width(width, r.height(), r.width())
+            x = r.right() - width if left else r.left() + width
+        if index in self._GRIP_TOP:
+            y = min(y, r.bottom() - _content_height_at(self, width))
+        elif index in self._GRIP_BOTTOM:
+            y = max(y, r.top() + _content_height_at(self, width))
+        return x, y
 
     def apply_grip(self, index: int, pos: QPointF):
         """Resize (edges/corners) or translate (centre) by dragging a grip.
@@ -1439,14 +1612,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self.setTextWidth(r.width())
             r = self._box_rect_local()
         l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
-        if   index == 0: nl, nt, nr, nb = local.x(), local.y(), ri, b
-        elif index == 1: nl, nt, nr, nb = l, local.y(), ri, b
-        elif index == 2: nl, nt, nr, nb = l, local.y(), local.x(), b
-        elif index == 3: nl, nt, nr, nb = l, t, local.x(), b
-        elif index == 4: nl, nt, nr, nb = l, t, local.x(), local.y()
-        elif index == 5: nl, nt, nr, nb = l, t, ri, local.y()
-        elif index == 6: nl, nt, nr, nb = local.x(), t, ri, local.y()
-        elif index == 7: nl, nt, nr, nb = local.x(), t, ri, b
+        x, y = local.x(), local.y()
+        if index != self.MOVE_GRIP_INDEX:
+            x, y = self._clamp_grip_local(index, x, y, r)
+        if   index == 0: nl, nt, nr, nb = x, y, ri, b
+        elif index == 1: nl, nt, nr, nb = l, y, ri, b
+        elif index == 2: nl, nt, nr, nb = l, y, x, b
+        elif index == 3: nl, nt, nr, nb = l, t, x, b
+        elif index == 4: nl, nt, nr, nb = l, t, x, y
+        elif index == 5: nl, nt, nr, nb = l, t, ri, y
+        elif index == 6: nl, nt, nr, nb = x, t, ri, y
+        elif index == 7: nl, nt, nr, nb = x, t, ri, b
         elif index == self.MOVE_GRIP_INDEX:
             dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
             self._reanchor(dx, dy)
@@ -1521,6 +1697,45 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_h_mm = max(local_h * scale, self._content_height_mm())
             self._data.box_height_mm = new_h_mm
 
+    # Every stored length of the box. A rescale multiplies them, and a refused
+    # one writes them back with the flags the rollback's adapter write can set.
+    _BOX_LENGTHS = ("height_mm", "wrap_width_mm", "box_height_mm", "cell_padding_mm",
+                    "border_corner_radius_mm")
+
+    def box_state(self) -> dict:
+        """The fields :meth:`rescale_about_anchor` and a solve may change."""
+        d = self._data
+        state = {f: getattr(d, f) for f in (*self._BOX_LENGTHS, "x", "y", "wrap", "shrink")}
+        state["leader"] = dict(d.leader) if d.leader else None
+        return state
+
+    def restore_box_state(self, state: dict) -> None:
+        """Put a :meth:`box_state` back, reformatted and in place."""
+        self.prepareGeometryChange()
+        for f, v in state.items():
+            setattr(self._data, f, v)
+        self._apply_format()
+        self.setPos(state["x"], state["y"])
+        self.update()
+
+    def rescale_about_anchor(self, factor: float) -> None:
+        """Multiply the box and its text by *factor*, the N16 anchor unmoved:
+        the Drawing scale row's edit (N14). The layout is unchanged, since the
+        wrap width and padding scale with the font. The tip stays where it is;
+        the shoulder scales, so the knee stays too."""
+        d = self._data
+        before = self.mapToScene(self._print_anchor_local())
+        self.prepareGeometryChange()
+        for f in self._BOX_LENGTHS:
+            setattr(d, f, getattr(d, f) * factor)
+        if d.leader:
+            d.leader["shoulder_mm"] *= factor
+        self._apply_format()
+        after = self.mapToScene(self._print_anchor_local())
+        self.moveBy(before.x() - after.x(), before.y() - after.y())
+        self.sync_data_from_item()
+        self.update()
+
     def _reanchor(self, local_dx: float, local_dy: float):
         """Shift pos() by a LOCAL-frame offset (honours rotation at angle != 0)."""
         delta = self.mapToScene(QPointF(local_dx, local_dy)) - self.mapToScene(QPointF(0.0, 0.0))
@@ -1556,7 +1771,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         from .manip_handle import default_grip_handles
         # S2: the centre move grip is a TranslateGripHandle (handle snap).
         return default_grip_handles(self, circular={0, 2, 4, 6, 8, 9, 10},
-                                    translate={self.MOVE_GRIP_INDEX})
+                                    translate={self.MOVE_GRIP_INDEX},
+                                    reach=frozenset(range(self.MOVE_GRIP_INDEX)))
 
     def manip_box_extra_handles(self):
         from .manip_handle import TranslateGripHandle
@@ -1663,7 +1879,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             "Format":   {"type": "header", "value": "Format"},
             "Font":     {"type": "font", "value": d.font_family or "Arial"},
             "Height":   self._height_row(),
-            "Padding":  {"type": "number", "value": int(round(d.cell_padding_mm)), "minimum": 0},
+            "Padding":  self._box_length_row(d.cell_padding_mm),
             "Style":    {"type": "bool_group",
                          "keys": [("Bold", "B"), ("Italic", "I"), ("Underline", "U")],
                          "values": {"Bold": d.bold, "Italic": d.italic, "Underline": d.underline}},
@@ -1687,8 +1903,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                          "options": [("square", "corner_square.svg"),
                                      ("round", "corner_fillet.svg"),
                                      ("chamfer", "corner_chamfer.svg")]},
-            "Corner Radius": {"type": "number", "value": int(round(d.border_corner_radius_mm)),
-                              "minimum": 0},
+            "Corner Radius": self._box_length_row(d.border_corner_radius_mm),
             "Fill":     {"type": "header", "value": "Fill"},
             "Fill Color":   {"type": "color", "value": d.fill_color},
             "Fill Opacity": {"type": "percent", "value": float(d.fill_opacity),
@@ -1736,9 +1951,23 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         text. Real-size model / block text shows decimal mm (``2.50 mm``).
         Storage stays cap height in mm either way; the row commits mm. A Note's
         style item (``_printed_height``) is printed text too, with no editor.
+        Text in a Printed schematic shows ``height_mm / text_scale`` the same
+        way and commits scene mm (N10).
         """
-        from .annotative import editor_is_annotative
+        from .annotative import (editor_is_annotative, editor_text_printed,
+                                 editor_text_scale)
         d = self._data
+        if editor_text_printed(self.scene()):
+            n = editor_text_scale(self.scene())
+
+            def parse(text, dd=d):
+                mm = _parse_height_pt(dd, text)
+                return None if mm is None else mm * n
+
+            return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
+                    "parser": parse,
+                    "formatter": lambda mm, dd=d: _format_height_pt(dd, mm / n),
+                    "minimum": 0.0}
         if getattr(self, "_printed_height", False) or editor_is_annotative(self.scene()):
             return {"type": "dimension", "value": d.height_mm, "value_mm": d.height_mm,
                     "parser": lambda text, dd=d: _parse_height_pt(dd, text),
@@ -1748,6 +1977,26 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                 "parser": _parse_text_height_mm,
                 "formatter": _format_height_mm,
                 "minimum": 0.0}
+
+    def _box_length_row(self, mm: float) -> dict:
+        """A Padding / Corner Radius row (N10): printed mm in a Printed schematic
+        and on a Note's style item, so a row reads the same armed and placed;
+        whole scene mm elsewhere. Decimals, since a small printed length must
+        not read 0. The row commits scene mm, as the Height row does."""
+        from .annotative import editor_text_printed, editor_text_scale
+        if editor_text_printed(self.scene()):
+            n = editor_text_scale(self.scene())
+        elif getattr(self, "_printed_height", False):
+            n = 1.0
+        else:
+            return {"type": "number", "value": int(round(mm)), "minimum": 0}
+
+        def parse(text):                 # the parser is the floor: 0 stays reachable
+            parsed = _parse_text_height_mm(text)
+            return None if parsed is None or parsed < 0.0 else parsed * n
+
+        return {"type": "dimension", "value": mm, "value_mm": mm, "parser": parse,
+                "formatter": lambda v: _format_height_mm(v / n)}
 
     def set_property(self, key: str, value) -> None:
         if self._on_paper():

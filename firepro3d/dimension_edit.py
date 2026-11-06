@@ -59,6 +59,7 @@ class DimensionEdit(QLineEdit):
         self._maximum = maximum      # accepted values must be <= maximum
         self._formatter = formatter  # optional mm -> str display override
         self._seed_text = ""
+        self._mixed = False          # blank for a multi-select that differs
 
         # Numeric "Value" role — monospace so digits/decimals align (house
         # typography; see docs/architecture/theming.md).
@@ -84,6 +85,7 @@ class DimensionEdit(QLineEdit):
 
     def set_value_mm(self, mm: float) -> None:
         """Set the value (in mm) and reformat the display."""
+        self._mixed = False
         self._value_mm = mm
         self._last_valid_mm = mm
         self._reformat()
@@ -91,6 +93,14 @@ class DimensionEdit(QLineEdit):
     def set_value_ft(self, ft: float) -> None:
         """Convenience: set value from feet."""
         self.set_value_mm(ft * 304.8)
+
+    def set_mixed(self) -> None:
+        """Show no value: a multi-select that differs. The field stays blank until
+        a typed value commits, whatever that value is."""
+        self._mixed = True
+        self._seed_text = ""
+        self.clear()
+        self.setModified(False)
 
     def set_scale_manager(self, sm: ScaleManager) -> None:
         """Update the scale manager (e.g. after unit system change)."""
@@ -151,6 +161,8 @@ class DimensionEdit(QLineEdit):
             False when the text was rejected and the field reverted.
         """
         text = self.text().strip()
+        if not text and self._mixed:
+            return True
         if not text or text == self._seed_text.strip():
             # Blank or untouched -> keep exact stored value (no emit).
             # Not a rejection: the stored value stands unchanged and valid.
@@ -167,6 +179,7 @@ class DimensionEdit(QLineEdit):
         if (parsed is not None
                 and (self._minimum is None or parsed > self._minimum)
                 and (self._maximum is None or parsed <= self._maximum)):
+            self._mixed = False
             self._value_mm = parsed
             self._last_valid_mm = parsed
             self._reformat()
@@ -175,7 +188,10 @@ class DimensionEdit(QLineEdit):
         else:
             # Invalid or out of range -> revert
             self._value_mm = self._last_valid_mm
-            self._reformat()
+            if self._mixed:
+                self.set_mixed()
+            else:
+                self._reformat()
             return False
 
     def focusInEvent(self, event: QFocusEvent) -> None:

@@ -18,13 +18,14 @@ from tests._note_helpers import click, mouse
 from tests.test_note_ribbon import main_window  # noqa: F401  (module MainWindow fixture)
 
 PLAN = "plan:Plan: Level 1"
-A, B = QPointF(-1200.0, -800.0), QPointF(1200.0, 400.0)
+TIP, A, B = QPointF(-1400.0, -1000.0), QPointF(-1200.0, -800.0), QPointF(-400.0, -700.0)
 
 
 def _note(shown_model_view):
     view, scene = shown_model_view
     scene.active_view_key = PLAN
     scene.set_mode("note")
+    click(view, TIP)
     click(view, A)
     click(view, B)
     inst = scene._block_instances[-1]
@@ -183,8 +184,9 @@ def test_a_mixed_selection_never_writes_another_type_rows_into_a_note(
 def test_two_selected_notes_both_take_a_row(shown_model_view, real_system_library):
     view, scene, a = _note(shown_model_view)
     scene.set_mode("note")
+    click(view, QPointF(-1400.0, 300.0))
     click(view, QPointF(-1200.0, 600.0))
-    click(view, QPointF(1200.0, 1000.0))
+    click(view, QPointF(-400.0, 700.0))
     b = scene._block_instances[-1]
     scene._note_ctl.overlay.setPlainText("Two")
     scene._text_edit_ctl.commit()
@@ -303,6 +305,8 @@ def test_wrap_off_and_shrink_size_the_drawn_box_to_the_text(
     _view, scene, inst = _note(shown_model_view)
     props = inst.get_properties()
     assert props["Wrap"]["value"] is True and props["Shrink to fit"]["value"] is False
+    inst.note["box_height_mm"] *= 3.0                  # a box taller than its line, to hug
+    inst.note_changed()
     before = inst.note_box_scene()
     inst.set_property("Shrink to fit", True)
     box = inst.note_box_scene()
@@ -311,7 +315,7 @@ def test_wrap_off_and_shrink_size_the_drawn_box_to_the_text(
     assert inst.get_properties()["Shrink to fit"]["value"] is True
     lit, span = _edge_lit(scene, inst)                 # the border is drawn on the hugged box
     assert lit > span * 0.9
-    inst.set_attributes(dict(inst.attributes, Text="Hold at level"))
+    inst.set_attributes(dict(inst.attributes, Text="Hold at level\nand more"))
     grown = inst.note_box_scene()                      # the box follows the text itself
     assert grown.width() > box.width() and grown.height() > box.height()
     scene._note_ctl.begin(inst)
@@ -367,6 +371,7 @@ def test_the_template_offers_wrap_and_shrink_and_stamps_them(
     assert tmpl.style["shrink"] is True
     scene.active_view_key = PLAN
     scene.set_mode("note")
+    click(view, TIP)
     click(view, A)
     click(view, B)
     inst = scene._block_instances[-1]
@@ -402,21 +407,21 @@ def test_arming_note_shows_the_template_and_the_next_note_takes_it(
     tmpl = scene._note_ctl.template
     win._activate_note_tool()
     assert win.prop_manager._targets == [tmpl]
-    for k in ("Line Type", "Border Weight", "Font", "Leader"):
+    for k in ("Line Type", "Border Weight", "Font", "Leader End", "Leader Weight"):
         assert k in win.prop_manager._prop_widgets, k
+    assert "Leader" not in win.prop_manager._prop_widgets   # on by construction (N27)
     depth = len(scene._undo_stack)
     panel = win.prop_manager
     try:
         panel._apply_property("Line Type", "dotted")
         panel._apply_property("Bold", True)
-        panel._apply_property("Leader", True)
         assert len(scene._undo_stack) == depth         # the template is not the model
-        QTest.qWait(panel._refresh_timer.interval() + 50)
-        assert "Leader End" in panel._prop_widgets     # the panel refreshed from the template
         panel._apply_property("Leader Weight", "Medium")
         vr = view.viewport().rect()
+        t = view.mapToScene(int(vr.width() * .5), int(vr.height() * .2))
         a = view.mapToScene(int(vr.width() * .55), int(vr.height() * .3))
-        b = view.mapToScene(int(vr.width() * .9), int(vr.height() * .7))
+        b = view.mapToScene(int(vr.width() * .9), int(vr.height() * .4))
+        click(view, t)
         click(view, a)
         click(view, b)
         inst = scene._block_instances[-1]
@@ -426,7 +431,7 @@ def test_arming_note_shows_the_template_and_the_next_note_takes_it(
         scene._note_ctl.overlay.setPlainText("Hold")
         scene._text_edit_ctl.commit()
     finally:
-        tmpl.style, tmpl.leader = {}, None
+        tmpl.style, tmpl.leader = {}, dict(tmpl.leader, weight="")
 
 
 def test_rearming_with_the_last_note_selected_keeps_the_template(
@@ -436,8 +441,9 @@ def test_rearming_with_the_last_note_selected_keeps_the_template(
     view = scene._snap_view()
     win._activate_note_tool()
     vr = view.viewport().rect()
+    click(view, view.mapToScene(int(vr.width() * .5), int(vr.height() * .2)))
     click(view, view.mapToScene(int(vr.width() * .55), int(vr.height() * .3)))
-    click(view, view.mapToScene(int(vr.width() * .9), int(vr.height() * .7)))
+    click(view, view.mapToScene(int(vr.width() * .9), int(vr.height() * .4)))
     scene._note_ctl.overlay.setPlainText("Hold")
     scene._text_edit_ctl.commit()
     assert scene.selectedItems()                       # the fresh note is selected

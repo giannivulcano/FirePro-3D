@@ -11,6 +11,7 @@ from .element_params import NONE_LABEL, WARN_MARK, category_choice
 
 _SCALE_LABELS = {"real_size": "Real size", "annotative": "Annotative"}
 _SCALE_MODES = {v: k for k, v in _SCALE_LABELS.items()}
+_TEXT_SIZING_LABELS = ("Real size", "Printed")     # schematics, N11
 
 
 class BlockPropertiesInfo:
@@ -47,6 +48,8 @@ class BlockPropertiesInfo:
                             "readonly": True},
             "Status": {"type": "status", "value": text, "state": state},
         }
+        if schematic:
+            props.update(self._text_rows())
         # Capability (hatch D-A32 tile / linetypes LT4 repeat / LT5 end): the
         # same rows the selected capability frame shows -- none for a
         # schematic (schematics.md D-S14).
@@ -78,6 +81,30 @@ class BlockPropertiesInfo:
                                       "value": self._scene.show_sample_values}
         return props
 
+    def _text_rows(self) -> dict:
+        """A schematic's Text sizing row, plus Drawing scale while Printed (N11)."""
+        from .annotative import editor_text_printed, editor_text_scale
+        from .stroke_style import model_scale_label, model_scale_options
+        printed = editor_text_printed(self._scene)
+        rows = {"Text sizing": {"type": "enum", "options": list(_TEXT_SIZING_LABELS),
+                                "value": _TEXT_SIZING_LABELS[1 if printed else 0]}}
+        if printed:
+            value = model_scale_label(editor_text_scale(self._scene))
+            options = model_scale_options()
+            if value not in options:
+                options = [value, *options]
+            rows["Drawing scale"] = {"type": "enum", "options": options, "value": value}
+        return rows
+
+    def _set_text_sizing(self, label: str) -> None:
+        """Real size drops both keys; Printed starts at the project scale. Text
+        keeps its stored size, so the editor looks the same (N13)."""
+        meta = {k: v for k, v in self._scene.block_meta.items()
+                if k not in ("text_sizing", "text_scale")}
+        if label == _TEXT_SIZING_LABELS[1] and self._editor is not None:
+            meta.update(text_sizing="printed", text_scale=self._editor.project_text_scale())
+        self._scene.set_block_meta(meta)
+
     def _screen_row_free(self) -> bool:
         """True unless a linetype / end capability already owns the
         "On screen" row (capability_panel; one key, one meaning)."""
@@ -99,6 +126,17 @@ class BlockPropertiesInfo:
             return
         if key == "Sample values":
             self._scene.set_show_sample_values(bool(value))    # view toggle, no undo
+            return
+        if key == "Text sizing":
+            self._set_text_sizing(str(value))
+            return
+        if key == "Drawing scale":
+            from .stroke_style import model_scale_from_label
+            n = model_scale_from_label(value)
+            if n is not None and self._editor is not None:
+                # A refusal needs no signal: PropertyManager._apply_property always
+                # starts its refresh timer, which rebuilds the row from get_properties.
+                self._editor.set_text_scale(n)
             return
         if key == "Scale mode":
             self._scene.set_block_meta({**self._scene.block_meta,

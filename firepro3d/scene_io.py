@@ -595,6 +595,10 @@ class SceneIOMixin:
         if self._level_manager:
             self._level_manager.apply_to_scene(self)
 
+        # Old schematics turn Printed (notes design N13): reads definitions + sheets.
+        from .schematic_scene import migrate_old_schematics
+        migrate_old_schematics(self, version)
+
         # Start fresh undo history
         self._undo_stack = []
         self._undo_pos = -1

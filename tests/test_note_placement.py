@@ -1,8 +1,10 @@
-"""Task 9: the Note tool places by two corners on plan and detail and opens the editor."""
+"""The Note tool places by three clicks on plan and detail and opens the editor.
+
+The geometry guards live in test_note_three_click.py."""
 import pytest
 from PyQt6.QtCore import QPointF
 
-from firepro3d.constants import MIN_NOTE_BOX_MM
+from firepro3d.constants import NOTE_BOX_WIDTH_MM
 from firepro3d.model_space import NOTE_OFF_HINT, Model_Space
 from firepro3d.system_blocks import NOTE_BLOCK_ID
 from firepro3d.text_item import editing_text_item
@@ -10,7 +12,7 @@ from tests._note_helpers import click
 from tests.test_note_ribbon import main_window  # noqa: F401  (module MainWindow fixture)
 
 PLAN = "plan:Plan: Level 1"
-A, B = QPointF(-1200.0, -800.0), QPointF(1200.0, 400.0)       # 2400 x 1200 scene mm
+TIP, A, B = QPointF(-1400.0, -1000.0), QPointF(-1200.0, -800.0), QPointF(-400.0, -700.0)
 
 
 _click = click
@@ -21,21 +23,21 @@ def _place(shown_model_view, key=PLAN):
     scene.active_view_key = key
     scene.set_mode("note")
     assert scene.mode == "note"
+    _click(view, TIP)
     _click(view, A)
-    assert scene._text_anchor is not None            # the first corner set the anchor
+    assert scene._note_ctl.tool_anchor() is not None     # the elbow is down
     _click(view, B)
     return view, scene
 
 
-def test_two_clicks_place_a_note_owned_by_the_active_view_and_open_the_editor(
+def test_three_clicks_place_a_note_owned_by_the_active_view_and_open_the_editor(
         shown_model_view, real_system_library):
     view, scene = _place(shown_model_view)
     inst = scene._block_instances[-1]
     assert inst.block_id == NOTE_BLOCK_ID
     assert inst.note["view"] == PLAN
-    k = inst.note_k()
-    assert (inst.note["wrap_width_mm"] * k, inst.note["box_height_mm"] * k) == pytest.approx(
-        (2400.0, 1200.0), rel=0.05)
+    assert inst.note["wrap_width_mm"] == NOTE_BOX_WIDTH_MM
+    assert inst.note["leader"]["edge"] == "L"
     assert scene.editing_note() is inst
     ov = scene._note_ctl.overlay
     assert editing_text_item(scene) is ov            # the real inline-edit session is live
@@ -43,14 +45,7 @@ def test_two_clicks_place_a_note_owned_by_the_active_view_and_open_the_editor(
     assert scene.mode != "note"                      # single placement: back to Select
 
 
-def test_a_small_drag_floors_at_the_minimum_box(shown_model_view, real_system_library):
-    view, scene = shown_model_view
-    scene.active_view_key = PLAN
-    scene.set_mode("note")
-    _click(view, QPointF(0.0, 0.0))
-    _click(view, QPointF(8.0, 8.0))
-    inst = scene._block_instances[-1]
-    assert (inst.note["wrap_width_mm"], inst.note["box_height_mm"]) == (MIN_NOTE_BOX_MM,) * 2
+
 
 
 def test_typed_text_commits_to_the_attribute_with_one_undo_step(
@@ -90,7 +85,7 @@ def test_note_mode_is_refused_off_a_plan_or_detail_view(qapp, key):
 
 
 @pytest.mark.parametrize("role", ["block_editor"])
-def test_note_mode_is_refused_on_an_editor_scene(qapp, role):
+def test_note_mode_is_refused_on_a_block_editor_scene(qapp, role):
     ms = Model_Space(scene_role=role)
     ms.active_view_key = PLAN
     ms.set_mode("note")
@@ -150,10 +145,10 @@ def test_pasting_a_note_still_works(shown_model_view, real_system_library):
 
 
 def test_the_note_tool_still_places(shown_model_view, real_system_library):
-    from PyQt6.QtCore import QRectF
     view, scene = _plan_view(shown_model_view)
     scene.set_mode("note")
-    scene._note_ctl.place(QRectF(0, 0, 2000, 1000))
+    for pt in (TIP, A, B):
+        _click(view, pt)
     assert scene._block_instances[-1].note["view"] == PLAN
     scene._text_edit_ctl.commit()
 

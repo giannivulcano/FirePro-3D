@@ -2763,7 +2763,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_arc":       "Click the arc points for the active variant (←/→ cycles Center / Start / End Points)",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
         "text":           "Click first corner, then drag to define text area",
-        "note":           "Click first corner, then drag to define the note",
+        "note":           "Click the arrow tip, then the elbow, then the box edge (Tab for exact input)",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
         "offset":         "Pick object to offset",
@@ -2971,7 +2971,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         a symbol, so arm the Note tool where the canvas can hold one, else refuse
         with the footer reason (design D11). Edit Block stays a separate path."""
         sc = self._active_scene()
-        if not (hasattr(sc, "note_allowed") and sc.note_allowed()):
+        if not (hasattr(sc, "note_tool_allowed") and sc.note_tool_allowed()):
             if hasattr(sc, "instructionChanged"):
                 sc.instructionChanged.emit(NOTE_OFF_HINT)
             else:
@@ -4711,6 +4711,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     # Save as Template is live only on a Schematic tab (schematics.md D-S6, SV3).
     _BE_TEMPLATE_BLOCK_TIP = "Only a schematic can be saved as a template"
     _BE_ATTR_SCHEMATIC_TIP = "Schematics have no attributes"
+    # Build's Note is schematic-only (notes design N26).
+    _BE_NOTE_BLOCK_TIP = "Block tabs use Text with Leader on"
+    _ARCH_NOTE_SCHEMATIC_TIP = "Schematic tabs use Note on the Build tab"
     # Off-tooltip for groups a canvas can't use (editor-build design §1 (b)).
     _NOT_IN_VIEW_TIP = "Not available in this view"
     # Canvas kinds (design §1) and the one table of which group is live where.
@@ -4724,6 +4727,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "inspect": frozenset({"plan", "detail", "block", "schematic"}),
         # Note: view-owned, so plan + detail only (text-leader-annotations D11).
         "annotate": frozenset({"plan", "detail"}),
+        # Build's Note: it saves as a text with a leader (notes design N26).
+        "schematic_note": frozenset({"schematic"}),
     }
     # Edit-group caption -> ModifyToolsController tool (can_start / start).
     _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
@@ -4838,6 +4843,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Text — the 9th primitive (contract C5). Authored here (and in Paper)
         # via the unified TextItem; no longer a model-space "Text Block" mode.
         _mode("Text", "text_icon.svg", "text", "Place a text note")
+        # Note (notes design N26): live on Schematic tabs only, unlike its row.
+        _note = g.add_small_button("Note", _I("note_icon.svg"),
+                                   lambda: self._active_scene().set_mode("note"),
+                                   checkable=True)
+        self._block_mode_buttons["note"] = _note
+        self._gate(_note, "Place a note: arrow tip, elbow, then box edge", "schematic_note")
         # Fill (HF3 R8 / HF4 AC1): a button, not a mode -- with no boundary candidates selected it enters Pick point.
         self._be_fill_btn = self._gate(
             g.add_small_button("Fill", _I("fill_icon.svg"),
@@ -5225,8 +5236,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             if sip.isdeleted(b):
                 continue
             live = kind in self._GROUP_LIVE_KINDS[group]
-            b.setToolTip(tip if live else
-                         (NOTE_OFF_HINT if group == "annotate" else off_tip))
+            if live:
+                b.setToolTip(tip)
+            elif group == "annotate" and kind == "schematic":
+                b.setToolTip(self._ARCH_NOTE_SCHEMATIC_TIP)
+            elif group == "annotate":
+                b.setToolTip(NOTE_OFF_HINT)
+            elif group == "schematic_note" and kind == "block":
+                b.setToolTip(self._BE_NOTE_BLOCK_TIP)
+            else:
+                b.setToolTip(off_tip)
             b.setEnabled(live)
         if kind in self._GROUP_LIVE_KINDS["edit"]:
             self._connect_modify_refresh(self._active_scene())

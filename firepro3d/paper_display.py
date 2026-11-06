@@ -1095,6 +1095,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .pipe import Pipe
     from .gridline import GridlineItem
+    from .annotative import printed_text_k
+    from .text_item import TextItem
 
     color_mode = load_paper_color_mode()
     cats = load_paper_categories()
@@ -1117,6 +1119,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     _THIN_SUSPEND += 1
     _PASS_COLOR_MODE = color_mode
     saved.append({"thin_suspend": True})
+    text_scale = getattr(scene, "text_print_scale", None)   # a Printed schematic (N15)
     try:
         items = scene.items(source_rect)
 
@@ -1146,6 +1149,12 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 saved.append({"item": item, "cat_key": None,
                               "visible": item.isVisible()})
                 item.setVisible(False)
+                continue
+            if text_scale and isinstance(item, TextItem):
+                # Printed text (N15): painted scaled, so it reports scaled bounds
+                # for the pass. Saved first: restore never sees a half-entered item.
+                saved.append({"print_text": item})
+                item.set_print_pass((printed_text_k(text_scale, paper_scale), paper_scale))
                 continue
             if viewport_data is not None and _is_detail_marker(item):
                 marker_name = getattr(item, "name", None)
@@ -1471,6 +1480,9 @@ def restore_model_display(saved: list[dict]):
                 _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
                 if _THIN_SUSPEND == 0:
                     _PASS_COLOR_MODE = None
+            continue
+        if "print_text" in entry:
+            entry["print_text"].set_print_pass(None)
             continue
         if "underlay_group" in entry:
             # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
