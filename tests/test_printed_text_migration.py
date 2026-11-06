@@ -18,6 +18,7 @@ from firepro3d.paper_export import export_pdf
 from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
 from firepro3d.property_manager import PropertyManager
 from firepro3d.schematic_scene import SchematicSceneManager
+from firepro3d.text_item import TextAnnotationData, TextItem
 from tests.test_note_three_click import THIRD, three_clicks
 from tests.test_note_three_click import schematic  # noqa: F401
 from tests.test_printed_text_pdf import (_VP_X, _VP_Y, _cap_mm, _DetailStub, _editor, _PlanStub,
@@ -243,6 +244,90 @@ def test_a_box_row_shows_and_commits_printed_mm_through_the_panel(qapp, key, fie
     edit.setText("3mm")
     edit.editingFinished.emit()
     assert getattr(t.data, field) == pytest.approx(60.0)
+
+
+@pytest.mark.parametrize("key, field", [("Padding", "cell_padding_mm"),
+                                        ("Corner Radius", "border_corner_radius_mm")])
+def test_a_box_row_goes_to_zero_and_refuses_a_negative(qapp, key, field):
+    proj = Model_Space()
+    proj.scale_manager.drawing_scale = 20.0
+    _w, t = _editor(proj, "printed", height_mm=60.0, cell_padding_mm=40.0,
+                    border_corner_radius_mm=40.0)
+    pm = PropertyManager()
+    pm.show_properties(t)
+    edit = _row(pm, key)
+    edit.setText("-1")
+    edit.editingFinished.emit()
+    assert getattr(t.data, field) == pytest.approx(40.0)
+    edit.setText("0")
+    edit.editingFinished.emit()
+    assert getattr(t.data, field) == 0.0
+
+
+def _two_texts(key_field):
+    proj = Model_Space()
+    proj.scale_manager.drawing_scale = 20.0
+    w, a = _editor(proj, "printed", height_mm=60.0, **{key_field: 40.0})
+    b = TextItem(TextAnnotationData(text="J", font_family="Arial", height_mm=60.0,
+                                    **{key_field: 100.0}))
+    w._add_primitive(b)
+    return w, a, b
+
+
+@pytest.mark.parametrize("key, field", [("Padding", "cell_padding_mm"),
+                                        ("Corner Radius", "border_corner_radius_mm"),
+                                        ("Height", "height_mm")])
+def test_tabbing_through_a_mixed_row_writes_nothing(qapp, key, field):
+    """Both differ on *field* (Height: the other two rows stay equal, so make it differ)."""
+    _w, a, b = _two_texts("cell_padding_mm" if field == "height_mm" else field)
+    if field == "height_mm":
+        b.data.height_mm = 120.0
+    want = getattr(a.data, field), getattr(b.data, field)
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    edit = _row(pm, key)
+    assert edit.text() == ""
+    edit.editingFinished.emit()
+    assert (getattr(a.data, field), getattr(b.data, field)) == want
+    assert edit.text() == ""                            # still shows < mixed >
+
+
+def test_typing_the_first_targets_value_into_a_mixed_row_commits_to_all(qapp):
+    _w, a, b = _two_texts("cell_padding_mm")
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    edit = _row(pm, "Padding")
+    edit.setText("2.00 mm")                             # a's value: not an untouched field
+    edit.editingFinished.emit()
+    assert (a.data.cell_padding_mm, b.data.cell_padding_mm) == pytest.approx((40.0, 40.0))
+
+
+def test_an_untouched_row_writes_nothing_on_a_single_target(qapp):
+    proj = Model_Space()
+    proj.scale_manager.drawing_scale = 20.0
+    _w, t = _editor(proj, "printed", height_mm=60.0)
+    seen = []
+    pm = PropertyManager()
+    pm.show_properties(t)
+    t.set_property = lambda k, v: seen.append(k)        # instance shadow: the panel calls it by name
+    _row(pm, "Height").editingFinished.emit()
+    assert seen == []
+
+
+def test_a_schematic_that_cannot_build_does_not_stop_the_open(qapp, tmp_path, monkeypatch):
+    proj = _old_project()
+    defn = _old_schematic(proj)
+    _sheet(proj, defn, 0.0, BOX)
+    path = tmp_path / "old.fpd"
+    _save_as_version(proj, path)
+
+    def boom(self, block_id):
+        raise ValueError("bad primitive")
+
+    monkeypatch.setattr(SchematicSceneManager, "scene_for", boom)
+    again = _reopened(path)
+    d2 = again.get_block_definition(defn.id)
+    assert (d2.text_sizing, d2.text_scale) == ("printed", PROJECT_SCALE)
 
 
 def test_a_bare_focus_out_keeps_a_small_padding(qapp):

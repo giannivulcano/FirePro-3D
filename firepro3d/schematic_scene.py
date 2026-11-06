@@ -7,6 +7,8 @@ dicts into live scene items; the Block Editor (seeding) and the render scenes
 """
 from __future__ import annotations
 
+import logging
+
 from PyQt6.QtCore import QRectF
 
 from .block_definition import _PRIMITIVE_FACTORY, is_scaffold_item
@@ -16,6 +18,8 @@ from .geometry_2d import (
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem
+
+log = logging.getLogger("FirePro3D")
 
 _CLS_TO_LIST = {
     # Reference shapes stay in their class's list (design RG1).
@@ -162,7 +166,12 @@ def migrate_old_schematics(project, version) -> None:
         for defn in old:
             data = _first_viewport(project, defn.id)
             has_text = any(p.get("type") == _TEXT_TYPE for p in defn.primitives)
-            s = _viewport_scale(mgr, defn.id, data) if data is not None and has_text else None
+            s = None
+            if data is not None and has_text:
+                try:
+                    s = _viewport_scale(mgr, defn.id, data)
+                except Exception:      # a schematic that cannot build never stops an open
+                    log.exception("Schematic %s: viewport scale unavailable", defn.name)
             defn.text_sizing = "printed"
             defn.text_scale = (round(1.0 / s, _SCALE_DECIMALS) if s else 0.0) or default
     finally:

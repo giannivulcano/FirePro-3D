@@ -391,9 +391,10 @@ class PropertyManager(QWidget):
                                          minimum=meta.get("minimum"),
                                          formatter=meta.get("formatter"),
                                          maximum=meta.get("maximum"))
-                dim_edit.editingFinished.connect(
-                    lambda k=key, de=dim_edit: self._apply_property(
-                        k, de.value_mm())
+                # A real edit only: an untouched or "< mixed >" field tabbed through
+                # writes nothing to any target.
+                dim_edit.valueChanged.connect(
+                    lambda mm, k=key: self._apply_property(k, mm)
                 )
                 widget = dim_edit
 
@@ -588,7 +589,10 @@ class PropertyManager(QWidget):
 
             # Show mixed-value indicator for multi-select with differing values
             if is_mixed and widget is not None:
-                if isinstance(widget, QLineEdit):
+                if isinstance(widget, DimensionEdit):
+                    widget.setPlaceholderText("< mixed >")
+                    widget.set_mixed()
+                elif isinstance(widget, QLineEdit):
                     widget.setPlaceholderText("< mixed >")
                     widget.clear()
                     widget.setModified(False)   # an untouched mixed field is not a user edit

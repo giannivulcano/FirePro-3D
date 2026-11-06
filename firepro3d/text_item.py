@@ -1991,12 +1991,12 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         else:
             return {"type": "number", "value": int(round(mm)), "minimum": 0}
 
-        def parse(text):
+        def parse(text):                 # the parser is the floor: 0 stays reachable
             parsed = _parse_text_height_mm(text)
-            return None if parsed is None else parsed * n
+            return None if parsed is None or parsed < 0.0 else parsed * n
 
         return {"type": "dimension", "value": mm, "value_mm": mm, "parser": parse,
-                "formatter": lambda v: _format_height_mm(v / n), "minimum": 0.0}
+                "formatter": lambda v: _format_height_mm(v / n)}
 
     def set_property(self, key: str, value) -> None:
         if self._on_paper():

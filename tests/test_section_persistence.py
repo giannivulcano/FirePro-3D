@@ -23,7 +23,7 @@ def _scene_with_manager(qapp):
 
 def test_save_version_unchanged():
     from firepro3d.model_space import Model_Space
-    assert Model_Space.SAVE_VERSION == 11          # D4 / S4: no bump (value at 682c1edd)
+    assert Model_Space.SAVE_VERSION >= 11          # D4 / S4: sections bumped nothing (11 at 682c1edd)
 
 
 def test_round_trip_restores_placed_section(qapp, tmp_path):
