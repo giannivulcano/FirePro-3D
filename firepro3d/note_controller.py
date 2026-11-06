@@ -240,11 +240,12 @@ class NoteController:
         s.publish_placement_state(self.tool_anchor(), pt)
 
     def _printed_k(self) -> float:
-        """Scene mm per printed mm on this canvas (N22): the drawing scale on a
-        plan or detail, the schematic's own scale in its editor."""
-        from .annotative import _drawing_scale, editor_text_scale
+        """Scene mm per printed mm on this canvas (N22): a Printed schematic's
+        own scale, else the project drawing scale (a plan, a detail, a Real size
+        schematic)."""
+        from .annotative import _drawing_scale, editor_text_printed, editor_text_scale
         s = self._scene
-        return _drawing_scale(s) if s.scene_role == "plan" else editor_text_scale(s)
+        return editor_text_scale(s) if editor_text_printed(s) else _drawing_scale(s)
 
     def _new_preview(self, item):
         """Style *item* as a placement preview and add it to the scene."""
@@ -426,7 +427,12 @@ class NoteController:
         lead, typed = inst.note.get("leader"), item.data.leader
         if lead and typed and typed["edge"] in ("L", "R"):
             lead["t"] = typed["t"]             # the shoulder held while typing (N23)
+        grows_up = bool(lead and typed and typed["edge"] == "B")
+        knee = inst._note_knee_scene() if grows_up else None
         inst.set_attributes(dict(inst.attributes, Text=text))
+        if knee is not None:                   # the box grew upward: the elbow stays (N23)
+            now = inst._note_knee_scene()
+            inst.translate(knee.x() - now.x(), knee.y() - now.y())
         inst.setSelected(True)
         return "kept"
 

@@ -388,23 +388,23 @@ def test_the_hud_measures_each_step_from_its_own_point_and_a_typed_step_places(
 # -- N25: a schematic note is a text with a leader, saved into the definition -------
 
 @pytest.fixture
-def schematic(qapp, real_system_library, monkeypatch):
+def schematic(qapp, real_system_library):
     """A shown Schematic editor at the conftest zoom, its text scale 20."""
     from PyQt6.QtTest import QTest
     from PyQt6.QtWidgets import QApplication
 
-    from firepro3d import annotative
     from firepro3d.block_editor import BlockEditorWidget
     from firepro3d.level_manager import LevelManager
     from firepro3d.model_space import Model_Space
     from firepro3d.scale_manager import ScaleManager
     from tests.conftest import _DropOsPointerInput
 
-    monkeypatch.setattr(annotative, "editor_text_scale", lambda scene: SCHEMATIC_SCALE)
     proj = Model_Space()
     proj._level_manager = LevelManager()
     proj.scale_manager = ScaleManager()
     w = BlockEditorWidget(proj, kind="schematic")
+    w.editor_scene.set_block_meta({**w.editor_scene.block_meta, "text_sizing": "printed",
+                                   "text_scale": SCHEMATIC_SCALE}, push_undo=False)
     w.resize(900, 700)
     view = w.view
     view._os_pointer_filter = _DropOsPointerInput(view)

@@ -76,6 +76,21 @@ def materialized_items(scene) -> list:
     return items
 
 
+def _with_leaders(rect: QRectF, items: list) -> QRectF:
+    """*rect* grown to hold every text leader's elbow and tip, so a note reaching
+    past the drawing is not cropped at the viewport (notes design N17)."""
+    from .text_item import TextItem
+    pts = [p for it in items if isinstance(it, TextItem) and it.data.leader
+           for p in it.grip_points()[TextItem.LEADER_KNEE_GRIP:]]
+    if not pts:
+        return rect
+    left = min([rect.left()] + [p.x() for p in pts])
+    top = min([rect.top()] + [p.y() for p in pts])
+    right = max([rect.right()] + [p.x() for p in pts])
+    bottom = max([rect.bottom()] + [p.y() for p in pts])
+    return QRectF(left, top, right - left, bottom - top)
+
+
 def clear_materialized(scene) -> None:
     """Remove every materialized item from *scene* (rebuild-in-place)."""
     for attr in _PRIMITIVE_LISTS:
@@ -182,10 +197,12 @@ class SchematicSceneManager:
         if sc is None:
             return None
         from .geometry_import import geometric_bounds
-        rect = geometric_bounds([it for it in materialized_items(sc)
-                                 if not is_scaffold_item(it)])   # D23 / RG11
+        items = [it for it in materialized_items(sc)
+                 if not is_scaffold_item(it)]                    # D23 / RG11
+        rect = geometric_bounds(items)
         if rect is None:
             return QRectF(_DEFAULT_EXTENT)
+        rect = _with_leaders(rect, items)
         pad = max(_EXTENT_PAD_MIN_MM,
                   _EXTENT_PAD_FRAC * max(rect.width(), rect.height()))
         return rect.adjusted(-pad, -pad, pad, pad)

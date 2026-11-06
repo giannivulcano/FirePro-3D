@@ -518,18 +518,27 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     def arm_leader_hold(self) -> None:
         """A model-surface edit is starting: remember how far a side-edge
-        shoulder sits below the box top (notes design N23)."""
+        shoulder sits below the box top, or a bottom-edge box's height (notes
+        design N23)."""
         rec = self._data.leader
-        self._leader_hold = (float(rec["t"]) * _tl._box_mm(self).height()
-                             if rec and rec["edge"] in ("L", "R") else None)
+        h = _tl._box_mm(self).height()
+        self._leader_hold = (None if not rec or rec["edge"] == "T"
+                             else h if rec["edge"] == "B" else float(rec["t"]) * h)
 
     def _hold_leader_attach(self) -> None:
-        """The box grows downward as text is typed: move ``t`` so the shoulder
-        keeps its place, on the first line of a new note (N23). Top and bottom
-        edges have no vertical fraction, so they need nothing."""
-        held = self._leader_hold
-        if held is not None and self._data.leader:
-            self._data.leader["t"] = min(1.0, held / _tl._box_mm(self).height())
+        """Keep the elbow where it was clicked as text is typed (N23). The box
+        grows downward: a side edge moves ``t`` so the shoulder stays on the
+        first line. A bottom-edge box grows upward instead, its bottom edge
+        fixed. A top edge needs nothing."""
+        rec, held = self._data.leader, self._leader_hold
+        if held is None or not rec:
+            return
+        h = _tl._box_mm(self).height()
+        if rec["edge"] == "B":
+            self._reanchor(0.0, (held - h) / (self.scale() or 1.0))
+            self._leader_hold = h
+        else:
+            rec["t"] = min(1.0, held / h)
 
     @property
     def data(self) -> "TextAnnotationData":
