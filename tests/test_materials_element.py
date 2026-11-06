@@ -197,3 +197,46 @@ def test_mixed_wall_pipe_selection_leaves_the_pipe_material(qapp):
     assert w.material_id == mt.project_table().by_name("Brick").id
     assert pipe.get_properties()["Material"]["value"] == before
     assert "Building Material" not in pipe.get_properties()
+
+
+def test_apply_category_defaults_stamps_a_new_wall_and_slab(qapp):
+    from firepro3d.display_manager import apply_category_defaults
+    table = mt.project_table()
+    table.set_default("Wall", table.by_name("Brick").id)
+    table.set_default("Floor", table.by_name("Concrete").id)
+    ms = Model_Space()
+    w, s = _wall(ms), _slab(ms)
+    apply_category_defaults(w)
+    apply_category_defaults(s)
+    assert w.material_id == table.by_name("Brick").id
+    assert s.material_id == table.by_name("Concrete").id
+
+
+def test_stamp_keeps_a_template_pick(qapp):
+    from firepro3d.display_manager import apply_category_defaults
+    table = mt.project_table()
+    table.set_default("Wall", table.by_name("Brick").id)
+    ms = Model_Space()
+    w = _wall(ms)
+    w.material_id = table.by_name("Concrete").id
+    apply_category_defaults(w)
+    assert w.material_id == table.by_name("Concrete").id
+
+
+def test_real_wall_placement_takes_the_template_then_the_default(qapp):
+    from PyQt6.QtCore import QPointF as P
+    table = mt.project_table()
+    ms = Model_Space()
+    table.set_default("Wall", table.by_name("Brick").id)
+
+    def commit_rect():
+        ms._wall_rect_sized_pt1, ms._wall_rect_sized_pt2 = P(0, 0), P(4000, 3000)
+        ms._wall_rect_pivot = P(0, 0)
+        assert ms._wall_ctl._commit_wall_rect_rotated(0.0)
+
+    commit_rect()
+    assert [w.material_id for w in ms._walls] == [table.by_name("Brick").id] * 4
+    ms._walls.clear()
+    ms._get_wall_template().material_id = table.by_name("Concrete").id
+    commit_rect()
+    assert [w.material_id for w in ms._walls] == [table.by_name("Concrete").id] * 4

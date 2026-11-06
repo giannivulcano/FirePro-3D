@@ -272,3 +272,14 @@ def set_from_row(item, name) -> bool:
     if sc is not None and hasattr(sc, "request_undo_push"):
         sc.request_undo_push()
     return True
+
+
+def stamp_default(item) -> None:
+    """Placement: a new wall or slab still on None takes its category default (M11).
+
+    ``apply_category_defaults`` calls this; it is not on the load, undo or
+    paste paths, so a saved id is never overwritten.
+    """
+    category = getattr(item, "material_category", None)
+    if category and item.material_id == MATERIAL_NONE_ID:
+        item.material_id = project_table().default_for(category)

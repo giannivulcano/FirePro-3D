@@ -886,6 +886,8 @@ def apply_category_defaults(item):
     Call this whenever a new item is added to the scene so it inherits
     the user's current Display Manager preferences.
     """
+    from . import materials
+    materials.stamp_default(item)
     from .pipe import Pipe
     from .sprinkler import Sprinkler
     from .fitting import Fitting
