@@ -816,8 +816,16 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## Wall polish (2026-10-23 user batch)
 
-- [ ] [type:feature] Materials: Walls and Floors get a material property, materials carry the section hatch, Display Manager gets a Materials tab [P2] [subject:CAD]
-  - Details: user 2026-11-04, confirmed 2026-11-06 (found in no task file; filed from the wall-joint run). Walls have no material field today. Instead of assigning section views to broad categories (all walls one hatch), assign materials to categories, assign hatches to those materials, displayed when sectioned; material goes into the Display Manager as a new tab. `wall.py`, `display_manager.py`. ref: wall-room-floor-system.md s5.2, hatch-and-fill.md.
+- [ ] [type:bug] Materials Section selector rebuild misses its 50 ms bar on this host [P3] [subject:CAD]
+  - Details: Materials run wrap-up (2026-11-06). `tests/test_hf5_perf.py::test_tab_edit_refreshes_pickers_within_bar[20-40]` measured medians 62-119 ms at both f85d87ef and 64d0f223 on a host at 39% CPU (interleaved pairs, so the VC9 round did not cause it), against 27-35 ms in earlier quiet runs. Merged with the bar unproven by user ruling. Re-measure on an idle host at interleaved base/HEAD pairs first. If it still misses, memoise icons in `MaterialsTab.refresh_fill_types` (`_type_icons` retired with the Section column, so no memo exists). `firepro3d/materials_tab.py`. ref: docs/specs/materials.md.
+- [ ] [type:maint] Retire the dead section keys left after Materials [P4] [subject:CAD]
+  - Details: Materials VC9 review (2026-11-06). `SectionScene._pipe_display_props` still reads QSettings `display/Pipe/section`, which nothing writes (test_section_paper_colours sets it). `"section"` and `"section_pattern"` rows in `display_manager._CATEGORIES` have no reader. `n_walls` in `tests/test_hf5_perf.py` only sizes the scene now. Check each reader, then remove. ref: docs/specs/materials.md.
+- [ ] [type:bug] Properties panel may show a template's old material after New or Open from wall or floor mode [P4] [subject:CAD]
+  - Details: Materials T4-5 review (2026-11-06), cosmetic, not seen at smoke. `_clear_scene` resets the templates' `material_id`, but the open form is not re-queried until the next mode entry. The Display Manager OK path re-queries since 64d0f223; do not call `_do_refresh` on New or Open without checking that targets are still live. Confirm live first. `main.py`. ref: docs/specs/materials.md.
+- [ ] [type:maint] Floor placement close paths have no material guard [P4] [subject:CAD]
+  - Details: Materials T4-5 review (2026-11-06). The slab rect commit and click-polygon close are guarded for AC7; the double-click and Enter close paths are not. `tests/test_materials_element.py`. ref: docs/specs/materials.md.
+- [ ] [type:bug] Two perf tests miss their budgets at main on this host [P4] [subject:CAD]
+  - Details: proven pre-existing at 63085f6f with HEAD as control during the Materials run (2026-11-06). `tests/test_wall_joint_stops_perf.py::test_level_edit_flipping_every_joint_on_480_walls` (7.4-12.6 s) and `tests/test_hf1_theme_perf.py::test_g12_shape_a`. Re-measure on an idle host before treating either as a regression.
 - [ ] [type:feature] Tags can show a wall's or floor's Building Material [P4] [subject:CAD]
   - Details: Materials run follow-up (2026-11-06). Add a Material key to the Wall category in `element_params.py`; Floor is not a category there yet, so decide whether to add it. Depends on the Materials line. ref: docs/specs/materials.md, element-parameters.md.
 - [ ] [type:design] Wall type at junctions: should different wall types force a Butt stop [P3] [subject:CAD]
