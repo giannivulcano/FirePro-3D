@@ -38,7 +38,7 @@ def test_round_grip_sits_on_the_title_and_the_resize_set_stays(rig, kind, resiza
     view, ps, vp = place(*rig, kind)
     m = _select(view, ps, vp)
     grips = _grips(m)
-    assert len(grips) == 1 and grips[0].circular
+    assert len(grips) == 2 and grips[0].circular
     want = QPointF(X + 4.0, Y + H + 4.5)      # raw: the default spot
     assert grips[0].scene_position(m._rect) == want
     resize = [h for h in m._active_handles() if isinstance(h, ResizeHandle)]
@@ -55,11 +55,11 @@ def _shown_grips(m):
 def test_hidden_title_has_no_grip_at_once(rig):
     view, ps, vp = place(*rig)
     m = _select(view, ps, vp)
-    assert len(_shown_grips(m)) == 1
+    assert len(_shown_grips(m)) == 2
     ps.commit_viewport_edit(vp, show_title=False)
     assert _grips(m) == [] and _shown_grips(m) == []
     ps.undo_stack.undo()
-    assert len(_grips(m)) == 1 and len(_shown_grips(m)) == 1
+    assert len(_grips(m)) == 2 and len(_shown_grips(m)) == 2
 
 
 def test_a_view_turning_placeholder_drops_its_grip(rig):
@@ -73,7 +73,7 @@ def test_a_view_turning_placeholder_drops_its_grip(rig):
     m._reflow_live()                           # raised on the stale grip
     vp.data.source_view_name = name
     vp.refresh_source()
-    assert len(_shown_grips(m)) == 1
+    assert len(_shown_grips(m)) == 2
 
 
 def _drag_grip(view, vp, steps=5):
@@ -131,7 +131,7 @@ def test_grip_lands_under_the_cursor_after_a_viewport_move(rig):
     vp.manip_translate(10.0, 5.0)
     pt = QPointF(220.0, 170.0)
     vp.apply_grip(0, pt)
-    assert vp.grip_points() == [pt]
+    assert vp.grip_points()[0] == pt
     assert vp.data.title_offset == pytest.approx(
         (220.0 - (X + 10.0 + 4.0), 170.0 - (Y + 5.0 + H + 4.5)), abs=1e-6)
 
@@ -157,7 +157,7 @@ def test_panel_reset_is_one_undo_step(rig):
 def test_context_menu_reset(rig, monkeypatch):
     class _Menu(QMenu):
         def exec(self, *a):
-            return next(x for x in self.actions() if x.text() == "Reset Title Position")
+            return next(x for x in self.actions() if x.text() == "Reset Title")
     monkeypatch.setattr(paper_space, "QMenu", _Menu)
 
     class _Ev:

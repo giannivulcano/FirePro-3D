@@ -380,6 +380,7 @@ SELECTION_GRIP_SIZE_MM = 4.0               # paper selection padding: side (pape
 VIEW_TITLE_ORIGIN_X_MM = 4.0
 VIEW_TITLE_ORIGIN_Y_MM = 4.5
 VIEW_TITLE_LINE_PEN_MM = 0.3          # the composite line (paper mm)
+VIEW_TITLE_LINE_MIN_MM = 1.0          # shortest dragged line past the bubble (paper mm)
 VIEW_TITLE_PLACEHOLDER_MM = 8.0       # orphan box side on paper (k = 1)
 SCALE_RATIO_MAX = 1000.0              # largest scale a viewport may take; beyond it the "1:N" label no longer reads back
 

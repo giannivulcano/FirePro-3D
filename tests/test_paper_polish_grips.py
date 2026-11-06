@@ -53,8 +53,13 @@ def _frame(view, ps, item, zoom):
 def test_grip_measures_nine_px_and_a_press_hits_it(rig, kind, zoom):
     view, ps, vp = place(*rig)
     item = _target(ps, vp, kind)
+    if kind == "viewport":
+        # The title line grip sits 4.5 mm under the corner handle and wins a
+        # press where their hit areas overlap (sheet fit, accepted at T5); this
+        # test measures the corner handle alone.
+        ps.commit_viewport_edit(vp, show_title=False)
     m, host = _frame(view, ps, item, zoom)
-    half = MANIP_HANDLE_SIZE_PX / 2.0
+    half = host._size() / 2.0
     dev = host.deviceTransform(view.viewportTransform())
     rect = dev.mapRect(QRectF(-half, -half, 2 * half, 2 * half))
     assert rect.width() == pytest.approx(MANIP_HANDLE_SIZE_PX)

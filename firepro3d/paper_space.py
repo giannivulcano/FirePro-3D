@@ -25,6 +25,7 @@ from .constants import (
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
     VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM, SCALE_RATIO_MAX,
+    VIEW_TITLE_LINE_MIN_MM,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -311,7 +312,8 @@ class SheetViewData:
     is the per-sheet set of detail-marker names hidden in THIS host-plan
     viewport's paper output. ``show_title`` / ``title_offset`` = the view
     title's per-viewport visibility and its offset from the default spot
-    (SB4f).
+    (SB4f). ``title_line_mm`` = the view title line's right end, mm along the
+    line from the block origin; 0 = automatic (D3).
     """
     source_view_type: str
     source_view_name: str
@@ -327,6 +329,7 @@ class SheetViewData:
     hidden_detail_ids: set[str] = field(default_factory=set)
     show_title: bool = True
     title_offset: tuple[float, float] = (0.0, 0.0)
+    title_line_mm: float = 0.0
 
     def to_dict(self) -> dict:
         cr = self.crop_rect
@@ -344,6 +347,7 @@ class SheetViewData:
             "hidden_detail_ids": sorted(self.hidden_detail_ids),
             "show_title": self.show_title,
             "title_offset": list(self.title_offset),
+            "title_line_mm": self.title_line_mm,
         }
 
     @classmethod
@@ -364,6 +368,7 @@ class SheetViewData:
             hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
             show_title=d.get("show_title", True),
             title_offset=tuple(d.get("title_offset", (0.0, 0.0))),
+            title_line_mm=d.get("title_line_mm", 0.0),
         )
 
 
@@ -723,7 +728,7 @@ class ViewportProperties:
                       "options": scale_opts},
             "Show Border": {"type": "bool", "value": d.show_border},
             "Show Title": {"type": "bool", "value": d.show_title},
-            "Title Position": {"type": "button", "value": "Reset Title Position",
+            "Title Position": {"type": "button", "value": "Reset Title",
                                "callback": self._reset_title,
                                "enabled": self._vp._title_shown()},
             "Position X": {"type": "string", "value": f"{d.x:.1f}"},
@@ -733,8 +738,8 @@ class ViewportProperties:
         }
 
     def _reset_title(self) -> None:
-        """Return the title to its default spot under the box (D5)."""
-        self._scene.commit_viewport_edit(self._vp, title_offset=(0.0, 0.0))
+        """Return the title to its default spot and automatic line (D4)."""
+        self._scene.reset_view_title(self._vp)
 
     def _set_scale(self, text: str) -> None:
         """Apply a Scale row pick. ``Custom...`` asks for the text first; a
@@ -1163,29 +1168,46 @@ class SheetViewport(QGraphicsObject):
         self.setPos(self._data.x, self._data.y)
         self.mark_dirty()
 
-    # The title grip (SB4f D1): one round live-apply grip on the block origin.
+    # The title grips (SB4f D1, paper polish D3): two round live-apply grips,
+    # the block origin and the line end.
     # A sole scale-capable viewport is box-native and reads
     # manip_box_extra_handles; a detail or scaled schematic is not and reads
     # manip_extra_handles. Both are additive: the resize set stays.
     def grip_points(self) -> list:
-        """``[title origin in scene coords]``, or [] while the title is hidden."""
+        """``[title origin, line end]`` in scene coords, or [] while the title
+        is hidden. Without a line, index 1 sits on the origin and is not
+        hittable, so a live host's index stays valid."""
         if not self._title_shown():
             return []
-        return [self.mapToScene(self._title_anchor())]
+        a = self._title_anchor()
+        return [self.mapToScene(a),
+                self.mapToScene(a + QPointF(self._title_label.line_end() or 0.0, 0.0))]
+
+    def grip_hittable(self, index: int) -> bool:
+        return index == 0 or self._title_label.line_end() is not None
 
     def apply_grip(self, index: int, pt: QPointF) -> None:
-        """Move the title's origin to scene point *pt* (live; undo is the
-        manipulator's ``_manip_commit`` -> ViewportGeometryCommand)."""
-        if index != 0:
-            return
+        """Move the title's origin (0) or its line end (1, x only) to scene
+        point *pt* (live; undo is the manipulator's ``_manip_commit`` ->
+        ViewportGeometryCommand)."""
         p = self.mapFromScene(pt)
-        self._data.title_offset = (p.x() - VIEW_TITLE_ORIGIN_X_MM,
-                                   p.y() - self._data.h - VIEW_TITLE_ORIGIN_Y_MM)
+        if index == 1:
+            floor = self._title_label.trim_distance(1.0, 0.0) + VIEW_TITLE_LINE_MIN_MM
+            self.set_title_line(max(p.x() - self._title_anchor().x(), floor))
+        elif index == 0:
+            self._data.title_offset = (p.x() - VIEW_TITLE_ORIGIN_X_MM,
+                                       p.y() - self._data.h - VIEW_TITLE_ORIGIN_Y_MM)
+            self._sync_title()
+
+    def set_title_line(self, mm: float) -> None:
+        """Store the line end (0 = automatic) and re-shape the title."""
+        self._data.title_line_mm = mm
         self._sync_title()
 
     def manip_box_extra_handles(self) -> list:
-        from .manip_handle import default_grip_handles
-        return default_grip_handles(self, circular={0})
+        from .manip_handle import TitleLineGripHandle, default_grip_handles
+        return [TitleLineGripHandle(self, h.index, circular=True) if h.index == 1 else h
+                for h in default_grip_handles(self, circular={0, 1})]
 
     manip_extra_handles = manip_box_extra_handles
 
@@ -1488,7 +1510,7 @@ class SheetViewport(QGraphicsObject):
         # Viewport properties are edited in the property panel (select the
         # viewport — spec §19.4); the old "Properties..." dialog entry is gone.
         goto_action = menu.addAction("Go to View")
-        reset_action = menu.addAction("Reset Title Position")
+        reset_action = menu.addAction("Reset Title")
         reset_action.setEnabled(self._title_shown())
         menu.addSeparator()
         delete_action = menu.addAction("Delete")
@@ -1513,9 +1535,9 @@ class SheetViewport(QGraphicsObject):
         if action == goto_action:
             self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
         elif action == reset_action:
-            commit = getattr(self.scene(), "commit_viewport_edit", None)
-            if commit is not None:
-                commit(self, title_offset=(0.0, 0.0))
+            reset = getattr(self.scene(), "reset_view_title", None)
+            if reset is not None:
+                reset(self)
         elif action == delete_action:
             self.delete_requested.emit(self)
         elif action in detail_actions:
@@ -3246,7 +3268,8 @@ class PaperScene(QGraphicsScene):
         Args:
             data: SheetViewData whose geometry changed.
             old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture, plus
-                title_offset as a sixth element from ``_viewport_geom``.
+                title_offset and title_line_mm as sixth and seventh elements
+                from ``_viewport_geom``.
             new: the same shape after the gesture.
         """
         if not self._applying_command and old != new:
@@ -3255,11 +3278,12 @@ class PaperScene(QGraphicsScene):
     @staticmethod
     def _viewport_geom(data) -> tuple:
         """Snapshot of a SheetViewData's geometry: (x, y, w, h, (cx, cy, cw, ch),
-        title_offset). The native-move path keeps the 5-tuple form."""
+        title_offset, title_line_mm). The native-move path keeps the 5-tuple
+        form."""
         cr = data.crop_rect
         return (data.x, data.y, data.w, data.h,
                 (cr.x(), cr.y(), cr.width(), cr.height()),
-                tuple(data.title_offset))
+                tuple(data.title_offset), data.title_line_mm)
 
     # Per-item-type manipulator snapshot + undo-command adapter.  The gesture
     # path is generic: on press each dragged record is snapshotted with its
@@ -3410,7 +3434,8 @@ class PaperScene(QGraphicsScene):
 
     def commit_viewport_edit(self, viewport, *, title=None, show_border=None,
                              scale=None, pos=None, show_title=None,
-                             title_offset=None, view_number=None) -> bool:
+                             title_offset=None, view_number=None,
+                             title_line_mm=None) -> bool:
         """Push a ChangeViewportPropertiesCommand for one or more field edits.
 
         Any keyword left ``None`` keeps the viewport's current value. On-paper
@@ -3427,6 +3452,7 @@ class PaperScene(QGraphicsScene):
             show_title: New title visibility, or None to keep.
             title_offset: New (dx, dy) from the title's default spot, or None to keep.
             view_number: New number, already validated, or None to keep.
+            title_line_mm: New line end, 0.0 = automatic, or None to keep.
 
         Returns:
             True if a command was pushed (values actually changed).
@@ -3438,6 +3464,7 @@ class PaperScene(QGraphicsScene):
             "w": data.w, "h": data.h,
             "show_title": data.show_title,
             "title_offset": tuple(data.title_offset),
+            "title_line_mm": data.title_line_mm,
             "view_number": data.view_number,
         }
         new_title = data.title if title is None else title
@@ -3460,6 +3487,8 @@ class PaperScene(QGraphicsScene):
             "show_title": data.show_title if show_title is None else show_title,
             "title_offset": (tuple(data.title_offset) if title_offset is None
                              else tuple(title_offset)),
+            "title_line_mm": (data.title_line_mm if title_line_mm is None
+                              else title_line_mm),
             "view_number": data.view_number if view_number is None else view_number,
         }
         if new_fields != old_fields:
@@ -3467,6 +3496,12 @@ class PaperScene(QGraphicsScene):
                 ChangeViewportPropertiesCommand(self, data, old_fields, new_fields))
             return True
         return False
+
+    def reset_view_title(self, viewport) -> bool:
+        """Return *viewport*'s title to its default spot and automatic line, one
+        undo step (D4)."""
+        return self.commit_viewport_edit(viewport, title_offset=(0.0, 0.0),
+                                         title_line_mm=0.0)
 
     # ── Annotation management ────────────────────────────────────────────
 
