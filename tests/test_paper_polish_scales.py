@@ -42,6 +42,7 @@ def test_no_two_presets_share_a_ratio():
     ("1:12.5", 12.5, "1:12.5"),
     (f'3/4"=1{FT}', 16, f'3/4"=1{FT}'),
     ('  1 " = 10 \' ', 120, '1"=10\''),
+    ("1:0.001", 0.001, "1:0.001"),               # ratio 1000: the largest a viewport may take
 ])
 def test_typed_scales_parse_and_read_back(text, denom, reads):
     r = scale_to_float(text)
@@ -51,6 +52,9 @@ def test_typed_scales_parse_and_read_back(text, denom, reads):
 
 @pytest.mark.parametrize("bad", [
     "", "abc", "1:0", "1:00", '1"=0\'', f'0"=1{FT}', f'1/0"=1{FT}', "1:-5",
+    "1:0.0001",                                   # ratio 10000: reads back as 1:0
+    '99999999999999999999"=1\'-0"',               # inf
+    f'{"9" * 400}/{"9" * 400}"=1\'-0"',           # nan
 ])
 def test_bad_text_raises_value_error_only(bad):
     with pytest.raises(ValueError):

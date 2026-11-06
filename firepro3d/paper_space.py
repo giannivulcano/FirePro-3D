@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from .constants import (
@@ -23,7 +24,7 @@ from .constants import (
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
-    VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM,
+    VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM, SCALE_RATIO_MAX,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -210,11 +211,12 @@ def scale_to_float(s: str) -> float:
            ``'1/4"=1\\'-0"'`` or ``'1"=15\\''`` (engineering).
 
     Returns:
-        The dimensionless scale ratio (e.g. 0.01 for 1:100), always above 0.
+        The dimensionless scale ratio (e.g. 0.01 for 1:100), always above 0
+        and at most ``SCALE_RATIO_MAX``.
 
     Raises:
         ValueError: If *s* cannot be recognised as a valid scale string,
-            or spells a zero scale.
+            or spells a zero, non-finite or too-large scale.
     """
     s = s.strip()
     if s in _PRESET_MAP:
@@ -223,7 +225,7 @@ def scale_to_float(s: str) -> float:
         ratio = _parse_scale(s)
     except ZeroDivisionError:
         ratio = None
-    if ratio is None or ratio <= 0.0:
+    if ratio is None or not (math.isfinite(ratio) and 0.0 < ratio <= SCALE_RATIO_MAX):
         raise ValueError(f"Cannot parse scale string: {s!r}")
     return ratio
 
@@ -248,6 +250,9 @@ def float_to_scale_str(ratio: float) -> str:
         if abs(ratio - preset_ratio) < preset_ratio * 0.001:
             return label
     return f"1:{1.0 / ratio:.3f}".rstrip("0").rstrip(".")
+
+
+SCALE_CUSTOM = "Custom..."     # the panel Scale row's last entry (D6)
 
 
 def _compute_scale_field(sheet: "Sheet") -> str:
@@ -704,6 +709,7 @@ class ViewportProperties:
         scale_opts = ["NTS"] + [label for label, _ in SCALE_PRESETS]
         if scale_val not in scale_opts:            # non-preset custom scale
             scale_opts = [scale_val] + scale_opts
+        scale_opts.append(SCALE_CUSTOM)
         return {
             "View": {"type": "label",
                      "value": self._vp.display_title() or d.source_view_name},
@@ -730,15 +736,32 @@ class ViewportProperties:
         """Return the title to its default spot under the box (D5)."""
         self._scene.commit_viewport_edit(self._vp, title_offset=(0.0, 0.0))
 
+    def _set_scale(self, text: str) -> None:
+        """Apply a Scale row pick. ``Custom...`` asks for the text first; a
+        Cancel or bad text leaves the scale and the panel refresh re-shows it."""
+        if text == SCALE_CUSTOM:
+            from .themed_message import themed_input_text
+            views = self._scene.views()
+            text, ok = themed_input_text(
+                views[0] if views else None, "Custom Scale",
+                'Scale (1:125, 1:12.5, 3/4"=1\'-0" or 1"=15\'):',
+                initial=float_to_scale_str(self._vp.data.scale))
+            if not ok:
+                return
+        try:
+            s = 0.0 if text.strip().upper() == "NTS" else scale_to_float(text)
+        except ValueError:
+            self._scene.notify(f'"{text}" is not a scale. Try 1:125 or 1"=15\'.')
+            return
+        self._scene.commit_viewport_edit(self._vp, scale=s)
+
     def set_property(self, key: str, value) -> None:
         d = self._vp.data
         if key == "Title":
             self._scene.commit_viewport_edit(
                 self._vp, title=self._vp.title_to_store(value))
         elif key == "Scale":
-            s = (0.0 if str(value).upper() == "NTS"
-                 else scale_to_float(str(value)))
-            self._scene.commit_viewport_edit(self._vp, scale=s)
+            self._set_scale(str(value))
         elif key == "Show Border":
             self._scene.commit_viewport_edit(self._vp, show_border=bool(value))
         elif key == "Number":
@@ -1625,6 +1648,12 @@ class SheetViewPropertiesDialog(QDialog):
         if refusal is not None:
             if self._notify is not None:
                 self._notify(refusal)
+            return
+        try:
+            self.get_scale()
+        except ValueError:
+            if self._notify is not None:
+                self._notify(f'"{self._scale_combo.currentText()}" is not a scale.')
             return
         super().accept()
 

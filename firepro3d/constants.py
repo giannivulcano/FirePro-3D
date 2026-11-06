@@ -381,6 +381,7 @@ VIEW_TITLE_ORIGIN_X_MM = 4.0
 VIEW_TITLE_ORIGIN_Y_MM = 4.5
 VIEW_TITLE_LINE_PEN_MM = 0.3          # the composite line (paper mm)
 VIEW_TITLE_PLACEHOLDER_MM = 8.0       # orphan box side on paper (k = 1)
+SCALE_RATIO_MAX = 1000.0              # largest scale a viewport may take; beyond it the "1:N" label no longer reads back
 
 # ── Selection-manipulator handle style (docs/specs/selection-manipulator.md) ──
 # Mockup-approved 2026-08-30 (style A): dark-filled square handles with a
