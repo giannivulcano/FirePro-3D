@@ -1410,6 +1410,60 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     _GRIP_CHANGES_X = frozenset({0, 2, 3, 4, 6, 7})
     _GRIP_CHANGES_Y = frozenset({0, 1, 2, 4, 5, 6})
+    _GRIP_LEFT = frozenset({0, 6, 7})
+    _GRIP_RIGHT = frozenset({2, 3, 4})
+    _GRIP_TOP = frozenset({0, 1, 2})
+    _GRIP_BOTTOM = frozenset({4, 5, 6})
+    _FIT_WIDTH_STEPS = 12     # bisection steps: the box width over 4096, ample for a grip
+
+    def _is_tied(self) -> bool:
+        """True when a constraint references this box, so it cannot take more
+        height on its own (notes design N4)."""
+        ctl = getattr(self.scene(), "constraint_ctl", None)
+        return ctl is not None and bool(ctl.constraints_on(self))
+
+    def _narrowest_fitting_width(self, width: float, box_h: float, limit: float) -> float:
+        """The narrowest local width in ``[width, limit]`` whose wrapped text
+        fits *box_h* (N4). Wrapped height never rises as width grows, so this
+        bisects; *limit* is the box's current width, which fits."""
+        from .sketch_adapters import _content_height_at
+        low, high = width, limit
+        for _ in range(self._FIT_WIDTH_STEPS):
+            mid = (low + high) / 2.0
+            if _content_height_at(self, mid) <= box_h:
+                high = mid
+            else:
+                low = mid
+        return high
+
+    def _clamp_grip_local(self, index: int, x: float, y: float, r: QRectF) -> tuple:
+        """Limit a resize grip's local target to the box minimums, so the edge
+        opposite the grip never moves (N3) and a tied box stops at its text (N4).
+
+        Args:
+            index: The resize grip, 0 to 7.
+            x: The target's local x.
+            y: The target's local y.
+            r: The current box rect, local unscaled.
+
+        Returns:
+            ``(x, y)``, the limited target.
+        """
+        from .sketch_adapters import _content_height_at
+        left, right = index in self._GRIP_LEFT, index in self._GRIP_RIGHT
+        width = r.width()
+        if left or right:
+            min_w = MIN_TEXT_WRAP_WIDTH_MM / (self.scale() or 1.0)
+            width = max(r.right() - x if left else x - r.left(), min_w)
+            if (width < r.width() and self._is_tied()
+                    and _content_height_at(self, width) > r.height()):
+                width = self._narrowest_fitting_width(width, r.height(), r.width())
+            x = r.right() - width if left else r.left() + width
+        if index in self._GRIP_TOP:
+            y = min(y, r.bottom() - _content_height_at(self, width))
+        elif index in self._GRIP_BOTTOM:
+            y = max(y, r.top() + _content_height_at(self, width))
+        return x, y
 
     def apply_grip(self, index: int, pos: QPointF):
         """Resize (edges/corners) or translate (centre) by dragging a grip.
@@ -1439,14 +1493,17 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             self.setTextWidth(r.width())
             r = self._box_rect_local()
         l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
-        if   index == 0: nl, nt, nr, nb = local.x(), local.y(), ri, b
-        elif index == 1: nl, nt, nr, nb = l, local.y(), ri, b
-        elif index == 2: nl, nt, nr, nb = l, local.y(), local.x(), b
-        elif index == 3: nl, nt, nr, nb = l, t, local.x(), b
-        elif index == 4: nl, nt, nr, nb = l, t, local.x(), local.y()
-        elif index == 5: nl, nt, nr, nb = l, t, ri, local.y()
-        elif index == 6: nl, nt, nr, nb = local.x(), t, ri, local.y()
-        elif index == 7: nl, nt, nr, nb = local.x(), t, ri, b
+        x, y = local.x(), local.y()
+        if index != self.MOVE_GRIP_INDEX:
+            x, y = self._clamp_grip_local(index, x, y, r)
+        if   index == 0: nl, nt, nr, nb = x, y, ri, b
+        elif index == 1: nl, nt, nr, nb = l, y, ri, b
+        elif index == 2: nl, nt, nr, nb = l, y, x, b
+        elif index == 3: nl, nt, nr, nb = l, t, x, b
+        elif index == 4: nl, nt, nr, nb = l, t, x, y
+        elif index == 5: nl, nt, nr, nb = l, t, ri, y
+        elif index == 6: nl, nt, nr, nb = x, t, ri, y
+        elif index == 7: nl, nt, nr, nb = x, t, ri, b
         elif index == self.MOVE_GRIP_INDEX:
             dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
             self._reanchor(dx, dy)
