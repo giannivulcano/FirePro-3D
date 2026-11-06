@@ -95,6 +95,27 @@ Element key `material` (a material id), omitted when it is the None material.
   category look today; on None it shows nothing.
 - **Unknown material id** (a paste from another project): reads as None; the id stays stored.
 
+## Build notes (probes for the plan; drop at Account)
+
+Confirmed at 5a9e8c4c: `paint_fill` takes `background=None` and `tile_ref=None`; rows key on their
+label (`property_manager.py`), and `Fill Mode` already has a `Section` option; `_cut_items` carries
+each cut's source element, so `section_scene` can resolve per element; `fill_type_bus` has only
+the Display Manager as a listener, so `notify_changed` alone repaints nothing.
+
+Still to probe in the plan:
+
+- `main.py` `new_file`: nothing calls `reset_project_table`, so find how a new project gets its
+  Fill Types, and reset Materials at the same point.
+- Which step of Display Manager OK repaints plan items and rebuilds open sections, so a Materials
+  tab OK reaches them (AC3). `_ElevCutRect` should hold the source element and resolve at paint.
+- `FloorSlab.set_property`: confirm it pushes undo the way `WallSegment` does (AC4).
+- `canonical_ref` spelling for the Concrete, Brick, Cross Hatch and Diagonal starters.
+- The `_category_has_section` consumers, including `hatch_patterns.py` warm-up, the Section column
+  build and the paper tab, before removing the column. `test_hf5_*` and `test_section_rendering.py`
+  pin the retired paths; rewrite them in the same task (VC5).
+- Base `paper_bg` in `draw_section_type` on `layers.background` (M15). The `_ElevCutRect`
+  `paper_body` path shares it.
+
 ## Acceptance Criteria
 
 1. Two cut walls with different materials draw different looks in a real section.
