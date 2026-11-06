@@ -1671,6 +1671,45 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             new_h_mm = max(local_h * scale, self._content_height_mm())
             self._data.box_height_mm = new_h_mm
 
+    # Every stored length of the box. A rescale multiplies them, and a refused
+    # one writes them back with the flags the rollback's adapter write can set.
+    _BOX_LENGTHS = ("height_mm", "wrap_width_mm", "box_height_mm", "cell_padding_mm",
+                    "border_corner_radius_mm")
+
+    def box_state(self) -> dict:
+        """The fields :meth:`rescale_about_anchor` and a solve may change."""
+        d = self._data
+        state = {f: getattr(d, f) for f in (*self._BOX_LENGTHS, "x", "y", "wrap", "shrink")}
+        state["leader"] = dict(d.leader) if d.leader else None
+        return state
+
+    def restore_box_state(self, state: dict) -> None:
+        """Put a :meth:`box_state` back, reformatted and in place."""
+        self.prepareGeometryChange()
+        for f, v in state.items():
+            setattr(self._data, f, v)
+        self._apply_format()
+        self.setPos(state["x"], state["y"])
+        self.update()
+
+    def rescale_about_anchor(self, factor: float) -> None:
+        """Multiply the box and its text by *factor*, the N16 anchor unmoved:
+        the Drawing scale row's edit (N14). The layout is unchanged, since the
+        wrap width and padding scale with the font. The tip stays where it is;
+        the shoulder scales, so the knee stays too."""
+        d = self._data
+        before = self.mapToScene(self._print_anchor_local())
+        self.prepareGeometryChange()
+        for f in self._BOX_LENGTHS:
+            setattr(d, f, getattr(d, f) * factor)
+        if d.leader:
+            d.leader["shoulder_mm"] *= factor
+        self._apply_format()
+        after = self.mapToScene(self._print_anchor_local())
+        self.moveBy(before.x() - after.x(), before.y() - after.y())
+        self.sync_data_from_item()
+        self.update()
+
     def _reanchor(self, local_dx: float, local_dy: float):
         """Shift pos() by a LOCAL-frame offset (honours rotation at angle != 0)."""
         delta = self.mapToScene(QPointF(local_dx, local_dy)) - self.mapToScene(QPointF(0.0, 0.0))

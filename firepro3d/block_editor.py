@@ -14,7 +14,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
                              QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
-from .annotative import _drawing_scale
+from .annotative import _drawing_scale, editor_text_printed, editor_text_scale
 from .model_space import Model_Space
 from .model_view import Model_View
 from .block_definition import is_scaffold, is_scaffold_item
@@ -579,6 +579,37 @@ class BlockEditorWidget(QWidget):
         sc.set_block_meta({**sc.block_meta, "text_sizing": "printed",
                            "text_scale": self.project_text_scale()}, push_undo=False)
         self._rebaseline_undo()
+
+    def set_text_scale(self, n: float) -> bool:
+        """The Drawing scale row: re-size the canvas text for scale *n* (N14).
+
+        Printed size stays: every text scales about its anchor by new / old,
+        one undo step, and a driving dim inside it follows. If the constraints
+        refuse, the solver has restored the geometry and posted its status, and
+        the fields it cannot reach are put back here.
+
+        Returns:
+            True when the scale changed.
+        """
+        sc = self.editor_scene
+        old = editor_text_scale(sc)
+        if not editor_text_printed(sc) or n <= 0.0 or n == old:
+            return False
+        sc.commit_text_edit()
+        factor = n / old
+        texts = list(sc._texts)
+        states = [(t, t.box_state()) for t in texts]
+        ctl = sc.constraint_ctl
+        with ctl.edit(texts, typed=True, scale=factor):
+            for t in texts:
+                t.rescale_about_anchor(factor)
+        if ctl.edit_refused:
+            for t, state in states:
+                t.restore_box_state(state)
+            return False
+        sc.set_block_meta({**sc.block_meta, "text_scale": n}, push_undo=False)
+        sc.push_undo_state()
+        return True
 
     def project_text_scale(self) -> float:
         """The project drawing scale N, the Printed starting scale (N12, N13)."""

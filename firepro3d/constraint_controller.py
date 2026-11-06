@@ -1725,7 +1725,10 @@ class ConstraintController:
         *point_map* (CS4b D65 -- Rotate / Flip / Scale only): a scene-point
         mapper equal to the tool's transform; every placed dim internal to
         *items* keeps its place by carrying a point on its dim line through it.
+        ``edit_refused`` reads True after a rolled-back edit, for a caller that
+        holds state the rollback does not reach (N14).
         """
+        self.edit_refused = False
         items = list(items)
         scaled = (self._scale_dims(items, scale)
                   if scale is not None and items and self.enabled else [])
@@ -1769,6 +1772,7 @@ class ConstraintController:
                 c.value = v
             self._unscale_radii(radii)
             self._unflip_dim_signs(flipped)
+            self.edit_refused = True
             self._report_conflict(reassert=True)
         else:
             self._carry_dim_labels(anchors, point_map)
