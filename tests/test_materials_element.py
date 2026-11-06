@@ -85,6 +85,7 @@ def test_a_file_with_no_materials_key_opens_on_none_with_starters(qapp, tmp_path
     out.load_from_file(p)
     assert out._walls[0].material_id == MATERIAL_NONE_ID
     assert mt.project_table().by_name("Concrete") is not None
+    assert ft.project_table().get(mt.project_table().by_name("Concrete").fill_type) is not None
 
 
 def test_instance_override_becomes_a_material_with_the_same_look(qapp, tmp_path):

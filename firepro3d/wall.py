@@ -874,7 +874,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "Fill Mode":    {"type": "enum",      "value": self._fill_mode,
                              "options": ["None", "Solid", "Section"]},
             materials.ROW_KEY: materials.property_row(self),
-            "Alignment":   {"type": "enum",      "value": self._alignment,
+            "Alignment":    {"type": "enum",      "value": self._alignment,
                              "options": ["Center", "Left", "Right"]},
             "Base Level":   {"type": "level_ref", "value": self._base_level},
             "Base Offset":  {"type": "dimension", "value": self._fmt(self._base_offset_mm),
