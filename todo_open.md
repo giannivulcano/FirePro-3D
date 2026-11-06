@@ -120,6 +120,8 @@
 
 > Feature landed 2026-09-22 on `feat/text-annotation-frame` (frame axis + FontSelect + fill model + grouped annotation property panel + custom Selector/Stepper/Swatch inputs + tokenized panel metrics `theme.M.PROP_*`). Governing spec `docs/specs/text-annotation-system.md`. Follow-ups below.
 
+- [ ] [type:feature] Notes on schematics: text box polish, paper-correct text size, three-click Note placement [P1] [subject:Text]
+  - Details: user request 2026-11-05; end goal is adding notes to schematics. Four parts, one run. (1) Constrained text resists grip drags: a centre or mid-edge pin leaves the grip about half way over a 30 mm drag (`manip_handle.GripHandle._solve_frame` reach passes), and a bound text can balloon in height. (2) Text is not truly centred: the line box reserves space above caps and below the baseline, so mixed-case text in an auto box shows 3.65 mm above and 1.03 mm below. (3) Text in a schematic scales with the viewport, against schematics D-S7, with no paper-fixed sizing. (4) Note placement becomes tip click, elbow click, text box click. Design D11 keeps the Note button off schematic canvases today. Probes: `.todo/text-notes-1b-findings.md`.
 - [ ] [type:feature] Text style presets + per-property overrides + SHX (draft-spec phase 2) [P2] [subject:UX]
   - Details: the deferred larger vision from `Downloads/Ribbon Text Group — Spec.md` (seed): named `TextStyle` bundles (font/height/width-factor/B-I-U) + per-entity overrides + the launcher/style-manager dialog + SHX fonts (FontSelect already has a font-source seam). ref: text-annotation-system D1/D2.
 - [ ] [type:feature] Extend the ribbon Text/Frame groups to model/Block-Editor text (undo-routed) [P2] [subject:UX]
