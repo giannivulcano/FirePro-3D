@@ -122,6 +122,7 @@ class TextAnnotationData:
     border_corner_radius_mm: float = 0.0         # 0 = auto proportional (TEXT_FRAME_CORNER_FRAC)
     angle: float = 0.0                           # rotation degrees, Y-up CCW+; pivot not serialised
     keep_upright: bool = False                   # SB1a A5: always readable in a block
+    line_box_middle: bool = False                # field text: Middle keeps the line box (N6)
     hide_empty: bool = False                     # SB4a D6: a blank bound text drops + closes its slot
     wrap: bool | None = None                     # D4: None = legacy (see wrap_on)
     shrink: bool | None = None                   # D4: None = legacy (see shrink_on)
@@ -176,6 +177,8 @@ class TextAnnotationData:
         }
         if self.keep_upright:
             d["keep_upright"] = True             # sparse (the `mirrored` convention)
+        if self.line_box_middle:
+            d["line_box_middle"] = True          # sparse
         if self.hide_empty:
             d["hide_empty"] = True               # sparse, same convention
         if self.wrap is not None:
@@ -212,6 +215,7 @@ class TextAnnotationData:
             border_corner_radius_mm=float(d.get("border_corner_radius_mm", 0.0)),
             angle=float(d.get("angle", 0.0)),
             keep_upright=bool(d.get("keep_upright", False)),
+            line_box_middle=bool(d.get("line_box_middle", False)),
             hide_empty=bool(d.get("hide_empty", False)),
             wrap=None if d.get("wrap") is None else bool(d["wrap"]),
             shrink=None if d.get("shrink") is None else bool(d["shrink"]),
@@ -443,6 +447,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
 
     # Text has no reference form (reference-geometry design AC10).
     _REFERENCE_CAPABLE = False
+
+    _ink_cache = None         # (layout key, ink band), filled by _ink_band
 
     _ALIGN = {
         "L": Qt.AlignmentFlag.AlignLeft,
@@ -1155,7 +1161,11 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         applied: ``paint`` renders through an already-rotated painter and needs
         the unrotated glyphs, whereas block compilation needs them pre-rotated.
         """
-        offsets = self._layout_offsets()
+        return self._glyph_outline_at(self._layout_offsets())
+
+    def _glyph_outline_at(self, offsets: _LayoutOffsets) -> QPainterPath:
+        """Glyph outlines placed at *offsets*, in the frame of
+        :meth:`_glyph_outline_local`. The caller has forced the text layout."""
         font = self.font()
         doc = self.document()
         outline = QPainterPath()
@@ -1196,12 +1206,36 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         """
         doc = self.document()
         doc.documentLayout().documentSize()   # force the lazy layout to run
-        vslack = max(0.0, self._box_rect_local().height()
-                     - super().boundingRect().height())
+        box_h = self._box_rect_local().height()
+        o = self._shrink_off
+        # N6: Middle centres typed ink on the model surface. Field text keeps the
+        # line box so tags share a baseline; N8: sheet text has no V Align row
+        # and its document paint ignores this offset.
+        ink = (self._ink_band() if self._centres_ink() else None)
+        if ink is not None:
+            return _LayoutOffsets((box_h - ink[0] - ink[1]) / 2.0 + o.y(), o.x())
+        vslack = max(0.0, box_h - super().boundingRect().height())
         voff = (vslack if self._data.valign == "B"
                 else vslack / 2.0 if self._data.valign == "M" else 0.0)
-        o = self._shrink_off
         return _LayoutOffsets(voff + o.y(), o.x())
+
+    def _centres_ink(self) -> bool:
+        """True when this text's Middle centres its ink (N6, N8)."""
+        d = self._data
+        return (d.valign == "M" and not d.line_box_middle
+                and not self.is_device_independent() and not self._bound_seed())
+
+    def _ink_band(self) -> "tuple[float, float] | None":
+        """``(top, bottom)`` of the glyph outlines, local, with no vertical
+        offset; None when nothing draws. Cached until the text, wrap width or
+        font changes, so a paint never re-outlines to place the block (N7).
+        The caller has forced the text layout."""
+        key = (self.document().revision(), self.textWidth(), self.font().key())
+        if self._ink_cache is None or self._ink_cache[0] != key:
+            path = self._glyph_outline_at(_LayoutOffsets(0.0))
+            r = path.boundingRect()
+            self._ink_cache = (key, None if path.isEmpty() else (r.top(), r.bottom()))
+        return self._ink_cache[1]
 
     def _line_origin(self, block, line, offsets: _LayoutOffsets | None = None) -> QPointF:
         """Painted top-left of *line*, in the LOCAL, UNSCALED, UN-rotated,
