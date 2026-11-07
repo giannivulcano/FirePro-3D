@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-09-17
-verified-commit: 3c3b00c
+last-verified: 2026-11-07  # HF7 Account: fill-record pointer under the geometry-data-model deviation only, rest not re-audited; prior 2026-09-17
+verified-commit: 462c22d0  # HF7 branch head (pointer only); prior 3c3b00c
 applies-to:
   - firepro3d/underlay.py
   - firepro3d/underlay_controller.py
@@ -258,6 +258,9 @@ recorded here so the spec matches shipped code (a wrong spec is worse than none)
   render-ops. The R1 "layer-tagged primitive dicts" seam still shipped
   (`Geometry2DMixin.layer`); it is used by `_compile_reference`, not as the
   definition's storage.
+  *(HF7, 2026-11-07: the `geoms` list now also holds `"fill"` records (DXF SOLID / HATCH);
+  `reference_from_geoms` keeps them and `_reference_items` skips them as an unsupported kind —
+  owned by [`2026-11-06-hf7-dxf-fills-design.md`](../superpowers/specs/2026-11-06-hf7-dxf-fills-design.md) D3.)*
 - **No `SAVE_VERSION` bump; migration is transparent.** Because the definition is
   NOT serialized (it reconstructs on load — cache-hit, source-reimport, or
   source-missing→cached-fallback, all through the one builder seam), the `.fpd`

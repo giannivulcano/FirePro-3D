@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-11-03  # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only; prior 2026-10-18  # HF1 Account: cache version 5 / ACI 7 -> Automatic pointer only (rest not re-audited); prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-01 scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
-verified-commit: 6c03cd1c   # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only (ff to main); prior 084b43e0   # HF1 Account (pointer only); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c8ff4f4 feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
+last-verified: 2026-11-07  # HF7 Account: §10.5 HATCH / SOLID rows, cache version 6, child data-slot map (data(8) mask), §13.1 item 14 -- pointers to the HF7 design only, rest not re-audited; prior 2026-11-03  # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only; prior 2026-10-18  # HF1 Account: cache version 5 / ACI 7 -> Automatic pointer only (rest not re-audited); prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-01 scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: 462c22d0   # HF7 branch head (ff to main, v0.95.0; pointers only); prior 6c03cd1c   # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only (ff to main); prior 084b43e0   # HF1 Account (pointer only); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c8ff4f4 feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/settings/panes.py        # §17.1 ImportPane PDF DPI/mode defaults
@@ -27,6 +27,8 @@ applies-to:
   - firepro3d/dwg_converter.py            # §10.5.1 preview path for closed periodic splines
   - firepro3d/underlay_cache.py
   - firepro3d/underlay_freeze.py            # §18 freeze-blit
+  - firepro3d/dxf_fills.py                  # HF7 HATCH / SOLID readers + draw order (contract = superpowers/specs/2026-11-06-hf7-dxf-fills-design.md)
+  - firepro3d/underlay_runs.py              # HF7 overlap-aware paint-order runs (same contract)
   - firepro3d/model_view.py                 # §18 gesture sources
   - firepro3d/underlay_context_menu.py
   - firepro3d/calibrate_dialog.py
@@ -87,7 +89,7 @@ Underlays are the primary reference material for fire protection design — ever
 - The `Underlay` data model and new fields (`levels`, `snap`, `visible`, `hidden_layers`, `import_mode`, `import_scale`, `import_base_x/y`, `selected_layers`, `layout`, `import_bounds`).
 - Import dialog: PDF DPI selection, PDF import mode toggle (vector/raster/auto).
 - DWG import via ODA File Converter (DWG→DXF conversion, layout selection, viewport-based spatial filtering, paper layout entity transform).
-- Underlay geometry caching (`underlay_cache.py`) for fast project reload. *(HF1: `_CACHE_VERSION` is now 5 — DXF ACI 7, direct or BYLAYER, and no-colour entities import as Automatic (`token:auto`), so older caches re-extract; the "stays 4" note under §10.5 below describes that earlier batch and is historical. Resolution and import scope are owned by [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md) / D-A21.)*
+- Underlay geometry caching (`underlay_cache.py`) for fast project reload. *(HF1: `_CACHE_VERSION` is now 5 — DXF ACI 7, direct or BYLAYER, and no-colour entities import as Automatic (`token:auto`), so older caches re-extract; the "stays 4" note under §10.5 below describes that earlier batch and is historical. Resolution and import scope are owned by [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md) / D-A21.)* *(HF7: `_CACHE_VERSION` is now 6 — DXF/DWG caches gain `"fill"` records and AutoCAD draw order, so older caches re-extract; owned by [HF7 design D2](../superpowers/specs/2026-11-06-hf7-dxf-fills-design.md).)*
 - Placement: origin vs interactive click-to-place (existing, documented).
 - Path storage: relative vs absolute strategy.
 - File-not-found handling: warning, placeholder, relink.
@@ -343,6 +345,8 @@ Post-import, via the **Underlay Manager** (§16.6) Levels column (re-running Mod
 
 Each child item in a DXF underlay group has `data(1)` set to its source layer name (existing behavior). The group has `data(2)` set to the sorted list of all source layer names (existing behavior). `Underlay.hidden_layers` stores the names of layers toggled off.
 
+**Data-slot map (owned here; set in `underlay_controller.py`).** Group: `data(0)` type label, `data(2)` layer list, `data(3)` `"source_missing"`, `data(4)` the `UnderlaySnapIndex`, `data(5)` raw pre-transform geoms for the cache, `data(6)` cache-dirty flag. Child: `data(1)` source layer, `data(7)` PDF source stroke width (§17.3), `data(8)` = `UNDERLAY_MASK_SLOT` (`constants.py`), true on a white-mask fill batch, which repen and the paper pass skip (HF7, [design D3](../superpowers/specs/2026-11-06-hf7-dxf-fills-design.md)).
+
 ### 8.2 Toggling a layer
 
 1. User edits the layer visibility checkbox in the Underlay Manager's layer child row.
@@ -521,14 +525,15 @@ is semantically wrong for a real-units DXF (§10.13).
 | TEXT | `text` → QGraphicsTextItem | Existing |
 | MTEXT | `text` (plain_text extracted) | Existing |
 | INSERT | Recurse via `entity.virtual_entities()` | Implemented |
-| HATCH | Boundary paths via `virtual_entities()` | Implemented |
+| HATCH | `fill` record: boundary loops + generated pattern lines (`dxf_fills.read_hatch`) | HF7 2026-11-07 (before: imported nothing) |
+| SOLID | `fill` record, solid, one straight closed loop (`dxf_fills.read_solid`) | HF7 2026-11-07 (before: a bowtie outline) |
 | DIMENSION | Explode to lines + text via `virtual_entities()` | Implemented |
 
 **INSERT (block references)** is the highest-impact addition — architectural floor plans are primarily composed of blocks (doors, fixtures, symbols). Without INSERT support, large portions of the plan are missing from the underlay. `ezdxf`'s `virtual_entities()` explodes block references into constituent geometry with transforms applied, which can be fed recursively through `_extract_geometry()`. ATTRIB text on INSERT blocks is extracted separately (not included in `virtual_entities()` output). Exception handling is **per-entity**: the generator is materialized to a list first, then each sub-entity is wrapped in its own `try/except` so one bad entity cannot silently drop the rest of the block.
 
 **POLYLINE vs LWPOLYLINE:** Both map to `path_points`. LWPOLYLINE uses `get_points()`, while POLYLINE (3D polyline, common in block explosions) uses `.vertices` to extract vertex locations. A `hasattr` check selects the correct accessor.
 
-**HATCH** and **DIMENSION** use the same `virtual_entities()` pattern. LEADER, MULTILEADER, and MLEADER are also exploded. SOLID and POINT are extracted directly. All other entity types (3DFACE, etc.) are skipped.
+**DIMENSION** uses the same `virtual_entities()` pattern. LEADER, MULTILEADER, and MLEADER are also exploded. SOLID and POINT are extracted directly. All other entity types (3DFACE, etc.) are skipped. **HATCH and SOLID** become `fill` records, and every extraction loop walks entities in AutoCAD draw order (`dxf_fills.in_draw_order`); the record, the paint-order runs, the 20,000-line cap, snap and preview behaviour are owned by [`2026-11-06-hf7-dxf-fills-design.md`](../superpowers/specs/2026-11-06-hf7-dxf-fills-design.md) (HF7).
 
 #### 10.5.1 Geometry-record keys added by the scene-tools P1 batch (2026-10-01)
 
@@ -916,7 +921,7 @@ Old project files lack the new fields. `from_dict()` applies defaults (§3.3). N
 11. Per-source-layer visibility: toggle in browser tree, persisted across save/load/refresh.
 12. Browser tree: File → source layers hierarchy, right-click for all management actions.
 13. Underlays are never selectable/movable in the scene (reference geometry); fully manageable via browser tree. Lock additionally prevents browser-initiated transforms.
-14. DXF entity coverage: INSERT (block references), HATCH, and DIMENSION entities imported via `virtual_entities()` explosion.
+14. DXF entity coverage: INSERT (block references) and DIMENSION entities imported via `virtual_entities()` explosion; HATCH and SOLID as fills (HF7, [design](../superpowers/specs/2026-11-06-hf7-dxf-fills-design.md)).
 
 ### 13.2 Out of scope (future follow-ups)
 

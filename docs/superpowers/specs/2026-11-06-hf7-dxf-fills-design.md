@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-11-06, unbuilt
-last-verified: 2026-11-06
-verified-commit: 22db85b3
+status: built             # designed 2026-11-06; BUILT 2026-11-07 on feature/hf7-dxf-solid-hatch (0.95.0)
+last-verified: 2026-11-07  # HF7 Account: frontmatter + applies-to vs the branch diff (4e0f1a94..462c22d0); body reconciled at T9 (e88fc258) and the VC9 fix round
+verified-commit: 462c22d0   # branch head landing HF7 (ff to main); prior 22db85b3 (design)
 applies-to:
   - firepro3d/dxf_fills.py          # new: HATCH / SOLID readers
   - firepro3d/underlay_runs.py      # new: overlap-aware paint-order runs
@@ -17,6 +17,9 @@ applies-to:
   - firepro3d/geometry_2d.py        # draw_z record key only
   - firepro3d/block_definition.py   # compile order only
   - firepro3d/block_editor.py       # import path only
+  - firepro3d/model_space.py        # commit_block_outside_history only
+  - firepro3d/paper_display.py      # paper pass skips mask batches only
+  - firepro3d/constants.py          # HATCH_IMPORT_MAX_LINES, HATCH_IMPORT_MAX_EDIT_LINES, HATCH_TILE_MAX_SEGMENTS, IMPORTED_SOLID_TYPE, UNDERLAY_MASK_SLOT
 source-tasks: [HF7, "DXF HATCH imports nothing"]
 ---
 

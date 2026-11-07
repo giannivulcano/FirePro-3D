@@ -136,7 +136,7 @@ The underlay import dialog (`underlay_import_dialog.py`) batches all geometry in
 
 ### Underlay cache
 
-Geometry dicts are cached as JSON in `<project>.fpd.cache/` (see `underlay_cache.py`). The cache version (`_CACHE_VERSION = 4`) is checked on load; stale caches are automatically re-extracted synchronously during project load. For DWG files, this triggers ODA re-conversion.
+Geometry dicts are cached as JSON in `<project>.fpd.cache/` (see `underlay_cache.py`). The cache version (`_CACHE_VERSION`; current value and bump history owned by [`underlay-workflow.md`](../specs/underlay-workflow.md)) is checked on load; stale caches are automatically re-extracted synchronously during project load. For DWG files, this triggers ODA re-conversion.
 
 ## DWG import
 

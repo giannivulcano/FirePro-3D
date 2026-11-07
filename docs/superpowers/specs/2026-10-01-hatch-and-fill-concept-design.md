@@ -351,6 +351,9 @@ retired in `hatch-and-fill.md`).
 
 ### HD7 — Import
 
+> HF7 (DXF, built 2026-11-07) is superseded where they differ by
+> [`2026-11-06-hf7-dxf-fills-design.md`](2026-11-06-hf7-dxf-fills-design.md) ("Changes to the concept").
+
 - **PDF** (`_extract_path`): read `type`, `fill`, `fill_opacity`, `even_odd`,
   `seqno`; keep subpaths separate (fixes the zig-zag join); emit
   `fill: {colour, opacity, rule}` + `order`. Glyph-outline fills (small, dense,
