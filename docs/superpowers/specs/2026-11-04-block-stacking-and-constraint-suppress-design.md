@@ -1,7 +1,7 @@
 ---
 status: built
 last-verified: 2026-11-06  # schematic redraw Account: cover test only
-verified-commit: 070960bb  # schematic redraw (v0.93.3); prior d1221e2d
+verified-commit: 720eda42  # schematic redraw merge on main (v0.94.1); prior 070960bb  # branch head; prior d1221e2d
 applies-to:
   - firepro3d/block_instance.py
   - firepro3d/block_definition.py
@@ -136,7 +136,7 @@ carries the clip; the `Z_BLOCK_STACK` value and step were ratified at plan appro
 
 ## As built (2026-11-05)
 
-- **Cover test (2026-11-06, v0.93.3):** `_cover_above` tests masks against `_ink_rect`, the frame
+- **Cover test (2026-11-06, v0.94.1):** `_cover_above` tests masks against `_ink_rect`, the frame
   plus the real pens' reach at this zoom, not `sceneBoundingRect()`, whose 41 px worst-case joint
   pad clipped 10 of 13 Standpipe blocks for nothing. A paper pass keeps the bounds: its pens are
   item units. The zoom is `scene_hit_width`'s one view, the two-view gap filed under

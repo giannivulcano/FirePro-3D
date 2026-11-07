@@ -194,7 +194,7 @@ SHAs are on `fix/stroke-corner-joins`.
   scene-level draw.
 - **LT5 parity golden** re-baselined (FlatCap on a rotated nested-block line; user-ratified;
   `19964ca9`).
-- **Schematic redraw (2026-11-06, v0.93.3):** the block path caches unit wedges per instance in
+- **Schematic redraw (2026-11-06, v0.94.1):** the block path caches unit wedges per instance in
   `_op_joint_entry`, keyed on the compiled list, its per-op indexes and the Model Blocks weight
   (`canvas_weight_name` reads it), and scales them per paint. A cosmetic pen reads the world
   transform, a paper pen the pose. Dashed or end-typed ops and non-similar painters stay on
