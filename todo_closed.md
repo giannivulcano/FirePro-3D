@@ -2,6 +2,15 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Hatch & Fill -- HF7 DXF SOLID + HATCH and the shared import-fill foundation -- 2026-11-07
+
+- [x] [type:feature] HF7 — DXF SOLID + HATCH, plus the shared import-fill foundation: underlay fill, paint-order runs + underlay cache version bump, Block Editor import → FilledRegions on "Imported Solid"; SOLID vertex order 0-1-3-2 → filled; HATCH via `hatch.paths` (+ islands); underlay = fill + pattern lines; Block Editor = region + project-only pattern block converted from the HATCH line families (rational-slope tile, deduped) + "(imported)" type; unconvertible → lines + import-report note [done:2026-11-07] [subject:CAD] [P1]
+  - Details: concept HD7; D-A22, D-A23. P4 probe passed 2026-10-01 (ezdxf 1.4.2: `hatch.paths`, `hatch.pattern.lines`, `ezdxf.render.hatching`). Supersedes the DXF half of the former Import-fills feature. Re-scoped 2026-11-06 (user ruling): built before HF6, taking the shared foundation out of HF6. Fix `underlay-workflow.md` §10.5 (claims HATCH works) and §16.3. Guard G11. Depends HF3, HF5. `dxf_import_worker.py`, `geometry_import.py`, `dwg_converter.py`, `underlay_controller.py`, `underlay_cache.py`, `block_import_dialog.py`. Tier Large.
+  - Built 2026-11-07 (feature/Large, branch feature/hf7-dxf-solid-hatch): `dxf_fills` SOLID/HATCH readers into one `fill` record per source area, draw-order-aware extraction, `underlay_runs` paint-order runs, cache v6, underlay fill/tone/mask batches, import preview, `hatch_tile` line-family tile conversion, `import_fills` Block Editor regions on Imported Solid / `<NAME> (imported)` with one project pattern block per shape, `draw_z` source order in blocks (fixes the placed-block region-over-lines bug). Design `docs/superpowers/specs/2026-11-06-hf7-dxf-fills-design.md`. Keep-green 284 coupled files green; smoke passed; full suite waived by the user; AC12 perf missed on SIMBA (2.0x) and accepted, filed.
+- [x] [type:bug] DXF HATCH imports nothing — `virtual_entities()` doesn't exist on ezdxf 1.4.2 `Hatch`; the AttributeError is swallowed [done:2026-11-07] [P2] [subject:CAD]
+  - Details: proven 2026-10-01 (`hasattr(Hatch,'virtual_entities') == False`; sweep D: solid + ANSI31 fixtures import empty). `dxf_import_worker.py` composite branch (`INSERT/DIMENSION/HATCH…` → `entity.virtual_entities()`). Stopgap until HF7: emit `hatch.paths` boundary outlines (+ pattern lines via `ezdxf.render.hatching`). Also DXF SOLID imports as a bowtie (vertex order 0-1-3-2). Reproduce first.
+  - Delivered by HF7 (2026-11-07): HATCH reads through `dxf_fills.read_hatch`, SOLID fills in 0-1-3-2 order.
+
 ## Project phasing -- landing -- 2026-11-06
 
 - [x] [type:maint] Land the stranded design/project-phasing branch on main: resolve the doc conflicts, check its spec claims against 1,004 newer commits [done:2026-11-06] [P1] [subject:Documentation]
