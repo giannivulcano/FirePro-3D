@@ -54,6 +54,46 @@ def _editor_pixel(items):
     return _render(w.editor_scene).pixelColor(60, 60)
 
 
+def _blue_on_line(img):
+    """Blue pixels on the imported line (DXF y=50 -> scene y=-50 -> image row 60)."""
+    return sum(1 for x in range(30, 90) for y in range(58, 63)
+               if img.pixelColor(x, y).blue() > 150 and img.pixelColor(x, y).red() < 120)
+
+
+@pytest.mark.parametrize("solid_first", [True, False])
+def test_imported_dxf_order_survives_commit_into_a_placed_block(tmp_path, solid_first):
+    """T7 -> T6 join: a real DXF import, committed, paints in the editor's order when
+    placed (commit groups records by type, so only draw_z carries the order)."""
+    from tests._hf7_helpers import extract, new_doc
+    doc, msp = new_doc()
+    add_solid = lambda: msp.add_solid([(0, 0), (100, 0), (0, 100), (100, 100)],
+                                      dxfattribs={"color": 1})
+    add_line = lambda: msp.add_line((-5, 50), (105, 50), dxfattribs={"color": 5})
+    for add in ((add_solid, add_line) if solid_first else (add_line, add_solid)):
+        add()
+    proj = Model_Space()
+    w = BlockEditorWidget(proj)
+    added, _ = w._add_imported_geoms(extract(doc, tmp_path, preserve_curves=True), 1.0)
+    assert added == 2
+    area = QRectF(-10, -110, 120, 120)
+    def render(scene):
+        img = QImage(120, 120, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(0xffffffff)
+        p = QPainter(img)
+        scene.render(p, QRectF(0, 0, 120, 120), area)
+        p.end()
+        return img
+    in_editor = _blue_on_line(render(w.editor_scene))
+    defn = w.commit_block("Probe", "L", "S")
+    assert defn is not None
+    proj.place_block_instance(defn.id, (0.0, 0.0))
+    placed = _blue_on_line(render(proj))
+    if solid_first:                     # line on top in both
+        assert in_editor > 0 and placed > 0
+    else:                               # the solid covers the line in both
+        assert in_editor == 0 and placed == 0
+
+
 def test_draw_z_is_sparse():
     assert "draw_z" not in _line().to_dict()
 

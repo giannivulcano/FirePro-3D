@@ -408,7 +408,7 @@ def _map_fill(g: dict, map_children, map_point, scale: float, rot: float = 0.0) 
                 "angle": f["angle"] + rot,
                 "base": list(map_point(*f["base"])),
                 "offset": [ox * c - oy * s, ox * s + oy * c] if rot else [ox, oy],
-                "dashes": [d * scale for d in f["dashes"]],
+                "dashes": [d * scale for d in f.get("dashes") or ()],   # optional (solid lines)
             })
         out["pattern"] = {**pattern, "families": fams}
     return out

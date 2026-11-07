@@ -351,6 +351,60 @@ def test_a_sub_epsilon_dash_does_not_divide_by_zero(dashes):
     assert t is None or (t.w > 0 and t.h > 0 and t.segments)
 
 
+def _off_tile_samples(g):
+    """Samples of the record's own pattern lines (hatch_entity) that miss the
+    tile converted from the record's families, stamped at the first base."""
+    fam = g["pattern"]["families"]
+    t = convert(fam)
+    assert t is not None
+    bx, by = fam[0]["base"]
+    xs = [p for ln in g["lines"] for p in (ln[0], ln[2])]
+    ys = [p for ln in g["lines"] for p in (ln[1], ln[3])]
+    i0, i1 = math.floor((min(xs) - bx) / t.w) - 1, math.ceil((max(xs) - bx) / t.w) + 1
+    j0, j1 = math.floor(-(max(ys) - by) / t.h) - 1, math.ceil(-(min(ys) - by) / t.h) + 1
+    stamped = [(x1 + i * t.w + bx, y1 - j * t.h + by, x2 + i * t.w + bx, y2 - j * t.h + by)
+               for i in range(i0, i1 + 1) for j in range(j0, j1 + 1)
+               for x1, y1, x2, y2 in t.segments]
+    tol = t.spacing * 1e-3
+    assert g["lines"]
+    return sum(1 for x1, y1, x2, y2 in g["lines"][:200] for s in (0.25, 0.5, 0.75)
+               if _dist_to_segments(x1 + s * (x2 - x1), y1 + s * (y2 - y1), stamped) > tol)
+
+
+@pytest.mark.parametrize("name,angle,scale,rot", [
+    ("ANSI31", 0.0, 3.0, 0.0), ("ANSI31", 28.28, 3.0, 0.0), ("BRICK", 90.0, 2.0, 0.0),
+    ("ANSI37", 0.0, 4.0, 0.0), ("HEX", 0.0, 3.0, 0.0), ("AR-B816", 45.0, 0.05, 0.0),
+    ("AR-B816", 0.0, 0.05, 0.0), ("ANSI31", 0.0, 3.0, 37.0), ("BRICK", 0.0, 2.0, 90.0),
+    ("ANSI37", 0.0, 4.0, 45.0),
+])
+def test_record_families_tile_onto_the_record_lines(qapp, tmp_path, name, angle, scale, rot):
+    """T2 -> T5 frame seam: the reader's families, converted, land on the lines the
+    reader expanded from the same hatch (offset sign, base frame, import rotation)."""
+    from firepro3d import dwg_converter
+    from tests._hf7_helpers import extract, fills, new_doc, square
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(13, 7, 100), is_closed=True, flags=1)
+    h.set_pattern_fill(name, scale=scale, angle=angle)
+    geoms = extract(doc, tmp_path)
+    if rot:
+        geoms = dwg_converter.apply_import_transform(geoms, 1.0, 0.0, 0.0, rot)
+    assert _off_tile_samples(fills(geoms)[0]) == 0
+
+
+@pytest.mark.parametrize("attrs", [{"rotation": 90}, {"xscale": -1},
+                                   {"xscale": -1, "rotation": 90}, {"xscale": 2, "yscale": 2}])
+def test_insert_record_families_tile_onto_the_record_lines(qapp, tmp_path, attrs):
+    from tests._hf7_helpers import extract, fills, new_doc, square
+    doc, msp = new_doc()
+    blk = doc.blocks.new("B")
+    h = blk.add_hatch()
+    h.paths.add_polyline_path(square(13, 7, 100), is_closed=True, flags=1)
+    h.set_pattern_fill("ANSI31", scale=3.0, angle=0.0)
+    msp.add_blockref("B", (5, 5), dxfattribs=attrs)
+    assert _off_tile_samples(fills(extract(doc, tmp_path))[0]) == 0
+
+
 def test_clip_of_a_zero_length_segment_is_a_point_test():
     from firepro3d.hatch_tile import _clip
     assert _clip((1.0, -1.0), (1.0, -1.0), 5.0, 5.0, 1e-9) is not None   # inside the cell

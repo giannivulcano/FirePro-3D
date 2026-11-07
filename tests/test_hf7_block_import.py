@@ -2,11 +2,11 @@
 import pytest
 from PyQt6.QtCore import QPointF
 
-from firepro3d import block_library, fill_types, hatch_tile, import_fills
+from firepro3d import block_library, dwg_converter, fill_types, hatch_tile, import_fills
 from firepro3d.block_editor import BlockEditorWidget
 from firepro3d.constants import IMPORTED_SOLID_TYPE
 from firepro3d.filled_region import FilledRegionItem
-from firepro3d.geometry_2d import LineItem
+from firepro3d.geometry_2d import LineItem, PolylineItem
 from firepro3d.model_space import Model_Space
 from tests._hf7_helpers import extract, new_doc, ring_hatch, square
 
@@ -130,6 +130,7 @@ def test_a_user_edited_block_stops_matching(qapp, tmp_path, edit):
 
 
 def test_a_family_without_dashes_imports(qapp, tmp_path):
+    """Through the import transform too, as the editor's import_with_params runs it."""
     proj, w = _editor()
     doc, msp = new_doc()
     _hatch(msp, "ANSI31", scale=2.0)
@@ -137,6 +138,7 @@ def test_a_family_without_dashes_imports(qapp, tmp_path):
     for g in geoms:
         for f in (g.get("pattern") or {}).get("families", ()):
             f.pop("dashes", None)
+    geoms = dwg_converter.apply_import_transform(geoms, 2.0, 0.0, 0.0, 30.0)
     items, skipped, _ = import_fills.build_items(geoms, lineweight=1.0, project_scene=proj)
     assert skipped == 0 and any(isinstance(i, FilledRegionItem) for i in items)
 
@@ -150,6 +152,17 @@ def test_anonymous_pattern_is_named_hatch(qapp, tmp_path):
     assert fill_types.project_table().by_name("Hatch (imported)") is not None
 
 
+def _has_square_boundary(items):
+    """A closed polyline over the hatch's 100 x 100 square (scene y is negated)."""
+    for i in items:
+        if isinstance(i, PolylineItem) and i.is_closed():
+            r = i.path().boundingRect()
+            if (abs(r.left()) < 1e-6 and abs(r.top() + 100) < 1e-6
+                    and abs(r.width() - 100) < 1e-6 and abs(r.height() - 100) < 1e-6):
+                return True
+    return False
+
+
 def test_unconvertible_gives_lines_boundary_and_report(qapp, tmp_path):
     proj, w = _editor()
     doc, msp = new_doc()
@@ -158,6 +171,7 @@ def test_unconvertible_gives_lines_boundary_and_report(qapp, tmp_path):
     items, skipped, report = import_fills.build_items(geoms, lineweight=1.0, project_scene=proj)
     assert any(isinstance(i, LineItem) for i in items)
     assert not any(isinstance(i, FilledRegionItem) for i in items)
+    assert _has_square_boundary(items)
     assert report == [("GRATE", 1, "lines and boundary")]
 
 
@@ -170,6 +184,7 @@ def test_many_lines_keep_the_boundary_only(qapp, tmp_path, monkeypatch):
         extract(doc, tmp_path, preserve_curves=True), lineweight=1.0, project_scene=proj)
     assert report[0][2] == "boundary only"
     assert not any(isinstance(i, LineItem) for i in items)
+    assert _has_square_boundary(items)
 
 
 def test_clean_import_shows_no_dialog(qapp, tmp_path, monkeypatch):
