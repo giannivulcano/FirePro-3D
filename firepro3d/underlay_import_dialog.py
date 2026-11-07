@@ -3150,9 +3150,14 @@ class UnderlayImportDialog(HouseDialog):
             g: Kind-tagged geometry dict (group-local coords).
             region: Crop polygon in the same group-local coords.
         """
-        from .dwg_converter import geom_rep_points
-        return any(region.containsPoint(QPointF(x, y), Qt.FillRule.OddEvenFill)
-                   for x, y in geom_rep_points(g))
+        from .dwg_converter import fill_overlaps_rect, geom_rep_points
+        if any(region.containsPoint(QPointF(x, y), Qt.FillRule.OddEvenFill)
+               for x, y in geom_rep_points(g)):
+            return True
+        # A hatch enclosing the crop has no vertex inside it (shared rule with
+        # the save-path round trip, ``_geom_in_any_bound``).
+        r = region.boundingRect()
+        return fill_overlaps_rect(g, r.left(), r.top(), r.right(), r.bottom())
 
     def _clear_selection(self):
         self._selected_indices = None

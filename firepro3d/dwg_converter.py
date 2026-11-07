@@ -791,7 +791,23 @@ def _geom_in_any_bound(
         for px, py in points:
             if bx0 <= px <= bx1 and by0 <= py <= by1:
                 return True
+        if fill_overlaps_rect(g, bx0, by0, bx1, by1):
+            return True
     return False
+
+
+def fill_overlaps_rect(g: dict, x0: float, y0: float, x1: float, y1: float) -> bool:
+    """True when *g* is a fill whose loop bbox overlaps the rect.
+
+    A hatch enclosing a crop region has no loop vertex inside it, so the
+    representative-point rule alone drops it. False for any other kind.
+    """
+    pts = geom_rep_points(g) if g.get("kind") == "fill" else []
+    if not pts:
+        return False
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return (min(xs) <= max(x0, x1) and max(xs) >= min(x0, x1)
+            and min(ys) <= max(y0, y1) and max(ys) >= min(y0, y1))
 
 
 def extract_layout_entities(

@@ -21,6 +21,12 @@ from .pdf_import_worker import _subpath_geoms
 _FLATTEN_DIVISOR = 2000.0   # flatten tolerance = loop bbox diagonal / this
 _PATH_TEXTBOX = 8           # DXF boundary path flag: a text box, not an edge
 _WHITE = "#ffffff"
+_DEPTH_SAMPLES = 8          # edge midpoints voting on a loop's nesting depth
+# The pre-flight line estimate uses the loop bbox, so it overstates a thin
+# diagonal shape. A false tone is worse than a slow hatch, so only an estimate
+# above this multiple of HATCH_IMPORT_MAX_LINES skips ezdxf (which computes
+# every line before its first yield) and goes straight to a tone.
+_ESTIMATE_MARGIN = 10
 
 
 def in_draw_order(layout) -> list:
@@ -93,12 +99,37 @@ def _depths(polys: list[list]) -> list[int]:
     islands EXTERNAL. The test point is the first edge's midpoint, so a corner
     shared with another loop does not decide it.
     """
+    boxes = [(min(p[0] for p in q), min(p[1] for p in q),
+              max(p[0] for p in q), max(p[1] for p in q)) for q in polys]
     out = []
     for i, poly in enumerate(polys):
-        (ax, ay), (bx, by) = poly[0], poly[1]
-        mid = ((ax + bx) / 2, (ay + by) / 2)
-        out.append(sum(1 for j, q in enumerate(polys) if j != i and _inside(mid, q)))
+        mids = _edge_midpoints(poly)
+        depth = 0
+        for j, q in enumerate(polys):
+            if j == i:
+                continue
+            x0, y0, x1, y1 = boxes[j]
+            near = [m for m in mids if x0 <= m[0] <= x1 and y0 <= m[1] <= y1]
+            if not near:
+                continue
+            votes = sum(1 for m in near if _inside(m, q))
+            if votes * 2 > len(mids):
+                depth += 1
+        out.append(depth)
     return out
+
+
+def _edge_midpoints(poly: list) -> list[tuple[float, float]]:
+    """Midpoints of up to ``_DEPTH_SAMPLES`` evenly spaced edges of *poly*.
+
+    A vote over several edges, not one: an island's first edge can lie on its
+    parent's boundary, where a single test point is a coin toss.
+    """
+    n = len(poly)
+    idx = range(n) if n <= _DEPTH_SAMPLES else [k * n // _DEPTH_SAMPLES
+                                                for k in range(_DEPTH_SAMPLES)]
+    return [((poly[k][0] + poly[(k + 1) % n][0]) / 2,
+             (poly[k][1] + poly[(k + 1) % n][1]) / 2) for k in idx]
 
 
 def _flat(p) -> list[tuple[float, float]]:
@@ -159,12 +190,32 @@ def _pattern(entity) -> dict | None:
     return {"name": entity.dxf.pattern_name or "", "families": fams}
 
 
-def _pattern_lines(entity) -> tuple[list[list[float]], bool]:
+def _estimated_lines(entity, polys: list[list]) -> float:
+    """Rough line count: per family, loop bbox projected on the family normal
+    over the normal component of its (already scaled) offset. Families with no
+    normal offset are skipped; ezdxf's DenseHatchingLinesError covers them."""
+    xs = [p[0] for q in polys for p in q]
+    ys = [p[1] for q in polys for p in q]
+    w, h = max(xs) - min(xs), max(ys) - min(ys)
+    total = 0.0
+    for ln in entity.pattern.lines:
+        a = math.radians(ln.angle)
+        nx, ny = -math.sin(a), math.cos(a)
+        step = abs(ln.offset.x * nx + ln.offset.y * ny)
+        if step <= 1e-12:
+            continue
+        total += (abs(w * nx) + abs(h * ny)) / step
+    return total
+
+
+def _pattern_lines(entity, polys: list[list]) -> tuple[list[list[float]], bool]:
     """``(lines, tone)``: the clipped pattern lines, or a tone past the cap."""
+    if _estimated_lines(entity, polys) > _ESTIMATE_MARGIN * HATCH_IMPORT_MAX_LINES:
+        return [], True
     try:
         gen = hatching.hatch_entity(entity, jiggle_origin=False)
         pairs = list(itertools.islice(gen, HATCH_IMPORT_MAX_LINES + 1))
-    except hatching.DenseHatchingLinesError:
+    except hatching.HatchingError:
         return [], True
     if len(pairs) > HATCH_IMPORT_MAX_LINES:
         return [], True
@@ -195,6 +246,6 @@ def read_hatch(entity, layer: str, color: str, *, exact: bool = False) -> dict |
     exact_loops = ([_exact_loop(paths[i], layer, color) for i in kept] if exact else None)
     solid = bool(entity.dxf.solid_fill)
     pattern = _pattern(entity)
-    lines, tone = ([], False) if pattern is None else _pattern_lines(entity)
+    lines, tone = ([], False) if pattern is None else _pattern_lines(entity, polys)
     return _record(layer, color, solid=solid, loops=loops, exact_loops=exact_loops,
                    lines=lines, tone=tone, pattern=pattern)

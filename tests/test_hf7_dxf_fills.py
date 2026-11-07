@@ -234,3 +234,118 @@ def test_paper_layout_moves_fills(tmp_path):
     assert (min(ys), max(ys)) == pytest.approx((-550.0, -500.0))
     assert got[1]["pattern"]["families"][0]["offset"] == pytest.approx([raw.x * 5, -raw.y * 5])
     assert got[1]["lines"]
+
+
+def test_paper_layout_keeps_arc_ellipse_spline(tmp_path):
+    # Behaviour change from T2: ARC / partial ELLIPSE / SPLINE on a paper layout
+    # used to be dropped (getattr on an uninitialised QThread raised RuntimeError).
+    from firepro3d.dwg_converter import extract_layout_entities, geom_rep_points
+    doc, msp = new_doc()
+    lay = doc.layouts.new("Sheet")
+    vp = lay.add_viewport(center=(100, 100), size=(200, 200),
+                          view_center_point=(500, 500), view_height=1000)
+    vp.dxf.id = 2
+    lay.add_arc((110, 100), radius=5, start_angle=0, end_angle=90)
+    lay.add_ellipse((130, 100), major_axis=(10, 0), ratio=0.5,
+                    start_param=0, end_param=math.pi / 2)
+    lay.add_spline(fit_points=[(150, 100), (155, 105), (160, 100)])
+    path = str(tmp_path / "pc.dxf")
+    doc.saveas(path)
+    got = extract_layout_entities(path, "Sheet")
+    assert len(got) == 3
+    # paper x -> model x: (x - 100) * 5 + 500; the spans below are the three entities
+    spans = [(550, 560), (650, 700), (750, 800)]
+    for g, (lo, hi) in zip(got, spans):
+        xs = [p[0] for p in geom_rep_points(g)]
+        assert xs and lo - 30 <= min(xs) and max(xs) <= hi + 30, (g["kind"], xs)
+    # the arc (radius 5 paper = 25 model) spans y -525..-500 in scene space
+    ys = [p[1] for p in geom_rep_points(got[0])]
+    assert min(ys) >= -526 and max(ys) <= -499, (got[0]["kind"], ys)
+
+
+def test_touching_island_is_a_hole(tmp_path):
+    from PyQt6.QtCore import Qt, QPointF
+    from PyQt6.QtGui import QPainterPath, QPolygonF
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 100), is_closed=True, flags=1)
+    h.paths.add_polyline_path([(50, 0), (70, 0), (70, 20), (50, 20)],   # first edge on the outer
+                              is_closed=True, flags=0)
+    g = fills(extract(doc, tmp_path))[0]
+    areas = [_area(loop[0]["points"]) for loop in g["loops"]]
+    assert areas[0] * areas[1] < 0
+    path = QPainterPath()
+    path.setFillRule(Qt.FillRule.WindingFill)
+    for loop in g["loops"]:
+        path.addPolygon(QPolygonF([QPointF(x, y) for x, y in loop[0]["points"]]))
+    assert not path.contains(QPointF(60, -10))          # inside the hole (scene Y negated)
+    assert path.contains(QPointF(20, -50))
+
+
+def test_many_separate_rings_get_the_right_depths(tmp_path):
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    for i in range(150):
+        x, y = (i % 15) * 300, (i // 15) * 300
+        h.paths.add_polyline_path(square(x, y, 200), is_closed=True, flags=1)
+        h.paths.add_polyline_path(square(x + 50, y + 50, 100), is_closed=True, flags=16)
+    g = fills(extract(doc, tmp_path))[0]
+    areas = [_area(loop[0]["points"]) for loop in g["loops"]]
+    assert len(areas) == 300
+    assert sum(1 for a in areas if a > 0) == 150 and sum(1 for a in areas if a < 0) == 150
+    assert sorted(abs(round(a)) for a in areas) == [10000] * 150 + [40000] * 150
+
+
+def test_huge_estimate_is_a_tone_without_calling_ezdxf(monkeypatch):
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 1e7), is_closed=True, flags=1)
+    h.set_pattern_fill("ANSI31", scale=0.01)
+
+    def boom(*a, **k):
+        raise AssertionError("hatch_entity must not run")
+    monkeypatch.setattr(dxf_fills.hatching, "hatch_entity", boom)
+    rec = dxf_fills.read_hatch(h, "0", "#000000")
+    assert rec["tone"] is True and rec["lines"] == [] and rec["loops"]
+
+
+def test_hatching_error_keeps_the_boundary_as_a_tone(monkeypatch):
+    from ezdxf.render import hatching
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 100), is_closed=True, flags=1)
+    h.set_pattern_fill("ANSI31", scale=1.0)
+
+    def bad(*a, **k):
+        raise hatching.HatchLineDirectionError("zero direction")
+    monkeypatch.setattr(dxf_fills.hatching, "hatch_entity", bad)
+    rec = dxf_fills.read_hatch(h, "0", "#000000")
+    assert rec["tone"] is True and len(rec["loops"]) == 1
+
+
+def test_viewport_filter_keeps_an_enclosing_hatch():
+    from firepro3d.dwg_converter import filter_geoms_by_bounds
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 1000), is_closed=True, flags=1)
+    h.set_pattern_fill("ANSI31", scale=1.0)
+    rec = dxf_fills.read_hatch(h, "0", "#000000")
+    inside = [(400.0, -600.0, 500.0, -500.0)]      # wholly within the loop, no vertex in it
+    far = [(5000.0, -5100.0, 5100.0, -5000.0)]
+    assert filter_geoms_by_bounds([rec], inside) == [rec]
+    assert filter_geoms_by_bounds([rec], far) == []
+
+
+def test_dialog_crop_keeps_an_enclosing_hatch():
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QPolygonF
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 1000), is_closed=True, flags=1)
+    h.set_pattern_fill("ANSI31", scale=1.0)
+    rec = dxf_fills.read_hatch(h, "0", "#000000")
+    near = QPolygonF(QRectF(400, -600, 100, 100))
+    far = QPolygonF(QRectF(5000, -5100, 100, 100))
+    assert UnderlayImportDialog._geom_in_rect(None, rec, near) is True
+    assert UnderlayImportDialog._geom_in_rect(None, rec, far) is False
