@@ -858,12 +858,16 @@ def extract_layout_entities(
 
     # Extract geometry from layout entities (exclude viewports)
     from .dxf_import_worker import DxfImportWorker, _build_layer_colors
+    from .dxf_fills import in_draw_order
     worker = DxfImportWorker.__new__(DxfImportWorker)
     worker._cancelled = False
+    # __new__ skips QThread.__init__, and getattr on such a wrapper raises
+    # RuntimeError (not AttributeError), so the default must be set here.
+    worker._preserve_curves = False
     worker._layer_colors = _build_layer_colors(doc)
 
     raw_geoms = []
-    for ent in layout:
+    for ent in in_draw_order(layout):
         if ent.dxftype() in ("VIEWPORT", "OLE2FRAME"):
             continue
         try:
@@ -891,51 +895,55 @@ def extract_layout_entities(
     def _ty(py_neg: float) -> float:
         return (py_neg + vp_paper_cy) * ps_to_ms - vp_model_cy
 
-    transformed = []
-    for g in raw_geoms:
-        t = dict(g)
-        kind = g.get("kind")
-        if kind == "line":
-            t["x1"] = _tx(g["x1"]); t["y1"] = _ty(g["y1"])
-            t["x2"] = _tx(g["x2"]); t["y2"] = _ty(g["y2"])
-        elif kind == "circle":
-            cx_old = g["x"] + g["w"] / 2
-            cy_old = g["y"] + g["h"] / 2
-            new_cx = _tx(cx_old)
-            new_cy = _ty(cy_old)
-            new_w = g["w"] * ps_to_ms
-            new_h = g["h"] * ps_to_ms
-            t["x"] = new_cx - new_w / 2
-            t["y"] = new_cy - new_h / 2
-            t["w"] = new_w; t["h"] = new_h
-        elif kind == "arc":
-            cx_old = g["rx"] + g["rw"] / 2
-            cy_old = g["ry"] + g["rh"] / 2
-            new_cx = _tx(cx_old)
-            new_cy = _ty(cy_old)
-            new_w = g["rw"] * ps_to_ms
-            new_h = g["rh"] * ps_to_ms
-            t["rx"] = new_cx - new_w / 2
-            t["ry"] = new_cy - new_h / 2
-            t["rw"] = new_w; t["rh"] = new_h
-        elif kind == "path_points":
-            t["points"] = [(_tx(p[0]), _ty(p[1])) for p in g["points"]]
-        elif kind == "spline":
-            t["control_points"] = [(_tx(p[0]), _ty(p[1])) for p in g["control_points"]]
-            # knots/weights are parametric — pass through unscaled via the dict copy.
-        elif kind == "text":
-            t["x"] = _tx(g["x"]); t["y"] = _ty(g["y"])
-            if "size" in g:
-                t["size"] = g["size"] * ps_to_ms
-        elif kind == "ellipse_full":
-            t["pos_cx"] = _tx(g["pos_cx"])
-            t["pos_cy"] = _ty(g["pos_cy"])
-            t["w"] = g["w"] * ps_to_ms
-            t["h"] = g["h"] * ps_to_ms
-            t["x"] = g["x"] * ps_to_ms
-            t["y"] = g["y"] * ps_to_ms
-        else:
-            continue
-        transformed.append(t)
+    def _paper(geoms: list[dict]) -> list[dict]:
+        transformed = []
+        for g in geoms:
+            t = dict(g)
+            kind = g.get("kind")
+            if kind == "line":
+                t["x1"] = _tx(g["x1"]); t["y1"] = _ty(g["y1"])
+                t["x2"] = _tx(g["x2"]); t["y2"] = _ty(g["y2"])
+            elif kind == "circle":
+                cx_old = g["x"] + g["w"] / 2
+                cy_old = g["y"] + g["h"] / 2
+                new_cx = _tx(cx_old)
+                new_cy = _ty(cy_old)
+                new_w = g["w"] * ps_to_ms
+                new_h = g["h"] * ps_to_ms
+                t["x"] = new_cx - new_w / 2
+                t["y"] = new_cy - new_h / 2
+                t["w"] = new_w; t["h"] = new_h
+            elif kind == "arc":
+                cx_old = g["rx"] + g["rw"] / 2
+                cy_old = g["ry"] + g["rh"] / 2
+                new_cx = _tx(cx_old)
+                new_cy = _ty(cy_old)
+                new_w = g["rw"] * ps_to_ms
+                new_h = g["rh"] * ps_to_ms
+                t["rx"] = new_cx - new_w / 2
+                t["ry"] = new_cy - new_h / 2
+                t["rw"] = new_w; t["rh"] = new_h
+            elif kind == "path_points":
+                t["points"] = [(_tx(p[0]), _ty(p[1])) for p in g["points"]]
+            elif kind == "spline":
+                t["control_points"] = [(_tx(p[0]), _ty(p[1])) for p in g["control_points"]]
+                # knots/weights are parametric — pass through unscaled via the dict copy.
+            elif kind == "text":
+                t["x"] = _tx(g["x"]); t["y"] = _ty(g["y"])
+                if "size" in g:
+                    t["size"] = g["size"] * ps_to_ms
+            elif kind == "ellipse_full":
+                t["pos_cx"] = _tx(g["pos_cx"])
+                t["pos_cy"] = _ty(g["pos_cy"])
+                t["w"] = g["w"] * ps_to_ms
+                t["h"] = g["h"] * ps_to_ms
+                t["x"] = g["x"] * ps_to_ms
+                t["y"] = g["y"] * ps_to_ms
+            elif kind == "fill":
+                t = _map_fill(g, _paper, lambda x, y: (_tx(x), _ty(y)), ps_to_ms)
+            else:
+                continue
+            transformed.append(t)
+        return transformed
 
-    return transformed
+    return _paper(raw_geoms)

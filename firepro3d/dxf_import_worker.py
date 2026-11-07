@@ -326,7 +326,8 @@ class DxfImportWorker(QThread):
 
         # ── Collect entities to process ──────────────────────────────
         self.status.emit("Counting entities…")
-        all_entities = list(msp)
+        from .dxf_fills import in_draw_order
+        all_entities = in_draw_order(msp)
         total = len(all_entities)
         self.status.emit(f"Processing {total} entities…")
 
@@ -390,7 +391,8 @@ class DxfImportWorker(QThread):
     def extract_file_sync(cls, file_path: str,
                           layers: list[str] | None = None,
                           layout: str = "",
-                          skip_sanitize: bool = False) -> list[dict]:
+                          skip_sanitize: bool = False,
+                          preserve_curves: bool = False) -> list[dict]:
         """Synchronous geometry extraction for cache population.
 
         Same logic as ``run()`` but without threading or progress signals.
@@ -413,10 +415,11 @@ class DxfImportWorker(QThread):
             vp_bounds = get_viewport_bounds(
                 layout_name=layout, doc=doc)
 
-        worker = cls(file_path, layers, layout=layout)
+        worker = cls(file_path, layers, layout=layout, preserve_curves=preserve_curves)
         worker._layer_colors = _build_layer_colors(doc)
         geoms = []
-        for entity in msp:
+        from .dxf_fills import in_draw_order
+        for entity in in_draw_order(msp):
             if layers is not None:
                 entity_layer = (entity.dxf.get("layer", "0")
                                 if hasattr(entity.dxf, "get") else "0")
@@ -662,13 +665,14 @@ class DxfImportWorker(QThread):
             result["valign"] = va
             return result
 
-        elif etype in ("INSERT", "DIMENSION", "HATCH",
+        elif etype in ("INSERT", "DIMENSION",
                        "LEADER", "MULTILEADER", "MLEADER"):
             # Explode block references, dimensions, hatches, and leaders
             # into constituent geometry via ezdxf's virtual_entities().
             results = []
             try:
-                sub_entities = list(entity.virtual_entities())
+                sub_entities = list(entity.virtual_entities(redraw_order=True)
+                                    if etype == "INSERT" else entity.virtual_entities())
             except Exception:
                 sub_entities = []
             for sub_entity in sub_entities:
@@ -699,21 +703,13 @@ class DxfImportWorker(QThread):
             return results if results else None
 
         elif etype == "SOLID":
-            # SOLID is a filled triangle or quadrilateral.
-            try:
-                pts = [entity.dxf.vtx0, entity.dxf.vtx1,
-                       entity.dxf.vtx2]
-                # vtx3 may equal vtx2 for triangles
-                v3 = entity.dxf.get("vtx3", None)
-                if v3 is not None and (v3.x != pts[2].x or v3.y != pts[2].y):
-                    pts.append(v3)
-                return {
-                    "kind": "path_points", "layer": layer, "color": color,
-                    "points": [(p.x, -p.y) for p in pts],
-                    "closed": True, "straight": True,
-                }
-            except Exception:
-                return None
+            from .dxf_fills import read_solid
+            return read_solid(entity, layer, color)
+
+        elif etype == "HATCH":
+            from .dxf_fills import read_hatch
+            return read_hatch(entity, layer, color,
+                              exact=getattr(self, "_preserve_curves", False))
 
         elif etype == "POINT":
             # Render as a tiny cross marker.

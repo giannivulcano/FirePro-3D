@@ -508,7 +508,8 @@ class _DialogExtractWorker(QThread):
         )
         self.status.emit("Scanning drawing entities…")
         msp = doc.modelspace()
-        all_ents = list(msp)
+        from .dxf_fills import in_draw_order
+        all_ents = in_draw_order(msp)
 
         # Collect layer names from doc + entity attributes (reuse the
         # entity list — re-walking the ezdxf entity DB doubles the pass)
