@@ -660,6 +660,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## Underlay Import dialog
 
+- [ ] [type:maint] Remove or rebuild the dead `_update_scale_readout` in the import dialog [P4] [subject:Code Quality]
+  - Details: found by HF7 T1, 2026-11-06. The method returns at once because `_scale_readout_lbl` is read but never created (git grep over `firepro3d/` and `tests/` shows the one read), yet it is called from 5 places. HF7 T1's third bbox `expand_fills` edit sits inside it, so that edit has no observable effect and no guard. Decide: delete the method and its callers, or build the label. `underlay_import_dialog.py`.
 - [ ] [type:maint] DRY the Modify pending-state consume [P3] [subject:Code Quality]
   - Details: fold the 3 consume sites (sync PDF + `_on_extract_finished` + memoized `_extract_for_layout`) into one `_consume_pending_modify_state()` helper and remove the side-effecting pending-layer read from `_populate_layer_list`. `underlay_import_dialog.py`.
 - [ ] [type:maint] Dark-theme white-on-accent contrast [P3] [subject:UX]
