@@ -14,7 +14,6 @@ from firepro3d import block_library
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from tests._modify_tools_helpers import ignore_os_mouse
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 
@@ -69,7 +68,6 @@ def test_library_round_trip_keeps_nested_pose_geometry(qapp, tmp_path):
 
 def _posed_view():
     view, scene = make_view(role="plan", scale=1.0)
-    ignore_os_mouse(view)
     d = _line_def(scene, "L", (0, 0), (100, -40))
     inst = scene.place_block_instance(d.id, (30.0, 40.0), rotation=30.0,
                                       mirrored=True, scale=2.0, level_offset_mm=300.0)

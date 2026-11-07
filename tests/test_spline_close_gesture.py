@@ -13,7 +13,6 @@ from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
-from tests._modify_tools_helpers import ignore_os_mouse
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 PTS = [(200, 200), (1000, 200), (1000, -600), (200, -600)]
@@ -21,9 +20,7 @@ NEAR_FIRST = QPointF(206, 194)          # ~8.5 mm = ~2 px at m11 0.25
 
 
 def _view():
-    view, scene = make_view()
-    ignore_os_mouse(view)
-    return view, scene
+    return make_view()
 
 
 def _draw(view, scene, pts=PTS):
