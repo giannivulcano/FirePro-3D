@@ -96,6 +96,8 @@
   - Details: project phasing landing 2026-11-06 (D-PH13 ruling). Fittings are `_TintedSvg` SVG symbols (`fitting.py`), plain types hidden today by `SHOW_PLAIN_SYMBOLS`, and SB4g does not cover them, so they take colour / opacity only until converted; after that they dash through the PH4 block path. Depends PH4. Coordinate with "Bring plain fitting symbols back".
 - [ ] [type:maint] paper-space.md 5.2 `source_view_type` comment omits section [P4] [subject:Documentation]
   - Details: found at the project phasing landing 2026-11-06: the `SheetViewData` block lists only plan / elevation / detail (the note above it adds schematic); `paper_space.py` `ViewResolver.resolve` also takes section.
+- [ ] [type:maint] Two open lines fail the taxonomy check: no Details line under the Display Manager group-header rows task or the `test_offset_real_mouse_move_is_fast` task [P4] [subject:Documentation]
+  - Details: found at the project phasing landing 2026-11-06; `check-taxonomy-conformance.ps1` fails the same two lines on main at 258381a3, so pre-existing.
 
 ## Hydraulic calc deliverable
 

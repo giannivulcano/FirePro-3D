@@ -2,6 +2,11 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Project phasing -- landing -- 2026-11-06
+
+- [x] [type:maint] Land the stranded design/project-phasing branch on main: resolve the doc conflicts, check its spec claims against 1,004 newer commits [done:2026-11-06] [P1] [subject:Documentation]
+  - Built 2026-11-06 (maint, docs only, merge da92c5c4): conflicts in SPEC-INDEX, paper-space, view-relationships, todo_open and todo_closed resolved to main's side with the phasing additions re-applied. Spec and concept corrected for 12 stale claims. User rulings: section views get Phasing (D-PH8, D-PH12); fittings take colour / opacity only until converted to blocks (D-PH13); a Material pattern stays under a phase override (D-PH10, AC15). Follow-ups: fitting symbols to blocks, paper-space 5.2 comment, taxonomy lines. Nothing under firepro3d/ or tests/ changed.
+
 ## Testing -- six red-at-main tests cleared: Array text, LT5 q14, WM2/SB3 goldens, System tier, solver stub -- 2026-11-06
 - [x] [type:bug] `test_modify_tools_array.py::test_array_typed_count_is_total[text_rotated]` fails at main: arrayed rotated text copies land at the wrong positions [P2] [subject:Text] [done:2026-11-06]
   - Details: found 2026-11-03 by SB4b keep-green; VC7 alternating fresh runs fail 2/2 at base `c20d2ec3` (main) and 2/2 at the SB4b HEAD (positive control) -- pre-existing, not SB4b. Every one of the 9 copy positions mismatches (e.g. x 192.978 obtained vs 192.5 expected). The other 12 params (incl. non-rotated text) pass. Likely from the text-sizing-wrap merge (`6693013b`, true cap height / Wrap / Shrink): the rotated text's bounds/anchor that Array measures changed. Check whether the test expectation or the Array path is stale against the new text box geometry. `tests/test_modify_tools_array.py`, `firepro3d/text_item.py`, the Array tool.
