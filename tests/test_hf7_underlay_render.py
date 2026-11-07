@@ -216,6 +216,8 @@ def test_empty_pattern_hatch_builds_no_tone_and_does_not_crash(qapp):
                          "points": [(0, 0), (10, 0), (10, 10), (0, 10)]}]]}
     line = {"kind": "line", "layer": "A", "x1": 0, "y1": 5, "x2": 10, "y2": 5}
     assert assign_runs([line, inert]) == [0, 0]     # it orders nothing
+    real = {**inert, "solid": True}
+    assert assign_runs([inert, real]) == [0, 0]     # nor does it lift a fill above it
     _, _, group = built_scene([line, inert])
     kids = group.childItems()
     assert len(kids) == 1 and kids[0].opacity() == 1.0
