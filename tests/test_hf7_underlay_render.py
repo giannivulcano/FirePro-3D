@@ -94,7 +94,7 @@ def test_paint_order_fill_over_line_on_another_layer(qapp, tmp_path):
     geoms = extract(doc, tmp_path)
     runs = assign_runs(geoms)
     assert runs == [0, 1]
-    _, _, group = built_scene(geoms)
+    scene, _, group = built_scene(geoms)
     layers = [c.data(1) for c in group.childItems()]
     assert layers.index("A") < layers.index("B")   # B's fill paints after A's stroke
 
@@ -188,7 +188,7 @@ def test_snap_returns_boundary_not_pattern_lines(qapp, tmp_path):
     h = msp.add_hatch()
     h.paths.add_polyline_path(square(0, 0, 100), is_closed=True, flags=1)
     h.set_pattern_fill("ANSI31", scale=5.0)
-    _, _, group = built_scene(extract(doc, tmp_path))
+    scene, _, group = built_scene(extract(doc, tmp_path))
     got = group.data(4).query(-10, -110, 120, 120)
     assert {g["kind"] for g in got} == {"path_points"}
 
@@ -197,7 +197,7 @@ def test_axis_picker_takes_a_solid_edge(qapp, tmp_path):
     from firepro3d.axis_picker import _record_spans
     doc, msp = new_doc()
     msp.add_solid([(0, 0), (10, 0), (0, 10), (10, 10)])
-    _, _, group = built_scene(extract(doc, tmp_path))
+    scene, _, group = built_scene(extract(doc, tmp_path))
     child = group.data(4).query(-1, -11, 12, 12)[0]
     assert _record_spans(child, -1, -11, 11, 1)
 
@@ -212,7 +212,7 @@ def test_empty_pattern_hatch_builds_no_tone_and_does_not_crash(qapp):
     assert assign_runs([line, inert]) == [0, 0]     # it orders nothing
     real = {**inert, "solid": True}
     assert assign_runs([inert, real]) == [0, 0]     # nor does it lift a fill above it
-    _, _, group = built_scene([line, inert])
+    scene, _, group = built_scene([line, inert])
     kids = group.childItems()
     assert len(kids) == 1 and kids[0].opacity() == 1.0
 
@@ -342,7 +342,7 @@ def test_no_fills_builds_exactly_todays_items(qapp):
     geoms = [{"kind": "line", "layer": "A", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
              {"kind": "line", "layer": "B", "x1": 0, "y1": 5, "x2": 10, "y2": 5},
              {"kind": "text", "layer": "A", "x": 0, "y": 0, "text": "T", "size": 5}]
-    _, _, group = built_scene(geoms)
+    scene, _, group = built_scene(geoms)
     kids = group.childItems()
     assert [c.data(1) for c in kids] == ["A", "A", "B"]
     a_line, a_text, b_line = kids
