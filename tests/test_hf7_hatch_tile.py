@@ -341,3 +341,17 @@ def test_an_extreme_drawing_unit_still_converts(name, scale):
     a, b = convert(fams(name)), convert(fams(name, scale=scale))
     assert a is not None and b is not None
     assert (len(a.segments), a.key) == (len(b.segments), b.key)
+
+
+@pytest.mark.parametrize("dashes", [[1.0, -1.0, 1e-17], [1.0, -1.0, 1e-300], [1e-17, -1.0, 1.0]])
+def test_a_sub_epsilon_dash_does_not_divide_by_zero(dashes):
+    """A zero-length segment in the clip (dx = dy = 0) is parallel to every edge."""
+    f = [{"angle": 0.0, "base": [0.0, 0.0], "offset": [0.0, 5.0], "dashes": dashes}]
+    t = convert(f)
+    assert t is None or (t.w > 0 and t.h > 0 and t.segments)
+
+
+def test_clip_of_a_zero_length_segment_is_a_point_test():
+    from firepro3d.hatch_tile import _clip
+    assert _clip((1.0, -1.0), (1.0, -1.0), 5.0, 5.0, 1e-9) is not None   # inside the cell
+    assert _clip((9.0, -1.0), (9.0, -1.0), 5.0, 5.0, 1e-9) is None       # outside it

@@ -125,7 +125,7 @@ def _clip(a, b, w, h, tol):
     dx, dy = b[0] - a[0], b[1] - a[1]
     parallel = _EPS * math.hypot(dx, dy)    # p is a length: compare to the segment's
     for p, q in ((-dx, a[0]), (dx, w - a[0]), (-dy, a[1] + h), (dy, -a[1])):
-        if abs(p) < parallel:
+        if abs(p) <= parallel:
             if q < -tol:        # a stroke on an edge, give or take float noise
                 return None
             continue
