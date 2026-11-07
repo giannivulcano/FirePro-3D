@@ -122,12 +122,15 @@ def _depths(polys: list[list]) -> list[int]:
             near = [m for m in mids if x0 <= m[0] <= x1 and y0 <= m[1] <= y1]
             if not near:
                 continue
-            votes = total = 0
+            votes = on_edge = 0
             for m in near:
                 if _near_boundary(m, q, tols[j]):
-                    continue
-                total += 1
-                votes += _inside(m, q)
+                    on_edge += 1
+                else:
+                    votes += _inside(m, q)
+            # Every sample votes, those outside q's box as "outside"; only a
+            # sample on q's edge has no say.
+            total = len(mids) - on_edge
             if total and votes * 2 > total:
                 depth += 1
         out.append(depth)

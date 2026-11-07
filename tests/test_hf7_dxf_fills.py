@@ -462,3 +462,30 @@ def test_dialog_crop_keeps_an_enclosing_hatch():
     far = QPolygonF(QRectF(5000, -5100, 100, 100))
     assert UnderlayImportDialog._geom_in_rect(None, rec, near) is True
     assert UnderlayImportDialog._geom_in_rect(None, rec, far) is False
+
+
+def test_overlapping_loops_are_not_nested(tmp_path):
+    """Half of each square's samples lie inside the other: neither is nested,
+    so an Ignore-style hatch keeps both (a nested reading would keep none)."""
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.dxf.hatch_style = 2
+    h.paths.add_polyline_path(square(0, 0, 100), is_closed=True, flags=0)
+    h.paths.add_polyline_path(square(50, 30, 100), is_closed=True, flags=0)
+    assert len(fills(extract(doc, tmp_path))[0]["loops"]) == 2
+
+
+def test_second_crop_narrows_the_saved_bounds(qapp):
+    from PyQt6.QtCore import QRectF
+    from firepro3d.dwg_converter import filter_geoms_by_bounds
+    geoms = _slab_scene()
+    dlg = _crop_dialog(qapp, geoms)
+    dlg._on_rubber_band(QRectF(900, -51000, 50000, 51000))   # lines 1 and 2
+    assert dlg._selected_indices == {0, 1, 2}
+    dlg._on_rubber_band(QRectF(900, -1100, 300, 200))        # line 1 only
+    assert dlg._selected_indices == {0, 1}
+    bounds = dlg.get_import_params().import_bounds
+    assert bounds[2] - bounds[0] < 1000
+    box = [tuple(bounds)]
+    assert {i for i, g in enumerate(geoms)
+            if filter_geoms_by_bounds([g], box)} == {0, 1}
