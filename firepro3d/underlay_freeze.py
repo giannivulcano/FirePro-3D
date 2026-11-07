@@ -249,7 +249,7 @@ class UnderlayFreezeController:
                     continue      # raster-PDF pixmap children stay live
                 if not child.isVisible():
                     continue      # hidden layer / hidden underlay / level
-                painter.setOpacity(group.opacity())
+                painter.setOpacity(group.opacity() * child.opacity())   # tone batches
                 painter.setWorldTransform(child.sceneTransform() * base)
                 pen, brush = child.resolved_pen_brush()
                 painter.setPen(pen)                # cosmetic → device width

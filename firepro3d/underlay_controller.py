@@ -29,7 +29,8 @@ from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from PyQt6 import sip
 
 from .constants import (CRISP_AXIS_TOL as _AXIS_TOL, CRISP_CLOSE_TOL as _RING_TOL,
-                        Z_UNDERLAY, UNDERLAY_LINE_WIDTH_PX)
+                        Z_UNDERLAY, UNDERLAY_LINE_WIDTH_PX, HATCH_LOD_TONE, TOKEN_BG,
+                        UNDERLAY_MASK_SLOT)
 from .dxf_import_worker import DxfImportWorker
 from .underlay import Underlay
 from .underlay_freeze import (_UnderlayPathItem, _UnderlayPixmapItem,
@@ -487,83 +488,31 @@ class UnderlayController:
 
         Returns ``(group, sorted_layer_list)`` or ``None`` if no items.
         """
-        from .model_space import underlay_layer_pen, _pdf_width_to_px
+        from .dwg_converter import fill_line_geoms
+        from .underlay_runs import assign_runs
 
-        # Group geometry by layer
-        by_layer: dict[str, list[dict]] = {}
-        for g in geom_list:
+        # Group geometry by paint-order run, then layer. A drawing with no
+        # fill is one run, so this is the per-layer grouping it always was.
+        seen_layers: dict[str, None] = {}
+        buckets: dict[int, dict[str, list[dict]]] = {}
+        for g, run in zip(geom_list, assign_runs(geom_list)):
             layer = g.get("layer", "0")
-            by_layer.setdefault(layer, []).append(g)
+            seen_layers[layer] = None
+            buckets.setdefault(run, {}).setdefault(layer, []).append(g)
 
         items: list[QGraphicsItem] = []
-
-        append = self._append_geom_to_path
-        for layer, geoms in by_layer.items():
-            geom_path = QPainterPath()
-            text_path = QPainterPath()
-            has_override = bool(record.effective_layer_weight(layer))
-            seed = _CrispSeed() if has_override else None
-
-            for g in geoms:
-                if g.get("kind") == "text":
-                    append(text_path, g)
-                elif seed is not None:
-                    # Override layer: one stroke path (+ its crisp seed). The
-                    # no-override branch below builds per-width paths itself.
-                    append(geom_path, g)
-                    seed.add(g, append)
-
-            if not geom_path.isEmpty() and has_override:
-                # Per-file/layer Line-Weight override wins: single pen, flat
-                # width for the whole layer (today's look).
-                item = _UnderlayPathItem(geom_path)
-                item.seed_split(seed.split(geom_path))   # MW-13: no first-paint split
-                item.setPen(underlay_layer_pen(record, layer))
-                item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                item.set_colour_src(record.effective_layer_colour(layer))
-                item.setZValue(Z_UNDERLAY)
-                item.setData(1, layer)  # layer tag for visibility toggling
-                items.append(item)
-            elif not has_override:
-                # No override -> preserve source line-width hierarchy: one path
-                # (one pen width) per distinct stroke width. DXF geoms carry no
-                # "width" -> all bucket at 0.0 -> UNDERLAY_LINE_WIDTH_PX (today).
-                by_width: dict[float, QPainterPath] = {}
-                seeds: dict[float, _CrispSeed] = {}
+        for run in sorted(buckets):
+            layers = buckets[run]
+            for layer, geoms in layers.items():
+                self._emit_layer_fills(layer, geoms, record, items)
+            for layer, geoms in layers.items():
+                strokes: list[dict] = []
                 for g in geoms:
-                    if g.get("kind") == "text":
-                        continue
-                    w = round(float(g.get("width", 0.0)), 2)
-                    append(by_width.setdefault(w, QPainterPath()), g)
-                    sd = seeds.get(w)
-                    if sd is None:
-                        sd = seeds[w] = _CrispSeed()
-                    sd.add(g, append)
-                colour = resolve_colour(record.effective_layer_colour(layer))
-                for w, wpath in by_width.items():
-                    if wpath.isEmpty():
-                        continue
-                    pen = QPen(colour, _pdf_width_to_px(w))
-                    pen.setCosmetic(True)
-                    item = _UnderlayPathItem(wpath)
-                    item.seed_split(seeds[w].split(wpath))   # MW-13: no first-paint split
-                    item.setPen(pen)
-                    item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                    item.set_colour_src(record.effective_layer_colour(layer))
-                    item.setZValue(Z_UNDERLAY)
-                    item.setData(1, layer)  # layer tag for visibility toggling
-                    item.setData(7, w)      # source stroke width (pt) for repen
-                    items.append(item)
-
-            if not text_path.isEmpty():
-                item = _UnderlayPathItem(text_path)
-                item.setPen(QPen(Qt.PenStyle.NoPen))
-                item.setBrush(QBrush(resolve_colour(
-                    record.effective_layer_colour(layer))))
-                item.set_colour_src(record.effective_layer_colour(layer))
-                item.setZValue(Z_UNDERLAY)
-                item.setData(1, layer)
-                items.append(item)
+                    if g.get("kind") == "fill":
+                        strokes.extend(fill_line_geoms(g))
+                    else:
+                        strokes.append(g)
+                self._emit_layer_strokes(layer, strokes, record, items)
 
         if not items:
             return None
@@ -587,8 +536,109 @@ class UnderlayController:
         record.definition = BlockDefinition.reference_from_geoms(
             geom_list, name=record.name or "")
 
-        all_layers = sorted(by_layer.keys())
+        all_layers = sorted(seen_layers)
         return group, all_layers
+
+    def _emit_layer_fills(self, layer, geoms, record, items) -> None:
+        """One path item per class (solid / tone / mask) of *geoms*' fills."""
+        from .dwg_converter import append_fill_to_path
+        from .underlay_runs import fill_class
+        paths: dict[str, QPainterPath] = {}
+        for g in geoms:
+            if g.get("kind") != "fill":
+                continue
+            cls = fill_class(g)
+            if cls is not None:
+                append_fill_to_path(paths.setdefault(cls, QPainterPath()), g)
+        for cls, path in paths.items():
+            if path.isEmpty():
+                continue
+            path.setFillRule(Qt.FillRule.WindingFill)
+            item = _UnderlayPathItem(path)
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+            colour = TOKEN_BG if cls == "mask" else record.effective_layer_colour(layer)
+            item.setBrush(QBrush(resolve_colour(colour)))
+            item.set_colour_src(colour)
+            item.setZValue(Z_UNDERLAY)
+            item.setData(1, layer)
+            if cls == "tone":
+                item.setOpacity(HATCH_LOD_TONE)     # repen's solid brush cannot lose it
+            elif cls == "mask":
+                item.setData(UNDERLAY_MASK_SLOT, True)
+            items.append(item)
+
+    def _emit_layer_strokes(self, layer, geoms, record, items) -> None:
+        """Stroke and text items for one layer's stroke geoms (the former
+        per-layer body of the builder)."""
+        from .model_space import underlay_layer_pen, _pdf_width_to_px
+
+        append = self._append_geom_to_path
+        geom_path = QPainterPath()
+        text_path = QPainterPath()
+        has_override = bool(record.effective_layer_weight(layer))
+        seed = _CrispSeed() if has_override else None
+
+        for g in geoms:
+            if g.get("kind") == "text":
+                append(text_path, g)
+            elif seed is not None:
+                # Override layer: one stroke path (+ its crisp seed). The
+                # no-override branch below builds per-width paths itself.
+                append(geom_path, g)
+                seed.add(g, append)
+
+        if not geom_path.isEmpty() and has_override:
+            # Per-file/layer Line-Weight override wins: single pen, flat
+            # width for the whole layer (today's look).
+            item = _UnderlayPathItem(geom_path)
+            item.seed_split(seed.split(geom_path))   # MW-13: no first-paint split
+            item.setPen(underlay_layer_pen(record, layer))
+            item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            item.set_colour_src(record.effective_layer_colour(layer))
+            item.setZValue(Z_UNDERLAY)
+            item.setData(1, layer)  # layer tag for visibility toggling
+            items.append(item)
+        elif not has_override:
+            # No override -> preserve source line-width hierarchy: one path
+            # (one pen width) per distinct stroke width. DXF geoms carry no
+            # "width" -> all bucket at 0.0 -> UNDERLAY_LINE_WIDTH_PX (today).
+            by_width: dict[float, QPainterPath] = {}
+            seeds: dict[float, _CrispSeed] = {}
+            for g in geoms:
+                if g.get("kind") == "text":
+                    continue
+                w = round(float(g.get("width", 0.0)), 2)
+                append(by_width.setdefault(w, QPainterPath()), g)
+                sd = seeds.get(w)
+                if sd is None:
+                    sd = seeds[w] = _CrispSeed()
+                sd.add(g, append)
+            colour = resolve_colour(record.effective_layer_colour(layer))
+            for w, wpath in by_width.items():
+                if wpath.isEmpty():
+                    continue
+                pen = QPen(colour, _pdf_width_to_px(w))
+                pen.setCosmetic(True)
+                item = _UnderlayPathItem(wpath)
+                item.seed_split(seeds[w].split(wpath))   # MW-13: no first-paint split
+                item.setPen(pen)
+                item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                item.set_colour_src(record.effective_layer_colour(layer))
+                item.setZValue(Z_UNDERLAY)
+                item.setData(1, layer)  # layer tag for visibility toggling
+                item.setData(7, w)      # source stroke width (pt) for repen
+                items.append(item)
+
+        if not text_path.isEmpty():
+            item = _UnderlayPathItem(text_path)
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+            item.setBrush(QBrush(resolve_colour(
+                record.effective_layer_colour(layer))))
+            item.set_colour_src(record.effective_layer_colour(layer))
+            item.setZValue(Z_UNDERLAY)
+            item.setData(1, layer)
+            items.append(item)
+
 
     def _attach_snap_index(self, group: QGraphicsItemGroup,
                            geom_list: list[dict], record: Underlay):
@@ -1230,6 +1280,8 @@ class UnderlayController:
                 layer = child.data(1)
                 if layer is None or not isinstance(child, QGraphicsPathItem):
                     continue
+                if child.data(UNDERLAY_MASK_SLOT):
+                    continue                   # a mask paints the canvas, not the layer
                 if child.pen().style() == Qt.PenStyle.NoPen:
                     # text batch: colour rides the brush fill
                     child.setBrush(QBrush(resolve_colour(

@@ -681,6 +681,11 @@ def append_geom_to_path(path, g: dict) -> None:
             path.lineTo(p[0], p[1])
         if g.get("closed") and len(pts) >= 3:
             path.closeSubpath()
+    elif kind == "fill":
+        # A fill reaching a stroke/text builder must not vanish: its boundary
+        # goes in (the batched underlay routes fills through
+        # ``append_fill_to_path`` and never lands here).
+        append_fill_to_path(path, g)
     elif kind == "text":
         txt = g.get("text", "")
         if txt:
@@ -729,6 +734,21 @@ def append_geom_to_path(path, g: dict) -> None:
                 tr.translate(lx, base_y + i * line_h)
                 tr.scale(sx, sc)
                 path.addPath(tr.map(tmp))
+
+
+def append_fill_to_path(path, g: dict) -> None:
+    """Append a fill's oriented loops to a ``WindingFill`` batch path.
+
+    Winding, not even-odd: an even-odd batch cancels where two fills overlap.
+    ``loops`` are oriented by nesting depth at extraction, so holes stay open.
+
+    Args:
+        path: The ``QPainterPath`` to append to (mutated in place).
+        g: A ``fill`` geometry record.
+    """
+    for loop in g.get("loops", ()):
+        for child in loop:
+            append_geom_to_path(path, child)
 
 
 def filter_geoms_by_layers(geoms: list[dict], layers) -> list[dict]:
