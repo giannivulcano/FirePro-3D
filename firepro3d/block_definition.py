@@ -17,13 +17,13 @@ from PyQt6.QtGui import QColor, QPainterPath, QPen, QTransform
 
 from .block_attributes import BoundPrim, has_fields, normalise_attr
 from .block_pose import pose_matrix, valid_scale
-from .constants import BLOCK_VARIANT_CACHE_MAX
+from .constants import BLOCK_VARIANT_CACHE_MAX, Z_FILLED_REGION
 
 from .geometry_2d import (
     LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
     RegularPolygonItem, EllipseItem, SplineItem,
 )
-from .filled_region import FilledRegionItem
+from .filled_region import TYPE_KEY as FILLED_REGION_TYPE, FilledRegionItem
 from .end_render import SCREEN_FIXED, SCREEN_SCALE
 from .render_op import RenderOp, STROKE, FILL, PATTERN, TEXT
 from .stroke_joints import JointIndex, ends_of_pieces
@@ -131,6 +131,14 @@ def _record_height(rec: dict) -> int:
     """A nested record's Layer Height (block stacking D6)."""
     from .block_stack import clamp_layer_height
     return clamp_layer_height(rec.get("layer_height", 0))
+
+
+def _paint_depth(prim: dict) -> float:
+    """A primitive's editor depth: its ``draw_z``, else the type default (D-A7)."""
+    z = prim.get("draw_z")
+    if z is not None:
+        return z
+    return Z_FILLED_REGION if prim.get("type") == FILLED_REGION_TYPE else 0
 
 
 def _placeholder_op(t) -> RenderOp:
@@ -840,7 +848,7 @@ class BlockDefinition:
                 gnext += 1
             runs.append((prim, n0, len(ops)))
         self._clip_nested_runs(ops, runs)
-        for prim in self.primitives:
+        for prim in sorted(self.primitives, key=_paint_depth):
             if prim.get("type") == _NESTED_TYPE:
                 continue
             if is_scaffold(prim):

@@ -164,6 +164,10 @@ class Geometry2DMixin:
     task — do not render fill in paint().
     """
 
+    # Source paint order of an imported primitive (HF7 D5): sparse, None keeps
+    # the item's default depth and writes no record key.
+    _draw_z: float | None = None
+
     def init_geometry2d(self):
         """Initialise fill state.  Call after ``init_displayable(level=None)``.
 
@@ -1469,9 +1473,16 @@ class Geometry2DMixin:
             self._stroke_geometry_changed()     # (un)registers its joint ends (m1)
         self.update()
 
+    def set_draw_z(self, z: float) -> None:
+        """Pin this primitive's paint depth (imported source order, HF7 D5)."""
+        self._draw_z = float(z)
+        self.setZValue(self._draw_z)
+
     def _geom2d_to_dict(self, d: dict) -> dict:
         """Stamp mixin fields onto *d* and return it (level-less — C3)."""
         d["uid"] = self._uid
+        if self._draw_z is not None:
+            d["draw_z"] = self._draw_z
         if self.style is not None:
             from .stroke_style import normalize_style
             d.pop("color", None)
@@ -1498,6 +1509,9 @@ class Geometry2DMixin:
         uid = data.get("uid")
         if uid:
             self._uid = str(uid)
+        dz = data.get("draw_z")
+        if dz is not None:
+            self.set_draw_z(dz)
         # RG3: a legacy ``reference_line`` record is a reference line.
         legacy_ref = data.get("type") == "reference_line"
         self.reference = (bool(data.get("reference", legacy_ref))
