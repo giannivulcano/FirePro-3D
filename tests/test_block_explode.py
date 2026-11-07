@@ -13,22 +13,18 @@ from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture(scope="module")
-def _main_window_singleton(qapp, tmp_path_factory):
-    """Module-scoped MainWindow (test_modify_tools_ribbon.py pattern; the
-    autosave path is redirected so a real recovery file can't pop a modal)."""
+def _main_window_singleton(qapp):
+    """Module-scoped MainWindow (test_modify_tools_ribbon.py pattern)."""
     from PyQt6.QtTest import QTest
     import main as _main_module
     from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
     _main_module.View3D = View3D
     from main import MainWindow
-    recovery = str(tmp_path_factory.mktemp("autosave") / "recovery.FPD")
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
-        win = MainWindow()
-        win.show()
-        QTest.qWaitForWindowExposed(win)
-        yield win
-        dispose_main_window(win)
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    dispose_main_window(win)
 
 
 @pytest.fixture

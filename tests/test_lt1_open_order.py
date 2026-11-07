@@ -24,12 +24,8 @@ from tests._mainwindow_helpers import dispose_main_window
 
 
 @pytest.fixture
-def main_window(qapp, tmp_path, monkeypatch):
-    # Keep the real ~/.firepro3d autosave untouched (open cleans it up) and
-    # skip the post-open template-push offer (a possible modal).
-    recovery = str(tmp_path / "autosave" / "recovery.FPD")
-    monkeypatch.setattr(MainWindow, "_autosave_path",
-                        staticmethod(lambda: recovery))
+def main_window(qapp, monkeypatch):
+    # Skip the post-open template-push offer (a possible modal).
     monkeypatch.setattr(MainWindow, "_maybe_offer_template_push",
                         lambda self: None)
     w = MainWindow()

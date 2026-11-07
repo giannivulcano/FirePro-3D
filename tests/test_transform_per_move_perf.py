@@ -74,7 +74,7 @@ CASES = [
 
 @pytest.mark.perf
 @pytest.mark.parametrize("shape, tool", CASES)
-def test_snap_plus_ghost_per_move_within_bar(qapp, tmp_path, shape, tool):
+def test_snap_plus_ghost_per_move_within_bar(qapp, shape, tool):
     import main as _main_module
     from firepro3d.view_3d import View3D
     _main_module.View3D = View3D
@@ -83,8 +83,6 @@ def test_snap_plus_ghost_per_move_within_bar(qapp, tmp_path, shape, tool):
     import firepro3d.transform_ghost as tg
     d, n_prims = shape()
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(MainWindow, "_autosave_path",
-                   staticmethod(lambda: str(tmp_path / "recovery.FPD")))
         win = MainWindow()
         win.resize(1600, 1000)
         win.show()

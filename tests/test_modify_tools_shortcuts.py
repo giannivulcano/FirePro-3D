@@ -32,22 +32,14 @@ EXPECTED = {
 
 
 @pytest.fixture(scope="module")
-def _main_window_singleton(qapp, tmp_path_factory):
-    """Module-scoped MainWindow (module-scoped MainWindow singleton).
-
-    The autosave path is redirected to a temp dir so a real recovery file on
-    this machine can't pop the modal "Recover Unsaved Work" dialog when a test
-    pumps events (``_check_recovery`` runs on a 500 ms single-shot).
-    """
+def _main_window_singleton(qapp):
+    """Module-scoped MainWindow singleton."""
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
-    recovery = str(tmp_path_factory.mktemp("autosave") / "recovery.FPD")
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
-        win = MainWindow()
-        win.show()
-        QTest.qWaitForWindowExposed(win)
-        yield win
-        dispose_main_window(win)
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 

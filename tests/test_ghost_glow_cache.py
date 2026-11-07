@@ -182,7 +182,7 @@ def test_frame_is_the_mapped_list(qapp):
     assert frame[0].boundingRect() == x.map(base[0]).boundingRect()
 
 
-def test_editor_rotate_cached_glow_matches_live(qapp, tmp_path):
+def test_editor_rotate_cached_glow_matches_live(qapp):
     """Real Block Editor Rotate on the valve: cached-glow grab == live-glow grab."""
     import os
 
@@ -203,8 +203,6 @@ def test_editor_rotate_cached_glow_matches_live(qapp, tmp_path):
     assert d is not None
     tg.release_glow_cache()
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(MainWindow, "_autosave_path",
-                   staticmethod(lambda: str(tmp_path / "recovery.FPD")))
         win = MainWindow()
         win.resize(1600, 1000)
         win.show()

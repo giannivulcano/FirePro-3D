@@ -115,19 +115,16 @@ def _write_copy(src):
 
 
 @pytest.fixture(scope="module")
-def _main_window_singleton(qapp, tmp_path_factory):
+def _main_window_singleton(qapp):
     import main as _main_module
     from firepro3d.view_3d import View3D
     _main_module.View3D = View3D
     from main import MainWindow
-    recovery = str(tmp_path_factory.mktemp("autosave") / "recovery.FPD")
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
-        win = MainWindow()
-        win.show()
-        QTest.qWaitForWindowExposed(win)
-        yield win
-        dispose_main_window(win)
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    dispose_main_window(win)
 
 
 def test_g2_main_window_duplicate_opens_the_copy(
