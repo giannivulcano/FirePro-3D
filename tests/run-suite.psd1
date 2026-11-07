@@ -27,6 +27,21 @@
     )
     Markers    = 'not perf'
     PerfMarker = 'perf'
+    # -Perf auto runs the perf stage when a diff touches one of these (Test-PerfTouched, -like globs).
+    PerfPaths  = @(
+        'firepro3d/bound_label.py'
+        'firepro3d/room.py'
+        'firepro3d/block_attributes.py'
+        'firepro3d/render_op.py'
+        'firepro3d/annotative.py'
+        'firepro3d/element_params.py'
+        'firepro3d/constraint_controller.py'
+        'firepro3d/sketch_solver.py'
+        'firepro3d/property_manager.py'
+        'firepro3d/capability_folder.py'
+        'firepro3d/modify_tools_controller.py'
+        'firepro3d/halo_selection.py'
+    )
     # C: is near-full on the dev machine: pytest temp files and runner scratch live on D:.
     Env        = @{ TMP = 'D:/Custom Code/FPD/pytest-tmp'; TEMP = 'D:/Custom Code/FPD/pytest-tmp' }
     Scratch    = 'D:/Custom Code/FPD/run-suite'
