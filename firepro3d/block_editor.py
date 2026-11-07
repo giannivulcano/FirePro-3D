@@ -1151,8 +1151,21 @@ class BlockEditorWidget(QWidget):
         Returns:
             Tuple ``(added, skipped)`` — counts of accepted and dropped items.
         """
-        items, skipped = geometry_import.geom_dicts_to_primitives(
-            geoms, import_scale, lineweight=self.editor_scene._geom_color_lw()[1])
+        report = []
+        if any(g.get("kind") == "fill" for g in geoms):
+            from . import dwg_converter, fill_types, import_fills
+            scaled = (geoms if import_scale == 1.0 else
+                      dwg_converter.apply_import_transform(geoms, import_scale, 0.0, 0.0))
+            before = fill_types.project_table().to_payload()
+            items, skipped, report = import_fills.build_items(
+                scaled, lineweight=self.editor_scene._geom_color_lw()[1],
+                project_scene=self._project_scene)
+            if fill_types.project_table().to_payload() != before:
+                self._project_scene._dirty = True
+                fill_types.notify_changed()
+        else:
+            items, skipped = geometry_import.geom_dicts_to_primitives(
+                geoms, import_scale, lineweight=self.editor_scene._geom_color_lw()[1])
         if not items:
             self.editor_scene._show_status(
                 f"Import: nothing usable (skipped {skipped})", timeout=4000)
@@ -1165,6 +1178,12 @@ class BlockEditorWidget(QWidget):
         self.editor_scene._show_status(
             f"Imported {len(items)} primitive(s)" +
             (f", skipped {skipped}" if skipped else ""), timeout=5000)
+        if report:
+            from . import themed_message
+            rows = "\n".join(f"{name}: {count} kept as {outcome}"
+                             for name, count, outcome in report)
+            themed_message.themed_info(self, "Import Report",
+                                       f"Some hatch patterns did not convert:\n{rows}")
         return len(items), skipped
 
     def begin_import(self):

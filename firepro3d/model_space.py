@@ -2567,7 +2567,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             The block ids that became project definitions (bundled deps too).
         """
-        import copy
         before = set(self._block_definitions)
         dirty = getattr(self, "_dirty", False)
         self._history_suspended = True
@@ -2576,6 +2575,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         finally:
             self._history_suspended = False
             self._dirty = dirty
+        return self._bake_new_definitions(before)
+
+    def _bake_new_definitions(self, before: set) -> list[str]:
+        """Write definitions added since *before* into every undo snapshot, so
+        no undo or redo can unload them (D-A39).
+
+        Args:
+            before: Block ids that existed before the addition.
+
+        Returns:
+            The sorted ids that were added.
+        """
+        import copy
         added = {bid: d.to_dict() for bid, d in self._block_definitions.items()
                  if bid not in before}
         for state in self._undo_stack:
@@ -2584,6 +2596,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if bid not in defs:
                     defs[bid] = copy.deepcopy(rec)
         return sorted(added)
+
+    def commit_block_outside_history(self, **kwargs):
+        """``commit_block_definition`` as part of the undo baseline.
+
+        For an imported pattern block: a region outside this scene's undo refers
+        to it, so undoing the project must not unload it.
+
+        Args:
+            **kwargs: ``commit_block_definition`` arguments.
+
+        Returns:
+            The ``BlockDefinition``, or None as ``commit_block_definition``.
+        """
+        before = set(self._block_definitions)
+        dirty = getattr(self, "_dirty", False)
+        self._history_suspended = True
+        try:
+            defn = self.commit_block_definition(**kwargs)
+        finally:
+            self._history_suspended = False
+            self._dirty = dirty
+        self._bake_new_definitions(before)
+        return defn
 
     def _load_would_cycle(self, bundled, defn) -> bool:
         """True if loading *defn* with its *bundled* definitions forms a cycle.
