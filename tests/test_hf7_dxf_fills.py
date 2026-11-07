@@ -336,6 +336,119 @@ def test_viewport_filter_keeps_an_enclosing_hatch():
     assert filter_geoms_by_bounds([rec], far) == []
 
 
+def _slab_scene():
+    """A solid slab hatch plus four well-separated lines, as dialog geoms."""
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.set_solid_fill()
+    h.paths.add_polyline_path(square(0, 0, 100000), is_closed=True, flags=1)
+    slab = dxf_fills.read_hatch(h, "0", "#000000")
+    lines = [{"kind": "line", "layer": "0", "x1": x, "y1": y, "x2": x + 100, "y2": y}
+             for x, y in ((1000, -1000), (50000, -50000), (90000, -90000), (20000, -80000))]
+    return [slab, *lines]
+
+
+def _crop_dialog(qapp, geoms):
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+    dlg = UnderlayImportDialog()
+    dlg._all_geoms = geoms
+    dlg._has_vectors = True
+    dlg._layers = ["0"]
+    dlg._set_rotation(0.0)
+    dlg._populate_layer_list()
+    dlg._rebuild_preview()
+    return dlg
+
+
+def test_crop_round_trip_keeps_the_crop_with_an_enclosing_hatch(qapp):
+    from PyQt6.QtCore import QRectF
+    from firepro3d.dwg_converter import filter_geoms_by_bounds
+    geoms = _slab_scene()
+    dlg = _crop_dialog(qapp, geoms)
+    dlg._on_rubber_band(QRectF(900, -1100, 300, 200))     # around line 1 only
+    assert dlg._selected_indices == {0, 1}                # the slab encloses the crop
+    bounds = dlg.get_import_params().import_bounds
+    assert bounds[2] - bounds[0] < 1000                   # not the slab's 100000
+    box = [tuple(bounds)]
+    again = {i for i, g in enumerate(geoms) if filter_geoms_by_bounds([g], box)}
+    assert again == dlg._selected_indices
+    assert dlg._current_crop_bounds() == pytest.approx(bounds)   # page-switch carry
+
+
+def test_modify_restore_does_not_regrow_the_crop(qapp):
+    from PyQt6.QtCore import QRectF
+    geoms = _slab_scene()
+    first = _crop_dialog(qapp, geoms)
+    first._on_rubber_band(QRectF(900, -1100, 300, 200))
+    saved = first.get_import_params().import_bounds
+    second = _crop_dialog(qapp, geoms)
+    second._restore_crop_from_bounds(saved)
+    assert second._selected_indices == first._selected_indices
+    assert second.get_import_params().import_bounds == pytest.approx(saved)
+
+
+@pytest.mark.parametrize("corner", ["BL", "BR", "TL", "TR"])
+def test_island_sharing_two_edges_is_a_hole(tmp_path, corner):
+    from PyQt6.QtCore import Qt, QPointF
+    from PyQt6.QtGui import QPainterPath, QPolygonF
+    ox = 50 if corner in ("BR", "TR") else 0
+    oy = 50 if corner in ("TL", "TR") else 0
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 100), is_closed=True, flags=1)
+    h.paths.add_polyline_path(square(ox, oy, 50), is_closed=True, flags=0)
+    g = fills(extract(doc, tmp_path))[0]
+    path = QPainterPath()
+    path.setFillRule(Qt.FillRule.WindingFill)
+    for loop in g["loops"]:
+        path.addPolygon(QPolygonF([QPointF(x, y) for x, y in loop[0]["points"]]))
+    assert not path.contains(QPointF(ox + 25, -(oy + 25)))      # the hole
+    assert path.contains(QPointF(100 - ox - 25 if ox == 0 else 25,
+                                 -(100 - oy - 25 if oy == 0 else 25)))    # the ring
+
+
+@pytest.mark.parametrize("start", [1, 3, 5, 7, 11, 13, 29])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_duplicate_outer_loop_keeps_the_fill(tmp_path, start, reverse):
+    from PyQt6.QtCore import Qt, QPointF
+    from PyQt6.QtGui import QPainterPath, QPolygonF
+    ring = [(50 + 40 * math.cos(2 * math.pi * k / 64), 50 + 40 * math.sin(2 * math.pi * k / 64))
+            for k in range(64)]
+    twin = ring[start:] + ring[:start]                      # rotated start vertex
+    if reverse:
+        twin = list(reversed(twin))
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(ring, is_closed=True, flags=1)
+    h.paths.add_polyline_path(twin, is_closed=True, flags=1)
+    g = fills(extract(doc, tmp_path))[0]
+    path = QPainterPath()
+    path.setFillRule(Qt.FillRule.WindingFill)
+    for loop in g["loops"]:
+        path.addPolygon(QPolygonF([QPointF(x, y) for x, y in loop[0]["points"]]))
+    assert path.contains(QPointF(50, -50))
+
+
+def test_sparse_small_squares_far_apart_are_not_a_tone():
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path(square(0, 0, 10), is_closed=True, flags=1)
+    h.paths.add_polyline_path(square(2e6, 0, 10), is_closed=True, flags=1)
+    h.set_pattern_fill("ANSI31", scale=0.01)
+    rec = dxf_fills.read_hatch(h, "0", "#000000")
+    assert rec["tone"] is False and rec["lines"]
+
+
+def test_thin_strip_parallel_to_the_pattern_is_not_a_tone():
+    doc, msp = new_doc()
+    h = msp.add_hatch()
+    h.paths.add_polyline_path([(0, 0), (2e6, 2e6), (2e6, 2e6 + 1), (0, 1)],
+                              is_closed=True, flags=1)       # along the 45 degree family
+    h.set_pattern_fill("ANSI31", scale=0.01)
+    rec = dxf_fills.read_hatch(h, "0", "#000000")
+    assert rec["tone"] is False
+
+
 def test_dialog_crop_keeps_an_enclosing_hatch():
     from PyQt6.QtCore import QRectF
     from PyQt6.QtGui import QPolygonF

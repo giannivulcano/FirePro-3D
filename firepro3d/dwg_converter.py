@@ -459,6 +459,38 @@ def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
     return [min_x, min_y, max_x, max_y]
 
 
+def crop_bounds(geoms: list[dict], rect) -> list[float] | None:
+    """Saved-crop bounds for *geoms* selected by a crop of bbox *rect*.
+
+    With *rect* None this is :func:`compute_geom_bounds`. Otherwise a fill
+    contributes only its loop bbox clipped to *rect*: a slab that merely
+    encloses the crop must not widen the saved bounds to its own extent, or the
+    crop grows back on reload. *rect* is ``(x0, y0, x1, y1)``.
+    """
+    if rect is None:
+        return compute_geom_bounds(geoms)
+    rx0, ry0, rx1, ry1 = (min(rect[0], rect[2]), min(rect[1], rect[3]),
+                          max(rect[0], rect[2]), max(rect[1], rect[3]))
+    boxes = []
+    plain = compute_geom_bounds([g for g in geoms if g.get("kind") != "fill"])
+    if plain is not None:
+        boxes.append(plain)
+    for g in geoms:
+        if g.get("kind") != "fill":
+            continue
+        pts = geom_rep_points(g)
+        if not pts:
+            continue
+        x0, x1 = max(min(p[0] for p in pts), rx0), min(max(p[0] for p in pts), rx1)
+        y0, y1 = max(min(p[1] for p in pts), ry0), min(max(p[1] for p in pts), ry1)
+        if x0 <= x1 and y0 <= y1:
+            boxes.append([x0, y0, x1, y1])
+    if not boxes:
+        return None
+    return [min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes)]
+
+
 def apply_import_transform(
     geoms: list[dict],
     s: float,

@@ -22,10 +22,11 @@ _FLATTEN_DIVISOR = 2000.0   # flatten tolerance = loop bbox diagonal / this
 _PATH_TEXTBOX = 8           # DXF boundary path flag: a text box, not an edge
 _WHITE = "#ffffff"
 _DEPTH_SAMPLES = 8          # edge midpoints voting on a loop's nesting depth
-# The pre-flight line estimate uses the loop bbox, so it overstates a thin
-# diagonal shape. A false tone is worse than a slow hatch, so only an estimate
-# above this multiple of HATCH_IMPORT_MAX_LINES skips ezdxf (which computes
-# every line before its first yield) and goes straight to a tone.
+# The pre-flight line estimate sums each loop's real extent along the pattern
+# normal, so nested loops are counted twice (outer and island). A false tone is
+# worse than a slow hatch, so only an estimate above this multiple of
+# HATCH_IMPORT_MAX_LINES skips ezdxf (which computes every line before its
+# first yield) and goes straight to a tone.
 _ESTIMATE_MARGIN = 10
 
 
@@ -96,11 +97,20 @@ def _depths(polys: list[list]) -> list[int]:
     """Nesting depth of each loop, from geometry.
 
     Hatch path flags do not hold this: real files mark outer loops 0 and flag
-    islands EXTERNAL. The test point is the first edge's midpoint, so a corner
-    shared with another loop does not decide it.
+    islands EXTERNAL. Each loop is tested by up to ``_DEPTH_SAMPLES`` edge
+    midpoints against every other loop q. A midpoint within q's flatten
+    tolerance of q's boundary is discarded (the ray cast decides such points by
+    convention); the loop is nested in q when a strict majority of the rest is
+    inside. With none left (a coincident duplicate) it is not nested, so twins
+    get the same depth.
     """
-    boxes = [(min(p[0] for p in q), min(p[1] for p in q),
-              max(p[0] for p in q), max(p[1] for p in q)) for q in polys]
+    boxes, tols = [], []
+    for q in polys:
+        x0, y0 = min(p[0] for p in q), min(p[1] for p in q)
+        x1, y1 = max(p[0] for p in q), max(p[1] for p in q)
+        tol = math.hypot(x1 - x0, y1 - y0) / _FLATTEN_DIVISOR
+        tols.append(tol)
+        boxes.append((x0 - tol, y0 - tol, x1 + tol, y1 + tol))
     out = []
     for i, poly in enumerate(polys):
         mids = _edge_midpoints(poly)
@@ -112,11 +122,28 @@ def _depths(polys: list[list]) -> list[int]:
             near = [m for m in mids if x0 <= m[0] <= x1 and y0 <= m[1] <= y1]
             if not near:
                 continue
-            votes = sum(1 for m in near if _inside(m, q))
-            if votes * 2 > len(mids):
+            votes = total = 0
+            for m in near:
+                if _near_boundary(m, q, tols[j]):
+                    continue
+                total += 1
+                votes += _inside(m, q)
+            if total and votes * 2 > total:
                 depth += 1
         out.append(depth)
     return out
+
+
+def _near_boundary(pt, poly, tol: float) -> bool:
+    """True when *pt* is within *tol* of any edge of closed *poly*."""
+    px, py = pt
+    for (ax, ay), (bx, by) in zip(poly, [*poly[1:], poly[0]]):
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L2))
+        if math.hypot(px - (ax + t * dx), py - (ay + t * dy)) <= tol:
+            return True
+    return False
 
 
 def _edge_midpoints(poly: list) -> list[tuple[float, float]]:
@@ -191,12 +218,10 @@ def _pattern(entity) -> dict | None:
 
 
 def _estimated_lines(entity, polys: list[list]) -> float:
-    """Rough line count: per family, loop bbox projected on the family normal
-    over the normal component of its (already scaled) offset. Families with no
+    """Rough line count: per family, the sum over loops of each loop's extent
+    along the family normal over the normal component of its (already scaled)
+    offset. Families with no
     normal offset are skipped; ezdxf's DenseHatchingLinesError covers them."""
-    xs = [p[0] for q in polys for p in q]
-    ys = [p[1] for q in polys for p in q]
-    w, h = max(xs) - min(xs), max(ys) - min(ys)
     total = 0.0
     for ln in entity.pattern.lines:
         a = math.radians(ln.angle)
@@ -204,7 +229,12 @@ def _estimated_lines(entity, polys: list[list]) -> float:
         step = abs(ln.offset.x * nx + ln.offset.y * ny)
         if step <= 1e-12:
             continue
-        total += (abs(w * nx) + abs(h * ny)) / step
+        extent = 0.0
+        for q in polys:
+            # polys are scene coords (Y negated); the angle is in the DXF frame
+            d = [x * nx - y * ny for x, y in q]
+            extent += max(d) - min(d)
+        total += extent / step
     return total
 
 

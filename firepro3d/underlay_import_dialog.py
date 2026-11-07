@@ -946,6 +946,9 @@ class UnderlayImportDialog(HouseDialog):
         self._all_geoms: list[dict] = []
         self._layers: list[str] = []
         self._selected_indices: set[int] | None = None
+        # Bbox (x0, y0, x1, y1, group-local) of the crop behind
+        # ``_selected_indices``; read only while a selection exists.
+        self._crop_rect: tuple[float, float, float, float] | None = None
         self._base_x = 0.0
         self._base_y = 0.0
         self._pick_pts: list[QPointF] = []
@@ -3135,10 +3138,16 @@ class UnderlayImportDialog(HouseDialog):
             if self._geom_in_rect(g, region):
                 selected.add(idx)
         if selected:
-            if self._selected_indices is None:
+            r = region.boundingRect()
+            box = (r.left(), r.top(), r.right(), r.bottom())
+            if self._selected_indices is None or self._crop_rect is None:
                 self._selected_indices = selected
+                self._crop_rect = box
             else:
                 self._selected_indices &= selected
+                p = self._crop_rect
+                self._crop_rect = (max(p[0], box[0]), max(p[1], box[1]),
+                                   min(p[2], box[2]), min(p[3], box[3]))
         self._rebuild_preview()
         self._update_status()
         self._set_view_mode("pan")
@@ -3161,6 +3170,7 @@ class UnderlayImportDialog(HouseDialog):
 
     def _clear_selection(self):
         self._selected_indices = None
+        self._crop_rect = None
         self._rebuild_preview()
         self._update_status()
 
@@ -3177,8 +3187,8 @@ class UnderlayImportDialog(HouseDialog):
                  if idx in self._selected_indices]
         if not geoms:
             return None
-        from .dwg_converter import compute_geom_bounds
-        return compute_geom_bounds(geoms)
+        from .dwg_converter import crop_bounds
+        return crop_bounds(geoms, self._crop_rect)
 
     def _restore_crop_from_bounds(self, bounds) -> None:
         """Rebuild ``_selected_indices`` from a saved crop bbox (Modify flow).
@@ -3196,6 +3206,7 @@ class UnderlayImportDialog(HouseDialog):
         sel = {idx for idx, g in enumerate(self._all_geoms)
                if _geom_in_any_bound(g, box)}
         self._selected_indices = sel or None
+        self._crop_rect = (tuple(bounds[:4]) if sel else None)
         # Same repaint the rubber-band / area-select path uses.
         self._rebuild_preview()
         self._update_status()
@@ -3865,8 +3876,8 @@ class UnderlayImportDialog(HouseDialog):
 
         # Compute import bounds when area selection was used
         if self._selected_indices is not None and geoms:
-            from .dwg_converter import compute_geom_bounds
-            p.import_bounds = compute_geom_bounds(geoms)
+            from .dwg_converter import crop_bounds
+            p.import_bounds = crop_bounds(geoms, self._crop_rect)
 
         # Preserve original .dwg path for DWG files
         if self._file_type == "dwg":
