@@ -109,6 +109,38 @@ def test_later_import_finds_the_block(qapp, tmp_path):
     assert len([d for d in proj._block_definitions.values() if d.library == "Imported"]) == 1
 
 
+@pytest.mark.parametrize("edit", ["row_shift", "size", "primitive"])
+def test_a_user_edited_block_stops_matching(qapp, tmp_path, edit):
+    proj, w = _editor()
+    doc, msp = new_doc()
+    _hatch(msp, "ANSI37", scale=2.0)
+    _import(w, doc, tmp_path)
+    block = next(d for d in proj._block_definitions.values() if d.library == "Imported")
+    if edit == "row_shift":
+        block.set_tile({**block.tile, "row_shift": block.tile["w"] / 2})
+    elif edit == "size":
+        block.set_tile({**block.tile, "size": "drafting"})
+    else:
+        p = block.primitives[0]
+        block.primitives[0] = {**p, "pt2": [p["pt2"][0] + 1.0, p["pt2"][1]]}
+    doc2, msp2 = new_doc()
+    _hatch(msp2, "ANSI37", scale=4.0)
+    _import(w, doc2, tmp_path)
+    assert len([d for d in proj._block_definitions.values() if d.library == "Imported"]) == 2
+
+
+def test_a_family_without_dashes_imports(qapp, tmp_path):
+    proj, w = _editor()
+    doc, msp = new_doc()
+    _hatch(msp, "ANSI31", scale=2.0)
+    geoms = extract(doc, tmp_path, preserve_curves=True)
+    for g in geoms:
+        for f in (g.get("pattern") or {}).get("families", ()):
+            f.pop("dashes", None)
+    items, skipped, _ = import_fills.build_items(geoms, lineweight=1.0, project_scene=proj)
+    assert skipped == 0 and any(isinstance(i, FilledRegionItem) for i in items)
+
+
 def test_anonymous_pattern_is_named_hatch(qapp, tmp_path):
     proj, w = _editor()
     doc, msp = new_doc()
@@ -168,6 +200,7 @@ def test_order_keys_follow_the_stream(qapp, tmp_path):
     msp.add_line((0, 5), (10, 5))
     items, _, _ = import_fills.build_items(
         extract(doc, tmp_path, preserve_curves=True), lineweight=1.0, project_scene=proj)
+    assert [type(i) for i in items] == [LineItem, FilledRegionItem, LineItem]
     zs = [i.to_dict()["draw_z"] for i in items]
     assert zs == sorted(zs) and all(-0.9 < z < -0.1 for z in zs)
 

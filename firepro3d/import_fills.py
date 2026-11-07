@@ -55,12 +55,14 @@ def _free_block_name(scene, base: str) -> str:
 
 def _stored_key(defn) -> str | None:
     t = defn.tile
-    if not t or t["w"] <= 0 or t["h"] <= 0:
-        return None
     try:
+        if t["w"] <= 0 or t["h"] <= 0:
+            return None
+        if t.get("row_shift", 0.0) != 0.0 or t.get("size") != "model":
+            return None                 # the user changed how the tile repeats
         segs = [(*p["pt1"], *p["pt2"]) for p in defn.primitives]
-    except KeyError:
-        return None                     # a user-edited block with other primitives
+    except (KeyError, TypeError):
+        return None                     # no tile, or a block edited to hold other primitives
     return hatch_tile.key_of(segs, t["w"], t["h"])
 
 
@@ -133,7 +135,8 @@ def _unconverted(g, lineweight) -> tuple[list, str]:
 
 def _families_key(families) -> tuple:
     """A hashable form of a family list (the same pattern is the same list)."""
-    return tuple((f["angle"], tuple(f["base"]), tuple(f["offset"]), tuple(f["dashes"]))
+    return tuple((f["angle"], tuple(f["base"]), tuple(f["offset"]),
+                  tuple(f.get("dashes") or ()))     # optional, as hatch_tile reads it
                  for f in families)
 
 
