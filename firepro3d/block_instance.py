@@ -38,11 +38,12 @@ from .block_pose import (check_scale, pose_matrix, reflect_pose,
                          valid_scale)
 from .colour_tokens import paint_resolver
 from .constants import (CHAIN_WELD_MM, LINETYPE_WINDOW_MIN_PERIODS, MODEL_WEIGHT_PX_MAX,
-                        TOKEN_AUTO)
+                        STROKE_AA_PX, TOKEN_AUTO)
 from .geometry_2d import constraint_tint
 from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, fill_wedge, joinable,
-                            joint_pad, wedge_for_pair)
+                            joint_pad, scaled_wedges, similarity_scale,
+                            unit_wedge, wedge_for_pair)
 from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
                         ClipRun, PoseXf as _PoseXf, keep_frame, keep_path, ops_mask,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
@@ -65,7 +66,7 @@ class _JointCtx:
     already decided, and the lazily read device scale / paper flag / view
     window."""
     __slots__ = ("strokes", "routed", "registry", "on_paper", "dash", "dev",
-                 "paper_pass", "win")
+                 "paper_pass", "win", "blocks_weight", "px_unit")
 
     def __init__(self, strokes, routed, registry, on_paper):
         self.strokes = strokes
@@ -76,6 +77,18 @@ class _JointCtx:
         self.dev = None
         self.paper_pass = None
         self.win = False
+        self.blocks_weight = _pd.model_blocks_weight()   # keys the wedge cache
+        self.px_unit = None     # device px per local unit under the pose (0.0: not a similarity)
+
+
+def _joint_static(ops, j) -> bool:
+    """True when op *j*'s ``JointAttrs`` depend on the compiled op alone: no
+    linetype id (inked follows this paint's dash) and no end-block id (the
+    registry). The ``Geometry2DMixin._joint_cacheable`` rule for block ops."""
+    op = ops[j] if j < len(ops) else None
+    return (op is not None and op.kind == STROKE and op.ends is not None
+            and not is_linetype_ref(op.linetype)
+            and not any(is_end_ref(r.get("end")) for r in op.ends))
 
 
 def _record_scale(rec: dict) -> float:
@@ -168,6 +181,7 @@ class BlockInstance(QGraphicsObject):
         self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
         self._mask_cache = None    # (definition ops, pose key, scene mask) -- opaque_mask
         self._cover_cache = None   # (masks tuple, union) -- _cover_above
+        self._ink_ops_cache = None  # (ops list, distinct stroke rows) -- _ink_reach_px
         self._stack_seq = 0        # scene-entry order, the tie-break at equal z
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
         # viewport pass by paper_display._apply_block, None on the model canvas.
@@ -181,6 +195,7 @@ class BlockInstance(QGraphicsObject):
         self._lt_ref_cache = None   # (ops list, frozenset of stroke linetype ids)
         self._lt_exp_cache = None   # (ops list, {op index: (lt, factor, expansion, window, trims)})
         self._crisp_ops = None      # (ops list, {op index: SplitCache}) -- MW-7
+        self._joint_wedge_cache = None  # (ops, per_op, Blocks weight, {op: entry}) -- _op_joint_entry
         self._end_ops_cache = None  # (ops list, frozenset of explicit-end op indices) -- LT5
         self._end_trim_ops = None   # (ops list, {op index: (trims, trimmed path)}) -- LT5
         self._end_pad_cache = None  # (ops, registry, deps, rows) -- LT5 bounds (_end_pad_rows)
@@ -756,13 +771,13 @@ class BlockInstance(QGraphicsObject):
             m = it.opaque_mask()
             if it.transform().isIdentity():
                 if rect is None:
-                    rect = self.sceneBoundingRect()
+                    rect = self._ink_rect()
                 if not m.boundingRect().intersects(rect):
                     continue
             else:                                          # a manipulator's held preview
                 m = it.sceneTransform().map(m)
                 if rect is None:
-                    rect = self.sceneBoundingRect()
+                    rect = self._ink_rect()
             if m.intersects(rect):
                 masks.append(m)
         if not masks:
@@ -775,6 +790,43 @@ class BlockInstance(QGraphicsObject):
         cover = self._union_prefix(memo, masks)
         self._cover_cache = (tuple(masks), cover)
         return cover
+
+    def _ink_rect(self) -> QRectF:
+        """Scene box this block's ink can reach, for the cover test.
+
+        ``boundingRect`` holds a 41 px worst-case joint pad because weight
+        edits fire no ``prepareGeometryChange``; the cover test reads the real
+        pens instead, so a mask near a thin block takes no clip path. A paper
+        pass keeps the bounds: its pens are item units, not px.
+        """
+        if self._paper_pen_width is not None:
+            return self.sceneBoundingRect()
+        px = self._ink_reach_px()
+        extra = scene_hit_width(self, px, px) + CHAIN_WELD_MM / 2.0 - 2.0
+        r = self.sceneTransform().mapRect(self._frame_rect())
+        return r.adjusted(-extra, -extra, extra, extra) if extra > 0.0 else r
+
+    def _ink_reach_px(self) -> float:
+        """Widest device reach past this block's geometry: the miter tip of its
+        widest pen plus the antialias fringe. A vertex inside one op miters as
+        far as a joined corner, so every stroke counts, joined or not; a block
+        of fills or text still has the fringe. The distinct (linetype, weight,
+        compiled width) rows are memoised on the compiled list; the widths
+        resolve every call (weight table, Model Blocks)."""
+        ops = self.render_ops()
+        c = self._ink_ops_cache
+        if c is None or c[0] is not ops:
+            rows = {}
+            for op in ops:
+                if op.kind == STROKE:
+                    rows.setdefault((op.linetype, op.weight, op.pen.widthF()), op)
+            c = self._ink_ops_cache = (ops, tuple(rows.values()))
+        reg = getattr(self.scene(), "block_registry", None)
+        reach = 0.0
+        for op in c[1]:
+            width = self._resolve_op_stroke(op, True, reg, False)[1]
+            reach = max(reach, joint_pad(op.pen.widthF() if width is None else width))
+        return reach + STROKE_AA_PX
 
     @staticmethod
     def _union_prefix(memo: dict, masks: list) -> QPainterPath:
@@ -1514,30 +1566,93 @@ class BlockInstance(QGraphicsObject):
         return jm if jm[1] else None
 
     def _paint_op_joints(self, painter, pose, xf, ops, i, pen, jm, ctx) -> None:
-        """D7 for a block op: for each end of op *i* whose container partner
-        ``joinable``s, fill the corner wedge in *pen*'s painter-local colour --
-        device space for a cosmetic pen (half-width in px), the item frame for
-        a paper pen. Both partners draw the shared wedge (same colour, same
-        width). Leaves the painter's transform as found."""
-        ix = jm[0][i]
-        if ix is None:
+        """D7 for a block op, from cached unit wedges (the ``_paint_joints``
+        idiom): each end of op *i* whose container partner ``joinable``s gets
+        the corner wedge in *pen*'s painter-local colour. Both partners draw
+        the shared wedge (same colour, same width).
+
+        A cosmetic pen's half width is px, so its scale reads the world
+        transform (the frame ``resetTransform`` gave the live path, not
+        ``deviceTransform``); a paper pen's is in the item frame, so it reads
+        the pose. Pairs with a paint-dependent attr, and everything under a
+        non-similar painter, go through :meth:`_paint_op_joints_live`. Leaves
+        the posed transform on, with *pen* and no brush.
+        """
+        wedges, live, pairs, memo = self._op_joint_entry(painter, pose, xf, ops, i, jm, ctx)
+        if not wedges and not live:
             return
-        # Unpose first: _joint_dash's view window composes *pose* onto the
-        # painter, so a still-posed painter would apply it twice.
-        xf.unposed()
-        pairs = []
-        cache = {}
-        for e in ix.ends_of(i):
+        cosmetic = pen.isCosmetic()
+        if cosmetic:
+            if ctx.px_unit is None:
+                xf.posed()
+                ctx.px_unit = similarity_scale(painter.worldTransform())
+            scale = ctx.px_unit
+            if not scale:
+                self._paint_op_joints_live(painter, pose, xf, ops, pairs, pen, ctx)
+                return
+        else:
+            scale = similarity_scale(pose) or 1e-9
+        if wedges:
+            k = pen.widthF() / 2.0 / scale
+            polys = memo.get(k)
+            if polys is None:
+                memo.clear()
+                polys = memo[k] = scaled_wedges(wedges, k)
+            xf.posed()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(pen.color())
+            for poly in polys:
+                painter.drawPolygon(poly)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen)
+        if live:
+            self._paint_op_joints_live(painter, pose, xf, ops, live, pen, ctx)
+
+    def _op_joint_entry(self, painter, pose, xf, ops, i, jm, ctx) -> tuple:
+        """``(unit wedges, live pairs, all pairs, {k: polygons})`` of op *i*,
+        held on the compiled list (an override or bound-text list is this
+        instance's own, so the memo is too), its per-op indexes and the Model
+        Blocks weight (``canvas_weight_name`` reads it)."""
+        c = self._joint_wedge_cache
+        if (c is None or c[0] is not ops or c[1] is not jm[0]
+                or c[2] != ctx.blocks_weight):
+            c = self._joint_wedge_cache = (ops, jm[0], ctx.blocks_weight, {})
+        ent = c[3].get(i)
+        if ent is not None:
+            return ent
+        ix = jm[0][i]
+        wedges, live, pairs = [], [], []
+        for e in (ix.ends_of(i) if ix is not None else ()):
             q = ix.partner(e)
             if q is None:
                 continue
-            for k in ((i, e.which), (q.owner, q.which)):
+            pairs.append((e, q))
+            if not (_joint_static(ops, i) and _joint_static(ops, q.owner)):
+                live.append((e, q))
+            elif joinable(self._op_joint_attrs(painter, pose, xf, ops, i, e.which, ctx),
+                          self._op_joint_attrs(painter, pose, xf, ops, q.owner, q.which, ctx)):
+                w = unit_wedge(e, q)
+                if w is not None:
+                    wedges.append(w)
+        ent = c[3][i] = (tuple(wedges), tuple(live), tuple(pairs), {})
+        return ent
+
+    def _paint_op_joints_live(self, painter, pose, xf, ops, pairs, pen, ctx) -> None:
+        """The device-space path: attrs and wedges from live state every paint
+        (a dashed or end-typed op, a sheared painter). Leaves the painter's
+        transform as found."""
+        # Unpose first: _joint_dash's view window composes *pose* onto the
+        # painter, so a still-posed painter would apply it twice.
+        xf.unposed()
+        cache = {}
+        drawn = []
+        for e, q in pairs:
+            for k in ((e.owner, e.which), (q.owner, q.which)):
                 if k not in cache:
-                    cache[k] = self._op_joint_attrs(painter, pose, xf, ops, k[0],
-                                                    k[1], ctx)
-            if joinable(cache[(i, e.which)], cache[(q.owner, q.which)]):
-                pairs.append((e, q))
-        if not pairs:
+                    cache[k] = self._op_joint_attrs(painter, pose, xf, ops, k[0], k[1], ctx)
+            if joinable(cache[(e.owner, e.which)], cache[(q.owner, q.which)]):
+                drawn.append((e, q))
+        if not drawn:
             return
         half_w = pen.widthF() / 2.0
         cosmetic = pen.isCosmetic()
@@ -1548,7 +1663,7 @@ class BlockInstance(QGraphicsObject):
                 painter.resetTransform()
             else:
                 to_dev = pose
-            for e, q in pairs:
+            for e, q in drawn:
                 w = wedge_for_pair(e, q, half_w, to_dev)
                 if w is not None:
                     fill_wedge(painter, w, pen.color())

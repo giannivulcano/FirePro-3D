@@ -28,7 +28,7 @@ from . import crisp_stroke as _cs
 from .block_stack import cover_over
 from .render_op import keep_frame, keep_path
 from .constants import (CHAIN_WELD_MM, CRISP_AXIS_TOL, LINETYPE_WINDOW_MIN_PERIODS,
-                        TOKEN_AUTO, TOKEN_ELEMENT)
+                        STROKE_AA_PX, TOKEN_AUTO, TOKEN_ELEMENT)
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
@@ -39,7 +39,8 @@ from .linetype_render import (badge_pad_px, expand, fixed_on_canvas, lod_ok_at,
 from .hatch_render import _device_scale
 from .path_walk import end_frame
 from .stroke_joints import (JointAttrs, end_inked, ends_of_pieces, fill_wedge,
-                            joinable, joint_pad, wedge_for_pair)
+                            joinable, joint_pad, scaled_wedges, similarity_scale,
+                            unit_wedge, wedge_for_pair)
 from .paper_display import paper_legacy_px, paper_pass_active, resolve_line_weight_mm, shows_selection
 from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE,
@@ -273,7 +274,7 @@ class Geometry2DMixin:
                 w = joint_pad(pen.widthF()) - pen.widthF() / 2.0 + weld
                 return base.adjusted(-w, -w, w, w)
             return base
-        px = pen.widthF() / 2.0 + 0.75
+        px = pen.widthF() / 2.0 + STROKE_AA_PX
         if joined:
             # ... same reach for a cosmetic pen, in device px (design D7).
             px = max(px, joint_pad(pen.widthF()))
@@ -1060,25 +1061,20 @@ class Geometry2DMixin:
         if not wedges:
             return
         if pen.isCosmetic():
-            t = painter.deviceTransform()
-            m11, m12, m21, m22 = t.m11(), t.m12(), t.m21(), t.m22()
-            n2 = m11 * m11 + m12 * m12
-            if (abs(m11 * m21 + m12 * m22) > 1e-9 * n2
-                    or abs(n2 - m21 * m21 - m22 * m22) > 1e-9 * n2):
+            s = similarity_scale(painter.deviceTransform())
+            if not s:
                 ix = self._joint_index()
                 self._paint_joints_live(
                     painter, pen, rs,
                     self._joint_pairs(ix, ix.ends_of(self), dedupe))
                 return
-            k = pen.widthF() / 2.0 / (math.sqrt(n2) or 1e-9)
+            k = pen.widthF() / 2.0 / s
         else:
             k = pen.widthF() / 2.0
         polys = memo.get(k)             # scaled polygons, kept for the last k (pan: always hits)
         if polys is None:
             memo.clear()
-            polys = memo[k] = [QTransform(k, 0.0, 0.0, k, cx * (1.0 - k),
-                                          cy * (1.0 - k)).map(poly)
-                               for cx, cy, poly in wedges]
+            polys = memo[k] = scaled_wedges(wedges, k)
         painter.save()
         try:
             painter.setPen(Qt.PenStyle.NoPen)
@@ -1114,10 +1110,9 @@ class Geometry2DMixin:
             if not joinable(self._joint_attrs(None, 1.0, e.which),
                             p.owner._joint_attrs(None, 1.0, p.which)):
                 continue
-            w = wedge_for_pair(e, p, 1.0, to_item)
+            w = unit_wedge(e, p, to_item)
             if w is not None:
-                c = w.at(0)
-                wedges.append((c.x(), c.y(), w))
+                wedges.append(w)
         return (sigs, tuple(wedges), (), {})
 
     def _paint_joints_live(self, painter, pen, rs, pairs) -> None:

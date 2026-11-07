@@ -170,8 +170,8 @@ SHAs are on `fix/stroke-corner-joins`.
   container (a) under a paper pass.
 - **D5b block path** (`384c499c`, `19218c8e`): definitions compile `joint_indexes(mirrored,
   scale)` per variant with `_op_groups` (a nested block is its own container); instances fill
-  wedges in `_paint_op_joints` (both partners still fill; follow-up filed); `boundingRect`
-  pads `MODEL_WEIGHT_PX_MAX*2` only when a partnered op exists.
+  wedges in `_paint_op_joints` (both partners still fill; see "Schematic redraw" below);
+  `boundingRect` pads `joint_pad(MODEL_WEIGHT_PX_MAX)` only when a partnered op exists.
 - **D6 choke point** (`787f2447`, `88e4719b`, `32760332`): mixin `setLine` / `setRect` /
   `setPath` overrides + `itemChange` (ItemSendsGeometryChanges: scene, pos, transform,
   rotation, scale). Unregister goes through the raw scene index regardless of eligibility;
@@ -194,6 +194,13 @@ SHAs are on `fix/stroke-corner-joins`.
   scene-level draw.
 - **LT5 parity golden** re-baselined (FlatCap on a rotated nested-block line; user-ratified;
   `19964ca9`).
+- **Schematic redraw (2026-11-06, v0.93.3):** the block path caches unit wedges per instance in
+  `_op_joint_entry`, keyed on the compiled list, its per-op indexes and the Model Blocks weight
+  (`canvas_weight_name` reads it), and scales them per paint. A cosmetic pen reads the world
+  transform, a paper pen the pose. Dashed or end-typed ops and non-similar painters stay on
+  `_paint_op_joints_live`. Both partners still fill: one owner per pair was declined by the
+  user (256 px changed, up to 54/255, almost no gain). Cached against live: up to 2/255.
+  Guards: `tests/test_block_redraw_perf.py`.
 - **Guards:** `tests/test_stroke_joins.py` (sections A-H + FR1 guards); bench
   `tests/test_stroke_joins_perf.py` (marker-gated, not in the default gate).
 

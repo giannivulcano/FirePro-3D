@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QPainterPath, QPolygonF
+from PyQt6.QtGui import QPainterPath, QPolygonF, QTransform
 
 from .constants import CHAIN_WELD_MM, STROKE_MITER_LIMIT
 
@@ -312,3 +312,31 @@ def wedge_for_pair(a: JointEnd, b: JointEnd, half_w: float, xf=None) -> QPolygon
         da = map_dir(xf, da)
         db = map_dir(xf, db)
     return joint_wedge(corner, da, db, half_w)
+
+
+def unit_wedge(a: JointEnd, b: JointEnd, xf=None) -> tuple | None:
+    """``(cx, cy, polygon)`` at half_w = 1 for the partner ends *a*, *b*: the
+    cacheable form (the shape depends on the tangents only; width and zoom
+    scale it about the corner, see :func:`scaled_wedges`)."""
+    w = wedge_for_pair(a, b, 1.0, xf)
+    if w is None:
+        return None
+    c = w.at(0)
+    return (c.x(), c.y(), w)
+
+
+def scaled_wedges(wedges, k: float) -> list:
+    """*wedges* (:func:`unit_wedge` rows) scaled by *k* about their corners."""
+    return [QTransform(k, 0.0, 0.0, k, cx * (1.0 - k), cy * (1.0 - k)).map(poly)
+            for cx, cy, poly in wedges]
+
+
+def similarity_scale(t) -> float:
+    """The uniform scale of *t*'s 2x2, 0.0 when *t* is not a similarity (a
+    stretched or sheared painter: a scaled unit wedge is the wrong shape)."""
+    m11, m12, m21, m22 = t.m11(), t.m12(), t.m21(), t.m22()
+    n2 = m11 * m11 + m12 * m12
+    if (abs(m11 * m21 + m12 * m22) > 1e-9 * n2
+            or abs(n2 - m21 * m21 - m22 * m22) > 1e-9 * n2):
+        return 0.0
+    return math.sqrt(n2)
