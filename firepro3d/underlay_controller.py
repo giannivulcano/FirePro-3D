@@ -1300,7 +1300,8 @@ class UnderlayController:
             xs, ys = [], []
             s = params.scale
             bx, by = params.base_x, params.base_y
-            for g in params.geom_list:
+            from .dwg_converter import expand_fills
+            for g in expand_fills(params.geom_list):
                 kind = g.get("kind")
                 if kind == "line":
                     xs += [(g["x1"] - bx) * s, (g["x2"] - bx) * s]

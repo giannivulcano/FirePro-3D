@@ -353,6 +353,66 @@ def get_viewport_bounds(
     return bounds if bounds else None
 
 
+def geom_children(g: dict) -> list[dict]:
+    """Boundary child geoms of a ``fill`` record; ``[]`` for any other kind."""
+    if g.get("kind") != "fill":
+        return []
+    return [c for loop in g.get("loops", ()) for c in loop]
+
+
+def expand_fills(geoms: list[dict]) -> list[dict]:
+    """*geoms* with each fill replaced by its boundary children.
+
+    Returns *geoms* itself when it holds no fill, so a lines-only caller keeps
+    its list identity and pays one scan.
+    """
+    if not any(g.get("kind") == "fill" for g in geoms):
+        return geoms
+    out: list[dict] = []
+    for g in geoms:
+        if g.get("kind") == "fill":
+            out.extend(geom_children(g))
+        else:
+            out.append(g)
+    return out
+
+
+def fill_line_geoms(g: dict) -> list[dict]:
+    """A fill's generated pattern lines as plain ``line`` geoms."""
+    layer, color = g.get("layer", "0"), g.get("color")
+    return [{"kind": "line", "layer": layer, "color": color,
+             "x1": x1, "y1": y1, "x2": x2, "y2": y2}
+            for x1, y1, x2, y2 in g.get("lines", ())]
+
+
+def _map_fill(g: dict, map_children, map_point, scale: float, rot: float = 0.0) -> dict:
+    """A fill record moved by a transform (D1: loops, lines, families together)."""
+    import math
+    out = dict(g)
+    out["loops"] = [map_children(loop) for loop in g.get("loops", ())]
+    if g.get("exact_loops"):
+        out["exact_loops"] = [map_children(loop) for loop in g["exact_loops"]]
+    lines = []
+    for x1, y1, x2, y2 in g.get("lines", ()):
+        lines.append([*map_point(x1, y1), *map_point(x2, y2)])
+    out["lines"] = lines
+    pattern = g.get("pattern")
+    if pattern:
+        rad = math.radians(rot)
+        c, s = math.cos(rad), math.sin(rad)
+        fams = []
+        for f in pattern["families"]:
+            ox, oy = f["offset"][0] * scale, f["offset"][1] * scale
+            fams.append({
+                "angle": f["angle"] + rot,
+                "base": list(map_point(*f["base"])),
+                "offset": [ox * c - oy * s, ox * s + oy * c] if rot else [ox, oy],
+                "dashes": [d * scale for d in f["dashes"]],
+            })
+        out["pattern"] = {**pattern, "families": fams}
+    return out
+
+
 def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
     """Compute the bounding box of geometry dicts' representative points.
 
@@ -367,7 +427,7 @@ def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
         return None
     min_x = min_y = float("inf")
     max_x = max_y = float("-inf")
-    for g in geoms:
+    for g in expand_fills(geoms):
         kind = g.get("kind")
         points: list[tuple[float, float]] = []
         if kind == "line":
@@ -511,6 +571,12 @@ def apply_import_transform(
                 t["twidth"] = g["twidth"] * s
             if rot:
                 t["x"], t["y"] = _rot(t["x"], t["y"])
+        elif kind == "fill":
+            def _pt(x, y):
+                p = ((x - bx) * s, (y - by) * s)
+                return _rot(*p) if rot else p
+            t = _map_fill(g, lambda sub: apply_import_transform(sub, s, bx, by, rot),
+                          _pt, s, rot)
         out.append(t)
     return out
 
@@ -689,6 +755,8 @@ def geom_rep_points(g: dict) -> list[tuple[float, float]]:
         List of ``(x, y)`` points; empty for unknown kinds.
     """
     kind = g.get("kind")
+    if kind == "fill":
+        return [p for c in geom_children(g) for p in geom_rep_points(c)]
     if kind == "line":
         return [(g["x1"], g["y1"]), (g["x2"], g["y2"])]
     if kind == "circle":

@@ -27,6 +27,7 @@ Z_UNDERLAY       = -79    # underlays/imports (initial; overridden at runtime)
 Z_ROOF           = -75    # roof items (initial; overridden at runtime)
 Z_CONSTRUCTION   = 1      # construction geometry (lines, rects, circles, arcs)
 Z_FILLED_REGION  = -1     # Filled Region: under every 2D shape (default z 0), above the origin cross (D-A7)
+UNDERLAY_MASK_SLOT = 8    # child item data slot: True on a mask batch (repen skips it)
 Z_BLOCK_STACK    = -40.0  # blocks in a block_editor scene: under filled regions, lines and text (block stacking D4)
 Z_BLOCK_STACK_STEP = 0.03 # z per Layer Height unit; +-1000 stays inside (Z_ROOF, Z_FILLED_REGION)
 LAYER_HEIGHT_MIN = -1000  # Layer Height range (D6)
@@ -461,6 +462,7 @@ FILL_TYPE_FALLBACK_NAME = "Solid Grey 20%"   # HF5: missing-type look (D-A14) + 
 FILL_TYPE_FALLBACK_COLOR = "#808080"
 FILL_TYPE_FALLBACK_OPACITY = 0.20
 FILL_TYPE_SOLID_BLACK = "Solid Black"
+IMPORTED_SOLID_TYPE = "Imported Solid"   # Fill Type of imported solid regions (D-A22)
 MATERIAL_NONE_ID = "material-none"      # the permanent None material (materials.md)
 MATERIAL_NONE_NAME = "None"
 FILL_TYPE_CUSTOM_LABEL = "(Custom)"           # region panel: no type, own fill (R2)
@@ -575,6 +577,9 @@ HATCH_LOD_MAX_CELLS = 20000     # more cells than this per fill draws the tone
 HATCH_LOD_TONE = 0.35           # tone opacity (× the pattern colour's alpha)
 HATCH_LATTICE_CACHE_MAX_CELLS = 200_000  # Σ(nx·ny) budget of the cached lattice paths (LRU-evicted)
 HATCH_VISIBLE_SNAP_CELLS = 4    # visible cell range snapped outward to multiples of this (cache-friendly pan)
+HATCH_IMPORT_MAX_LINES = 20000       # generated pattern lines per underlay hatch; more draws a tone
+HATCH_IMPORT_MAX_EDIT_LINES = 2000   # LineItems per unconvertible hatch; more keeps the boundary only
+HATCH_TILE_MAX_SEGMENTS = 500        # segments per imported tile; more stays unconvertible
 
 # Linetypes (linetypes.md LT3)
 LINETYPE_LOD_MIN_PERIOD_PX = 2.0   # screen period below this draws continuous (D-L21)

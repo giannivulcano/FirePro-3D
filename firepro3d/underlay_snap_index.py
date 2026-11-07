@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from array import array
 
+from .dwg_converter import expand_fills
+
 _GRID_SIZE = 64  # cells per axis — 64x64 = 4096 cells
 
 
@@ -38,6 +40,7 @@ class UnderlaySnapIndex:
 
     def __init__(self, geom_list: list[dict],
                  hidden_layers: list[str], record=None):
+        geom_list = expand_fills(geom_list)
         self._geom_list = geom_list
         self._hidden_layers = hidden_layers
         self._record = record

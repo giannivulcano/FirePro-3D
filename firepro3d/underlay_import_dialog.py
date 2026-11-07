@@ -2702,7 +2702,8 @@ class UnderlayImportDialog(HouseDialog):
             self._pending_modify_layers = None
 
             xs, ys = [], []
-            for g in geoms:
+            from .dwg_converter import expand_fills
+            for g in expand_fills(geoms):
                 kind = g.get("kind")
                 if kind == "line":
                     xs += [g["x1"], g["x2"]]
@@ -3464,7 +3465,8 @@ class UnderlayImportDialog(HouseDialog):
             lbl.setVisible(False)
             return
         xs, ys = [], []
-        for g in geoms:
+        from .dwg_converter import expand_fills
+        for g in expand_fills(geoms):
             k = g.get("kind")
             if k == "line":
                 xs += [g["x1"], g["x2"]]; ys += [g["y1"], g["y2"]]
