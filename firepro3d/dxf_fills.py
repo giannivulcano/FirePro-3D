@@ -100,9 +100,9 @@ def _depths(polys: list[list]) -> list[int]:
     islands EXTERNAL. Each loop is tested by up to ``_DEPTH_SAMPLES`` edge
     midpoints against every other loop q. A midpoint within q's flatten
     tolerance of q's boundary is discarded (the ray cast decides such points by
-    convention); the loop is nested in q when a strict majority of the rest is
-    inside. With none left (a coincident duplicate) it is not nested, so twins
-    get the same depth.
+    convention); the loop is nested in q when a strict majority of the rest,
+    counted across all its samples, is inside. With none left (a coincident
+    duplicate) it is not nested, so twins get the same depth.
     """
     boxes, tols = [], []
     for q in polys:
