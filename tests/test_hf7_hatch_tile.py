@@ -77,21 +77,13 @@ def test_tile_density_matches_the_families(name):
 
 # BRICK is out of this list on purpose: its dashed verticals END on the cell
 # edge (stroke x=6.35 spans y -6.35..-12.7, then a gap), so an endpoint on the
-# edge is a dash end, not a crossing. test_tile_strokes_are_the_families_strokes
+# edge is a dash end, not a crossing. test_stamped_tile_matches_the_families
 # covers BRICK against the raw data.
 @pytest.mark.parametrize("name", ["ANSI31", "ANSI37", "HEX", "NET3"])
 def test_tile_seams_close(name):
     """Every stroke leaving an edge re-enters on the opposite edge: a wrong
     W or H passes the density test but fails here."""
-    t = convert(fams(name))
-    tol = t.spacing * 2e-2
-    pts = [p for s in t.segments for p in ((s[0], s[1]), (s[2], s[3]))]
-    right = [y for x, y in pts if abs(x - t.w) < 1e-6]
-    left = [y for x, y in pts if abs(x) < 1e-6]
-    top = [x for x, y in pts if abs(y + t.h) < 1e-6]
-    bottom = [x for x, y in pts if abs(y) < 1e-6]
-    _seams_match(right, left, t.h, tol)
-    _seams_match(top, bottom, t.w, tol)
+    _assert_seams_close(convert(fams(name)))
 
 
 def _seams_match(leaving, entering, period, tol):
@@ -100,6 +92,7 @@ def _seams_match(leaving, entering, period, tol):
     def near(a, b):
         d = abs(a - b) % period
         return min(d, period - d) < tol
+    assert leaving and entering, "no stroke touches this seam: nothing was checked"
     assert all(any(near(a, b) for b in entering) for a in leaving)
 
 
@@ -208,31 +201,143 @@ def _dist_to_segments(px, py, segments):
     return best
 
 
-@pytest.mark.parametrize("name", ["ANSI31", "ANSI37", "BRICK", "HEX", "NET3"])
-def test_tile_strokes_are_the_families_strokes(name):
-    """Ground truth from raw family data: every tile stroke lies on a raw
-    stroke, and every raw stroke point inside the cell lies on a tile stroke."""
-    f = fams(name)
-    t = convert(f)
-    origin = f[0]["base"]
-    g = [dict(r, base=[r["base"][0] - origin[0], r["base"][1] - origin[1]]) for r in f]
-    for x1, y1, x2, y2 in t.segments:
-        for s in (0.1, 0.5, 0.9):
-            px, py = x1 + s * (x2 - x1), y1 + s * (y2 - y1)
-            assert any(_on_family(r, px, py) for r in g), (name, px, py)
-    margin = t.spacing * 1e-3
+STAMPED = [("ANSI31", 0.0), ("ANSI37", 0.0), ("BRICK", 0.0), ("HEX", 0.0),
+           ("NET3", 0.0), ("ANSI31", 28.28), ("BRICK", 90.0), ("AR-B816", 45.0)]
+
+
+def _raw_points_in(g, x0, x1, y0, y1, step):
+    """Points on the ON strokes of raw families *g* inside the box, sampled
+    along each line; line rows are chosen from the box, not from hatch_tile."""
+    corners = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)]
     for r in g:
         a = math.radians(r["angle"])
         u = (math.cos(a), math.sin(a))
         n = (-u[1], u[0])
         signed = r["offset"][0] * n[0] + r["offset"][1] * n[1]
-        for m in range(-40, 41):
+        across = [(cx - r["base"][0]) * n[0] + (cy - r["base"][1]) * n[1] for cx, cy in corners]
+        m_lo = math.floor(min(across) / abs(signed)) - 1
+        m_hi = math.ceil(max(across) / abs(signed)) + 1
+        for m in range(m_lo, m_hi + 1):
             ox = r["base"][0] + m * r["offset"][0]
             oy = r["base"][1] + m * r["offset"][1]
-            for i in range(-400, 401):
-                tt = i * t.spacing * 0.0731
-                px, py = ox + tt * u[0], oy + tt * u[1]
-                if not (margin < px < t.w - margin and -t.h + margin < py < -margin):
-                    continue
-                if _on_family(r, px, py, tol=1e-9):
-                    assert _dist_to_segments(px, py, t.segments) < 1e-6, (name, px, py)
+            along = [(cx - ox) * u[0] + (cy - oy) * u[1] for cx, cy in corners]
+            for i in range(math.floor(min(along) / step), math.ceil(max(along) / step) + 1):
+                px, py = ox + i * step * u[0], oy + i * step * u[1]
+                if x0 <= px <= x1 and y0 <= py <= y1 and _on_family(r, px, py, tol=1e-9):
+                    yield px, py
+
+
+@pytest.mark.parametrize("name,rot", STAMPED)
+def test_stamped_tile_matches_the_families(name, rot):
+    """G11: stamp the tile over 3 x 3 cells and compare with the raw families
+    (ezdxf's table, not hatch_tile) both ways. A wrong W or H opens or doubles
+    a seam that a single cell cannot show."""
+    f = fams(name, rot=rot)
+    t = convert(f)
+    assert t is not None
+    origin = f[0]["base"]
+    g = [dict(r, base=[r["base"][0] - origin[0], r["base"][1] - origin[1]]) for r in f]
+    stamped = [(x1 + i * t.w, y1 - j * t.h, x2 + i * t.w, y2 - j * t.h)
+               for i in (-1, 0, 1) for j in (-1, 0, 1)
+               for x1, y1, x2, y2 in t.segments]
+    tol = t.spacing * 1e-4
+    # every stamped sample lies on a raw stroke
+    for x1, y1, x2, y2 in stamped:
+        for s in (0.1, 0.5, 0.9):
+            px, py = x1 + s * (x2 - x1), y1 + s * (y2 - y1)
+            assert any(_on_family(r, px, py, tol) for r in g), (name, px, py)
+    # every raw on-point inside the stamped area lies on a stamped stroke; the
+    # far right / bottom edge of the area is the next cell's, so keep clear of it
+    m = t.spacing * 1e-2
+    count = 0
+    for px, py in _raw_points_in(g, -t.w + m, 2 * t.w - m, -2 * t.h + m, t.h - m,
+                                 t.spacing * 0.0731):
+        count += 1
+        assert _dist_to_segments(px, py, stamped) < tol, (name, px, py)
+    assert count > 50, "the raw side sampled too little to prove anything"
+
+
+@pytest.mark.parametrize("name,rot", [("ANSI31", 0.0), ("HEX", 0.0), ("BRICK", 0.0),
+                                      ("ANSI31", 28.28), ("ANGLE", 45.0),
+                                      ("DOTS", 45.0), ("GROUT", 90.0)])
+@pytest.mark.parametrize("scale", [25.4, 1 / 25.4, 1e-3, 1e3])
+def test_key_survives_a_unit_change(name, rot, scale):
+    """The same pattern in inches or mm (or any unit) is one block."""
+    a, b = convert(fams(name, rot=rot)), convert(fams(name, rot=rot, scale=scale))
+    assert a is not None and b is not None
+    assert a.key == b.key and b.w == pytest.approx(a.w * scale)
+
+
+def test_key_folds_signed_zero_for_a_rotated_pattern():
+    """ANGLE rotated 45 degrees puts strokes on the edges; float noise there
+    gives -0.0 or 0.0, which must not split the key."""
+    keys = {convert(fams("ANGLE", rot=45.0, scale=s)).key for s in (1e-3, 1.0, 1e3)}
+    assert len(keys) == 1
+
+
+def test_key_of_folds_negative_zero():
+    a = key_of([(0.0, 0.0, 1.0, -1.0)], 2.0, 2.0)
+    assert key_of([(-0.0, -1e-12, 1.0, -1.0)], 2.0, 2.0) == a
+
+
+# Each case is one the sweep over all 172 ezdxf patterns showed splitting under
+# an absolute coordinate tolerance (sliver drop, edge-stroke drop, parallel test).
+UNIT_CASES = [("ANSI33", 0.0), ("ANSI35", 0.0), ("HEX", 0.0), ("AR-HBONE", 45.0),
+              ("ANSI37", 45.0), ("ANGLE", 90.0), ("CORK", 90.0), ("ESCHER", 90.0),
+              ("NET3", 0.0), ("BRICK", 0.0)]
+
+
+@pytest.mark.parametrize("name,rot", UNIT_CASES)
+def test_conversion_does_not_depend_on_the_drawing_unit(name, rot):
+    """Coordinate tolerances follow the pattern, not the unit: the same pattern
+    at in->mm, mm->in and 1e-3 .. 1e6 gives the same segment count (ANSI33 gave
+    32 / 35 / 31) and the same key."""
+    scales = (1.0, 25.4, 1 / 25.4, 1e-3, 1e3, 1e6)
+    got = [convert(fams(name, rot=rot, scale=s)) for s in scales]
+    assert len({t is None for t in got}) == 1
+    if got[0] is not None:
+        counts = [len(t.segments) for t in got]
+        assert len(set(counts)) == 1, dict(zip(scales, counts))
+        assert len({t.key for t in got}) == 1
+
+
+@pytest.mark.parametrize("dashes", [[0.0], [0.0, 0.0], [0.0, -0.0]])
+def test_zero_sum_dashes_return_none(dashes):
+    """dxf_fills._pattern passes ln.dash_length_items unchanged, so a
+    degenerate list reaches convert; it is not an undashed (solid) line."""
+    f = [{"angle": 0.0, "base": [0.0, 0.0], "offset": [0.0, 5.0], "dashes": dashes}]
+    assert convert(f) is None
+
+
+def test_dots_only_family_still_converts():
+    f = [{"angle": 0.0, "base": [0.0, 0.0], "offset": [0.0, 5.0], "dashes": [0.0, -5.0]}]
+    assert convert(f) is not None
+
+
+def test_negative_offset_gives_the_same_tile():
+    up = [{"angle": 0.0, "base": [0.0, 0.0], "offset": [0.0, 5.0], "dashes": []}]
+    down = [{"angle": 0.0, "base": [0.0, 0.0], "offset": [0.0, -5.0], "dashes": []}]
+    a, b = convert(up), convert(down)
+    assert (a.w, a.h, a.key) == (b.w, b.h, b.key)
+
+
+@pytest.mark.parametrize("angle", [28.28 + 360.0, 28.28 - 360.0, 28.28 + 720.0])
+def test_angle_outside_0_360_gives_the_same_tile(angle):
+    ref = fams("ANSI31")
+    ref[0]["angle"] = -28.28
+    other = fams("ANSI31")
+    other[0]["angle"] = -angle
+    a, b = convert(ref), convert(other)
+    assert a is not None and b is not None
+    assert (a.key, len(a.segments)) == (b.key, len(b.segments))
+    assert b.w == pytest.approx(a.w) and b.h == pytest.approx(a.h)
+
+
+@pytest.mark.parametrize("name", ["ANSI31", "BRICK", "HEX", "ANSI33"])
+@pytest.mark.parametrize("scale", [1e-12, 1e9])
+def test_an_extreme_drawing_unit_still_converts(name, scale):
+    """A pattern whose whole spacing is below (or far above) any absolute
+    epsilon is the same pattern."""
+    a, b = convert(fams(name)), convert(fams(name, scale=scale))
+    assert a is not None and b is not None
+    assert (len(a.segments), a.key) == (len(b.segments), b.key)
