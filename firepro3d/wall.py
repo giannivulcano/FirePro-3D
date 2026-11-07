@@ -630,9 +630,21 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     def itemChange(self, change, value):
         """Scene add/remove and visibility (level switch, sheet viewport
         isolation) change who joins whom (design D3/D4)."""
+        if (change == QGraphicsItem.GraphicsItemChange.ItemVisibleChange
+                and not sip.isdeleted(self)):
+            # Not yet applied: isVisible() is still the old state.
+            self._visible_before = self.isVisible()
         result = super().itemChange(change, value)
         if sip.isdeleted(self):
             return result
+        if change == QGraphicsItem.GraphicsItemChange.ItemVisibleHasChanged:
+            # After an add Qt's queued polish pass sends the visibility pair
+            # to every item that is not explicitly hidden, with nothing
+            # changed; rebuilding on it made opening a project O(N^2).
+            was = getattr(self, "_visible_before", None)
+            self._visible_before = None
+            if was is not None and was == self.isVisible():
+                return result
         if (change in (QGraphicsItem.GraphicsItemChange.ItemSceneHasChanged,
                        QGraphicsItem.GraphicsItemChange.ItemVisibleHasChanged)
                 and getattr(self, "_outline_ready", False)):
