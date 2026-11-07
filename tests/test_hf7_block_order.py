@@ -81,6 +81,16 @@ def test_imported_fill_over_a_line_stays_on_top():
     assert px.red() > 200 and px.blue() < 100
 
 
+def test_region_recorded_before_a_line_still_paints_over_it_by_depth():
+    """Record order region, line; depth puts the region on top. Only the compile
+    sort can lift the region above the line that follows it in the list."""
+    line, region = _line(), _square_region()
+    line.set_draw_z(-0.7)
+    region.set_draw_z(-0.3)
+    px = _placed_pixel([region.to_dict(), line.to_dict()])
+    assert px.red() > 200 and px.blue() < 100
+
+
 def test_editor_and_block_agree():
     line, region = _line(), _square_region()
     line.set_draw_z(-0.7)
