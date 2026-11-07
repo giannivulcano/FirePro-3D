@@ -139,3 +139,25 @@ def test_dialog_pdf_base_point_sees_a_fill_only_page(qapp):
     w.done.emit([dict(_FILL_BOX)], ["A"])
     assert dlg._base_x_edit.value_mm() == pytest.approx(1000.0)
     assert dlg._base_y_edit.value_mm() == pytest.approx(2050.0)
+
+
+def test_input_not_mutated():
+    src = _fill()
+    dc.apply_import_transform([src], 2.0, 1.0, 1.0)
+    assert src["lines"] == [[11.0, 1.0, 19.0, 9.0]]
+
+
+def test_fill_line_geoms_are_plain_lines():
+    assert dc.fill_line_geoms(_fill()) == [
+        {"kind": "line", "layer": "A", "color": "#112233",
+         "x1": 11.0, "y1": 1.0, "x2": 19.0, "y2": 9.0}]
+
+
+def test_snap_index_sees_boundaries_only():
+    idx = UnderlaySnapIndex([_fill()], [])
+    got = idx.query(0.0, -5.0, 30.0, 20.0)
+    assert [g["kind"] for g in got] == ["path_points"]
+
+
+def test_snap_index_keeps_hidden_layer_rule():
+    assert UnderlaySnapIndex([_fill()], ["A"]).query(0.0, -5.0, 30.0, 20.0) == []
