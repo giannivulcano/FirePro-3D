@@ -65,10 +65,16 @@ One record per source area:
  "solid": bool,                                # paints a filled area
  "mask": bool,                                 # source is pure white
  "tone": bool,                                 # pattern over the line cap
- "loops": [[child_geom, ...], ...],            # existing geom kinds
+ "loops": [[child_geom, ...], ...],            # flat, oriented by nesting depth
+ "exact_loops": [[child_geom, ...], ...],      # Block Editor mode only, optional
  "lines": [[x1, y1, x2, y2], ...],             # generated pattern lines
  "pattern": {"name": str, "families": [...]}}  # None for solid fills
 ```
+
+- `loops` is always flat and oriented, because the underlay and preview need a winding.
+  Block Editor mode (`exact=True`) adds `exact_loops`: line, arc and spline children in
+  source order, not depth-oriented. `FilledRegionItem.from_pieces` fills even-odd, so their
+  winding does not matter there (C3).
 
 - A new `kind` over flags on `path_points`: flags cannot express holes or carry family
   data, and HF6 needs the same shape.
@@ -95,9 +101,16 @@ One record per source area:
   children. `exact=False` flattens each loop to one `path_points` child.
 - Flatten tolerance is relative: loop bounding-box diagonal / 2000. A fixed 0.5 unit is
   wrong for drawings in inches.
-- Loops flagged text box are dropped. Style 2 (ignore) keeps only external loops; styles 0
-  and 1 keep every other loop, painted by nesting depth. As-proposed until the plan's first
-  probe confirms the path flags on real hatches.
+- Loops flagged text box are dropped. Nesting depth is computed from geometry, with every
+  sample point voting and the boundary counted: the path flags do not hold nesting on real
+  files (SIMBA has 120 depth-0 loops with no EXTERNAL flag; Ground Floor has 3 EXTERNAL loops
+  at depth 1). Style 2 (ignore) keeps depth 0, style 1 (outer) keeps depth 0-1, style 0
+  (normal) keeps all (C1).
+- The pattern-line limit is checked against an estimate before generation
+  (`_estimated_lines`, a 10x margin over the real extent).
+- Crop: `crop_bounds` keeps a saved crop as the drawn rectangle, and `fill_overlaps_rect`
+  keeps a hatch that encloses the crop or viewport rectangle. Paper layouts now import ARC,
+  partial ELLIPSE and SPLINE, which were silently dropped before.
 - Pattern lines come from `hatching.hatch_entity(h, jiggle_origin=False)`, read through
   `itertools.islice` at `HATCH_IMPORT_MAX_LINES` (20,000, `constants.py`). Reaching the
   limit, or `DenseHatchingLinesError`, sets `tone` and clears `lines`.
@@ -105,7 +118,8 @@ One record per source area:
   `get_redraw_order()`. It replaces the plain `msp` walk in `DxfImportWorker.run`,
   `extract_file_sync`, the dialog's extract loop and `extract_layout_entities`. INSERT
   explosion passes `redraw_order=True`. The redraw order is consumed once: it is a
-  generator.
+  generator. With an empty draw-order table, `in_draw_order` returns plain layout order,
+  because `reorder.ascending` would otherwise sort by handle and reorder lines-only files.
 - `_CACHE_VERSION` goes to 6.
 
 ### D3 Underlay render
@@ -117,19 +131,28 @@ One record per source area:
 - Rejected: one run per fill-to-stroke alternation (A/B on SIMBA: 4-5 ms to 11-16 ms, over
   the bar), and per-layer runs (a mask stops masking across layers).
 - Measured on real streams: SIMBA 6 runs and 80 path items (788 without overlap test),
-  Ground Floor 7 runs and 155 items (590 without), assignment 87 ms and 2.1 s.
+  Ground Floor 7 runs and 155 items (590 without), assignment 87 ms and 2.1 s. As built:
+  SIMBA 6 runs and 79 children, Ground Floor 7 runs and 166 children.
+- Only a fill that `paints()` takes part: an inert hatch (no solid, no lines, no tone)
+  orders nothing. Overlap uses run-only boxes (`_run_box`, covering text, splines and rotated
+  ellipses); `_geom_bounds` stays for snap. A lines-only stream skips the boxes.
 - Revisit for HF6: assignment is O(fills x geoms). If a PDF page has tens of thousands of
   fills, it needs a spatial index.
 - `_build_batched_underlay_group` emits, per run: fill items, then the existing stroke and
   text items. Items keep `setData(1, layer)`, so hide and repen keep working. Same-z
   siblings in a group paint in insertion order (probed).
 - Each fill batch is one path per (run, layer, class), with class one of `solid`, `tone`,
-  `mask`. Loops are oriented by nesting depth (odd depth reversed) and the path uses
+  `mask`. Two overlapping fills are level only within one layer and one class, so solid,
+  mask, solid on one layer keeps the white mask in source order (C5a). Fills enter the path
+  through `append_fill_to_path`. Loops are oriented by nesting depth (odd depth reversed) and the path uses
   `WindingFill`: an even-odd batch would cancel where two fills overlap (probed).
 - Pattern lines batch with the layer's strokes in the same run.
 - `tone` batches use `HATCH_LOD_TONE` as item opacity, so repen's solid brush does not
   lose it. `mask` batches use `TOKEN_BG` and repen skips them; a data slot marks them.
-  The slot map is owned by `underlay-workflow.md`.
+  The slot map is owned by `underlay-workflow.md`. The paper pass skips masks too, so a
+  mask plots white on a sheet in black-and-white and colour, dark and light.
+- The pan/zoom freeze blit multiplies in `child.opacity()`, so a tone does not turn solid
+  during a pan (C5).
 - `reference_from_geoms` keeps the records. `_reference_items` skips `fill` as an
   unsupported kind.
 - `UnderlaySnapIndex` expands each fill into `geom_children` on construction, so
@@ -168,6 +191,8 @@ One record per source area:
   for a region and 0 otherwise. This fixes the placed-block bug for authored regions.
 - A definition with no region and no `draw_z` keeps its exact list order. Records stay
   byte-identical, because the key is sparse.
+- Text gets no `draw_z`: `geometry_import` skips TEXT in the Block Editor import, as before.
+  Nested instances compile first, always under primitives.
 
 ### D6 Tile conversion
 
@@ -184,35 +209,49 @@ One record per source area:
   A zero-length dash becomes a short line of 1 % of the finest spacing. More than
   `HATCH_TILE_MAX_SEGMENTS` (500, `constants.py`) means `None`.
 - `row_shift` stays 0. Tile `size` is `"model"`.
+- Tile content sits in the cell frame `stamp_lattice` uses: cell (0, 0) spans x 0..w,
+  y -h..0 (C6). Right and bottom edge strokes are dropped as duplicates of the next cell's
+  left and top. Tolerances scale with the pattern; a dash under 1e-3 x the finest spacing is
+  dropped, and a zero-length clip segment is a point test, not a division.
 - Probed on ezdxf's own definitions: ANSI31, ANSI31 at 28.28 degrees, ANSI32, ANSI37,
   ANGLE, AR-B816, NET3, GRATE, BRICK, HEX and AR-HBONE convert; GRATE at 151.72 degrees and
-  AR-CONC do not.
+  AR-CONC do not. As built, Ground Floor has 12 of 98 unconvertible per definition (9 GRATE
+  at 151.72, 3 AR-CONC, stopped by the drift limit and the cap together).
+- `convert` can take 0.44 s (CONCRETE3), so `build_items` memoises it per family list.
 
 ### D7 Dedupe and grouping
 
-- `Tile.key` hashes content normalised to the finest spacing, rounded to 1e-4. Angle is
-  part of the content, so rotated copies stay separate (D-A10).
+- `Tile.key` hashes content normalised to the tile width, with bases made relative to the
+  first family's base, rounded to 1e-4 (C4: a block alone cannot give its spacing). Angle is
+  part of the content, so rotated copies stay separate (D-A10). The key depends on family
+  order, by design: the same pattern gives the same order.
 - Lookup hashes every project definition with a tile in library `Imported`. A later import
-  therefore finds an earlier block, and a block the user edited stops matching.
+  therefore finds an earlier block, and a block the user edited stops matching: changed
+  segments, a non-zero row shift or a size other than model.
 - A new shape commits a block named `<NAME> (imported)` with library `Imported`, series
   `Patterns`, through `commit_block_definition(capability=("tile", tile),
   place_instance=False)`.
-- `commit_block_definition` pushes one undo state on the project scene. Whether undoing
-  that step can strand a region's pattern reference is the plan's first probe; if it can,
-  the block is added without the undo push.
-- The first hatch of a shape sets scale 1. Later hatches store `finest spacing / block
-  spacing` as a Scale override on the region.
+- A new block goes through `Model_Space.commit_block_outside_history`, which writes it into
+  every undo snapshot, as `load_blocks_outside_history` does (D-A39). Probed: with a plain
+  `commit_block_definition`, one project `undo()` deleted the block and stranded its
+  regions, and skipping the push alone was not enough because older snapshots lack it (C2).
+- The first hatch of a shape sets scale 1. Later hatches store `tile.w / defn.tile["w"]`
+  as a Scale override on the region.
 - Anonymous patterns (`_USER`, empty name) use the name `Hatch`.
 - Name collisions go through `free_name` / `ensure_look`.
 
 ### Changes to the concept (user approved 2026-11-06)
 
 - HD7's rational-slope test (|p|, |q| <= 8) is replaced by D6: the test is stricter than a
-  tile needs. Ground Floor: 14 of 98 patterned hatches stay lines, instead of 16.
+  tile needs. Ground Floor: 14 of 98 patterned hatches stay lines, instead of 16 (12 as built, D6).
 - D-A11's stored per-region pattern origin stays unbuilt, and sharing a block across
   scales needs phase dropped. **Pattern phase is not preserved in the Block Editor**: angle,
   spacing and scale are exact, position relative to the boundary is not.
 - HD7's `order` key on geom dicts is replaced by list position.
+- C1-C6 (geometric nesting depth, undo-baked pattern blocks, flat `loops` plus
+  `exact_loops`, key on tile width, freeze opacity and per-class levelling, the tile cell
+  frame) came from the Phase 4 probes on the real drawings and were approved with the plan
+  (2026-11-06).
 
 ### Deferred (filed at wrap-up)
 
