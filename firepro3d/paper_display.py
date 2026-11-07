@@ -21,7 +21,7 @@ from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
                         PAPER_LEGACY_PX_PER_MM, PAPER_LEGACY_SNAP_PX,
-                        UNDERLAY_LINE_WIDTH_PX)
+                        UNDERLAY_LINE_WIDTH_PX, UNDERLAY_MASK_SLOT)
 
 _log = logging.getLogger(__name__)
 
@@ -1416,6 +1416,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 layer = child.data(1)
                 if layer is None or not isinstance(child, QGraphicsPathItem):
                     continue
+                if child.data(UNDERLAY_MASK_SLOT):
+                    continue          # a mask paints the sheet, not the layer
                 entry["children"].append({"item": child, "pen": child.pen(),
                                           "brush": child.brush()})
                 # Black ONLY in BW (spec D6): Full Color AND Custom keep

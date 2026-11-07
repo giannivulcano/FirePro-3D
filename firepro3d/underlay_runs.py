@@ -7,6 +7,8 @@ fill-then-line pairs still compiles to a handful of path items.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from .dwg_converter import geom_children
@@ -34,12 +36,71 @@ def paints(g: dict) -> bool:
                                         or bool(g.get("lines")))
 
 
+_EVERYWHERE = (-np.inf, -np.inf, np.inf, np.inf)
+_EXACT_KINDS = frozenset({"line", "circle", "arc", "path_points"})
+
+
+def _text_box(g: dict) -> tuple[float, float, float, float]:
+    """Conservative box of a text record, never smaller than what paints.
+
+    ``_geom_bounds`` (snap) fixes text at ``x .. x + 10 * size``; the real
+    path depends on the string, the alignment, the line count and ``twidth``.
+    A glyph run is at most about one em wide, a line at most 1.5 em tall.
+    """
+    x, y = float(g["x"]), float(g["y"])
+    size = max(0.5, float(g.get("size", 6)))
+    lines = str(g.get("text", "")).split("\n")
+    width = max(len(ln) for ln in lines) * size
+    tw = g.get("twidth")
+    if tw:
+        width = max(width, float(tw))
+    width += size                                  # side bearings
+    ha = g.get("halign", 0)
+    x0, x1 = ((x - width / 2, x + width / 2) if ha == 1
+              else (x - width, x) if ha == 2 else (x, x + width))
+    half_h = 1.5 * size * len(lines) + size
+    box = (x0, y - half_h, x1, y + half_h)
+    if g.get("rotation"):
+        # Any rotation about the anchor: a square of the farthest corner.
+        r = max(math.hypot(cx - x, cy - y)
+                for cx in (box[0], box[2]) for cy in (box[1], box[3]))
+        return (x - r, y - r, x + r, y + r)
+    return box
+
+
+def _run_box(g: dict) -> tuple[float, float, float, float]:
+    """Box for paint-order overlap only (snap keeps ``_geom_bounds``).
+
+    Rule for a kind not listed here: the box is everywhere. An over-wide box
+    costs one extra run; a too-small one paints the wrong thing on top.
+    """
+    kind = g.get("kind")
+    if kind in _EXACT_KINDS:
+        return _geom_bounds(g)
+    if kind == "text":
+        return _text_box(g)
+    if kind == "spline":
+        pts = g.get("control_points") or ()
+        if not pts:
+            return _NO_BOX
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        return (min(xs), min(ys), max(xs), max(ys))
+    if kind == "ellipse_full":
+        # Rotation turns the box about the centre: the larger radius covers it.
+        cx = g["pos_cx"] + g["x"] + g["w"] / 2
+        cy = g["pos_cy"] + g["y"] + g["h"] / 2
+        r = max(abs(g["w"]), abs(g["h"])) / 2
+        return (cx - r, cy - r, cx + r, cy + r)
+    return _EVERYWHERE
+
+
 def _bounds(g: dict) -> tuple[float, float, float, float]:
     if g.get("kind") != "fill":
-        return _geom_bounds(g)
+        return _run_box(g)
     if not paints(g):
         return _NO_BOX
-    boxes = [_geom_bounds(c) for c in geom_children(g)]
+    boxes = [_run_box(c) for c in geom_children(g)]
     if not boxes:
         return _NO_BOX
     return (min(b[0] for b in boxes), min(b[1] for b in boxes),

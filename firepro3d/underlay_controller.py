@@ -639,7 +639,6 @@ class UnderlayController:
             item.setData(1, layer)
             items.append(item)
 
-
     def _attach_snap_index(self, group: QGraphicsItemGroup,
                            geom_list: list[dict], record: Underlay):
         """Build a spatial snap index and attach it to the underlay group.

@@ -87,14 +87,6 @@ def test_run_count_for_separate_pairs_is_one():
     assert set(assign_runs(geoms)) == {0}
 
 
-def test_no_fills_builds_exactly_todays_items(qapp):
-    geoms = [{"kind": "line", "layer": "A", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
-             {"kind": "line", "layer": "B", "x1": 0, "y1": 5, "x2": 10, "y2": 5},
-             {"kind": "text", "layer": "A", "x": 0, "y": 0, "text": "T", "size": 5}]
-    _, _, group = built_scene(geoms)
-    assert [c.data(1) for c in group.childItems()] == ["A", "A", "B"]
-
-
 def test_paint_order_fill_over_line_on_another_layer(qapp, tmp_path):
     doc, msp = new_doc()
     msp.add_line((0, 50), (100, 50), dxfattribs={"layer": "A"})
@@ -187,6 +179,8 @@ def test_layer_hide_hides_fill_items(qapp, tmp_path):
     scene, rec, group = built_scene(extract(doc, tmp_path))
     scene._underlay_ctl.set_underlay_layer_hidden(rec, group, "B", True)
     assert all(not c.isVisible() for c in group.childItems())
+    scene._underlay_ctl.set_underlay_layer_hidden(rec, group, "B", False)
+    assert all(c.isVisible() for c in group.childItems())
 
 
 def test_snap_returns_boundary_not_pattern_lines(qapp, tmp_path):
@@ -232,3 +226,136 @@ def test_fill_reaching_append_geom_does_not_vanish(qapp):
     path = QPainterPath()
     append_geom_to_path(path, fill)
     assert not path.isEmpty()
+
+
+# ---- fix round: paper pass, text/spline paint order, parity pins -----------
+
+def _mask(x0, y0, x1, y1, layer="M"):
+    """A mask fill record over a scene-coordinate rectangle."""
+    return {"kind": "fill", "layer": layer, "color": "#ffffff", "solid": True,
+            "mask": True, "tone": False, "lines": [], "pattern": None,
+            "loops": [[{"kind": "path_points", "layer": layer, "closed": True,
+                        "points": [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]}]]}
+
+
+def _bait_in(img, xs, ys):
+    """Bait pixels over DXF-space x and y ranges (scene y is the negated y)."""
+    return sum(is_bait(sample(img, RECT, x, y)) for x in xs for y in ys)
+
+
+def _text(text, x, y, **kw):
+    return {"kind": "text", "layer": "T", "x": x, "y": y, "text": text, "size": 10, **kw}
+
+
+def _grid_render(geoms):
+    scene, _, _ = built_scene(geoms)
+    return render(scene, RECT, size=400)
+
+
+def test_long_text_under_a_later_mask_is_hidden(qapp):
+    text = _text("W" * 20, 0, -50)
+    mask = _mask(120, -70, 160, -35)
+    area = (range(125, 155, 2), range(38, 66, 2))
+    assert _bait_in(_grid_render([text]), *area) > 0          # control: text is there
+    assert assign_runs([text, mask]) == [0, 1]
+    assert _bait_in(_grid_render([text, mask]), *area) == 0
+
+
+def test_right_aligned_text_under_a_later_mask_is_hidden(qapp):
+    text = _text("HELLO WORLD", 150, -50, halign=2)
+    mask = _mask(60, -70, 100, -35)
+    area = (range(65, 95, 2), range(38, 66, 2))
+    assert _bait_in(_grid_render([text]), *area) > 0
+    assert assign_runs([text, mask]) == [0, 1]
+    assert _bait_in(_grid_render([text, mask]), *area) == 0
+
+
+def test_text_after_a_lifted_fill_is_visible(qapp):
+    line = {"kind": "line", "layer": "A", "x1": 0, "y1": -50, "x2": 200, "y2": -50}
+    mask = _mask(0, -80, 60, -20)                     # lifted above the line
+    text = _text("W" * 20, 100, -50, halign=1)        # centred: spills left of x+10*size
+    area = (range(10, 55, 2), range(38, 66, 2))
+    assert assign_runs([line, mask, text]) == [0, 1, 1]
+    assert _bait_in(_grid_render([line, mask, text]), *area) > 0
+
+
+def test_spline_under_a_later_mask_is_hidden(qapp):
+    spline = {"kind": "spline", "layer": "S", "degree": 3,
+              "control_points": [(0, -10), (30, -60), (60, -60), (90, -10)]}
+    mask = _mask(35, -58, 55, -38)
+    area = (range(37, 54, 1), range(40, 57, 1))
+    assert _bait_in(_grid_render([spline]), *area) > 0
+    assert assign_runs([spline, mask]) == [0, 1]
+    assert _bait_in(_grid_render([spline, mask]), *area) == 0
+
+
+def test_unknown_kind_and_rotated_text_overlap_everything():
+    mask = _mask(-50, -30, -40, -20)
+    assert assign_runs([{"kind": "mystery", "layer": "Z"}, mask]) == [0, 1]
+    far = _text("A", 5000, -5000, rotation=45)
+    assert assign_runs([far, mask]) == [0, 0]         # rotated, but still far away
+    r = _text("W" * 30, 100, -5, rotation=180)        # swings back across the mask
+    assert assign_runs([r, mask]) == [0, 1]
+
+
+def test_rotated_ellipse_box_covers_either_axis():
+    ell = {"kind": "ellipse_full", "layer": "E", "pos_cx": 0, "pos_cy": 0,
+           "x": -50, "y": -5, "w": 100, "h": 10, "rotation": 90}
+    tall = _mask(-3, 30, 3, 45)                       # where a 90-degree turn lands
+    assert assign_runs([ell, tall]) == [0, 1]
+
+
+def test_later_stroke_draws_over_an_earlier_fill_across_layers(qapp):
+    far = {"kind": "line", "layer": "A", "x1": 150, "y1": -10, "x2": 160, "y2": -10}
+    mask = _mask(20, -80, 80, -20, layer="B")
+    line = {"kind": "line", "layer": "A", "x1": 0, "y1": -50, "x2": 100, "y2": -50}
+    assert assign_runs([far, mask, line]) == [0, 0, 0]   # layer A is seen first
+    img = _grid_render([far, mask, line])
+    assert _bait_in(img, range(30, 70, 2), range(48, 53)) > 0   # the line, over the mask
+
+
+def test_paper_pass_leaves_the_mask_brush_and_plots_white(qapp, monkeypatch):
+    from firepro3d import paper_display as pd
+    from firepro3d import theme
+    line = {"kind": "line", "layer": "A", "x1": 0, "y1": -50, "x2": 100, "y2": -50}
+    mask = _mask(20, -80, 80, -20, layer="B")
+    monkeypatch.setattr(theme, "detect", lambda: theme.DARK)     # dark screen theme
+    for mode in (pd.PaperColorMode.BW, pd.PaperColorMode.FULL_COLOR):
+        pd.save_paper_color_mode(mode)
+        scene, rec, group = built_scene([line, mask])
+        m = [c for c in group.childItems() if c.data(UNDERLAY_MASK_SLOT)][0]
+        before = m.brush().color().name()
+        saved = pd.apply_paper_overrides(scene, RECT, paper_scale=1.0)
+        try:
+            assert m.brush().color().name() == before     # the pass left it alone
+            c = sample(render(scene, RECT), RECT, 50, 50)
+            assert (c.red(), c.green(), c.blue()) == (255, 255, 255), mode
+        finally:
+            pd.restore_model_display(saved)
+
+
+def test_no_fills_builds_exactly_todays_items(qapp):
+    """Parity pin. Values are hand-derived from the three input geoms, not read
+    back from the builder: tag order, pen colour and width, z, opacity, path."""
+    from PyQt6.QtCore import Qt
+    from firepro3d.constants import UNDERLAY_LINE_WIDTH_PX, Z_UNDERLAY
+    geoms = [{"kind": "line", "layer": "A", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+             {"kind": "line", "layer": "B", "x1": 0, "y1": 5, "x2": 10, "y2": 5},
+             {"kind": "text", "layer": "A", "x": 0, "y": 0, "text": "T", "size": 5}]
+    _, _, group = built_scene(geoms)
+    kids = group.childItems()
+    assert [c.data(1) for c in kids] == ["A", "A", "B"]
+    a_line, a_text, b_line = kids
+    for line, y in ((a_line, 0), (b_line, 5)):
+        assert line.pen().color().name() == BAIT
+        assert line.pen().isCosmetic() and line.pen().widthF() == UNDERLAY_LINE_WIDTH_PX
+        assert line.brush().style() == Qt.BrushStyle.NoBrush
+        assert line.zValue() == Z_UNDERLAY and line.opacity() == 1.0
+        assert line.data(UNDERLAY_MASK_SLOT) is None and line.data(7) == 0.0
+        assert line.path().elementCount() == 2                       # one segment
+        assert line.path().boundingRect() == QRectF(0, y, 10, 0)
+    assert a_text.pen().style() == Qt.PenStyle.NoPen
+    assert a_text.brush().color().name() == BAIT
+    assert a_text.zValue() == Z_UNDERLAY and a_text.opacity() == 1.0
+    assert a_text.path().elementCount() > 4                          # a glyph outline
+    assert a_text.path().boundingRect().width() < 5                  # one 5-unit glyph
