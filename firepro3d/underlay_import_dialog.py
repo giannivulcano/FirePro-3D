@@ -70,7 +70,7 @@ from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .house_dialog import HouseDialog
 from .ui_kit import SideTabs
 from .icons import themed_icon
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL, HATCH_LOD_TONE
 from .underlay_mru import RecentSources
 from .snap_engine import (
     SnapEngine, OsnapResult, paint_snap_indicator,
@@ -2481,10 +2481,11 @@ class UnderlayImportDialog(HouseDialog):
             "circle": "Circles",
             "arc": "Arcs",
             "ellipse_full": "Ellipses",
+            "fill": "Filled areas",
             "text": "Text",
         }
         _DISPLAY_ORDER = ["line", "path_points", "circle", "arc",
-                          "ellipse_full", "text"]
+                          "ellipse_full", "fill", "text"]
 
         from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
         tree = QTreeWidget()
@@ -2964,7 +2965,9 @@ class UnderlayImportDialog(HouseDialog):
         pens = (pen_sel, pen_normal, pen_dim)
         geom_paths = {id(p): QPainterPath() for p in pens}
         text_paths = {id(p): QPainterPath() for p in pens}
+        fill_paths = {id(p): QPainterPath() for p in pens}
         pen_map = {id(p): p for p in pens}
+        from .dwg_converter import append_fill_to_path, fill_line_geoms
 
         active_layers = self._active_layers()
         for idx, g in enumerate(self._all_geoms):
@@ -2978,14 +2981,34 @@ class UnderlayImportDialog(HouseDialog):
             else:
                 pen = pen_dim
             pid = id(pen)
-            if g.get("kind") == "text":
+            kind = g.get("kind")
+            if kind == "text":
                 self._append_geom_to_path(text_paths[pid], g)
+            elif kind == "fill":
+                # A hatch with an empty pattern is neither solid nor tone and
+                # has no lines: it draws nothing here (its boundary still snaps).
+                if g.get("solid") or g.get("tone"):
+                    append_fill_to_path(fill_paths[pid], g)
+                for seg in fill_line_geoms(g):
+                    self._append_geom_to_path(geom_paths[pid], seg)
             else:
                 self._append_geom_to_path(geom_paths[pid], g)
 
         geom_items: list[QGraphicsItem] = []
         for pid in [id(p) for p in pens]:
             pen = pen_map[pid]
+            # Fills: a tone under the strokes, in the pen's colour
+            fp = fill_paths[pid]
+            if not fp.isEmpty():
+                fp.setFillRule(Qt.FillRule.WindingFill)
+                item = QGraphicsPathItem(fp)
+                item.setPen(QPen(Qt.PenStyle.NoPen))
+                item.setBrush(QBrush(pen.color()))
+                item.setOpacity(HATCH_LOD_TONE)
+                item.setCacheMode(
+                    QGraphicsItem.CacheMode.DeviceCoordinateCache)
+                self._preview_scene.addItem(item)
+                geom_items.append(item)
             # Geometry: stroked outline, no fill
             gp = geom_paths[pid]
             if not gp.isEmpty():
