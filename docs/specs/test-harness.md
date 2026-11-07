@@ -1,8 +1,8 @@
 ---
 status: current
 applies-to: tests/, tests/conftest.py
-last-verified: 2026-11-03  # SB4b Account: fixture-catalog `section_scene_for` teardown note only, rest not re-audited; prior 2026-10-15  # OS-mouse make_view Account: Invariant 9 -- make_view installs ignore_os_mouse, guard test_snap_polish_os_mouse, same-point window-move caveat; prior suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
-verified-commit: 7b6e90fc   # SB4b merge on main (fixture-catalog note only); prior 1a474a6d   # OS-mouse make_view (main); prior 22c9444c suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
+last-verified: 2026-11-06  # test-cleanup Account: Invariant 8 PerfPaths configured, Invariant 11 kept per-file patches, rest not re-audited; prior 2026-11-03  # SB4b Account: fixture-catalog `section_scene_for` teardown note only, rest not re-audited; prior 2026-10-15  # OS-mouse make_view Account: Invariant 9 -- make_view installs ignore_os_mouse, guard test_snap_polish_os_mouse, same-point window-move caveat; prior suite-stability Account: dispose_main_window (Invariant 6 rule), autosave redirect (Invariant 11 as-built gap closed), chunk layout -> tests/run-suite.psd1 (Invariant 8), leaked-MainWindow crash family; prior 2026-10-14 clipboard-fake Account: `_fake_clipboard` + Invariant 12; prior 2026-10-09 SV3 Account: `_isolate_block_library` also isolates `paths/schematic_dir`; prior 2026-10-01 scene-tools P1 batch: Invariants 9-11 (OS-mouse isolation, stub-scene deterministic teardown, autosave home leak), GC-in-queued-slot crash family; prior 2026-09-30
+verified-commit: d618c8c9   # test-cleanup, v0.94.2; prior 7b6e90fc   # SB4b merge on main (fixture-catalog note only); prior 1a474a6d   # OS-mouse make_view (main); prior 22c9444c suite-stability (maint/suite-stability tip, fast-forwarded to main); prior 9a9b2d9d clipboard-fake (fixture catalog + Invariant 12); prior 3f31e0af SV3 Account (conftest isolation line only); prior c8ff4f4 scene-tools P1 Account; prior f1d8151 (closable 3D tab), ae6ff19 (Invariant 8 perf marker), d34aeb0
 ---
 
 # Test Harness — Governing Spec
@@ -160,8 +160,8 @@ SEH bug #371).
    run in their own process) and the run environment live in
    **`tests/run-suite.psd1`**, consumed by the /todo plugin's `run-suite.ps1`
    (its suite-runner spec owns the perf stage: perf guards run only when the diff
-   touches a configured `PerfPaths` entry, or with `-Perf run` — none are
-   configured yet). Every process's exit code is read on its own (VC6). A generous sanity bound
+   touches a configured `PerfPaths` entry, or with `-Perf run`; the list lives
+   in the same file). Every process's exit code is read on its own (VC6). A generous sanity bound
    that is "not a benchmark" (seconds, orders of magnitude of slack) stays
    unmarked. Why: 2026-09-26 the offset guard measured 31.7 ms in-batch vs
    22.8 ms standalone — load, not a regression.
@@ -210,8 +210,9 @@ SEH bug #371).
     the patch is on the class, once); the function autouse `_isolate_autosave`
     repoints it at a fresh per-test dir. A module-scoped window built before a
     test's function fixtures sees the previous test's (temp) dir — never home.
-    Per-file `_autosave_path` patches still win inside their own scope (filed for
-    retirement). A child process (no conftest) redirects its own path, as
+    A per-file `_autosave_path` patch still wins inside its own scope, and only a
+    test that plants or asserts its own file keeps one (`test_paper_persistence.py`,
+    `test_load_data_loss.py`, `test_autosave_isolation.py`). A child process (no conftest) redirects its own path, as
     `test_mainwindow_teardown_gc.py` does. Guards: `tests/test_autosave_isolation.py`
     (real `_autosave` / `_check_recovery` paths; the real home file's existence and
     mtime unchanged). Never delete a real `recovery.FPD` without asking the user.

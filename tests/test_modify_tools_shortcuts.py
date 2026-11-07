@@ -11,12 +11,14 @@ import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QLineEdit
 
 import main as _main_module
 from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
 _main_module.View3D = View3D
 from firepro3d import snap_engine
 from firepro3d.geometry_2d import LineItem
+from firepro3d.model_view import Model_View
 from main import MainWindow
 from tests._mainwindow_helpers import dispose_main_window
 
@@ -30,22 +32,14 @@ EXPECTED = {
 
 
 @pytest.fixture(scope="module")
-def _main_window_singleton(qapp, tmp_path_factory):
-    """Module-scoped MainWindow (module-scoped MainWindow singleton).
-
-    The autosave path is redirected to a temp dir so a real recovery file on
-    this machine can't pop the modal "Recover Unsaved Work" dialog when a test
-    pumps events (``_check_recovery`` runs on a 500 ms single-shot).
-    """
+def _main_window_singleton(qapp):
+    """Module-scoped MainWindow singleton."""
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
-    recovery = str(tmp_path_factory.mktemp("autosave") / "recovery.FPD")
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
-        win = MainWindow()
-        win.show()
-        QTest.qWaitForWindowExposed(win)
-        yield win
-        dispose_main_window(win)
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    dispose_main_window(win)
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
@@ -204,6 +198,128 @@ def test_flip_mirror_keys_drive_the_block_editor_scene(main_window, qapp, seq, t
             ed._modified = False
             main_window.block_editor_manager.close(ed)
             qapp.processEvents()
+
+
+def _plan_tab(win):
+    tabs = win.central_tabs
+    return next(tabs.widget(i) for i in range(tabs.count())
+                if isinstance(tabs.widget(i), Model_View)
+                and tabs.tabText(i).startswith("Plan: "))
+
+
+def _visible_line_edit(win):
+    return next(e for e in win.findChildren(QLineEdit) if e.isVisible())
+
+
+@pytest.mark.parametrize("via", ["tab_x", "manager"])
+@pytest.mark.parametrize("landing", ["plan", "paper", "editor"])
+def test_closing_an_editor_focuses_the_landing_canvas(main_window, qapp, via, landing):
+    """Ruling 2026-11-06: closing an editor focuses the canvas of the tab you
+    land on. window.focusWidget() is the window's own focus child, so this holds
+    whether or not the test window is the active one."""
+    tabs = main_window.central_tabs
+    mgr = main_window.block_editor_manager
+    extra = None
+    if landing == "paper":
+        main_window._activate_paper_sheet()
+        qapp.processEvents()
+        land, want = main_window.paper_space_widget, main_window.paper_space_widget.view
+    elif landing == "editor":
+        extra = mgr.open_new()
+        qapp.processEvents()
+        land, want = extra, extra.view
+    else:
+        land = want = _plan_tab(main_window)
+    home = tabs.indexOf(land)
+    # Last tab, current: closing the editor opened after it lands here whichever
+    # selection-on-remove behaviour the tab bar uses.
+    tabs.tabBar().moveTab(home, tabs.count() - 1)
+    tabs.setCurrentWidget(land)
+    qapp.processEvents()
+    ed = mgr.open_new()
+    qapp.processEvents()
+    assert tabs.currentWidget() is ed
+    ed._mark_clean()
+    try:
+        if via == "tab_x":
+            main_window._on_tab_close_requested(tabs.indexOf(ed))
+        else:
+            mgr.close(ed)
+        qapp.processEvents()
+        assert tabs.currentWidget() is land
+        assert main_window.focusWidget() is want                          # [RED]
+    finally:
+        tabs.tabBar().moveTab(tabs.indexOf(land), home)
+        if extra is not None:
+            extra._mark_clean()
+            mgr.close(extra)
+        tabs.setCurrentWidget(_plan_tab(main_window))
+        qapp.processEvents()
+
+
+def test_shift_m_works_after_closing_an_editor_without_a_canvas_click(main_window, qapp):
+    """The user-visible half: no click on the canvas is needed after a close."""
+    plan = main_window.scene
+    tabs = main_window.central_tabs
+    plan_tab = _plan_tab(main_window)
+    home = tabs.indexOf(plan_tab)
+    # Last tab, current: a paper tab left open by an earlier test would otherwise
+    # be the landing tab, and tools rightly refuse on paper.
+    tabs.tabBar().moveTab(home, tabs.count() - 1)
+    tabs.setCurrentWidget(plan_tab)
+    qapp.processEvents()
+    ed = main_window.block_editor_manager.open_new()
+    qapp.processEvents()
+    ed._mark_clean()
+    # The user was working in the editor: closing it hands focus down the chain
+    # to the Properties panel's Name field, and the shortcut gate reads the
+    # application's focus widget, so the window must be the active one.
+    main_window.activateWindow()
+    ed.view.setFocus()
+    qapp.processEvents()
+    assert main_window.focusWidget() is ed.view
+    main_window._on_tab_close_requested(tabs.indexOf(ed))
+    qapp.processEvents()
+    line = LineItem(QPointF(0, 0), QPointF(100, 0))
+    plan.addItem(line); plan._draw_lines.append(line)
+    try:
+        assert tabs.currentWidget() is plan_tab
+        plan.clearSelection(); line.setSelected(True)
+        _shortcut(main_window, "Shift+M").activated.emit()
+        assert plan.mode == "move"                                        # [RED]
+    finally:
+        plan.set_mode(None)
+        plan.clearSelection()
+        plan._draw_lines.remove(line)
+        plan.removeItem(line)
+        tabs.tabBar().moveTab(tabs.indexOf(plan_tab), home)
+        qapp.processEvents()
+
+
+@pytest.mark.parametrize("reopen", [False, True], ids=["fresh", "reopen"])
+def test_opening_an_editor_focuses_its_canvas(main_window, qapp, reopen):
+    """Ruling 2026-11-06, both open branches: a text field holding focus (the
+    Properties panel Name row) does not keep it, so tool keys reach the editor."""
+    tabs = main_window.central_tabs
+    mgr = main_window.block_editor_manager
+    first = None
+    if reopen:
+        first = mgr.open_new()
+        qapp.processEvents()
+        tabs.setCurrentWidget(_plan_tab(main_window))
+        qapp.processEvents()
+    field = _visible_line_edit(main_window)
+    field.setFocus()
+    assert main_window.focusWidget() is field
+    ed = mgr.open_for_definition(first._editor_key) if reopen else mgr.open_new()
+    qapp.processEvents()
+    try:
+        assert tabs.currentWidget() is ed
+        assert main_window.focusWidget() is ed.view                       # [RED]
+    finally:
+        ed._mark_clean()
+        mgr.close(ed)
+        qapp.processEvents()
 
 
 @pytest.mark.parametrize("seq", ["Shift+F", "Shift+I", "Shift+S"])

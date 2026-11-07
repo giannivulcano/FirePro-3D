@@ -17,11 +17,8 @@ RED = FillLayers(BackgroundLayer("#ff0000", 1.0))
 
 
 @pytest.fixture
-def main_window(qapp, tmp_path, monkeypatch):
-    # Keep the real ~/.firepro3d autosave untouched and skip the template-push modal.
-    recovery = str(tmp_path / "autosave" / "recovery.FPD")
-    monkeypatch.setattr(MainWindow, "_autosave_path",
-                        staticmethod(lambda: recovery))
+def main_window(qapp, monkeypatch):
+    # Skip the template-push modal.
     monkeypatch.setattr(MainWindow, "_maybe_offer_template_push",
                         lambda self: None)
     w = MainWindow()
@@ -79,11 +76,9 @@ def test_new_project_table_holds_the_starter_fill_types_without_any_wall(main_wi
     assert "Wall Section" not in names and "Floor Section" not in names
 
 
-def test_startup_installs_seed_over_stale_table(qapp, tmp_path, monkeypatch):
+def test_startup_installs_seed_over_stale_table(qapp, monkeypatch):
     """MainWindow() startup resets the store (AC10): a table left by a prior session is gone."""
     ft.set_project_table(ft.FillTypeTable([ft.FillType("x", "Stale", RED)]))
-    recovery = str(tmp_path / "autosave" / "recovery.FPD")
-    monkeypatch.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
     monkeypatch.setattr(MainWindow, "_maybe_offer_template_push", lambda self: None)
     w = MainWindow()
     try:

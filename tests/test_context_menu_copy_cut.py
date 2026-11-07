@@ -11,7 +11,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication
 
-from tests._modify_tools_helpers import add_primitive, ignore_os_mouse
+from tests._modify_tools_helpers import add_primitive
 from tests._snap_polish_helpers import click, close_view, make_view
 
 
@@ -30,7 +30,6 @@ def _actions(which, view, scene, item):
 @pytest.mark.parametrize("which", ["entity", "view"])
 def test_context_menu_copy_starts_the_base_point_pick(qapp, which):
     view, scene = make_view(scale=1.0)
-    ignore_os_mouse(view)
     try:
         item, attr = add_primitive(scene, "line")              # (0,0)-(100,0)
         QApplication.clipboard().setText("sentinel")
@@ -50,7 +49,6 @@ def test_context_menu_copy_starts_the_base_point_pick(qapp, which):
 @pytest.mark.parametrize("which", ["entity", "view"])
 def test_context_menu_cut_is_offered_and_cuts_after_the_base_pick(qapp, which):
     view, scene = make_view(scale=1.0)
-    ignore_os_mouse(view)
     try:
         item, attr = add_primitive(scene, "line")
         p0 = scene._undo_pos

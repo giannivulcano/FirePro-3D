@@ -170,13 +170,11 @@ def test_fpdb_carries_overrides_and_project_wins(qapp, tmp_path):
     assert {x.name: x.model_px for x in pd.project_line_weights()}["X40"] == 7
 
 
-def test_factor_restored_on_startup(qapp, tmp_path, monkeypatch):
+def test_factor_restored_on_startup(qapp):
     import main as _main_module
     from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
     _main_module.View3D = View3D
     from main import MainWindow
-    recovery = str(tmp_path / "recovery.FPD")   # a real recovery file can't pop a modal
-    monkeypatch.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
     QSettings("GV", "FirePro3D").setValue("view/model_weight_factor", 12.5)
     w = MainWindow()
     try:

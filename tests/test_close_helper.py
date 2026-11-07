@@ -1,8 +1,8 @@
 """Slice 9 guards: one close helper, either-point rule (2d-geometry.md §4).
 
 Real Model_Space + shown Model_View (tests/_snap_polish_helpers), posted
-press/move events, Ctrl on the events that need it. The view is made deaf to
-the real OS mouse (tests/_modify_tools_helpers.ignore_os_mouse). The
+press/move events, Ctrl on the events that need it. make_view makes the view
+deaf to the real OS mouse. The
 "tip-only" cases put the Ctrl-constrained tip on vertex 0 with the cursor
 ~490 mm (~120 px) away. They are RED before DD8, because the old code tested
 only the cursor. The "cursor-only" cases put the cursor on vertex 0 with a
@@ -16,7 +16,6 @@ import math
 from PyQt6.QtCore import QPointF, Qt
 
 from firepro3d.geometry_drawing_controller import close_hit
-from tests._modify_tools_helpers import ignore_os_mouse
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 CTRL = Qt.KeyboardModifier.ControlModifier
@@ -37,9 +36,7 @@ CURSOR_ON_V0 = QPointF(2, 2)
 
 
 def _view(**kw):
-    view, scene = make_view(**kw)
-    ignore_os_mouse(view)
-    return view, scene
+    return make_view(**kw)
 
 
 def test_close_hit_is_the_either_point_rule():

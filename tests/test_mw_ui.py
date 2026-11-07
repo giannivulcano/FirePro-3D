@@ -38,13 +38,11 @@ def _px():
 
 
 @pytest.fixture
-def main_window(qapp, tmp_path, monkeypatch):
+def main_window(qapp):
     import main as _main_module
     from firepro3d.view_3d import View3D  # heavy import required before MainWindow()
     _main_module.View3D = View3D
     from main import MainWindow
-    recovery = str(tmp_path / "recovery.FPD")   # a real recovery file can't pop a modal
-    monkeypatch.setattr(MainWindow, "_autosave_path", staticmethod(lambda: recovery))
     w = MainWindow()
     yield w
     dispose_main_window(w)

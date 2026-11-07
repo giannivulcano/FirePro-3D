@@ -332,17 +332,12 @@ def test_closed_editor_scene_is_freed(qapp):
     tabs = QTabWidget()
     mgr = BlockEditorManager(tabs, proj)
     refs = []
-    for mode in ("close", "forget"):
+    for _ in range(2):
         w = mgr.open_for_definition(a.id)
         w.seed_from_definition(a)
         refs.append(weakref.ref(w.editor_scene))
         w.editor_scene.cleanup()
-        if mode == "close":
-            mgr.close(w)
-        else:                                  # main.py tab-close order
-            mgr.forget(w)
-            tabs.removeTab(tabs.indexOf(w))
-            w.deleteLater()
+        mgr.close(w)
         del w
     for _ in range(3):
         QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)

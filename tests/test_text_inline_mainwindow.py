@@ -103,7 +103,7 @@ def test_tab_close_commits_before_discard_prompt(win, editing, monkeypatch):
     """I1: the REAL tab-X close path (_on_tab_close_requested) must commit the
     live inline edit BEFORE the is_dirty() discard-prompt check — otherwise
     is_dirty() (blind to live typing, only set by sceneModified) sees a clean
-    editor, skips the prompt, and BlockEditorManager.forget() drops the tab
+    editor, skips the prompt, and BlockEditorManager.close() drops the tab
     with the typed text never written to _data.text."""
     ed, s, t = editing
     idx = win.central_tabs.indexOf(ed)
