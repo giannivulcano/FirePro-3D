@@ -1244,9 +1244,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 if not themed_confirm(self, "Discard changes?",
                                       f"{what} has unsaved changes. Discard them?"):
                     return   # abort close
-            self.block_editor_manager.forget(widget)
-            self.central_tabs.removeTab(index)
-            widget.deleteLater()
+            self.block_editor_manager.close(widget)
             return
         self.central_tabs.removeTab(index)
         # Clean up section manager tracking (the scene stays for sheets)

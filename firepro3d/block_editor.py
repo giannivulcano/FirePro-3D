@@ -10,7 +10,8 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6 import sip
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTabWidget,
                              QComboBox, QCheckBox, QLabel, QFormLayout, QLineEdit)
 
@@ -1284,6 +1285,25 @@ class BlockEditorManager:
             self.on_open(w)
         return w
 
+    def _focus_canvas_soon(self) -> None:
+        """Hand keyboard focus to the current tab's canvas on the next loop.
+
+        Without this, focus stays on (or falls to) a text field after an
+        editor tab opens or closes, and the window's tool shortcuts refuse.
+        Deferred because a Blocks-browser double-click re-takes focus on its
+        own press, after the activation signal that opened the editor.
+        """
+        QTimer.singleShot(0, self._focus_canvas)
+
+    def _focus_canvas(self) -> None:
+        """Focus the current tab's view; a plan or section tab IS its view."""
+        if sip.isdeleted(self._tabs):      # the window closed in the same turn
+            return
+        current = self._tabs.currentWidget()
+        if current is not None:
+            getattr(current, "view", current).setFocus(
+                Qt.FocusReason.OtherFocusReason)
+
     def edit_definition(self, block_id: str) -> BlockEditorWidget | None:
         """Open *block_id* for editing, seeded from its definition.
 
@@ -1322,13 +1342,16 @@ class BlockEditorManager:
         self._open[key] = w
         idx = self._tabs.addTab(w, tab_title(kind, title))
         self._tabs.setCurrentIndex(idx)
-        return self._created(w)
+        self._created(w)
+        self._focus_canvas_soon()
+        return w
 
     def open_for_definition(self, block_id: str) -> BlockEditorWidget:
         """Open an editor for *block_id*, focusing an existing one if open."""
         existing = self._open.get(block_id)
         if existing is not None:
             self._tabs.setCurrentWidget(existing)
+            self._focus_canvas_soon()
             return existing
         defn = self._project_scene.get_block_definition(block_id)
         title = defn.name if defn is not None else block_id
@@ -1338,7 +1361,9 @@ class BlockEditorManager:
         self._open[block_id] = w
         idx = self._tabs.addTab(w, tab_title(kind, title))
         self._tabs.setCurrentIndex(idx)
-        return self._created(w)
+        self._created(w)
+        self._focus_canvas_soon()
+        return w
 
     def _on_saved(self, w: BlockEditorWidget, defn) -> None:
         """Retitle *w*'s tab to the saved name and key it by definition id.
@@ -1381,11 +1406,7 @@ class BlockEditorManager:
         self._open.pop(getattr(widget, "_editor_key", None), None)
         self._detach_registry(widget)
         widget.deleteLater()
-
-    def forget(self, widget: BlockEditorWidget) -> None:
-        """Drop a widget from tracking (called when its tab is closed elsewhere)."""
-        self._open.pop(getattr(widget, "_editor_key", None), None)
-        self._detach_registry(widget)
+        self._focus_canvas_soon()
 
     def _detach_registry(self, widget: BlockEditorWidget) -> None:
         """Stop the project registry repainting a closed editor's scene.
