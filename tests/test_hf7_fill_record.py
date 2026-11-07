@@ -46,7 +46,7 @@ def test_import_transform_moves_every_part():
     assert fam["angle"] == -45.0
 
 
-def test_import_transform_rotates_families():
+def test_import_transform_rotates_families_literals():
     out = dc.apply_import_transform([_fill()], 1.0, 0.0, 0.0, 90.0)[0]
     fam = out["pattern"]["families"][0]
     assert fam["angle"] == pytest.approx(45.0)
@@ -54,23 +54,88 @@ def test_import_transform_rotates_families():
     assert fam["base"] == pytest.approx([-3.0, 2.0])
 
 
-def test_input_not_mutated():
+def _along_family_fill():
+    """A fill whose line runs along its family direction (-45 degrees)."""
+    f = _fill()
+    f["lines"] = [[0.0, 0.0, 10.0, -10.0]]
+    return f
+
+
+@pytest.mark.parametrize("rot", [90.0, 30.0])
+@pytest.mark.parametrize("s", [1.0, 2.0])
+def test_family_angle_follows_the_rotated_lines(rot, s):
+    import math
+    src = _along_family_fill()
+    out = dc.apply_import_transform([src], s, 0.0, 0.0, rot)[0]
+    x1, y1, x2, y2 = out["lines"][0]
+    line_deg = math.degrees(math.atan2(y2 - y1, x2 - x1))
+    fam = out["pattern"]["families"][0]
+    assert (fam["angle"] - line_deg) % 180.0 == pytest.approx(0.0, abs=1e-9) \
+        or (fam["angle"] - line_deg) % 180.0 == pytest.approx(180.0, abs=1e-9)
+    # Spacing: the offset's perpendicular distance to the line direction is
+    # the source's, scaled by s, and its length is scaled by s.
+    def perp(off, d_deg):
+        r = math.radians(d_deg)
+        return abs(-off[0] * math.sin(r) + off[1] * math.cos(r))
+    src_fam = src["pattern"]["families"][0]
+    assert perp(fam["offset"], line_deg) == pytest.approx(
+        perp(src_fam["offset"], -45.0) * s)
+    assert math.hypot(*fam["offset"]) == pytest.approx(
+        math.hypot(*src_fam["offset"]) * s)
+
+
+def test_unknown_family_keys_survive_a_transform():
     src = _fill()
-    dc.apply_import_transform([src], 2.0, 1.0, 1.0)
-    assert src["lines"] == [[11.0, 1.0, 19.0, 9.0]]
+    src["pattern"]["families"][0]["tag"] = "keep-me"
+    out = dc.apply_import_transform([src], 2.0, 1.0, 1.0, 30.0)[0]
+    assert out["pattern"]["families"][0]["tag"] == "keep-me"
 
 
-def test_fill_line_geoms_are_plain_lines():
-    assert dc.fill_line_geoms(_fill()) == [
-        {"kind": "line", "layer": "A", "color": "#112233",
-         "x1": 11.0, "y1": 1.0, "x2": 19.0, "y2": 9.0}]
+_FILL_BOX = {
+    "kind": "fill", "layer": "A", "color": "#112233",
+    "solid": True, "mask": False, "tone": False,
+    "loops": [[{"kind": "path_points", "layer": "A", "color": "#112233",
+                "points": [(1000.0, 2000.0), (1100.0, 2000.0),
+                           (1100.0, 2050.0), (1000.0, 2050.0)],
+                "closed": True}]],
+    "lines": [], "pattern": None,
+}
 
 
-def test_snap_index_sees_boundaries_only():
-    idx = UnderlaySnapIndex([_fill()], [])
-    got = idx.query(0.0, -5.0, 30.0, 20.0)
-    assert [g["kind"] for g in got] == ["path_points"]
+def test_place_import_bounds_see_a_fill_only_import(qapp):
+    from firepro3d.model_space import Model_Space
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.scale_manager import ScaleManager
+    from firepro3d.underlay_import_dialog import ImportParams
+    scene = Model_Space()
+    scene._level_manager = LevelManager()
+    scene.scale_manager = ScaleManager()
+    p = ImportParams()
+    p.file_path = "synthetic.dxf"
+    p.file_type = "dxf"
+    p.geom_list = [dict(_FILL_BOX)]
+    p.scale = 2.0
+    p.base_x, p.base_y, p.rotation = 1000.0, 2000.0, 0.0
+    scene.begin_place_import(p)
+    r = scene._place_import_bounds
+    assert (r.x(), r.y(), r.width(), r.height()) == (0.0, 0.0, 200.0, 100.0)
+    scene.set_mode(None)
+    scene.cleanup()
 
 
-def test_snap_index_keeps_hidden_layer_rule():
-    assert UnderlaySnapIndex([_fill()], ["A"]).query(0.0, -5.0, 30.0, 20.0) == []
+def test_dialog_pdf_base_point_sees_a_fill_only_page(qapp):
+    from PyQt6.QtCore import QObject, pyqtSignal
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+
+    class _Worker(QObject):
+        done = pyqtSignal(list, list)
+
+    dlg = UnderlayImportDialog()
+    w = _Worker()
+    dlg._pdf_worker = w
+    dlg._pdf_extract_ctx = {"path": "x.pdf", "page": 0, "dpi": 150,
+                            "mode": "auto", "reset_base": True}
+    w.done.connect(dlg._on_pdf_extract_finished)
+    w.done.emit([dict(_FILL_BOX)], ["A"])
+    assert dlg._base_x_edit.value_mm() == pytest.approx(1000.0)
+    assert dlg._base_y_edit.value_mm() == pytest.approx(2050.0)

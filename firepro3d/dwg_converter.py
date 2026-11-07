@@ -404,6 +404,7 @@ def _map_fill(g: dict, map_children, map_point, scale: float, rot: float = 0.0) 
         for f in pattern["families"]:
             ox, oy = f["offset"][0] * scale, f["offset"][1] * scale
             fams.append({
+                **f,
                 "angle": f["angle"] + rot,
                 "base": list(map_point(*f["base"])),
                 "offset": [ox * c - oy * s, ox * s + oy * c] if rot else [ox, oy],
