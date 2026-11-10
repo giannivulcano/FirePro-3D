@@ -126,6 +126,24 @@ def test_export_geometry_clips_destination_and_source_alike(qapp):
          area.right() / s * PT_PER_MM, area.bottom() / s * PT_PER_MM))
 
 
+def test_export_geometry_clip_is_relative_to_a_non_zero_origin(qapp):
+    """At 1x on ANSI D the page is centred, so its origin is not (0, 0)."""
+    from firepro3d.linked_document import export_geometry
+    sw, sh = PAPER_SIZES["ANSI D"]
+    ox, oy = (sw - PAGE_W_MM) / 2, (sh - PAGE_H_MM) / 2   # 1x placement origin
+    assert ox > 0 and oy > 0
+    # An area cutting into the page on all four sides.
+    area = QRectF(ox + 40.0, oy + 25.0, PAGE_W_MM - 100.0, PAGE_H_MM - 60.0)
+    geo = export_geometry(make_link(TWO_PAGE, 1, "1"), sw, sh, area)
+    assert geo.dest_pt == pytest.approx(
+        (area.left() * PT_PER_MM, area.top() * PT_PER_MM,
+         area.right() * PT_PER_MM, area.bottom() * PT_PER_MM))
+    # Source clip: the same region measured from the page's own top-left (1x).
+    assert geo.clip_pt == pytest.approx(
+        (40.0 * PT_PER_MM, 25.0 * PT_PER_MM,
+         (PAGE_W_MM - 60.0) * PT_PER_MM, (PAGE_H_MM - 35.0) * PT_PER_MM))
+
+
 def test_refresh_updates_or_keeps_copy_when_page_gone(qapp):
     from firepro3d.linked_document import (
         REFRESH_PAGE_GONE, REFRESH_UPDATED, SnapshotError, new_link,

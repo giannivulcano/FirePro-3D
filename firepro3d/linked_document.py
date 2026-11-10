@@ -24,7 +24,7 @@ from PyQt6.QtGui import QImage
 
 from .constants import (
     LINKED_PAGE_DPI_STEP, LINKED_PAGE_MIN_DPI, LINKED_PAGE_PRINT_MAX_DPI,
-    LINKED_PAGE_SCREEN_MAX_DPI, PDF_PT_PER_MM,
+    LINKED_PAGE_RASTER_CACHE_SIZE, LINKED_PAGE_SCREEN_MAX_DPI, PDF_PT_PER_MM,
 )
 from .pdf_raster import pdf_page_to_qimage
 
@@ -380,7 +380,7 @@ def raster_dpi(needed_dpi: float, *, screen: bool) -> float:
     return max(LINKED_PAGE_MIN_DPI, min(needed_dpi, LINKED_PAGE_PRINT_MAX_DPI))
 
 
-@functools.lru_cache(maxsize=8)
+@functools.lru_cache(maxsize=LINKED_PAGE_RASTER_CACHE_SIZE)
 def render_snapshot(snapshot_b64: str, dpi: float) -> "QImage | None":
     """Raster of a snapshot at *dpi*, cached per (snapshot, dpi); None if damaged."""
     try:
