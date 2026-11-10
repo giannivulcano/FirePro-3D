@@ -35,7 +35,7 @@ from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG,
                         RISER_SYMBOL_SIZE_MM)
 from . import theme as th
-from .paper_display import paper_pass_active, shows_selection
+from .paper_display import shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
@@ -131,8 +131,11 @@ class _ColourSrcMixin:
         raise NotImplementedError
 
     def paint(self, painter, option, widget=None):
-        if paper_pass_active():     # selection never plots (wall polish D11, L42)
-            option.state &= ~QStyle.StateFlag.State_Selected
+        # Plan parity (elevation parity D8 / R14 / AC12): the manipulator
+        # frame is the one selection boundary, so the item draws no selection
+        # outline of its own -- on canvas or paper (selection never plots,
+        # wall polish D11, L42). HALO hover is the view's overlay, not this.
+        option.state &= ~QStyle.StateFlag.State_Selected
         if (self._pen_src is None and self._brush_src is None
                 and self._paper_pen_width is None and not self._always_draw_shape):
             super().paint(painter, option, widget)
@@ -141,15 +144,6 @@ class _ColourSrcMixin:
         painter.setPen(pen)
         painter.setBrush(brush)
         self._draw_shape(painter)
-        if option.state & QStyle.StateFlag.State_Selected:
-            fg = option.palette.windowText().color()
-            bg = QColor(Qt.GlobalColor.black if fg.red() > 127
-                        else Qt.GlobalColor.white)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            for col, style in ((bg, Qt.PenStyle.SolidLine),
-                               (fg, Qt.PenStyle.DashLine)):
-                painter.setPen(QPen(col, 0, style))
-                painter.drawRect(self.boundingRect())
 
 
 class _SrcRect(_ColourSrcMixin, QGraphicsRectItem):

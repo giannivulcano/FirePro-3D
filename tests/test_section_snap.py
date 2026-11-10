@@ -263,3 +263,43 @@ def test_select_mode_hover_clears_a_stale_marker(qapp, section_scene_for):
         assert n_on - _marker_px(v, cross) >= 10
     finally:
         v.close()
+
+
+def test_ac12_selected_proxy_shows_only_the_manipulator_frame(qapp, section_scene_for):
+    """AC12 / R14: a wall proxy clicked in a shown SectionView is framed by the
+    manipulator, and the proxy paints no selection outline of its own: with
+    the frame hidden, the selected canvas is pixel-identical to the
+    unselected one."""
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.elevation_view import SectionView
+    from tests._modify_tools_helpers import ignore_os_mouse
+    from tests._snap_polish_helpers import click, move
+    from tests.test_section_classification import _source_rects, _wall
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    w = _wall(ms, (1000.0, -2000.0), (6000.0, -2000.0))   # behind the cut
+    sec.rebuild()
+    (proxy,) = _source_rects(sec, w)
+    v = ignore_os_mouse(SectionView(sec))
+    v.resize(900, 700)
+    v.show()
+    QTest.qWaitForWindowExposed(v)
+    v.fit_to_screen()
+    QApplication.processEvents()
+    try:
+        r = proxy.mapRectToScene(proxy.rect())
+        click(v, r.center())                               # the real HALO press path
+        assert proxy.isSelected()
+        move(v, QPointF(r.center().x(), r.top() - 1500.0))  # empty canvas: no HALO glow
+        m = sec._live_manip()
+        assert m.isVisible() and m.wraps(proxy)
+        framed = v.viewport().grab().toImage()
+        m.setVisible(False)
+        sel_no_frame = v.viewport().grab().toImage()
+        assert framed != sel_no_frame, "the manipulator frame does not paint"
+        sec.clearSelection()
+        QApplication.processEvents()
+        unselected = v.viewport().grab().toImage()
+        assert sel_no_frame == unselected, "a selected proxy paints its own outline"
+    finally:
+        v.close()
