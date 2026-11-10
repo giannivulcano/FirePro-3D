@@ -45,3 +45,58 @@ def test_signals_declared_once_on_the_mixin(model_space):
     ms.modeChanged.connect(got.append)
     ms.set_mode("select")
     assert got == ["select"]
+
+
+_STATE = ("_copy_is_cut", "_paste_payload", "pick_base_pos", "_selected_items",
+          "_move_ghost", "_move_ghost_base", "_ghost_dimmed",
+          "_move_handle_session", "_offset_source", "_offset_dist",
+          "_offset_side", "_offset_typed", "_offset_sticky",
+          "_offset_sticky_locked", "_rotate_pivot", "_rotate_start_deg",
+          "_rotate_ray", "_array_base", "_array_dir", "_array_spacing",
+          "_array_row_spacing", "_array_total", "_array_start_deg",
+          "_array_variant", "_array_angle_locked", "_array_memory",
+          "_scale_base", "_scale_ref", "_scale_variant", "_mirror_axis",
+          "_flip_center", "_flip_lr", "_flip_ud", "_flip_quad")
+
+
+def test_init_modify_host_owns_the_transient_state(model_space):
+    """Every modify transient a Model_Space starts with is the one
+    _init_modify_host() sets (one home), with the same initial values."""
+    from firepro3d.constants import ARRAY_DEFAULT_MEMORY
+    from firepro3d.modify_tools_controller import ModifyToolsController
+    ms = model_space
+    assert isinstance(ms._modify_ctl, ModifyToolsController)
+    assert ms._modify_ctl._scene is ms
+    expected = {"_copy_is_cut": False, "_paste_payload": None,
+                "pick_base_pos": None, "_selected_items": None,
+                "_move_ghost": [], "_move_ghost_base": [], "_ghost_dimmed": [],
+                "_move_handle_session": None, "_offset_source": None,
+                "_offset_dist": 0.0, "_offset_side": 1.0,
+                "_offset_typed": False, "_offset_sticky": None,
+                "_offset_sticky_locked": False, "_rotate_pivot": None,
+                "_rotate_start_deg": None, "_rotate_ray": None,
+                "_array_base": None, "_array_dir": None,
+                "_array_spacing": 0.0, "_array_row_spacing": 0.0,
+                "_array_total": None, "_array_start_deg": None,
+                "_array_variant": "linear", "_array_angle_locked": None,
+                "_array_memory": {v: dict(f) for v, f
+                                  in ARRAY_DEFAULT_MEMORY.items()},
+                "_scale_base": None, "_scale_ref": None,
+                "_scale_variant": "length", "_mirror_axis": None,
+                "_flip_center": None, "_flip_lr": False, "_flip_ud": False,
+                "_flip_quad": None}
+    assert set(expected) == set(_STATE)
+    for name, value in expected.items():
+        assert getattr(ms, name) == value, name
+    # The array memory is per scene, never the shared constant.
+    assert ms._array_memory is not ARRAY_DEFAULT_MEMORY
+
+
+def test_init_modify_host_refuses_a_host_missing_a_required_method(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene
+
+    class _Bare(ModifyHostMixin, QGraphicsScene):
+        pass
+
+    with pytest.raises(TypeError, match="push_undo_state"):
+        _Bare()._init_modify_host()

@@ -23,6 +23,9 @@ import json
 from PyQt6.QtCore import QPointF, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
+from .constants import ARRAY_DEFAULT_MEMORY
+from .modify_tools_controller import ModifyToolsController
+
 
 class _NullPreview:
     """No-op stand-in for Model_Space's ``preview_node`` / ``preview_pipe``
@@ -73,6 +76,85 @@ class ModifyHostMixin:
     preview_pipe = _NULL_PREVIEW
     # Paste D13 gates read the 2D-geometry registry (Model_Space has one).
     _GEOM_TYPE_REGISTRY: dict = {}
+
+    def _init_modify_host(self) -> None:
+        """Compose the host's ModifyToolsController and set every modify
+        transient (moved from Model_Space.__init__).
+
+        Call once from the host's ``__init__``, after ``scene_role`` and
+        ``constraint_ctl`` exist.
+
+        Raises:
+            TypeError: The host lacks a method in REQUIRED_HOST_METHODS.
+        """
+        missing = [n for n in REQUIRED_HOST_METHODS
+                   if not callable(getattr(self, n, None))]
+        if missing:
+            raise TypeError(f"{type(self).__name__} is not a modify host: "
+                            f"missing {', '.join(missing)}")
+        # model_space.py:244-246
+        self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
+        self._copy_is_cut = False   # set by ModifyToolsController.start(): Cut vs Copy
+        self._paste_payload = None  # armed clipboard payload while in "paste" (D5)
+        # model_space.py:272, 275
+        self.pick_base_pos = None     # QPointF: move / paste / duplicate base
+        self._selected_items = None
+        # model_space.py:458-461
+        self._move_ghost: list = []          # list[QPainterPath] in scene coords
+        self._move_ghost_base: list = []      # base paths captured at first click
+        self._ghost_dimmed: list = []         # [(item, prior opacity)] dimmed originals (D11)
+        self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
+        # model_space.py:519-526
+        # Offset (scene-tools.md D9) — behaviour in ModifyToolsController; the
+        # ghost is the candidate item's trace in _move_ghost.
+        self._offset_source = None              # armed source item
+        self._offset_dist: float = 0.0          # offset magnitude (mm)
+        self._offset_side: float = 1.0          # +1 outward / left normal, -1 otherwise
+        self._offset_typed: bool = False        # distance locked by the HUD
+        self._offset_sticky = None              # last committed distance (D9 step 5)
+        self._offset_sticky_locked: bool = False  # sticky distance was typed
+        # model_space.py:538-578
+        # Interactive transforms (Rotate, Scale, Mirror)
+        # Rotate (scene-tools.md D8; behaviour in ModifyToolsController):
+        # pivot, start-ray heading (Y-up deg) and the painted pivot->cursor ray.
+        self._rotate_pivot: "QPointF | None" = None
+        self._rotate_start_deg: "float | None" = None
+        self._rotate_ray = None
+        # Array (scene-tools.md D10 + P1 DD5; behaviour in
+        # ModifyToolsController). Transient — cleared by
+        # ModifyToolsController.clear() on leaving "array": base point
+        # (Polar: centre), unit direction, cursor spacing (mm).
+        self._array_base: "QPointF | None" = None
+        self._array_dir: "QPointF | None" = None
+        self._array_spacing: float = 0.0
+        self._array_row_spacing: float = 0.0     # 2D: signed row pitch (mm)
+        self._array_total: "float | None" = None      # Polar: swept fill (deg)
+        self._array_start_deg: "float | None" = None  # Polar: start-ray heading
+        # Session-sticky per canvas tab (never cleared by clear()): the ←/→
+        # variant and the last typed non-cursor HUD fields per variant.
+        self._array_variant: str = "linear"
+        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims;
+        # dropped when Array ends or restarts (DS2.2).
+        self._array_angle_locked: "float | None" = None
+        self._array_memory: dict = {v: dict(f) for v, f
+                                    in ARRAY_DEFAULT_MEMORY.items()}
+        # Scale (P1 DD4; behaviour in ModifyToolsController): base point and
+        # reference point (|ref - base| = 1x); both None outside the tool.
+        self._scale_base: "QPointF | None" = None
+        self._scale_ref: "QPointF | None" = None
+        # DS1: which field the post-reference Scale HUD types — "length"
+        # (default; reset on every set_mode by ModifyToolsController.clear) or
+        # "factor" (←/→). Per run, never session-sticky.
+        self._scale_variant: str = "length"
+        # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
+        # the hovered axis_picker.AxisPick painted by Model_View, or None.
+        self._mirror_axis = None
+        # Flip (DS3): bbox centre of the reflectable selection (set at entry,
+        # None outside Flip), the two toggles, and the last quadrant ("UL" ..).
+        self._flip_center = None
+        self._flip_lr = False
+        self._flip_ud = False
+        self._flip_quad = None
 
     # ── Host hooks with defaults (Model_Space overrides several) ─────────
     def _visible_view(self):

@@ -51,7 +51,7 @@ from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES,
+                       MIN_FLOOR_THICKNESS_MM, FLOOR_SKETCH_MODES,
                        FILLET_DEFAULT_RADIUS_MM)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
@@ -240,9 +240,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
-        self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
-        self._copy_is_cut = False   # set by ModifyToolsController.start(): Cut vs Copy
-        self._paste_payload = None  # armed clipboard payload while in "paste" (D5)
+        self._init_modify_host()   # _modify_ctl + modify transients (modify_host.py)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         self._note_ctl = NoteController(self)           # Note placement + edit overlay (D13)
@@ -268,10 +266,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.pipe_start_node = None   # Node: pipe mode chain start
-        self.pick_base_pos = None     # QPointF: move / paste / duplicate base
         self.node_end_pos = None
         self._pipe_node_was_new = False
-        self._selected_items = None
         # HALO hover + rubber-band state (U5) — scene-owned; view drives via
         # halo_update (A6). Extracted to HaloSelectionMixin (Leg B): inits
         # _halo_candidates/_halo_index/_halo_pick_pos/halo_enabled/
@@ -454,10 +450,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._replicate_count: int = 1
         self._replicate_spacing: float = 0.0
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
-        self._move_ghost: list = []          # list[QPainterPath] in scene coords
-        self._move_ghost_base: list = []      # base paths captured at first click
-        self._ghost_dimmed: list = []         # [(item, prior opacity)] dimmed originals (D11)
-        self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -515,14 +507,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
         self._gridline_drag_original_pos = None # perpendicular position at drag start
-        # Offset (scene-tools.md D9) — behaviour in ModifyToolsController; the
-        # ghost is the candidate item's trace in _move_ghost.
-        self._offset_source = None              # armed source item
-        self._offset_dist: float = 0.0          # offset magnitude (mm)
-        self._offset_side: float = 1.0          # +1 outward / left normal, -1 otherwise
-        self._offset_typed: bool = False        # distance locked by the HUD
-        self._offset_sticky = None              # last committed distance (D9 step 5)
-        self._offset_sticky_locked: bool = False  # sticky distance was typed
         # Trim / Extend / Merge state (Sprint Y)
         self._trim_edge = None              # cutting edge item for trim
         self._trim_edge_highlight = None    # highlight overlay
@@ -534,47 +518,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._align_reference = None
         self._align_highlight = None
         self._align_ghost = None
-        # Interactive transforms (Rotate, Scale, Mirror)
-        # Rotate (scene-tools.md D8; behaviour in ModifyToolsController):
-        # pivot, start-ray heading (Y-up deg) and the painted pivot->cursor ray.
-        self._rotate_pivot: "QPointF | None" = None
-        self._rotate_start_deg: "float | None" = None
-        self._rotate_ray = None
-        # Array (scene-tools.md D10 + P1 DD5; behaviour in
-        # ModifyToolsController). Transient — cleared by
-        # ModifyToolsController.clear() on leaving "array": base point
-        # (Polar: centre), unit direction, cursor spacing (mm).
-        self._array_base: "QPointF | None" = None
-        self._array_dir: "QPointF | None" = None
-        self._array_spacing: float = 0.0
-        self._array_row_spacing: float = 0.0     # 2D: signed row pitch (mm)
-        self._array_total: "float | None" = None      # Polar: swept fill (deg)
-        self._array_start_deg: "float | None" = None  # Polar: start-ray heading
-        # Session-sticky per canvas tab (never cleared by clear()): the ←/→
-        # variant and the last typed non-cursor HUD fields per variant.
-        self._array_variant: str = "linear"
-        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims;
-        # dropped when Array ends or restarts (DS2.2).
-        self._array_angle_locked: "float | None" = None
-        self._array_memory: dict = {v: dict(f) for v, f
-                                    in ARRAY_DEFAULT_MEMORY.items()}
-        # Scale (P1 DD4; behaviour in ModifyToolsController): base point and
-        # reference point (|ref - base| = 1x); both None outside the tool.
-        self._scale_base: "QPointF | None" = None
-        self._scale_ref: "QPointF | None" = None
-        # DS1: which field the post-reference Scale HUD types — "length"
-        # (default; reset on every set_mode by ModifyToolsController.clear) or
-        # "factor" (←/→). Per run, never session-sticky.
-        self._scale_variant: str = "length"
-        # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
-        # the hovered axis_picker.AxisPick painted by Model_View, or None.
-        self._mirror_axis = None
-        # Flip (DS3): bbox centre of the reflectable selection (set at entry,
-        # None outside Flip), the two toggles, and the last quadrant ("UL" ..).
-        self._flip_center = None
-        self._flip_lr = False
-        self._flip_ud = False
-        self._flip_quad = None
         # Break / Break at Point
         self._break_target = None
         self._break_highlight = None
