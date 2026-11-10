@@ -10,6 +10,8 @@ import copy
 from PyQt6.QtGui import QUndoCommand
 from PyQt6.QtCore import QRectF
 
+from .linked_document import path_key
+
 
 def _find_text_item(scene, data):
     for it in scene.get_annotations():
@@ -266,7 +268,8 @@ class SetLinkedDocumentCommand(QUndoCommand):
         value = copy.deepcopy(target)
         live = self._sheet.linked_document
         if (carry and value is not None and live is not None
-                and value.path == live.path and value.page == live.page):
+                and path_key(value.path) == path_key(live.path)
+                and value.page == live.page):
             for name in _LINK_REFRESH_FIELDS:
                 setattr(value, name, getattr(live, name))
 

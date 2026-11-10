@@ -3111,6 +3111,7 @@ class PaperScene(QGraphicsScene):
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver):
         super().__init__()
+        self.linked_docs = None     # LinkedDocService (word check), set by the window
         self._sheet = sheet
         self._resolver = resolver
         self._bg_item = None
@@ -3334,7 +3335,10 @@ class PaperScene(QGraphicsScene):
             self._linked_item = LinkedPageItem(ld.snapshot_pdf, geo.rect, area,
                                                geo.scale)
             self.addItem(self._linked_item)
-        word_ok = doc_converter.word_available() if _ld.is_docx(ld.path) else True
+        svc = self.linked_docs
+        word_ok = True
+        if _ld.is_docx(ld.path):
+            word_ok = svc.word_ok() if svc is not None else doc_converter.word_available()
         text = _ld.badge_text(ld, sheet_w=w, sheet_h=h, area=area,
                               file_exists=os.path.isfile(ld.path),
                               word_ok=word_ok)

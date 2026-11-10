@@ -230,3 +230,119 @@ def test_cancelled_close_keeps_the_conversion_running(_own_win, tmp_path,
     finally:
         worker.cancel()
         worker.wait(3000)
+
+
+# -- VC9 I1: a Link in flight must not land in a later sheet or project -------
+
+def _start_pending_link(win, tmp_path, monkeypatch):
+    """Link a 3-page .docx (create other pages) and hold Word until released."""
+    import threading
+    from tests._linked_doc_helpers import pump_until  # noqa: F401
+    docx = tmp_path / "spec.docx"
+    docx.write_bytes(b"stand-in docx")
+    gate = threading.Event()
+
+    def stub(_path):
+        gate.wait(15)
+        return pdf_bytes(3, "ALPHA")
+
+    svc = win.linked_docs
+    monkeypatch.setattr(svc, "_convert_fn", stub)
+    monkeypatch.setattr(svc, "_word_available_fn", lambda: True)
+    monkeypatch.setattr(linked_doc_service, "choose_linked_file",
+                        lambda parent=None, start_dir="": str(docx))
+    monkeypatch.setattr(linked_doc_service, "pick_linked_page",
+                        lambda parent, name, n: (1, True))
+    notes = []
+    monkeypatch.setattr(svc, "_notify_fn",
+                        lambda message, timeout_ms=6000: notes.append(message))
+    scene = win.paper_space_widget.paper_scene
+    sheet = win._sheet
+    svc.link_interactive(scene, sheet)
+    assert svc.converting(str(docx))
+    return docx, gate, notes
+
+
+def _release(win, docx, gate):
+    from tests._linked_doc_helpers import pump_until
+    gate.set()
+    assert pump_until(lambda: not win.linked_docs.converting(str(docx)), 10)
+
+
+def _link_entries(scene):
+    st = scene.undo_stack
+    return [st.text(i) for i in range(st.count()) if "Link" in st.text(i)]
+
+
+def test_link_in_flight_is_dropped_by_file_new(_mw, tmp_path, monkeypatch):
+    _fresh(_mw)
+    scene = _mw.paper_space_widget.paper_scene
+    docx, gate, notes = _start_pending_link(_mw, tmp_path, monkeypatch)
+    try:
+        _fresh(_mw)                               # File > New while Word converts
+        n_sheets = len(_mw.sheet_mgr.sheets)
+        _mw._modified = False
+        _release(_mw, docx, gate)
+    finally:
+        gate.set()
+    assert len(_mw.sheet_mgr.sheets) == n_sheets
+    assert _mw._modified is False
+    assert _link_entries(scene) == []
+    assert all(s.linked_document is None for s in _mw.sheet_mgr.sheets)
+
+
+def test_link_in_flight_is_dropped_by_load(_mw, tmp_path, monkeypatch):
+    _fresh(_mw)
+    proj = tmp_path / "other.FPD"
+    _save(_mw, proj)
+    scene = _mw.paper_space_widget.paper_scene
+    docx, gate, notes = _start_pending_link(_mw, tmp_path, monkeypatch)
+    try:
+        _mw._load_project(str(proj))              # File > Open while Word converts
+        n_sheets = len(_mw.sheet_mgr.sheets)
+        _mw._modified = False
+        _release(_mw, docx, gate)
+    finally:
+        gate.set()
+    assert len(_mw.sheet_mgr.sheets) == n_sheets
+    assert _mw._modified is False
+    assert _link_entries(scene) == []
+
+
+def test_link_in_flight_is_dropped_by_a_sheet_switch(_mw, tmp_path, monkeypatch):
+    _fresh(_mw)
+    scene = _mw.paper_space_widget.paper_scene
+    first = _mw._sheet
+    docx, gate, notes = _start_pending_link(_mw, tmp_path, monkeypatch)
+    try:
+        _mw._create_sheet()                       # becomes the active sheet
+        other = _mw._sheet
+        assert other is not first
+        n_sheets = len(_mw.sheet_mgr.sheets)
+        _release(_mw, docx, gate)
+    finally:
+        gate.set()
+    assert first.linked_document is None
+    assert other.linked_document is None
+    assert len(_mw.sheet_mgr.sheets) == n_sheets
+    assert _link_entries(scene) == []
+    assert any("cancelled" in m and "spec.docx" in m for m in notes)
+
+
+def test_badge_word_check_follows_the_service(_mw, tmp_path, monkeypatch):
+    from firepro3d import doc_converter
+    _fresh(_mw)
+    docx = tmp_path / "spec.docx"
+    docx.write_bytes(b"stand-in docx")
+    st = os.stat(docx)
+    from firepro3d.linked_document import new_link
+    link = new_link(str(docx), pdf_bytes(1, "ALPHA"), 1, st.st_mtime, st.st_size)
+    scene = _mw.paper_space_widget.paper_scene
+    scene.undo_stack.push(SetLinkedDocumentCommand(scene, _mw._sheet, link))
+    for installed, injected in ((True, False), (False, True)):
+        monkeypatch.setattr(doc_converter, "word_available", lambda v=installed: v)
+        monkeypatch.setattr(_mw.linked_docs, "_word_available_fn",
+                            lambda v=injected: v)
+        scene.refresh_linked_page()
+        text = scene._linked_badge.text()
+        assert ("Word not available" in text) is (not injected)

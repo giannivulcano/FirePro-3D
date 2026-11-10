@@ -28,6 +28,11 @@ from .constants import (
 )
 from .pdf_raster import pdf_page_to_qimage
 
+
+def path_key(path: str) -> str:
+    """Comparison key for a linked path: absolute and case-folded on Windows."""
+    return os.path.normcase(os.path.abspath(path))
+
 SCALE_MODES = ("fit", "1", "2", "custom")
 REFRESH_UPDATED = "updated"
 REFRESH_PAGE_GONE = "page_gone"

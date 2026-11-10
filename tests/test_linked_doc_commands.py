@@ -132,3 +132,23 @@ def test_refresh_twice_one_item_one_badge_and_unlink_removes_both(qapp):
     stack.undo()
     assert len(_page_items(scene)) == 1
     assert len(_badges(scene)) == 1
+
+
+def test_undo_carry_over_matches_a_path_differing_only_in_case(qapp, tmp_path):
+    """VC9 M4: the carry-over compares paths the way the service does."""
+    import os
+    from firepro3d.paper_commands import SetLinkedDocumentCommand
+    src = build_fixture_pdf(tmp_path / "spec.pdf", 2)
+    sheet = Sheet.create_default()
+    scene = _scene(sheet)
+    a = make_link(src, 1)
+    scene.undo_stack.push(SetLinkedDocumentCommand(scene, sheet, a))
+    scene.undo_stack.push(SetLinkedDocumentCommand(
+        scene, sheet, replace(a, scale_mode="1"), "Change Linked Scale"))
+    refresh_from_pdf(sheet.linked_document, pdf_bytes(2, "BETA"), 9.0, 99)
+    # the live link is now spelled differently (dialog vs project-dir join)
+    sheet.linked_document.path = sheet.linked_document.path.swapcase()
+    if os.path.normcase("A") == "A":
+        pytest.skip("case-sensitive file system: swapcase is a different path")
+    scene.undo_stack.undo()
+    assert fixture_text("BETA", 1) in snapshot_text(sheet.linked_document)

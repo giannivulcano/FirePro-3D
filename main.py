@@ -674,6 +674,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             notify=self._linked_doc_notify,
             on_sheets_added=self._on_linked_sheets_added,
             parent=self)
+        self.paper_space_widget.paper_scene.linked_docs = self.linked_docs
         self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
             self.linked_docs.rebind)
         self.scene.radiationConfirm.connect(self._radiation_on_confirm)
@@ -3806,7 +3807,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # the new sheet so any immediate switch back shows the right adapter.
             self.prop_manager.show_properties(
                 self._sheet_props_adapter(self._sheet))
-        self.linked_docs.rebind()        # watch the loaded project's linked files
+        self.linked_docs.reset()         # watch the loaded project's linked files; drop in-flight links
         return True
 
     # ── Recent files ──────────────────────────────────────────────────────
@@ -4031,7 +4032,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._push_titleblock_template()
         self._push_sheet_list()
         self._recompute_placed_views()
-        self.linked_docs.rebind()        # a new project links nothing
+        self.linked_docs.reset()         # a new project links nothing; drop in-flight links
         # Refresh the property panel so it wraps the fresh default sheet, not
         # any pre-new-file detached Sheet adapter (stale adapter bug: §19.4).
         if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):

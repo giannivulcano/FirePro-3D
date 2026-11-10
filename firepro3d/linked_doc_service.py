@@ -28,8 +28,7 @@ from .linked_doc_watcher import LinkedDocWatcher
 from .paper_commands import SetLinkedDocumentCommand
 
 
-def _key(path: str) -> str:
-    return os.path.normcase(os.path.abspath(path))
+_key = ld_mod.path_key
 
 
 # -- Dialogs (module functions: tests monkeypatch these) ----------------------
@@ -141,7 +140,7 @@ class LinkedDocService(QObject):
         except RuntimeError:            # status bar deleted under teardown
             pass
 
-    def _word_ok(self) -> bool:
+    def word_ok(self) -> bool:
         fn = self._word_available_fn or doc_converter.word_available
         return bool(fn())
 
@@ -164,6 +163,23 @@ class LinkedDocService(QObject):
             if ld is not None and ld.path:
                 baselines.setdefault(ld.path, (ld.source_mtime, ld.source_size))
         self.watcher.set_files(baselines)
+
+    def reset(self) -> None:
+        """A different project is now open (File > New / Open / recovery).
+
+        Drops every queued link callback so a conversion still running for the
+        old project lands nowhere (its PDF may still fill the cache), then
+        rebinds the watcher.
+        """
+        self._pending.clear()
+        self.rebind()
+
+    def _stale(self, scene, sheet, name: str) -> bool:
+        """True (and notified) when *sheet* is no longer the one *scene* shows."""
+        if getattr(scene, "sheet", sheet) is sheet:
+            return False
+        self._notify(f"Link of {name} cancelled: the sheet changed")
+        return True
 
     def check_all_on_open(self) -> None:
         """The (mtime, size) compare for every linked file, once (D4, Q5)."""
@@ -244,7 +260,7 @@ class LinkedDocService(QObject):
                 data = fh.read()
             self._apply(path, data, st.st_mtime, st.st_size)
             return
-        if not self._word_ok():
+        if not self.word_ok():
             self._redraw(path)
             self._notify(f"Word not available - cannot update {name}")
             return
@@ -423,7 +439,7 @@ class LinkedDocService(QObject):
         if cached is not None and cached[:2] == (st.st_mtime, st.st_size):
             on_ready(cached[2], cached[0], cached[1])
             return
-        if not self._word_ok():
+        if not self.word_ok():
             on_error("Word is not available")
             return
         self._pending.setdefault(k, []).append((on_ready, on_error))
@@ -441,6 +457,8 @@ class LinkedDocService(QObject):
         name = os.path.basename(path)
 
         def ready(pdf_bytes, mtime, size):
+            if self._stale(scene, sheet, name):
+                return
             try:
                 n = ld_mod.page_count(pdf_bytes)
             except ld_mod.SnapshotError as exc:
@@ -482,6 +500,8 @@ class LinkedDocService(QObject):
         name = os.path.basename(ld.path)
 
         def ready(pdf_bytes, mtime, size):
+            if self._stale(scene, sheet, name):
+                return
             try:
                 new = ld_mod.new_link(ld.path, pdf_bytes, page, mtime, size,
                                       scale_mode=ld.scale_mode,
