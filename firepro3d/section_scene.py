@@ -1099,6 +1099,50 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._hosted_push_pending = False
         self._ms.push_undo_state()
 
+    # ── Shared project undo stack (elevation-parity R13 / D1) ────────────
+    # A section owns no stack: every section edit pushes onto the plan
+    # Model_Space's, and Ctrl+Z / Ctrl+Y / the header buttons on a section tab
+    # (MainWindow._dispatch_undo -> _active_scene()) step that same stack.
+
+    def _ready_for_shared_undo(self) -> bool:
+        """End section-side state a restore would orphan; False = refuse.
+
+        Refused while the section manipulator drags (the restore rebuilds the
+        items under the gesture -- plan's ``_manip_drag_blocks_undo``). A
+        hosted drag's deferred step is pushed first, so the undo reverts the
+        drag. A running modify tool ends (plan's
+        ``_cancel_modify_tool_for_undo``; ``_modify_ctl`` is area C's host).
+
+        Returns:
+            True when the shared stack may be stepped now.
+        """
+        m = self._live_manip()
+        if m is not None and m.is_dragging():
+            return False
+        self._flush_hosted_push()
+        ctl = getattr(self, "_modify_ctl", None)
+        if ctl is not None and getattr(self, "mode", None) in ctl.CANCEL_ON_UNDO_MODES:
+            self.set_mode(None)
+        return True
+
+    def undo(self) -> None:
+        """Step the shared plan stack back (see ``_ready_for_shared_undo``)."""
+        if self._ready_for_shared_undo():
+            self._ms.undo()
+
+    def redo(self) -> None:
+        """Step the shared plan stack forward (see ``_ready_for_shared_undo``)."""
+        if self._ready_for_shared_undo():
+            self._ms.redo()
+
+    def can_undo(self) -> bool:
+        """The shared plan stack's undo state (header rail)."""
+        return self._ms.can_undo()
+
+    def can_redo(self) -> bool:
+        """The shared plan stack's redo state (header rail)."""
+        return self._ms.can_redo()
+
     def _delete_elev_selected(self):
         """Delete source entities for selected elevation items."""
         hosted = [it.data(_ROLE_SOURCE) for it in self.selectedItems()
