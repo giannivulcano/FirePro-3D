@@ -568,6 +568,16 @@ def _line_targets(scene: QGraphicsScene) -> list:
     return items
 
 
+def _snaps_as_rect(item: QGraphicsItem) -> bool:
+    """True for a rectangle snap target: a ``RectangleItem``, or a plain
+    ``QGraphicsRectItem`` that opts in with a truthy ``SNAP_AS_RECT`` (a
+    section's read-only wall / slab / roof / void proxy -- elevation parity
+    D3). Corners, edge midpoints, centre, edge feet and edge segments."""
+    return isinstance(item, RectangleItem) or (
+        isinstance(item, QGraphicsRectItem)
+        and bool(getattr(item, "SNAP_AS_RECT", False)))
+
+
 def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     """The one snap-target eligibility rule (snapping-engine DD6).
 
@@ -1597,7 +1607,7 @@ class SnapEngine:
             for j in range(len(verts) - 1):
                 yield ("seg", (item.mapToScene(verts[j]),
                                item.mapToScene(verts[j + 1]), src, key))
-        elif isinstance(item, RectangleItem):
+        elif _snaps_as_rect(item):
             r = item.rect()
             corners = [
                 item.mapToScene(QPointF(r.left(),  r.top())),
@@ -1796,8 +1806,8 @@ class SnapEngine:
         elif isinstance(item, BlockInstance):
             pts.extend(self._block_snaps(item))
 
-        # ── RectangleItem ─────────────────────────────────────────────────
-        elif isinstance(item, RectangleItem):
+        # ── RectangleItem (+ SNAP_AS_RECT opt-ins: section rect proxies) ──
+        elif _snaps_as_rect(item):
             r = item.rect()
             corners = [
                 QPointF(r.left(),  r.top()),
@@ -2254,8 +2264,8 @@ class SnapEngine:
                         if foot is not None:
                             pts.append(("nearest", foot))
 
-        # ── RectangleItem — project onto each of the 4 edges ─────────────
-        elif isinstance(item, RectangleItem):
+        # ── RectangleItem (+ SNAP_AS_RECT opt-ins) — project onto each edge ─
+        elif _snaps_as_rect(item):
             r = item.rect()
             corners = [
                 item.mapToScene(QPointF(r.left(),  r.top())),

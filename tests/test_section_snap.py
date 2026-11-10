@@ -79,3 +79,35 @@ def test_datum_snaps_to_its_drawn_line(qapp, section_scene_for):
     assert res is not None and res.snap_type == "midpoint", res
     assert res.source_item is d
     assert (res.point.x(), res.point.y()) == pytest.approx((mid_x, v), abs=0.5)
+
+
+def test_hosted_copy_is_a_snap_target(qapp, section_scene_for):
+    """A hosted block's section copy snaps at its insertion point (R15)."""
+    from tests._hosted_blocks_helpers import defn
+    ms, sec = _placed_scene(section_scene_for, (0, 0), (10000, 0), 8000.0)
+    gridline(ms, (0, -3000), (6000, -3000), "B")     # parallel host (test_hosted_blocks_edit._setup)
+    sec.rebuild()
+    at = QPointF(2500.0, -1200.0)                     # placement point = the copy's insertion point
+    inst = sec.place_hosted_block(defn(ms).id, at)
+    cp = sec._hosted_copies[id(inst)]
+    res = SnapEngine().find(QPointF(at.x() + 3.0, at.y() - 3.0), sec, QTransform())
+    assert res is not None and res.source_item is cp, res
+    assert (res.point.x(), res.point.y()) == pytest.approx((at.x(), at.y()))
+
+
+def test_wall_proxy_snaps_corner_edge_midpoint_and_centre(qapp, section_scene_for):
+    """A projected wall (read-only rect proxy) offers the rectangle snap set (R15)."""
+    from tests.test_section_classification import _source_rects, _wall
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    w = _wall(ms, (1000.0, -2000.0), (6000.0, -2000.0))   # behind the cut (look side)
+    sec.rebuild()
+    (proxy,) = _source_rects(sec, w)
+    r = proxy.mapRectToScene(proxy.rect())    # the projection's rect: the input, not the engine's output
+    eng = SnapEngine()
+    for want, pt in (("endpoint", r.topLeft()),
+                     ("midpoint", QPointF(r.center().x(), r.top())),
+                     ("center", r.center())):
+        res = eng.find(QPointF(pt.x() + 3.0, pt.y() + 3.0), sec, QTransform())
+        assert res is not None and res.snap_type == want, (want, res)
+        assert res.source_item is proxy, (want, res.source_item)
+        assert (res.point.x(), res.point.y()) == pytest.approx((pt.x(), pt.y()))

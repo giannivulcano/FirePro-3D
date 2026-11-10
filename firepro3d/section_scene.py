@@ -205,6 +205,7 @@ class _ElevProxyRect(_ElevReadOnlyProxyMixin, _SrcRect):
     """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
 
     HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
+    SNAP_AS_RECT = True  # snap_engine._snaps_as_rect: the rectangle snap set (D3)
 
 
 class _ElevProxyLine(_ElevReadOnlyProxyMixin, _SrcLine):

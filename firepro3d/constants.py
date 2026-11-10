@@ -106,8 +106,11 @@ ELEV_Z_SNAPPABLE_CLASSES = frozenset({
 # Classes that were snap targets below z 150 before SB4d lifted them into the
 # annotation band (D5); exempt only while their z is inside the band, so a
 # preview ghost parked at the literal overlay z (200) stays excluded.
+# ``_HostedBlockCopy`` (a section's copy of a gridline-hosted block, drawn in
+# the tag band) is a BlockInstance the exact-name rule would miss (elevation
+# parity D3 / R15); its placement ghost sits at z 1000, outside the band.
 ANNOT_Z_SNAPPABLE_CLASSES = frozenset({
-    "TextItem", "BlockInstance",
+    "TextItem", "BlockInstance", "_HostedBlockCopy",
 })
 
 # The riser pass-through symbol's QGraphicsItem.data(0) tag: never a snap
