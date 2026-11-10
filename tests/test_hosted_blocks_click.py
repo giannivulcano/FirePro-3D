@@ -90,25 +90,32 @@ def test_esc_cancels(qapp, section_scene_for):
 
 
 def test_snap_to_gridline_vertical_and_datum(qapp, section_scene_for):
+    """G15 through the section's SnapEngine (elevation parity D3): the
+    crossing, the vertical's foot, the datum's foot, nothing beyond the
+    aperture. The Level 1 datum is named so no other level sits in reach."""
+    from firepro3d.snap_engine import SNAP_TOLERANCE_PX, px_to_scene
     ms, sec, gl, v = _view(section_scene_for)
     vx = next(it for it in sec.items() if isinstance(it, ElevGridlineItem))
-    dv = next(it for it in sec.items() if isinstance(it, ElevDatumItem))
+    dv = next(it for it in sec.items()
+              if isinstance(it, ElevDatumItem) and it._level.name == "Level 1")
     hx = vx.mapToScene(vx.line().p1()).x()
     vy = dv.mapToScene(dv.line().p1()).y()
-    tol = sec._snap_tol_scene(v)
+    tol = px_to_scene(float(SNAP_TOLERANCE_PX), v.transform().m11())
     assert tol > 0
     # crossing: near both
-    p = sec.snap_section_point(QPointF(hx + tol * 0.5, vy - tol * 0.5), v)
+    p = sec.snap_point(QPointF(hx + tol * 0.5, vy - tol * 0.5))
     assert (p.x(), p.y()) == pytest.approx((hx, vy))
-    # vertical only: y is left alone
-    p = sec.snap_section_point(QPointF(hx + tol * 0.5, vy - tol * 5), v)
+    assert sec._snap_result.snap_type == "intersection"
+    # vertical only: the foot on the vertical keeps y
+    p = sec.snap_point(QPointF(hx + tol * 0.5, vy - tol * 5))
     assert (p.x(), p.y()) == pytest.approx((hx, vy - tol * 5))
-    # datum only: x is left alone
-    p = sec.snap_section_point(QPointF(hx + tol * 5, vy - tol * 0.5), v)
+    # datum only: the foot on the datum keeps x
+    p = sec.snap_point(QPointF(hx + tol * 5, vy - tol * 0.5))
     assert (p.x(), p.y()) == pytest.approx((hx + tol * 5, vy))
-    # beyond tolerance: untouched
+    # beyond the aperture: untouched
     far = QPointF(hx + tol * 3, vy - tol * 3)
-    assert sec.snap_section_point(far, v) == far
+    p = sec.snap_point(far)
+    assert (p.x(), p.y()) == pytest.approx((far.x(), far.y()))
     v.close()
 
 
@@ -117,7 +124,8 @@ def test_snapped_click_lands_on_the_vertical(qapp, section_scene_for):
     ms, sec, gl, v = _view(section_scene_for)
     vx = next(it for it in sec.items() if isinstance(it, ElevGridlineItem))
     hx = vx.mapToScene(vx.line().p1()).x()
-    tol = sec._snap_tol_scene(v)
+    from firepro3d.snap_engine import SNAP_TOLERANCE_PX, px_to_scene
+    tol = px_to_scene(float(SNAP_TOLERANCE_PX), v.transform().m11())
     sec.begin_place_block(defn(ms).id)
     pt = v.mapFromScene(QPointF(hx + tol * 0.5, -1500.0))
     QTest.mouseMove(v.viewport(), pt)

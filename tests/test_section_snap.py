@@ -216,3 +216,50 @@ def test_gridline_grip_drag_snaps_to_a_datum(qapp, section_scene_for):
         assert ex2.line().p2().y() == pytest.approx(cross.y(), abs=1e-6)
     finally:
         v.close()
+
+
+def _marker_px(view, pt):
+    """Pixels of the intersection glyph colour around *pt* on a fresh grab."""
+    from firepro3d.snap_engine import SNAP_COLORS
+    from tests.test_align_snap_glyphs import _count_colour
+    return _count_colour(view, pt, SNAP_COLORS["intersection"])
+
+
+def test_section_view_paints_the_snap_marker(qapp, section_scene_for):
+    """Armed hosted-block placement hovering 4 px off the crossing: the
+    SectionView paints the intersection glyph there (AC13 markers); Esc-free
+    disarm removes it."""
+    from tests._hosted_blocks_helpers import defn
+    from tests._modify_tools_helpers import ignore_os_mouse
+    from tests._snap_polish_helpers import move
+    ms, sec, v, cross = _shown_crossing_view(section_scene_for)
+    ignore_os_mouse(v)
+    try:
+        sec.begin_place_block(defn(ms).id)
+        move(v, QPointF(cross.x() + _px(v, 4), cross.y() - _px(v, 4)))
+        assert sec._snap_result is not None
+        assert sec._snap_result.snap_type == "intersection"
+        n_on = _marker_px(v, cross)
+        sec.cancel_place_block()
+        n_off = _marker_px(v, cross)
+        assert n_on - n_off >= 10, (n_on, n_off)
+    finally:
+        v.close()
+
+
+def test_select_mode_hover_clears_a_stale_marker(qapp, section_scene_for):
+    """A plain select-mode hover drops a marker left by an earlier snap
+    (Model_Space parity: get_effective_position runs on every move)."""
+    from tests._modify_tools_helpers import ignore_os_mouse
+    from tests._snap_polish_helpers import move
+    ms, sec, v, cross = _shown_crossing_view(section_scene_for)
+    ignore_os_mouse(v)
+    try:
+        near = QPointF(cross.x() + _px(v, 4), cross.y() - _px(v, 4))
+        sec.snap_point(near)                          # a marker is up
+        n_on = _marker_px(v, cross)
+        move(v, near)                                 # select mode, no tool
+        assert sec._snap_result is None
+        assert n_on - _marker_px(v, cross) >= 10
+    finally:
+        v.close()

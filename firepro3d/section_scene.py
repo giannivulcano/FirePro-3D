@@ -1410,7 +1410,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         placement, a Blocks-browser drag): F3 respected, the placement ghost
         (or the dragged grip item) excluded; the result is ``_snap_result``,
         the marker ``SectionView.drawForeground`` paints. Replaces the retired
-        per-axis ``snap_section_point``.
+        per-axis section snapper.
 
         Args:
             scene_pos: Cursor, section-scene coordinates.
@@ -1456,31 +1456,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             self._snap_result = None
             return QPointF(scene_pos)
         return self.snap_point(scene_pos)
-
-    def _snap_tol_scene(self, view) -> float:
-        """The shared OSNAP aperture in section-scene mm at *view*'s zoom."""
-        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene
-        return px_to_scene(float(SNAP_TOLERANCE_PX), view.transform().m11())
-
-    def snap_section_point(self, pt, view=None):
-        """Snap *pt* to level datums (Y), gridline verticals (X) and their
-        crossings within the shared OSNAP aperture (G15).
-
-        SnapEngine.find was probed and cannot serve here: a datum line offers
-        only endpoint/midpoint and a gridline only a perpendicular "nearest",
-        never the datum x gridline crossing. Each axis snaps independently, so
-        a point near both lands on the crossing."""
-        if view is None:
-            return pt
-        tol = self._snap_tol_scene(view)
-        hs = [it.mapToScene(it.line().p1()).x() for it in self.items()
-              if isinstance(it, ElevGridlineItem)]
-        vs = [it.mapToScene(it.line().p1()).y() for it in self.items()
-              if isinstance(it, ElevDatumItem)]
-        x = min(hs, key=lambda h: abs(h - pt.x()), default=None)
-        y = min(vs, key=lambda v: abs(v - pt.y()), default=None)
-        return QPointF(x if x is not None and abs(x - pt.x()) <= tol else pt.x(),
-                       y if y is not None and abs(y - pt.y()) <= tol else pt.y())
 
     def place_hosted_block(self, block_id: str, scene_pt, rotation: float = 0.0,
                            mirrored: bool = False):

@@ -110,7 +110,8 @@ class SectionView(QGraphicsView):
             return
         try:
             sc = self.scene()
-            pt = sc.snap_section_point(self.mapToScene(event.position().toPoint()), self)
+            pt = sc.snap_point(self.mapToScene(event.position().toPoint()))
+            self.viewport().update()                # the snap marker follows the drag (D3)
             if sc.can_host_at(pt):
                 event.acceptProposedAction()
             else:
@@ -120,6 +121,10 @@ class SectionView(QGraphicsView):
 
     def dragLeaveEvent(self, event):
         self._block_drop = None
+        sc = self.scene()
+        if sc is not None and getattr(sc, "_snap_result", None) is not None:
+            sc._snap_result = None                  # no marker once the drag leaves
+            self.viewport().update()
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
@@ -130,11 +135,13 @@ class SectionView(QGraphicsView):
         try:
             from .blocks_browser import ensure_block_loaded
             sc = self.scene()
-            pt = sc.snap_section_point(self.mapToScene(event.position().toPoint()), self)
+            pt = sc.snap_point(self.mapToScene(event.position().toPoint()))
             block_id = ensure_block_loaded(sc._ms, st["payload"]["id"],
                                            st["payload"].get("path"), st["name"],
                                            None, self)
             if block_id is None or sc.place_hosted_block(block_id, pt) is None:
+                sc._snap_result = None              # refused: drop the drag's marker
+                self.viewport().update()
                 event.ignore()
                 return
             event.acceptProposedAction()
@@ -159,8 +166,7 @@ class SectionView(QGraphicsView):
         if (event.button() == Qt.MouseButton.LeftButton and sc is not None
                 and getattr(sc, "_place_block_id", None) is not None):
             try:
-                pt = sc.snap_section_point(
-                    self.mapToScene(event.position().toPoint()), self)
+                pt = sc.snap_point(self.mapToScene(event.position().toPoint()))
                 sc.click_place_block(pt)
             except Exception:
                 _log.exception("Section block placement click failed")
@@ -199,7 +205,7 @@ class SectionView(QGraphicsView):
         sc = self.scene()
         if sc is not None and getattr(sc, "_place_block_id", None) is not None:
             try:
-                sc.move_place_ghost(sc.snap_section_point(scene_pos, self))
+                sc.move_place_ghost(sc.snap_point(scene_pos))
             except Exception:
                 _log.exception("Section block placement move failed")
             self.viewport().update()
@@ -215,6 +221,17 @@ class SectionView(QGraphicsView):
             self._rb_end = event.pos()
             self.viewport().update()
             return
+        # Cursor snap (D3; Model_Space runs get_effective_position on every
+        # move): a live grip drag / tool mode snaps and leaves the marker in
+        # _snap_result, plain select mode clears a stale one. A manipulator
+        # drag snaps through its own handle path, so it is skipped here.
+        if sc is not None and hasattr(sc, "get_effective_position"):
+            manip = sc._live_manip() if hasattr(sc, "_live_manip") else None
+            if manip is None or not manip.is_dragging():
+                had = sc._snap_result is not None
+                sc.get_effective_position(scene_pos)
+                if had or sc._snap_result is not None:
+                    self.viewport().update()
         # HALO hover update (scene-agnostic engine on the mixin).
         if sc is not None and hasattr(sc, "halo_update"):
             from . import halo_selection
@@ -265,6 +282,9 @@ class SectionView(QGraphicsView):
         scene = self.scene()
         if scene is None:
             return
+        # Snap trace + marker: the plan's one painter (Model_View parity, D3).
+        from .snap_engine import paint_snap_indicator
+        paint_snap_indicator(painter, self, getattr(scene, "_snap_result", None))
         from .halo import paint_halo_highlight, paint_rubber_band
         theme = th.detect()
         # HALO hover highlight (gated on suppression like the plan view).
