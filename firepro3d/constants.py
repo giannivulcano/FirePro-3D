@@ -641,3 +641,7 @@ DISPLAY_PRECISION_MAX = 5
 DEFAULT_PRESSURE_PRECISION = 1     # psi
 DEFAULT_FLOW_PRECISION = 0         # gpm
 DEFAULT_VELOCITY_PRECISION = 1     # ft/s
+
+# Footer reason when a modify / clipboard shortcut is pressed on the 3D tab
+# (elevation-parity R16 / AC14): its active scene would be the hidden plan.
+VIEW_3D_EDIT_REFUSED_HINT = "Modify and clipboard tools work in 2D views, not in 3D"

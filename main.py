@@ -49,7 +49,7 @@ from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.blocks_browser import BlocksBrowser
 from firepro3d.constants import (DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM,
-                                 MODEL_WEIGHT_FACTOR)
+                                 MODEL_WEIGHT_FACTOR, VIEW_3D_EDIT_REFUSED_HINT)
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
@@ -4561,8 +4561,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _start_modify_tool(self, tool: str) -> None:
         """Route a Modify/Edit tool to the active scene (scene-tools.md D2/D3).
 
-        Refused while a text field / the HUD has focus, and on a Paper tab (the
-        active scene there would be the hidden plan).
+        Refused while a text field / the HUD has focus, on a Paper tab, and on
+        the 3D tab with a footer reason (R16 / AC14) -- the active scene on
+        both would be the hidden plan.
 
         Args:
             tool: Tool name understood by ``ModifyToolsController.start``.
@@ -4572,6 +4573,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
             return
         if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
+            return
+        if self.central_tabs.currentWidget() is getattr(self, "view_3d", None):
+            self.footer.set_instruction(VIEW_3D_EDIT_REFUSED_HINT)
             return
         # The empty-canvas refusal (I5) lives in ModifyToolsController.start.
         self._active_scene()._modify_ctl.start(tool)
