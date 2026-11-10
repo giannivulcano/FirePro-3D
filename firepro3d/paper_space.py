@@ -2649,7 +2649,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
 
     def _draw_text_mm(self, painter: QPainter, rect: QRectF, lines: list,
                       fdef, *, cap_mm: float | None = None,
-                      bold: bool | None = None, align: str | None = None) -> None:
+                      bold: bool | None = None, align: str | None = None,
+                      v_center: bool = False) -> None:
         """Draw wrapped lines at a paper-mm cap height (mm primitive).
 
         Args:
@@ -2663,6 +2664,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
             align: Override horizontal alignment ("left"/"center"/"right");
                 defaults to fdef.alignment. Used by the revision table's
                 per-column justification (Task B).
+            v_center: Centre the line block vertically in *rect* (the revision
+                table's row bands); default draws from the rect's top.
         """
         f = QFont(fdef.font_family or "Arial")
         f.setBold(fdef.bold if bold is None else bold)
@@ -2686,6 +2689,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
                      align if align is not None else fdef.alignment,
                      Qt.AlignmentFlag.AlignLeft)
         y = 0.0
+        if v_center:
+            y = (rect.height() / s - len(lines) * fm.lineSpacing()) / 2.0
         for line in lines:
             painter.drawText(
                 QRectF(0, y, rect.width() / s, fm.lineSpacing()),
@@ -2791,17 +2796,17 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 keys = ("no", "description", "date")
                 headers = ("Rev.", "Description", "Date")
 
-                # Vertically centre the header+rows block within the cell so the
-                # rows aren't stranded at the top when the cell is taller.
-                block_h = (1 + len(rows)) * TB_REV_ROW_MM
-                y = content.top() + max(0.0, (content.height() - block_h) / 2.0)
+                # Top-align under the label: the cell is sized for the
+                # template's full revision_rows, so centring floated a short
+                # table away from its label.
+                y = content.top()
                 painter.setPen(QPen(Qt.GlobalColor.black, TB_REV_PEN_MM))
                 # Header row — the solver's +1 reservation is this header band.
                 for (cx, cw, calign), htext in zip(cols, headers):
                     self._draw_text_mm(
                         painter, QRectF(cx, y, cw, TB_REV_ROW_MM),
                         [htext], f, cap_mm=TB_REV_CAP_MM, bold=True,
-                        align=calign)
+                        align=calign, v_center=True)
                 y += TB_REV_ROW_MM
                 painter.drawLine(QPointF(content.left(), y),
                                  QPointF(content.right(), y))
@@ -2810,7 +2815,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
                         self._draw_text_mm(
                             painter, QRectF(cx, y, cw, TB_REV_ROW_MM),
                             [str(rev.get(key, ""))], f, cap_mm=TB_REV_CAP_MM,
-                            bold=False, align=calign)
+                            bold=False, align=calign, v_center=True)
                     y += TB_REV_ROW_MM
                     painter.drawLine(QPointF(content.left(), y),
                                      QPointF(content.right(), y))

@@ -58,7 +58,7 @@ Both full-width types are added with `self._form.addRow(widget)` and skip the pe
 
 `meta["readonly"]` disables/greys the widget. `meta["disabled"]` (generic, todo #70) calls `setEnabled(False)` on any row widget. The per-form `self._prop_widgets` registry maps property key → row widget; it's rebuilt on every `_show_properties_inner`. `meta["suffix"]` wraps the widget in an HBox with a grey italic suffix label.
 
-**Width containment (rendering constraints, 2026-07-14):** every `QComboBox` variant (enum/combo/level_ref/font/legacy Level) gets `setMinimumContentsLength(8)` so long option strings can't force the form wider than the dock (the panel clips — `ScrollBarAlwaysOff`); `button` uses an **`Ignored`** horizontal size policy + a tooltip carrying the full face text, so long button faces (e.g. Design Point) shrink instead of widening the form.
+**Width containment (rendering constraints, 2026-07-14):** every `QComboBox` variant (enum/combo/level_ref/font/legacy Level) gets `setMinimumContentsLength(8)` so long option strings can't force the form wider than the dock (the panel clips — `ScrollBarAlwaysOff`); `button` uses an **`Expanding`** horizontal size policy with an explicit `setMinimumWidth(1)` + a tooltip carrying the full face text, so long button faces (e.g. Design Point) shrink instead of widening the form. Not `Ignored`: the form's `ExpandingFieldsGrow` gives an `Ignored` field 0 px, which hid every button row (Edit Revisions, View Range, ...) from 2026-09-22 until fixed; and not minimum 0, which Qt reads as unset. Guard: `tests/test_property_panel_button_width.py`.
 
 ### 3.3 Write path & refresh loop
 

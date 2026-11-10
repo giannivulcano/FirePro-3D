@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Paper space -- revisions table reachable and aligned -- 2026-11-09
+
+- [x] [type:bug] Sheet Properties "Edit Revisions…" button invisible; revision table floats mid-cell with text high in its rows [done:2026-11-09] [P2] [subject:UX]
+  - Details: user, 2026-11-09 (screenshot: panel ends at Checked By). Cause: `PropertyManager` `button` rows used the `Ignored` size policy, which the form's `ExpandingFieldsGrow` (f815fe2e, 2026-09-22) lays out at 0 px, so every panel button row (Edit Revisions, View Range, Design Point, Edit Roof) was invisible. Fixed with `Expanding` + `setMinimumWidth(1)` (0 reads as unset, so the long-face hint would widen the dock). Revision table: top-aligned under its label (was centred in a cell sized for the template's full `revision_rows`) and each row's text vertically centred between its rules via `_draw_text_mm(v_center=True)`.
+  - Guards: `tests/test_property_panel_button_width.py`, `tests/test_revision_table_top_aligned.py` (each shown RED with the fix reverted). Spec: `property-panel.md` width-containment note. Shipped 0.95.1.
+  - Not covered: the open P3 "Revision date cell needs a double-click" bug stays in `todo_open.md`.
+
 ## Hatch & Fill -- HF7 DXF SOLID + HATCH and the shared import-fill foundation -- 2026-11-07
 
 - [x] [type:feature] HF7 — DXF SOLID + HATCH, plus the shared import-fill foundation: underlay fill, paint-order runs + underlay cache version bump, Block Editor import → FilledRegions on "Imported Solid"; SOLID vertex order 0-1-3-2 → filled; HATCH via `hatch.paths` (+ islands); underlay = fill + pattern lines; Block Editor = region + project-only pattern block converted from the HATCH line families (rational-slope tile, deduped) + "(imported)" type; unconvertible → lines + import-report note [done:2026-11-07] [subject:CAD] [P1]

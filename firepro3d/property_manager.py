@@ -451,10 +451,14 @@ class PropertyManager(QWidget):
             elif prop_type == "button":
                 btn = QPushButton(str(meta.get("value", "Edit…")))
                 # Long faces (e.g. Design Point) must never force the form
-                # width — Ignored lets the button shrink; tooltip keeps the
-                # full text readable.
-                btn.setSizePolicy(QSizePolicy.Policy.Ignored,
+                # width — Expanding can shrink below its hint; tooltip keeps
+                # the full text readable.  Not Ignored: the form uses
+                # ExpandingFieldsGrow, which gives an Ignored field 0 px.
+                btn.setSizePolicy(QSizePolicy.Policy.Expanding,
                                   btn.sizePolicy().verticalPolicy())
+                # 1, not 0: Qt reads a 0 minimum as "unset" and falls back to
+                # the face-text minimumSizeHint, which widens the dock.
+                btn.setMinimumWidth(1)
                 btn.setToolTip(str(meta.get("value", "")))
                 btn.setEnabled(bool(meta.get("enabled", True)))
                 callback = meta.get("callback")
