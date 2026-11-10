@@ -79,18 +79,41 @@ def test_undo_keeps_a_newer_refresh(qapp, tmp_path):
     scene.undo_stack.undo()
     assert sheet.linked_document.scale_mode == "fit"
     assert fixture_text("BETA", 1) in snapshot_text(sheet.linked_document)
+    refresh_from_pdf(sheet.linked_document, pdf_bytes(2, "GAMMA"), 10.0, 100)
+    scene.undo_stack.redo()                      # a later redo keeps it too
+    assert sheet.linked_document.scale_mode == "1"
+    assert fixture_text("GAMMA", 1) in snapshot_text(sheet.linked_document)
+
+
+def test_relink_same_file_and_page_keeps_the_new_copy(qapp, tmp_path):
+    from firepro3d.paper_commands import SetLinkedDocumentCommand
+    src = build_fixture_pdf(tmp_path / "spec.pdf", 2)
+    sheet = Sheet.create_default()
+    scene = _scene(sheet)
+    a = make_link(src, 1)
+    scene.undo_stack.push(SetLinkedDocumentCommand(scene, sheet, a))
+    fresh = replace(a)
+    refresh_from_pdf(fresh, pdf_bytes(2, "BETA"), 9.0, 99)
+    scene.undo_stack.push(SetLinkedDocumentCommand(
+        scene, sheet, fresh, "Relink Document"))
+    assert fixture_text("BETA", 1) in snapshot_text(sheet.linked_document)
 
 
 def test_command_on_another_sheet_leaves_the_live_scene_alone(qapp):
     from firepro3d.paper_commands import SetLinkedDocumentCommand
     shown, other = Sheet.create_default(), Sheet.create_default()
+    shown.linked_document = make_link(TWO_PAGE, 1)
     scene = _scene(shown)
+    item = scene.linked_page_item()
+    assert item is not None
     scene.undo_stack.push(SetLinkedDocumentCommand(scene, other,
-                                                   make_link(TWO_PAGE, 1)))
+                                                   make_link(TWO_PAGE, 2)))
     assert other.linked_document is not None
-    assert not _page_items(scene)
+    assert scene.linked_page_item() is item      # live scene not rebuilt
+    assert len(_page_items(scene)) == 1
     scene.undo_stack.undo()
     assert other.linked_document is None
+    assert scene.linked_page_item() is item
 
 
 def test_refresh_twice_one_item_one_badge_and_unlink_removes_both(qapp):

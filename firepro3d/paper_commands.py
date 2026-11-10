@@ -244,7 +244,9 @@ class SetLinkedDocumentCommand(QUndoCommand):
     Both states are deep copies, so unlink + undo restores the snapshot with
     the link. When the restored state links the same file and page as the
     live one, the live refresh fields carry over: a refresh is not an undo
-    step (D5), so undo never brings back a copy a refresh replaced.
+    step (D5), so undo never brings back a copy a refresh replaced. The
+    first redo (the push) skips the carry-over, so a same-file relink keeps
+    the copy it brings.
 
     Args:
         scene: The live PaperScene (owner of the paper undo stack).
@@ -258,11 +260,12 @@ class SetLinkedDocumentCommand(QUndoCommand):
         self._scene, self._sheet = scene, sheet
         self._old = copy.deepcopy(sheet.linked_document)
         self._new = copy.deepcopy(new_data)
+        self._pushed = False
 
-    def _set(self, target):
+    def _set(self, target, carry: bool = True):
         value = copy.deepcopy(target)
         live = self._sheet.linked_document
-        if (value is not None and live is not None
+        if (carry and value is not None and live is not None
                 and value.path == live.path and value.page == live.page):
             for name in _LINK_REFRESH_FIELDS:
                 setattr(value, name, getattr(live, name))
@@ -274,7 +277,11 @@ class SetLinkedDocumentCommand(QUndoCommand):
         self._scene._apply(op)
 
     def redo(self):
-        self._set(self._new)
+        # The push applies new_data as given: a relink to the same file and
+        # page brings a fresher copy that must win. Later redos carry over a
+        # refresh that landed after the undo.
+        self._set(self._new, carry=self._pushed)
+        self._pushed = True
 
     def undo(self):
         self._set(self._old)
