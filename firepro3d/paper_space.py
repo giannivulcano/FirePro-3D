@@ -35,6 +35,7 @@ from .text_item import (  # text-height pt/mm helpers -- one home in text_item (
     _parse_height_pt, _parse_text_height_mm, _text_cap_ratio,
 )
 from .house_dialog import HouseDialog
+from .linked_document import LinkedDocData
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsObject, QGraphicsTextItem,
@@ -385,6 +386,8 @@ class Sheet:
     """Revision history for this sheet. Each entry: {"no", "description", "date"}."""
     orientation: str = ""
     """Sheet orientation override: "" = native PAPER_SIZES dims, "landscape" or "portrait"."""
+    linked_document: "LinkedDocData | None" = None
+    """At most one linked Word/PDF page (sheet-linked-document design Data model)."""
 
     @classmethod
     def create_default(cls) -> "Sheet":
@@ -420,7 +423,7 @@ class Sheet:
         return None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "number": self.number,
             "name": self.name,
             "paper_size": self.paper_size,
@@ -430,6 +433,9 @@ class Sheet:
             "annotations": [a.to_dict() for a in self.annotations],
             "revisions": [dict(r) for r in self.revisions],
         }
+        if self.linked_document is not None:
+            d["linked_document"] = self.linked_document.to_dict()
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Sheet":
@@ -460,6 +466,8 @@ class Sheet:
             annotations=[TextAnnotationData.from_dict(a)
                          for a in d.get("annotations", [])],
             revisions=[dict(r) for r in d.get("revisions", [])],
+            linked_document=(LinkedDocData.from_dict(d["linked_document"])
+                             if d.get("linked_document") else None),
         )
 
 
