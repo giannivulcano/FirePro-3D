@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
                              QLineEdit, QToolButton, QHeaderView, QAbstractButton)
 
-from .colour_tokens import is_token, resolve_colour, token_label
+from .colour_tokens import is_token, resolve_colour, swatch_label, token_label
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .theme import M, detect as _detect, theme_bus
 
@@ -1205,6 +1205,18 @@ def no_fill_icon(w: int, h: int):
     return QIcon(pm)
 
 
+def colour_icon(value: str, w: int = 16, h: int = 16):
+    """QIcon of a flat colour chip for a stored colour string (``#hex`` /
+    ``token:*``, resolved on the canvas; ``""`` -> the No-Fill glyph) -- the
+    per-option swatches of a colour enum row (WM3 D4)."""
+    from PyQt6.QtGui import QIcon, QPixmap
+    if not value:
+        return no_fill_icon(w, h)
+    pm = QPixmap(w, h)
+    pm.fill(resolve_colour(value))
+    return QIcon(pm)
+
+
 class _Chip(QWidget):
     """A small painted colour chip (rounded rect + border) that emits ``clicked``."""
 
@@ -1294,7 +1306,7 @@ class Swatch(QWidget):
 
     @staticmethod
     def _text_for(v):
-        return "None" if not v else (token_label(v) or v.upper())
+        return swatch_label(v)        # one home: colour_tokens.swatch_label (WM3 D4)
 
     def _on_chip(self):
         self.clicked.emit()

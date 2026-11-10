@@ -2041,7 +2041,7 @@ class BlockInstance(QGraphicsObject):
                              "parser": ScaleManager.parse_factor,
                              "formatter": self._fmt_factor, "minimum": 0.0},
         }
-        # WM2 Q4: placement Linetype / Weight overrides; Q12: locked inside a
+        # WM2 Q4 / WM3 D4: placement Linetype / Weight / Colour overrides; Q12 / Q4: locked inside a
         # pattern-tile / linetype-unit Block Editor (strokes draw Continuous
         # at the pattern's own pen there).
         from .geometry_2d import _LOCKED_PLACEMENT_TIP, stroke_rows
@@ -2050,7 +2050,7 @@ class BlockInstance(QGraphicsObject):
         reg = getattr(sc, "block_registry", None) if sc is not None else None
         rows = stroke_rows(self.overrides, reg, picker_exclude(sc), placement=True)
         if self._overrides_locked():
-            for k in ("Linetype", "Weight"):
+            for k in ("Linetype", "Weight", "Colour"):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
@@ -2248,7 +2248,7 @@ class BlockInstance(QGraphicsObject):
             if not isinstance(value, bool):
                 return
             self.constraint_points_off = not value
-        elif key in ("Weight", "Linetype"):
+        elif key in ("Weight", "Linetype", "Colour"):
             if self._overrides_locked():
                 return                  # Q12: a mixed selection can't bypass the lock
             self._set_override_from_panel(key, str(value))
@@ -2270,7 +2270,7 @@ class BlockInstance(QGraphicsObject):
                                    or getattr(sc, "block_repeat", None) is not None)
 
     def _set_override_from_panel(self, key: str, value: str) -> None:
-        """Apply a panel pick to the placement override (WM2 Q4/Q5).
+        """Apply a panel pick to the placement override (WM2 Q4/Q5, WM3 D4).
 
         A value outside this row's option set (a primitive's "By Linetype
         (...)", an unknown name, "Missing (<id>)") changes nothing. A
@@ -2293,6 +2293,17 @@ class BlockInstance(QGraphicsObject):
                 new["weight"] = value
             else:
                 return
+        elif key == "Colour":
+            from .colour_tokens import colour_from_label, picked_colour
+            if value == ss.AS_AUTHORED_LABEL:
+                new["colour"] = ss.AS_AUTHORED
+            elif value.startswith(ss.BY_CATEGORY_LABEL):
+                new["colour"] = ss.BY_CATEGORY
+            else:
+                c = picked_colour(value) or colour_from_label(value)
+                if c is None:
+                    return          # No Fill, "Pick colour...", unknown: not a placement colour
+                new["colour"] = c
         else:
             if value == ss.AS_AUTHORED_LABEL:
                 new["linetype"] = ss.AS_AUTHORED
