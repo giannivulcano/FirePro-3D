@@ -1043,8 +1043,11 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             selected,
             target,
             scene=self._ms,
+            # target is None on a right-click over empty canvas (AC8): hide
+            # the selection, never None. Area E's menu rewrite keeps this.
             on_hide=lambda: self._hide_elev_items(
-                [target] + [i for i in selected if i is not target]
+                [i for i in [target] + [i for i in selected if i is not target]
+                 if i is not None]
             ),
             on_show_all=lambda: self._show_all_elev_hidden(),
             on_delete=lambda: self._delete_elev_selected(),
