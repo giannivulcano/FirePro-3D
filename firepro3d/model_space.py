@@ -81,6 +81,7 @@ from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController, close_hit
 from .wall_placement_controller import WallPlacementController
 from .modify_tools_controller import ModifyToolsController, flip_refusal_targets
+from .modify_host import ModifyHostMixin
 from .feature_placement_controller import FeaturePlacementController
 from .text_edit_controller import TextEditController
 from .note_controller import NoteController
@@ -185,7 +186,7 @@ def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
     return out
 
 
-class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
+class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 12  # 12: old schematics turn Printed once (schematic_scene.migrate_old_schematics); 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
     UNDO_MAX = 50
@@ -199,9 +200,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
-    modeChanged = pyqtSignal(str)      # emits mode name for status bar instructions
     instructionDisplay = pyqtSignal(str)  # instructionChanged + " (Reference)" cue (RG8)
-    instructionChanged = pyqtSignal(str)  # emits step-by-step instruction text
     sceneModified = pyqtSignal()          # emitted on every push_undo_state
     levelsRestored = pyqtSignal()         # undo / redo replaced the level list (SB2b M15)
     radiationConfirm = pyqtSignal()       # Enter pressed during radiation selection
@@ -898,19 +897,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     # -------------------------------------------------------------------------
     # SCENE MANAGEMENT
-
-    def _show_status(self, message: str, timeout: int = 5000):
-        """Show a message on the main window's status bar.
-
-        The first registered view is the hidden startup ``Model_View`` (its
-        ``window()`` is itself, with no status bar), so the first view whose
-        window has one wins.
-        """
-        for view in self.views():
-            window = view.window()
-            if window is not None and hasattr(window, 'statusBar'):
-                window.statusBar().showMessage(message, timeout)
-                return
 
     def draw_origin(self):
         """Draw a small white cross at the origin — constant screen size, non-selectable."""
@@ -5052,29 +5038,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Shell → PlacementInputCoordinator._visible_view."""
         return self._plc._visible_view()
 
-    def _snap_view(self):
-        """The view whose zoom (``transform().m11()``) drives snap/scale reads.
-
-        Prefers the on-screen plan view (:meth:`_visible_view`); falls back to
-        the LAST-attached view so headless tests (which attach a view without
-        ``show()``) still resolve a real transform. ``views()[0]`` is
-        deliberately *not* the fallback: in the running app that is the
-        vestigial, never-shown ``MainWindow.view`` frozen at ``m11 == 1.0`` —
-        reading it made every zoom-dependent tolerance (snap aperture,
-        design-area pick, ALIGN band, …) collapse to a fixed *scene*
-        distance regardless of zoom.
-        """
-        v = self._visible_view()
-        if v is not None:
-            return v
-        views = self.views()
-        return views[-1] if views else None
-
-    def _active_view_scale(self) -> float:
-        """Current on-screen zoom (px per scene-unit) from the active plan view."""
-        v = self._snap_view()
-        return v.transform().m11() if v is not None else 1.0
-
     def _pipe_reference_pipe(self):
         """The coplanar pipe anchoring the relative 45° frame for typed input.
 
@@ -5583,13 +5546,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             QPointF(line.x1(), line.y1()), QPointF(line.x2(), line.y2()), snapped
         )
 
-    def update_preview_node(self, pos: QPointF):
-        self.preview_node.setPos(pos)
-        if getattr(self, "_suppress_preview_node", False):
-            self.preview_node.hide()
-        else:
-            self.preview_node.show()
-
     # -------------------------------------------------------------------------
     # MOUSE EVENTS
 
@@ -5953,25 +5909,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_offset_side(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
         return self._modify_ctl.move_offset_side(*args, **kwargs)
-
-    def _move_preview_node(self, event, snapped):
-        self.update_preview_node(snapped)
-        self.preview_pipe.hide()
-
-    def _preview_from_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._preview_from_move(*args, **kwargs)
-
-    def _move_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._move_paste_move(*args, **kwargs)
-
-    def _move_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
-        return self._modify_ctl.move_rotate(*args, **kwargs)
-
-    def _move_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
-        return self._modify_ctl.move_array(*args, **kwargs)
-
-    def _move_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.move_reflect(*args, **kwargs)
 
     def _move_stretch(self, event, snapped):
         if self._stretch_base is None:
@@ -7293,27 +7230,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts.append(snapped)
             self._room_manual_active._rebuild()
 
-    def _press_copy_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D4)
-        return self._modify_ctl.press_copy_base(*args, **kwargs)
-
-    def _press_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._press_paste_move(*args, **kwargs)
-
-    def begin_move_from(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl.begin_move_from(*args, **kwargs)
-
-    def _begin_move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._begin_move_handle_snap(*args, **kwargs)
-
-    def _move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._move_handle_snap(*args, **kwargs)
-
-    def _apply_move_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._apply_move_displacement(*args, **kwargs)
-
-    def _apply_paste_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D5)
-        return self._modify_ctl._apply_paste_displacement(*args, **kwargs)
-
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._underlay_ctl._commit_place_import(snapped)
 
@@ -7326,34 +7242,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _apply_offset_distance(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
         return self._modify_ctl.apply_offset_distance(*args, **kwargs)
-
-    # ── Interactive Rotate (D8) ───────────────────────────────────────
-    def _press_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
-        return self._modify_ctl.press_rotate(*args, **kwargs)
-
-    def _apply_rotate_by(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
-        return self._modify_ctl.apply_rotate_by(*args, **kwargs)
-
-    # ── Array (D10 + P1 DD5) ──────────────────────────────────────────
-    def _press_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
-        return self._modify_ctl.press_array(*args, **kwargs)
-
-    def _apply_array_dynamic_input(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD5 router)
-        return self._modify_ctl.apply_array(*args, **kwargs)
-
-    # ── Scale (P1 DD4) ────────────────────────────────────────────────
-    def _press_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.press_scale(*args, **kwargs)
-
-    def _move_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.move_scale(*args, **kwargs)
-
-    def _apply_scale_factor(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.apply_scale_factor(*args, **kwargs)
-
-    # ── Flip / Mirror (P1 DD4) ────────────────────────────────────────
-    def _press_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.press_reflect(*args, **kwargs)
 
     # ── Break (2-point) ──────────────────────────────────────────────
     def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -9831,90 +9719,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .marks import request_duplicate_refresh
         request_duplicate_refresh(self)      # SB2b M10: duplicate state is derived; re-run after a bulk add
         return new_items
-
-    def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._shape_paths_for_move(*args, **kwargs)
-
-    def _clipboard_ghost_paths(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._clipboard_ghost_paths(*args, **kwargs)
-
-    def _build_move_ghost_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._build_move_ghost_base(*args, **kwargs)
-
-    def move_items(self, offset):
-        """Translate the selection by *offset* (the Move tool commit).
-
-        Returns:
-            False when D17 refused it (a fully defined item -- nothing moved,
-            the caller pushes no undo step); None with an empty selection;
-            True otherwise.
-        """
-        if not self._selected_items:
-            return
-        # Resolve any Sprinkler items to their parent Node
-        resolved = []
-        seen = set()
-        for item in self._selected_items:
-            if isinstance(item, Sprinkler) and item.node is not None:
-                item = item.node
-            if getattr(item, "MANIP_ANCHORED", False):
-                continue                   # anchored overlay (tile frame)
-            if id(item) not in seen:
-                seen.add(id(item))
-                resolved.append(item)
-        resolved = drop_carried_voids(resolved)   # a slab carries its voids (floor-opening A2)
-        if self.constraint_ctl.refuse_grounded(resolved):     # D17 (CS3)
-            self._selected_items = None
-            return False
-        # §8: the moved set's handles become drag goals; the controller
-        # re-solves on exit (before the caller's undo push).
-        with self.constraint_ctl.edit(resolved):
-            for item in resolved:
-                if isinstance(item, Node):
-                    item.moveBy(offset.x(), offset.y())
-                    item.setSelected(True)
-                    item.fitting.update()
-                elif hasattr(item, "translate"):
-                    item.translate(offset.x(), offset.y())
-                    item.setSelected(True)
-                elif hasattr(item, "manip_translate"):   # Text (D7)
-                    item.manip_translate(offset.x(), offset.y())
-                    item.setSelected(True)
-        self._selected_items = None   # clear after use
-        return True
-
-    def clipboard_payload(self):
-        """The versioned FirePro3D clipboard payload (scene-tools.md I1).
-
-        Returns:
-            ``{"fp3d_clipboard", "base", "scene_role", "items",
-            "constraints"}`` (``constraints`` = the copied set's internal
-            constraint records; absent on an older payload), or None when
-            the clipboard is empty, not JSON, or lacks the current
-            ``CLIPBOARD_FORMAT_VERSION`` key (foreign).
-        """
-        from .constants import CLIPBOARD_FORMAT_VERSION
-        text = QApplication.clipboard().text()
-        if not text:
-            return None
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError:
-            return None
-        if (not isinstance(payload, dict)
-                or payload.get("fp3d_clipboard") != CLIPBOARD_FORMAT_VERSION
-                or not isinstance(payload.get("items"), list)):
-            return None
-        return payload
-
-    def clipboard_data(self):
-        """The clipboard payload's item records, or None.
-
-        Only the versioned payload is ever read from the OS clipboard (I1);
-        internal copy paths pass records to ``paste_items(data=...)``.
-        """
-        payload = self.clipboard_payload()
-        return payload["items"] if payload is not None else None
 
     # -------------------------------------------------------------------------
     # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)
