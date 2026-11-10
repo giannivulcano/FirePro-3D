@@ -1111,9 +1111,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def set_mode(self, mode, template=None):
         self._text_edit_ctl.commit()     # a tool switch ends any inline edit
-        if not self.view_available and mode not in (None, "select"):
-            # Empty canvas (view-3d.md I5): no view to author in.
-            self.instructionChanged.emit(NO_VIEW_HINT)
+        if self._view_refused(mode):
             return
         if not self.authoring_allowed(mode):
             # containment C1: loose-geometry/text/dimension authoring is refused
@@ -1129,18 +1127,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             # Editor or plan, editor-build design s2); refused at the shared
             # entry every ribbon/shortcut path hits.
             return
-        if (mode in ("move", "rotate", "scale")
-                and self.constraint_ctl.refuse_grounded(self.selectedItems())):
-            # D17 (CS3): fully defined geometry is never transformed; refused
-            # at the same shared entry (the commits re-check, move_items /
-            # commit_rotate / commit_scale / commit_reflect).
-            return
-        if (mode == "flip" and self.constraint_ctl.refuse_grounded(
-                flip_refusal_targets(self.selectedItems()))):
-            # D45 as refined 2026-10-12 (design DD8): Flip refuses only a
-            # fully defined BLOCK instance -- its mirror / rotation live
-            # outside the solver; grounded primitives flip and re-solve.
-            # commit_reflect re-checks.
+        if self._modify_mode_refused(mode):
             return
         if mode == "place_block" and isinstance(template, str):
             from .capabilities import pick_refusal
@@ -1235,9 +1222,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._gridline_drag_original_pos = None
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
-        if mode not in ("select", "stretch", "move", "rotate", "scale",
-                        "copy_base", "duplicate", "array", "flip", "mirror",
-                        "radiation_emitter", "radiation_receiver"):
+        if mode not in self._KEEPS_SELECTION_MODES:
             self.clearSelection()
         self.preview_node.hide()
         self.pipe_target_marker.hide()
@@ -1461,9 +1446,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 self._section_preview = None
 
         # Capture current selection when entering move/rotate/scale mode from ribbon
-        if (mode in ("move", "duplicate", "rotate", "scale", "array")
-                and not self._selected_items):
-            self._selected_items = list(self.selectedItems())
+        self._capture_modify_selection(mode)
 
         # Clear OSNAP snap trace whenever mode changes
         self._snap_result = None
@@ -1472,6 +1455,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         # Emit initial step instruction for this mode
         _initial_steps = {
+            **self._MODIFY_INITIAL_STEPS,
             "select":         "Select items to edit  ·  Space = cycle similar",
             "pipe":           "Pick start node",
             "sprinkler":      "Click a node or pipe to place sprinkler",
@@ -1485,13 +1469,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             "text":           "Pick first corner",
             "note":           "Pick arrow tip",
             "set_scale":      "Pick first calibration point",
-            "move":           "Pick base point",
-            "copy_base":      "Pick base point",
-            "duplicate":      "Pick base point",
             "offset":         "Pick object to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
-            "paste":          "Click to place pasted items",
             "draw_gridline":  "Pick start point",
             "trim":           "Select cutting edge",
             "trim_pick":      "Click segment to trim (right-click to cancel)",
@@ -1499,12 +1479,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             "extend_pick":    "Click near endpoint to extend (right-click to cancel)",
             "merge_points":   "Click first endpoint",
             "align": "Click reference edge",
-            "rotate":          "Pick pivot point",
-            "array":           "Pick base point",
-            "scale":           "Pick base point",
-            "flip":            ModifyToolsController.FLIP_HINT,
-            "mirror":          "Pick mirror axis",
-            "break":           "Select object to break",
+            "break":          "Select object to break",
             "break_at_point":  "Select object to split",
             "fillet":          self._modify_ctl.FILLET_HINT,
             "chamfer":         "Click first object",
@@ -4753,6 +4728,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # Mode → schema key.  Transform modes map here too; their appliers
     # differ but the HUD contract is identical.
     _SCHEMA_FOR_MODE = {
+        **ModifyHostMixin._MODIFY_SCHEMA_FOR_MODE,
         "draw_line": "line",
         "draw_gridline": "line",
         "polyline": "line",
@@ -4771,17 +4747,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         # polygon is also intentionally absent — active_schema special-cases it
         # per step (sizing → ``polygon``, rotate → ``rotation``).
         "draw_circle": "circle",
-        "move": "displacement",
-        "paste": "displacement",
-        "duplicate": "displacement",
-        "rotate": "rotate_by",
-        # scale keeps this row for the forward-declaration tables, but
-        # active_schema overrides it after the reference point (DS1:
-        # scale_length / scale_factor by ``_scale_variant``).
-        "scale": "scale_factor",
-        # array is intentionally absent — active_schema follows its ←/→
-        # variant (array_linear / array_grid / array_polar, P1 DD5) like
-        # draw_rectangle; _APPLIER_FOR_MODE keeps the one router.
         "offset_side": "offset_distance",
         "fillet": "fillet_radius",
         "gridline_offset": "distance",
@@ -4794,6 +4759,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # landed would open a HUD whose Enter has nowhere to go.  Entries land
     # alongside their appliers, and the two tables converge.
     _APPLIER_FOR_MODE = {
+        **ModifyHostMixin._MODIFY_APPLIER_FOR_MODE,
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
         "polyline": "_commit_polyline_at",
@@ -4816,12 +4782,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "polygon": "_apply_polygon_dynamic_input",
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
-        "move": "_apply_move_displacement",
-        "paste": "_apply_paste_displacement",
-        "duplicate": "_apply_move_displacement",
-        "rotate": "_apply_rotate_by",
-        "scale": "_apply_scale_factor",
-        "array": "_apply_array_dynamic_input",
         "offset_side": "_apply_offset_distance",
         "fillet": "_apply_fillet_radius",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
@@ -5632,7 +5592,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     # ── Dispatch table: mode string → move-handler method name ─────────
     _MOVE_DISPATCH = {
-        "pick_region":              "_move_pick_region",
+        **ModifyHostMixin._MODIFY_MOVE_DISPATCH,
+        "pick_region":             "_move_pick_region",
         "pipe":                     "_move_pipe",
         "set_scale":                "_move_set_scale",
         "design_area":              "_move_design_area",
@@ -5650,19 +5611,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
-        "move":                     "_move_paste_move",
         "sprinkler":                "_move_preview_node",
-        "paste":                    "_move_paste_move",
-        "copy_base":                "_move_preview_node",
-        "duplicate":                "_move_paste_move",
         "water_supply":             "_move_preview_node",
-        "rotate":                   "_move_rotate",
-        "scale":                    "_move_scale",
         "fillet":                   "_move_fillet",
-        "array":                    "_move_array",
-        "flip":                     "_move_reflect",
-        "mirror":                   "_move_reflect",
-        "stretch":                  "_move_stretch",
+        "stretch":                 "_move_stretch",
         "wall":                     "_move_wall_router",
         "floor":                    "_move_floor_router",
         "floor_opening":            "_move_floor_router",
@@ -5697,6 +5649,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # the cursor; the Dynamic Input field-commit path calls it with the point a
     # typed value resolves to.  One preview code path, no divergence.
     _PREVIEW_DISPATCH = {
+        **ModifyHostMixin._MODIFY_PREVIEW_DISPATCH,
         "draw_line":       "_preview_from_line",
         "draw_gridline":   "_preview_from_line",
         "polyline":        "_preview_from_polyline",
@@ -5704,9 +5657,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "draw_circle":     "_preview_from_circle",
         "draw_ellipse":    "_preview_from_ellipse",
         "polygon":         "_preview_from_polygon",
-        "move":            "_preview_from_move",
-        "paste":           "_preview_from_move",
-        "duplicate":       "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
         "draw_arc":        "_preview_from_arc",
@@ -6269,6 +6219,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # Select with the item selected (so its manipulator frame shows) — instead of
     # continuously re-arming. Scope = 2D geometry + Architecture; pipe/sprinkler/
     # gridline stay continuous (network/array building). See `_end_placement`.
+    _HOST_TOOLS = frozenset(ModifyToolsController._TOOL_MODE)   # every controller tool
+    # Modes that keep the selection on entry: the modify ones + Stretch / radiation picks.
+    _KEEPS_SELECTION_MODES = ModifyHostMixin._MODIFY_KEEPS_SELECTION | {
+        "stretch", "radiation_emitter", "radiation_receiver"}
     _SINGLE_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
@@ -6287,7 +6241,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     })
 
     _PRESS_DISPATCH = {
-        "pick_region":              "_press_pick_region",
+        **ModifyHostMixin._MODIFY_PRESS_DISPATCH,
+        "pick_region":             "_press_pick_region",
         None:                       "_press_select_item",
         "select":                   "_press_select_item",
         "sprinkler":                "_press_sprinkler",
@@ -6301,19 +6256,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "design_area":              "_press_design_area",
         "room":                     "_press_room",
         "room_manual":              "_press_room_manual",
-        "paste":                    "_press_paste_move",
-        "copy_base":                "_press_copy_base",
-        "duplicate":                "_press_paste_move",
-        "move":                     "_press_paste_move",
         "place_import":             "_press_place_import",
         "offset":                   "_press_offset",
         "offset_side":              "_press_offset_side",
-        "rotate":                   "_press_rotate",
-        "array":                    "_press_array",
-        "scale":                    "_press_scale",
-        "flip":                     "_press_reflect",
-        "mirror":                   "_press_reflect",
-        "break":                    "_press_break",
+        "break":                   "_press_break",
         "break_at_point":           "_press_break_at_point",
         "fillet":                   "_press_fillet",
         "chamfer":                  "_press_chamfer",
@@ -8994,15 +8940,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         # Same gate as the placement flips above: no modifier (KeypadModifier
         # masked), not in input mode, auto-repeat accepted but ignored.
         # <-/-> toggle the left-right reflection, up/down the top-bottom one.
-        if (self.mode == "flip" and not self.is_input_mode()
-                and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
-                == Qt.KeyboardModifier.NoModifier
-                and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
-                                    Qt.Key.Key_Up, Qt.Key.Key_Down)):
-            if not event.isAutoRepeat():
-                self._modify_ctl.toggle_flip(
-                    "lr" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "ud")
-            event.accept()
+        if self._modify_flip_arrow_key(event):       # Flip arrows (D16 / DS3.2)
             return
         # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
@@ -9045,9 +8983,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     self._escape_ladder() or self.constraint_ctl.clear_selected()):
                 event.accept()
                 return
-            if self.mode and self.mode not in (None, "select"):
-                self._show_status("Mode cancelled", 2000)
-            self.set_mode(None)
+            self._cancel_mode()
         elif event.key() == Qt.Key.Key_Delete:
             if self.mode == "draw_spline" and self._spline_points:
                 self._pop_draw_spline_vertex()
@@ -9086,20 +9022,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if self.mode == "offset_side":
                 self._modify_ctl.commit_offset()
                 return
-            # Flip / Mirror: Enter commits on the hovered axis like a click
-            # (P1 DD4); no axis -> commit_reflect's refusal hint.
-            if self.mode in ("flip", "mirror"):
-                self._modify_ctl.commit_reflect()
+            if self._modify_enter_commit():         # Flip / Mirror / Array
                 return
             # Fillet: Enter commits the hovered corner like a click (DS4).
             if self.mode == "fillet":
                 self._modify_ctl.commit_fillet()
-                return
-            # Array: Enter commits at the cursor's aim with the remembered
-            # counts, like a click (D10 / DD5); a refused aim posts
-            # commit_array's reason. The typed path is the HUD.
-            if self.mode == "array":
-                self._modify_ctl.commit_array()
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:

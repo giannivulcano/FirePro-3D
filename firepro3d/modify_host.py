@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import json
 
-from PyQt6.QtCore import QPointF, pyqtSignal
+from PyQt6.QtCore import QPointF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QApplication
 
 from .constants import ARRAY_DEFAULT_MEMORY
-from .modify_tools_controller import ModifyToolsController
+from .modify_tools_controller import ModifyToolsController, flip_refusal_targets
 
 
 class _NullPreview:
@@ -155,6 +155,170 @@ class ModifyHostMixin:
         self._flip_lr = False
         self._flip_ud = False
         self._flip_quad = None
+
+    # ── Tool / mode tables (the modify slice; Model_Space splats these) ──
+    #: Controller tools this host offers (``ModifyToolsController.start``
+    #: and ``can_start`` refuse others). Offset / Fillet need the plan
+    #: 2D-geometry lists, so only Model_Space adds them.
+    _HOST_TOOLS = frozenset({"copy", "cut", "paste", "duplicate", "move",
+                             "rotate", "array", "flip", "mirror", "scale"})
+    _MODIFY_PRESS_DISPATCH = {
+        "paste":                    "_press_paste_move",
+        "copy_base":                "_press_copy_base",
+        "duplicate":                "_press_paste_move",
+        "move":                     "_press_paste_move",
+        "rotate":                   "_press_rotate",
+        "array":                    "_press_array",
+        "scale":                    "_press_scale",
+        "flip":                     "_press_reflect",
+        "mirror":                   "_press_reflect",
+    }
+    _MODIFY_MODES = frozenset(_MODIFY_PRESS_DISPATCH)
+    _MODIFY_MOVE_DISPATCH = {
+        "move":                     "_move_paste_move",
+        "paste":                    "_move_paste_move",
+        "copy_base":                "_move_preview_node",
+        "duplicate":                "_move_paste_move",
+        "rotate":                   "_move_rotate",
+        "scale":                    "_move_scale",
+        "array":                    "_move_array",
+        "flip":                     "_move_reflect",
+        "mirror":                   "_move_reflect",
+    }
+    _MODIFY_PREVIEW_DISPATCH = {
+        "move":            "_preview_from_move",
+        "paste":           "_preview_from_move",
+        "duplicate":       "_preview_from_move",
+    }
+    # Typed-input params: mode -> Dynamic Input schema key / applier name
+    # (served by Model_Space's PlacementInputCoordinator).
+    _MODIFY_SCHEMA_FOR_MODE = {
+        "move": "displacement",
+        "paste": "displacement",
+        "duplicate": "displacement",
+        "rotate": "rotate_by",
+        # scale keeps this row for the forward-declaration tables, but
+        # active_schema overrides it after the reference point (DS1:
+        # scale_length / scale_factor by ``_scale_variant``).
+        "scale": "scale_factor",
+        # array is intentionally absent — active_schema follows its ←/→
+        # variant (array_linear / array_grid / array_polar, P1 DD5) like
+        # draw_rectangle; _APPLIER_FOR_MODE keeps the one router.
+    }
+    _MODIFY_APPLIER_FOR_MODE = {
+        "move": "_apply_move_displacement",
+        "paste": "_apply_paste_displacement",
+        "duplicate": "_apply_move_displacement",
+        "rotate": "_apply_rotate_by",
+        "scale": "_apply_scale_factor",
+        "array": "_apply_array_dynamic_input",
+    }
+    _MODIFY_INITIAL_STEPS = {
+        "move":           "Pick base point",
+        "copy_base":      "Pick base point",
+        "duplicate":      "Pick base point",
+        "paste":          "Click to place pasted items",
+        "rotate":          "Pick pivot point",
+        "array":           "Pick base point",
+        "scale":           "Pick base point",
+        "flip":            ModifyToolsController.FLIP_HINT,
+        "mirror":          "Pick mirror axis",
+    }
+    # Modes that keep the selection on entry (the tools act on it).
+    _MODIFY_KEEPS_SELECTION = frozenset({"select", "move", "rotate", "scale",
+                                         "copy_base", "duplicate", "array",
+                                         "flip", "mirror"})
+    # Modes that capture the selection into _selected_items on entry.
+    _MODIFY_CAPTURE_MODES = ("move", "duplicate", "rotate", "scale", "array")
+
+    # ── set_mode gates + entry capture (moved from Model_Space.set_mode) ─
+    def _view_refused(self, mode) -> bool:
+        """Empty canvas (view-3d.md I5): no view to author in.
+        Moved from model_space.py:1185-1188."""
+        if not self.view_available and mode not in (None, "select"):
+            from .model_space import NO_VIEW_HINT
+            self.instructionChanged.emit(NO_VIEW_HINT)
+            return True
+        return False
+
+    def _modify_mode_refused(self, mode) -> bool:
+        """The constraint refusals at the shared entry. Moved from
+        model_space.py:1203-1215."""
+        if (mode in ("move", "rotate", "scale")
+                and self.constraint_ctl.refuse_grounded(self.selectedItems())):
+            # D17 (CS3): fully defined geometry is never transformed; refused
+            # at the same shared entry (the commits re-check, move_items /
+            # commit_rotate / commit_scale / commit_reflect).
+            return True
+        if (mode == "flip" and self.constraint_ctl.refuse_grounded(
+                flip_refusal_targets(self.selectedItems()))):
+            # D45 as refined 2026-10-12 (design DD8): Flip refuses only a
+            # fully defined BLOCK instance -- its mirror / rotation live
+            # outside the solver; grounded primitives flip and re-solve.
+            # commit_reflect re-checks.
+            return True
+        return False
+
+    def _capture_modify_selection(self, mode) -> None:
+        """Capture the acted-on selection when a tool is entered without
+        ``ModifyToolsController.start`` (ribbon set_mode). Moved from
+        model_space.py:1534-1537; reads the editable-selection hook."""
+        if (mode in self._MODIFY_CAPTURE_MODES
+                and not self._selected_items):
+            self._selected_items = list(self.modify_selection())
+
+    def modify_selection(self) -> list:
+        """Editable-selection hook: the items the modify tools act on.
+
+        Default: the whole selection. SectionScene narrows it to its
+        editable subset (design D2 / R3).
+        """
+        return list(self.selectedItems())
+
+    def modify_empty_hint(self) -> str:
+        """Status text when a select-first tool finds nothing to act on."""
+        return "Select items first"
+
+    # ── Modify keys (moved from Model_Space.keyPressEvent) ───────────────
+    def _modify_flip_arrow_key(self, event) -> bool:
+        """Moved from model_space.py:9162-9175. True when consumed."""
+        # ── Flip arrows (scene-tools D16 / DS3.2) ────────────────────────────
+        # Same gate as the placement flips above: no modifier (KeypadModifier
+        # masked), not in input mode, auto-repeat accepted but ignored.
+        # <-/-> toggle the left-right reflection, up/down the top-bottom one.
+        if (self.mode == "flip" and not self.is_input_mode()
+                and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
+                == Qt.KeyboardModifier.NoModifier
+                and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                                    Qt.Key.Key_Up, Qt.Key.Key_Down)):
+            if not event.isAutoRepeat():
+                self._modify_ctl.toggle_flip(
+                    "lr" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "ud")
+            event.accept()
+            return True
+        return False
+
+    def _modify_enter_commit(self) -> bool:
+        """Enter commits Flip / Mirror / Array like a click. Moved from
+        model_space.py:9256-9272. True when the mode took the Enter."""
+        # Flip / Mirror: Enter commits on the hovered axis like a click
+        # (P1 DD4); no axis -> commit_reflect's refusal hint.
+        if self.mode in ("flip", "mirror"):
+            self._modify_ctl.commit_reflect()
+            return True
+        # Array: Enter commits at the cursor's aim with the remembered
+        # counts, like a click (D10 / DD5); a refused aim posts
+        # commit_array's reason. The typed path is the HUD.
+        if self.mode == "array":
+            self._modify_ctl.commit_array()
+            return True
+        return False
+
+    def _cancel_mode(self) -> None:
+        """Esc out of a tool mode. Moved from model_space.py:9217-9219."""
+        if self.mode and self.mode not in (None, "select"):
+            self._show_status("Mode cancelled", 2000)
+        self.set_mode(None)
 
     # ── Host hooks with defaults (Model_Space overrides several) ─────────
     def _visible_view(self):

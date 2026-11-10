@@ -100,3 +100,66 @@ def test_init_modify_host_refuses_a_host_missing_a_required_method(qapp):
 
     with pytest.raises(TypeError, match="push_undo_state"):
         _Bare()._init_modify_host()
+
+
+# The modify rows of the five Model_Space tables, copied from the raw source
+# at the pre-B-4 tree (model_space.py, the literal dict rows), NOT read back
+# from the module after the move (integrator R-B-01).
+HEAD_PRESS_ROWS = {
+    "paste": "_press_paste_move", "copy_base": "_press_copy_base",
+    "duplicate": "_press_paste_move", "move": "_press_paste_move",
+    "rotate": "_press_rotate", "array": "_press_array",
+    "scale": "_press_scale", "flip": "_press_reflect",
+    "mirror": "_press_reflect"}
+HEAD_MOVE_ROWS = {
+    "move": "_move_paste_move", "paste": "_move_paste_move",
+    "copy_base": "_move_preview_node", "duplicate": "_move_paste_move",
+    "rotate": "_move_rotate", "scale": "_move_scale", "array": "_move_array",
+    "flip": "_move_reflect", "mirror": "_move_reflect"}
+HEAD_PREVIEW_ROWS = {
+    "move": "_preview_from_move", "paste": "_preview_from_move",
+    "duplicate": "_preview_from_move"}
+HEAD_SCHEMA_ROWS = {
+    "move": "displacement", "paste": "displacement",
+    "duplicate": "displacement", "rotate": "rotate_by",
+    "scale": "scale_factor"}
+HEAD_APPLIER_ROWS = {
+    "move": "_apply_move_displacement", "paste": "_apply_paste_displacement",
+    "duplicate": "_apply_move_displacement", "rotate": "_apply_rotate_by",
+    "scale": "_apply_scale_factor", "array": "_apply_array_dynamic_input"}
+
+
+def test_model_space_tables_carry_the_modify_slices():
+    """Each Model_Space table holds the mixin's slice unchanged (the slice is
+    the one home of the modify rows, splatted into the plan tables), and the
+    slices equal the HEAD source rows."""
+    pairs = ((Model_Space._PRESS_DISPATCH, ModifyHostMixin._MODIFY_PRESS_DISPATCH, HEAD_PRESS_ROWS),
+             (Model_Space._MOVE_DISPATCH, ModifyHostMixin._MODIFY_MOVE_DISPATCH, HEAD_MOVE_ROWS),
+             (Model_Space._PREVIEW_DISPATCH, ModifyHostMixin._MODIFY_PREVIEW_DISPATCH, HEAD_PREVIEW_ROWS),
+             (Model_Space._SCHEMA_FOR_MODE, ModifyHostMixin._MODIFY_SCHEMA_FOR_MODE, HEAD_SCHEMA_ROWS),
+             (Model_Space._APPLIER_FOR_MODE, ModifyHostMixin._MODIFY_APPLIER_FOR_MODE, HEAD_APPLIER_ROWS))
+    for table, slice_, head in pairs:
+        assert slice_ and {k: table[k] for k in slice_} == slice_
+        assert slice_ == head
+        assert {k: table[k] for k in head} == head
+    assert set(ModifyHostMixin._MODIFY_PRESS_DISPATCH) == ModifyHostMixin._MODIFY_MODES
+    assert set(ModifyHostMixin._MODIFY_MOVE_DISPATCH) == ModifyHostMixin._MODIFY_MODES
+    # Model_Space hosts every controller tool; the mixin default hosts the
+    # ten section tools (no Offset / Fillet: they need the 2D-geometry lists).
+    from firepro3d.modify_tools_controller import ModifyToolsController
+    assert Model_Space._HOST_TOOLS == frozenset(ModifyToolsController._TOOL_MODE)
+    assert ModifyHostMixin._HOST_TOOLS == frozenset(
+        ModifyToolsController._TOOL_MODE) - {"offset", "fillet"}
+
+
+@pytest.mark.parametrize("mode, text", [
+    ("move", "Pick base point"), ("copy_base", "Pick base point"),
+    ("duplicate", "Pick base point"), ("rotate", "Pick pivot point"),
+    ("scale", "Pick base point"), ("mirror", "Pick mirror axis")])
+def test_plan_entry_instruction_unchanged(model_space, mode, text):
+    """Behaviour-neutral: the plan scene still emits the same entry line."""
+    got = []
+    model_space.instructionChanged.connect(got.append)
+    model_space.set_mode(mode)
+    assert model_space.mode == mode
+    assert got and got[-1] == text
