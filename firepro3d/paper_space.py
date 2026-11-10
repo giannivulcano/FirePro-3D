@@ -613,6 +613,18 @@ class SheetManager:
 # SheetProperties — property-panel adapter for a Sheet (spec §19.4)
 # ─────────────────────────────────────────────────────────────────────────────
 
+LINKED_SCALE_OPTIONS = ("Fit", "1x", "2x", SCALE_CUSTOM)
+"""Page Scale row entries (sheet-linked-document design D7, AC4)."""
+
+
+def _linked_scale_label(ld: "LinkedDocData") -> str:
+    """The Page Scale row value for a link's scale setting."""
+    fixed = {"fit": "Fit", "1": "1x", "2": "2x"}
+    if ld.scale_mode in fixed:
+        return fixed[ld.scale_mode]
+    return f"Custom ({ld.scale_custom:g}x)"
+
+
 class SheetProperties:
     """Property-panel adapter for a Sheet (duck-typed protocol, spec §19.4).
 
@@ -626,15 +638,17 @@ class SheetProperties:
     _TB_KEYS = ("Rev", "Date", "Drawn By", "Checked By")
 
     def __init__(self, sheet: "Sheet", manager: "SheetManager",
-                 on_change=None, on_reject=None, scene_getter=None):
+                 on_change=None, on_reject=None, scene_getter=None,
+                 linked_docs=None):
         self._sheet = sheet
         self._mgr = manager
         self._on_change = on_change or (lambda: None)
         self._on_reject = on_reject or (lambda msg: None)
         self._scene_getter = scene_getter or (lambda: None)
+        self._linked = linked_docs      # LinkedDocService, or None (no link flows)
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Sheet Number": {"type": "string", "value": self._sheet.number},
             "Sheet Name": {"type": "string", "value": self._sheet.name},
             "Paper Size": {"type": "label", "value": self._sheet.paper_size},
@@ -653,6 +667,123 @@ class SheetProperties:
             "": {"type": "button", "value": "Edit Revisions…",
                  "callback": self._open_revisions},
         }
+        props.update(self._linked_rows())
+        return props
+
+    # -- Linked document rows (sheet-linked-document design D6, D7, D11, D12) --
+
+    def _linked_rows(self) -> dict:
+        ld = self._sheet.linked_document
+        svc = self._linked
+        if ld is None:
+            return {
+                "Linked Document": {
+                    "type": "button", "value": "Link…",
+                    "callback": self._link_document,
+                    "enabled": svc is not None,
+                    "tooltip": "Show one page of a Word or PDF file on this sheet."},
+            }
+        exists = os.path.isfile(ld.path)
+        n_pages = max(ld.source_pages, ld.page, 1)
+        scale_value = _linked_scale_label(ld)
+        scale_opts = list(LINKED_SCALE_OPTIONS)
+        if scale_value not in scale_opts:
+            scale_opts = [scale_value] + scale_opts
+        w, h = sheet_page_mm(self._sheet)
+        try:
+            used = f"{_ld.placement(ld, w, h).scale:g}x"
+        except _ld.SnapshotError:
+            used = "-"
+        return {
+            "Linked Document": {
+                "type": "label",
+                "value": f"{os.path.basename(ld.path)}, page {ld.page}",
+                "tooltip": ld.path},
+            "ld_relink": {"type": "button", "label": "", "value": "Relink…",
+                          "callback": self._relink_document,
+                          "enabled": svc is not None},
+            "ld_unlink": {"type": "button", "label": "", "value": "Unlink",
+                          "callback": self._unlink_document},
+            "ld_refresh": {"type": "button", "label": "", "value": "Refresh",
+                           "callback": self._refresh_document,
+                           "enabled": svc is not None and exists},
+            "ld_open": {"type": "button", "label": "",
+                        "value": "Open in Word" if _ld.is_docx(ld.path) else "Open PDF",
+                        "callback": self._open_document, "enabled": exists},
+            "Linked Page": {"type": "enum", "value": str(ld.page),
+                            "options": [str(i) for i in range(1, n_pages + 1)]},
+            "Page Scale": {"type": "enum", "value": scale_value,
+                           "options": scale_opts},
+            "Scale Used": {"type": "label", "value": used},
+        }
+
+    def _link_document(self) -> None:
+        scene = self._scene_getter()
+        if self._linked is not None and scene is not None:
+            self._linked.link_interactive(scene, self._sheet, relink=False,
+                                          on_done=self._on_change)
+
+    def _relink_document(self) -> None:
+        scene = self._scene_getter()
+        if self._linked is not None and scene is not None:
+            self._linked.link_interactive(scene, self._sheet, relink=True,
+                                          on_done=self._on_change)
+
+    def _unlink_document(self) -> None:
+        scene = self._scene_getter()
+        if scene is None or self._sheet.linked_document is None:
+            return
+        from .paper_commands import SetLinkedDocumentCommand
+        scene.undo_stack.push(SetLinkedDocumentCommand(
+            scene, self._sheet, None, "Unlink Document"))
+        self._on_change()
+
+    def _refresh_document(self) -> None:
+        ld = self._sheet.linked_document
+        if self._linked is not None and ld is not None:
+            self._linked.request_refresh(ld.path)
+
+    def _open_document(self) -> None:
+        ld = self._sheet.linked_document
+        if ld is not None and not _ld.open_source(ld.path):
+            self._on_reject(f"{os.path.basename(ld.path)} was not found.")
+
+    def _set_linked_page(self, value) -> None:
+        ld = self._sheet.linked_document
+        scene = self._scene_getter()
+        try:
+            page = int(str(value))
+        except ValueError:
+            return
+        if (ld is None or page == ld.page or scene is None
+                or self._linked is None):
+            return
+        self._linked.change_page(scene, self._sheet, page,
+                                 on_done=self._on_change)
+
+    def _set_linked_scale(self, text: str) -> None:
+        ld = self._sheet.linked_document
+        scene = self._scene_getter()
+        if ld is None or scene is None:
+            return
+        fixed = {"Fit": "fit", "1x": "1", "2x": "2"}
+        if text in fixed:
+            mode, custom = fixed[text], ld.scale_custom
+        elif text == SCALE_CUSTOM:
+            from .linked_doc_service import ask_custom_scale
+            value = ask_custom_scale(None, ld.scale_custom)
+            if value is None:
+                return                  # the panel refresh re-shows the old value
+            mode, custom = "custom", float(value)
+        else:
+            return                      # the current "Custom (Nx)" entry re-picked
+        if (mode, custom) == (ld.scale_mode, ld.scale_custom):
+            return
+        from .paper_commands import SetLinkedDocumentCommand
+        scene.undo_stack.push(SetLinkedDocumentCommand(
+            scene, self._sheet, replace(ld, scale_mode=mode, scale_custom=custom),
+            "Change Linked Scale"))
+        self._on_change()
 
     def _open_revisions(self):
         """Open the revisions dialog and fire on_change on dismiss."""
@@ -675,6 +806,12 @@ class SheetProperties:
             key: Property label from ``get_properties()``.
             value: New value (coerced to ``str`` and stripped).
         """
+        if key == "Linked Page":
+            self._set_linked_page(value)
+            return
+        if key == "Page Scale":
+            self._set_linked_scale(str(value))
+            return
         if key in self._TB_KEYS:
             scene = self._scene_getter()
             if str(value) == self._sheet.title_block_fields.get(key, ""):
