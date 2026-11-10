@@ -1718,14 +1718,16 @@ class TestMainWindowWiring:
 
         orig_render_sheet = paper_export.render_sheet
 
-        def _spy_render(sh, res, painter, target_rect, template=None, project_info=None):
+        def _spy_render(sh, res, painter, target_rect, template=None,
+                        project_info=None, **kwargs):
             # Check the scene's sceneRect inside the scene built by render_sheet.
             # Instead, just capture the w_mm/h_mm by calling sheet_page_mm directly
             # on the sheet passed — this exercises the same code path.
             from firepro3d.paper_space import sheet_page_mm as spm
             captured_scene_rect["w"], captured_scene_rect["h"] = spm(sh)
-            orig_render_sheet(sh, res, painter, target_rect, template=template,
-                              project_info=project_info)
+            return orig_render_sheet(sh, res, painter, target_rect,
+                                     template=template,
+                                     project_info=project_info, **kwargs)
 
         out = str(tmp_path / "portrait.pdf")
         with patch.object(paper_export, "render_sheet", _spy_render):
