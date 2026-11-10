@@ -98,12 +98,28 @@ def _paper_mode(item):
     return None
 
 
+def _blocks_colour(item) -> QColor:
+    """``token:blocks`` -- a By Category placement Colour (WM3 D3): the
+    Model "Blocks" colour on the canvas; on paper (every colour mode) the
+    paper "Blocks" category colour, cached on the instance for the pass by
+    ``paper_display._apply_block``, else read from the categories."""
+    if _paper_mode(item) is None:                # canvas: the Model "Blocks" colour
+        v = _pd.model_blocks_colour()
+        return resolve_colour(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item=item)
+    c = getattr(item, "_paper_blocks_colour", None)
+    if c is not None:
+        return QColor(c)
+    v = _pd.load_paper_categories()["Blocks"]["color"]
+    return _pd._paper_qcolor(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item)
+
+
 def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     """QColor for a stored colour string on the surface *item* paints on.
 
     Hex passes through ``QColor(value)`` unchanged. ``token:auto`` -> theme
     ``ink`` on canvas, black on paper; ``token:accent`` -> theme ``accent`` on
     canvas, the light-theme accent on paper; B&W paper -> black for both.
+    ``token:blocks`` (internal, WM3) -> :func:`_blocks_colour`.
     An unknown token draws as Automatic (one warning per value). ``""`` (No
     Fill / no stroke, universal picker) is fully transparent whatever *alpha*,
     so a pen, brush or text colour built from it draws nothing; ``None``
@@ -117,6 +133,8 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
         if value == TOKEN_BG:
             mode = _paper_mode(item)
             c = QColor(_th.detect().canvas_bg) if mode is None else QColor("#ffffff")
+        elif value == TOKEN_BLOCKS:
+            c = _blocks_colour(item)
         else:
             if value not in _LABELS and value not in _warned:
                 _warned.add(value)
