@@ -19,6 +19,12 @@
 
 ## Paper-space sheet output
 
+- [ ] [type:feature] Link a Word document to a sheet so its pages show on the sheet and update with the file (project specification sheets) [P2] [subject:Paper]
+  - Details: user ask 2026-11-09. The user writes project specs in Word, laid out to fit a sheet beside the title block, and wants them linked to a sheet, not retyped. Reference file: 26307 FP Specifications r1.docx. Its page is 17" x 11" landscape (ANSI B; 2x is exactly ANSI D), 4 columns, 0.5" margins, a 2.8" right margin left clear for the title block, Title + Heading1-4 numbered outline, one table, no images or fields. python-docx is not installed; PyMuPDF 1.27.2 is. Open: how the doc is rendered (Word/LibreOffice to PDF, or native reflow), page-to-sheet mapping, scale, refresh trigger, missing/locked file behaviour.
+- [ ] [type:feature] "New sheets from document…" in the sheet list: one sheet per page of a linked document in one go [P4] [subject:Paper]
+  - Details: split from the sheet-linked document run, Phase 2 Q12, 2026-11-09. Depends on the linked sheet document (line above). Right-click in the sheet list, pick a .docx/.pdf, create one sheet per page with the link set, title and number entered per sheet.
+- [ ] [type:feature] PDF export refreshes changed linked documents before exporting [P4] [subject:Paper]
+  - Details: split from the sheet-linked document run, Phase 2 Q12, 2026-11-09. Depends on the linked sheet document. Before export, check each linked file's change against its last update and refresh first, so an export never issues a copy the watch missed.
 - [ ] [type:bug] Paper polish review Minors carried, not applied [P4] [subject:Paper]
   - Details: paper polish reviews, 2026-11-05. (1) `ViewportProperties._set_scale` has no `_vp` liveness check after the Custom modal. (2) `SheetViewPropertiesDialog.accept` refuses silently when `_notify` is None. (3) `nts` typed in Custom gives NTS; decide whether that is wanted. (4) No guard redoes a title line drag or reset; undo only. (5) Seam M1, unverified: `ViewTitleLabel` bounds the line at x1 but the square cap paints 0.15 mm past it, a possible stub after an undo on a deselected viewport at high zoom; the automatic line had the same shape at base. (6) `SheetViewData.from_dict` does not apply `SCALE_RATIO_MAX`: a hand-edited ratio of 2500 reads `1:0`, nothing raises.
 - [ ] [type:bug] View title drop edges: the clamp has no floor and a few failure paths are unguarded [P4] [subject:Robustness]
