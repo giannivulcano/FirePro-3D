@@ -34,7 +34,8 @@ from .geometry_2d import (
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
-from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult, axis_snap_name
+from .snap_engine import (ALIGN_SNAP_TYPES, SnapEngine, OsnapResult, axis_snap_name,
+                          raw_cursor_mode)
 from .sketch_model import AXIS_DIRS
 from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
@@ -4300,24 +4301,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
         together in a single ``find()``, underlay geometry included), else the
         grid fallback."""
-        # S2, handles only (user decision 2026-09-25): once the Move base point
-        # is set, the destination gets NO cursor / ALIGN / grid snap — the raw
-        # cursor. Only the selection's own handles (the base point included)
-        # snap, via _move_handle_snap. The base click itself (pick_base_pos
-        # still None) snaps normally below: it is user-chosen geometry.
-        if self.mode in ("move", "duplicate") and self.pick_base_pos is not None:
-            self._snap_result = None
-            self._align_result = None
-            self._align_track_ray = None
-            return QPointF(scene_pos)
-        # Flip / Mirror (P1 DD4): the axis step picks an existing straight
-        # segment through axis_picker, so cursor SNAP and ALIGN are off — no
-        # snap glyph (snapping-engine §3: no contextual snap-by-tool). The
-        # constraint pick modes (D21 markers, raw cursor) likewise (CS4 smoke).
-        # Fillet hit-tests corners / lines on the raw cursor itself (DS4.2;
-        # smoke 2026-11-01: a snap glyph there disagreed with the aim).
-        if self.mode in ("flip", "mirror", "fillet") or (
-                isinstance(self.mode, str) and self.mode.startswith("constrain_")):
+        # Raw cursor (snap_engine.raw_cursor_mode, snapping-engine §3): Move /
+        # Duplicate once the base point is set (S2, handles only — user
+        # decision 2026-09-25; the base click itself snaps below), and the
+        # Flip / Mirror axis pick (P1 DD4), constraint picks (CS4 smoke) and
+        # Fillet's corner / line hit-test (DS4.2) — no snap glyph.
+        if raw_cursor_mode(self.mode, self.pick_base_pos):
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None

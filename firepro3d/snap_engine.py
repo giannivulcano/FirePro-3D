@@ -578,6 +578,24 @@ def _snaps_as_rect(item: QGraphicsItem) -> bool:
         and bool(getattr(item, "SNAP_AS_RECT", False)))
 
 
+def raw_cursor_mode(mode, pick_base_pos) -> bool:
+    """True when a host's tool *mode* takes the RAW cursor: no cursor SNAP and
+    no ALIGN (snapping-engine s3, no contextual snap-by-tool). Move / Duplicate
+    after the base point is picked (only the selection's own handles snap,
+    S2), and the axis / corner / constraint picks (Flip, Mirror, Fillet,
+    ``constrain_*``). Shared by ``Model_Space`` and ``SectionScene``
+    (elevation parity D3).
+
+    Args:
+        mode: The host's ``mode`` string (or None).
+        pick_base_pos: The host's picked base point, or None before the pick.
+    """
+    if mode in ("move", "duplicate") and pick_base_pos is not None:
+        return True
+    return mode in ("flip", "mirror", "fillet") or (
+        isinstance(mode, str) and mode.startswith("constrain_"))
+
+
 def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     """The one snap-target eligibility rule (snapping-engine DD6).
 

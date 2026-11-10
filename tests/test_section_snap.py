@@ -111,3 +111,16 @@ def test_wall_proxy_snaps_corner_edge_midpoint_and_centre(qapp, section_scene_fo
         assert res is not None and res.snap_type == want, (want, res)
         assert res.source_item is proxy, (want, res.source_item)
         assert (res.point.x(), res.point.y()) == pytest.approx((pt.x(), pt.y()))
+
+
+@pytest.mark.parametrize("mode,base,raw", [
+    ("move", None, False), ("move", QPointF(0, 0), True),
+    ("duplicate", QPointF(0, 0), True), ("rotate", QPointF(0, 0), False),
+    ("flip", None, True), ("mirror", None, True), ("fillet", None, True),
+    ("constrain_distance", None, True), ("select", None, False), (None, None, False),
+])
+def test_raw_cursor_mode_table(mode, base, raw):
+    """The one raw-cursor rule (snapping-engine s3), shared by Model_Space and
+    SectionScene. Rows copied from model_space.py:4402-4419 at 41a76d1b."""
+    from firepro3d.snap_engine import raw_cursor_mode
+    assert raw_cursor_mode(mode, base) is raw
