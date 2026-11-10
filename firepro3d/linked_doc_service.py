@@ -129,7 +129,7 @@ class LinkedDocService(QObject):
         self._paths: dict = {}          # file key -> path as requested
         self._started_stat: dict = {}   # file key -> (mtime, size) at start
         self._failed_stat: dict = {}    # file key -> (mtime, size) that failed
-        self._queued: set = set()     # file keys with one follow-up queued
+        self._queued: set = set()       # file keys with one follow-up queued
         self._pdf_cache: dict = {}      # file key -> (mtime, size, pdf bytes)
         self._pending: dict = {}        # file key -> [(on_ready, on_error)]
 
@@ -338,7 +338,7 @@ class LinkedDocService(QObject):
         self.watcher.set_baseline(path, mtime, size)
         self._failed_stat.pop(_key(path), None)
         self._redraw(path)
-        scene =self._scene_getter()
+        scene = self._scene_getter()
         if scene is not None:
             scene.sheetModified.emit()          # D5: dirty, not an undo step
         name = os.path.basename(path)
