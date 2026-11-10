@@ -128,7 +128,8 @@ class LinkedDocService(QObject):
         self._workers: dict = {}        # file key -> running ConvertWorker
         self._paths: dict = {}          # file key -> path as requested
         self._started_stat: dict = {}   # file key -> (mtime, size) at start
-        self._queued: set = set()       # file keys with one follow-up queued
+        self._failed_stat: dict = {}    # file key -> (mtime, size) that failed
+        self._queued: set = set()     # file keys with one follow-up queued
         self._pdf_cache: dict = {}      # file key -> (mtime, size, pdf bytes)
         self._pending: dict = {}        # file key -> [(on_ready, on_error)]
 
@@ -211,6 +212,17 @@ class LinkedDocService(QObject):
     # -- refresh -------------------------------------------------------------
 
     def _on_file_changed(self, path: str) -> None:
+        if self._closed:
+            return
+        self.rebind()                   # a folder Qt dropped is watched again
+        failed = self._failed_stat.get(_key(path))
+        if failed is not None:
+            try:
+                st = os.stat(path)
+            except OSError:
+                return
+            if (st.st_mtime, st.st_size) == failed:
+                return                  # already failed on this exact file
         self.request_refresh(path)
 
     def request_refresh(self, path: str) -> None:
@@ -274,6 +286,17 @@ class LinkedDocService(QObject):
         self._fail(path, reason)
 
     def _fail(self, path: str, reason: str) -> None:
+        k = _key(path)
+        stat = self._started_stat.get(k)
+        if stat is None:
+            try:
+                st = os.stat(path)
+                stat = (st.st_mtime, st.st_size)
+            except OSError:
+                stat = None
+        if stat is not None:
+            self._failed_stat[k] = stat     # watcher events skip this exact file
+        self.rebind()                       # a folder Qt dropped is watched again
         for s in self.linked_sheets(path):
             s.linked_document.last_error = reason
         self._redraw(path)
@@ -284,8 +307,11 @@ class LinkedDocService(QObject):
     def _on_worker_finished(self) -> None:
         if self._closed:
             return
-        for k, worker in list(self._workers.items()):
-            if not worker.isFinished():
+        # QThread emits ``finished`` before it sets its finished flag, so the
+        # worker is identified by sender and joined, never gated on isFinished().
+        worker = self.sender()
+        for k, w in list(self._workers.items()):
+            if w is not worker:
                 continue
             worker.wait()
             del self._workers[k]
@@ -293,6 +319,7 @@ class LinkedDocService(QObject):
             if k in self._queued:
                 self._queued.discard(k)
                 self._start_conversion(self._paths[k])
+            break
 
     def _apply(self, path: str, pdf_bytes: bytes, mtime: float, size: int) -> None:
         sheets = self.linked_sheets(path)
@@ -309,8 +336,9 @@ class LinkedDocService(QObject):
             self._fail(path, str(exc))
             return
         self.watcher.set_baseline(path, mtime, size)
+        self._failed_stat.pop(_key(path), None)
         self._redraw(path)
-        scene = self._scene_getter()
+        scene =self._scene_getter()
         if scene is not None:
             scene.sheetModified.emit()          # D5: dirty, not an undo step
         name = os.path.basename(path)

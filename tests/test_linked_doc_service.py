@@ -289,3 +289,154 @@ def test_shutdown_joins_every_worker_thread(qapp, tmp_path, made):
     svc.shutdown()
     assert all(w.isFinished() and not w.isRunning() for w in workers)
     assert not svc.converting(str(tmp_path / "spec.docx"))
+
+
+# -- T10 review fixes: reap by sender, failed-file memory, rebind, cancel -----
+
+def test_worker_is_reaped_even_when_isfinished_is_still_false(
+        qapp, tmp_path, made, monkeypatch):
+    """QThread emits ``finished`` before it sets the finished flag (I1)."""
+    monkeypatch.setattr(doc_converter.ConvertWorker, "isFinished",
+                        lambda self: False)
+    calls = []
+
+    def conv(path):
+        calls.append(path)
+        return pdf_bytes(2, f"R{len(calls)}")
+
+    svc, scene, mgr, msgs = _service(made, [_docx_link(tmp_path, 1)],
+                                     convert_fn=conv,
+                                     word_available_fn=lambda: True)
+    docx = str(tmp_path / "spec.docx")
+    svc.request_refresh(docx)
+    assert pump_until(lambda: len(calls) == 1 and not svc.converting(docx), 5)
+    svc.request_refresh(docx)
+    assert pump_until(lambda: len(calls) == 2, 5)
+    assert pump_until(lambda: fixture_text("R2", 1) in snapshot_text(
+        mgr.sheets[0].linked_document), 5)
+
+
+def _failing_docx_service(made, tmp_path):
+    calls = []
+
+    def boom(path):
+        calls.append(path)
+        raise doc_converter.ConversionError("Word did not finish")
+
+    svc, scene, mgr, msgs = _service(made, [_docx_link(tmp_path, 1)],
+                                     convert_fn=boom,
+                                     word_available_fn=lambda: True)
+    return svc, scene, mgr, msgs, calls
+
+
+def _settle(svc, docx, calls, n):
+    assert pump_until(lambda: len(calls) == n and not svc.converting(docx), 5)
+    pump_until(lambda: False, 0.3)          # let the failure slot finish
+
+
+def test_failed_file_is_not_reconverted_by_unrelated_folder_events(
+        qapp, tmp_path, made):
+    """G2: a failed (mtime, size) is skipped by watcher events, a new save is not."""
+    svc, scene, mgr, msgs, calls = _failing_docx_service(made, tmp_path)
+    docx = tmp_path / "spec.docx"
+    docx.write_bytes(b"saved once, longer")
+    svc.watcher.changed.emit(str(docx))
+    _settle(svc, str(docx), calls, 1)
+    svc.watcher.changed.emit(str(docx))            # stat unchanged
+    svc.watcher.changed.emit(str(docx))
+    pump_until(lambda: False, 0.4)
+    assert len(calls) == 1
+    docx.write_bytes(b"saved again, even longer than before")   # a real save
+    svc.watcher.changed.emit(str(docx))
+    _settle(svc, str(docx), calls, 2)
+    svc.request_refresh(str(docx))                 # manual refresh always runs
+    _settle(svc, str(docx), calls, 3)
+
+
+def test_success_clears_the_failed_file_memory(qapp, tmp_path, made):
+    docx = tmp_path / "spec.docx"
+    outcomes = [False, True, True]
+    calls = []
+
+    def conv(path):
+        calls.append(path)
+        if not outcomes[len(calls) - 1]:
+            raise doc_converter.ConversionError("first fails")
+        return pdf_bytes(2, "OK")
+
+    svc, scene, mgr, msgs = _service(made, [_docx_link(tmp_path, 1)],
+                                     convert_fn=conv,
+                                     word_available_fn=lambda: True)
+    docx.write_bytes(b"x" * 40)
+    svc.watcher.changed.emit(str(docx))
+    _settle(svc, str(docx), calls, 1)
+    svc.request_refresh(str(docx))                 # manual: succeeds, clears
+    _settle(svc, str(docx), calls, 2)
+    docx.write_bytes(b"y" * 60)
+    svc.watcher.changed.emit(str(docx))
+    _settle(svc, str(docx), calls, 3)
+
+
+def _watched(svc):
+    return {os.path.normcase(os.path.abspath(d))
+            for d in svc.watcher.watched_dirs()}
+
+
+def test_failure_rewatches_a_dropped_folder(qapp, tmp_path, made):
+    """G1: the real watcher's directory set regains a folder Qt dropped."""
+    svc, scene, mgr, msgs, calls = _failing_docx_service(made, tmp_path)
+    docx = tmp_path / "spec.docx"
+    docx.write_bytes(b"changed on disk")
+    svc.rebind()
+    folder = os.path.normcase(os.path.abspath(str(tmp_path)))
+    assert folder in _watched(svc)
+    svc.watcher._fsw.removePaths(svc.watcher._fsw.directories())  # Qt dropped it
+    assert folder not in _watched(svc)
+    svc.request_refresh(str(docx))
+    _settle(svc, str(docx), calls, 1)
+    assert folder in _watched(svc)
+
+
+def test_folder_event_rewatches_a_dropped_folder(qapp, tmp_path, made):
+    """G1: a successful refresh path (no failure) also re-watches the folder."""
+    src = build_fixture_pdf(tmp_path / "spec.pdf", 1)
+    svc, scene, mgr, msgs = _service(made, [make_link(src, 1)])
+    svc.rebind()
+    folder = os.path.normcase(os.path.abspath(str(tmp_path)))
+    assert folder in _watched(svc)
+    svc.watcher._fsw.removePaths(svc.watcher._fsw.directories())
+    assert folder not in _watched(svc)
+    svc.watcher.changed.emit(str(src))
+    assert folder in _watched(svc)
+
+
+def test_shutdown_cancels_a_worker_that_waits_on_its_cancel_event(
+        qapp, tmp_path, made):
+    """I3: only worker.cancel() frees this conversion; the join is 2 s."""
+    started, got_worker = threading.Event(), threading.Event()
+    holder = []
+
+    def stub(_path):
+        started.set()
+        got_worker.wait(5)
+        if not holder[0].cancel_event.wait(10):
+            return pdf_bytes(2, "NEVER")
+        raise doc_converter.ConversionCancelled("cancelled")
+
+    svc, scene, mgr, msgs = _service(made, [_docx_link(tmp_path, 1)],
+                                     convert_fn=stub,
+                                     word_available_fn=lambda: True)
+    svc.request_refresh(str(tmp_path / "spec.docx"))
+    assert started.wait(5)
+    worker = svc.findChildren(doc_converter.ConvertWorker)[0]
+    holder.append(worker)
+    got_worker.set()
+    try:
+        t0 = time.monotonic()
+        svc.shutdown()
+        elapsed = time.monotonic() - t0
+        assert elapsed < 1.0
+        assert not worker.isRunning()
+    finally:
+        worker.cancel()
+        worker.wait(3000)
