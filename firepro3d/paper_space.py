@@ -16,8 +16,9 @@ from __future__ import annotations
 import datetime
 import json
 import math
+import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from .constants import (
     DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
@@ -26,6 +27,8 @@ from .constants import (
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
     VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM, SCALE_RATIO_MAX,
     VIEW_TITLE_LINE_MIN_MM,
+    Z_PAPER_LINKED_PAGE, Z_PAPER_LINKED_BADGE,
+    LINKED_BADGE_CAP_MM, LINKED_BADGE_PAD_MM, LINKED_BADGE_FILL, LINKED_BADGE_INK,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -36,6 +39,8 @@ from .text_item import (  # text-height pt/mm helpers -- one home in text_item (
 )
 from .house_dialog import HouseDialog
 from .linked_document import LinkedDocData
+from . import linked_document as _ld
+from . import doc_converter
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsObject, QGraphicsTextItem,
@@ -2861,6 +2866,98 @@ class _MoveTextBoxAdapter(ResizeTextBoxCommand):
         self.setText("Move Text")
 
 
+class LinkedPageItem(QGraphicsItem):
+    """The sheet's linked document page (sheet-linked-document design D1b).
+
+    Paints a raster of the one-page snapshot at the device's resolution (screen:
+    the view's zoom on a 1.5x ladder capped at 300 dpi; print: the printer's,
+    capped), clipped to the drawing area. Sits above the paper background and
+    below the title block (``Z_PAPER_LINKED_PAGE``). Not selectable, not
+    movable, takes no mouse button: it is a sheet property, not a placed item.
+    """
+
+    def __init__(self, snapshot_b64: str, place_rect: QRectF, area: QRectF,
+                 scale: float, parent=None):
+        super().__init__(parent)
+        self._snapshot = snapshot_b64
+        self._rect = QRectF(place_rect)
+        self._clip = QRectF(place_rect).intersected(area)
+        self._scale = scale
+        self.last_dpi = 0.0
+        self.setZValue(Z_PAPER_LINKED_PAGE)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    def placement_rect(self) -> QRectF:
+        """The whole page's rect on the sheet (paper mm, before the clip)."""
+        return QRectF(self._rect)
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(self._clip)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        if self._clip.isEmpty():
+            return
+        t = painter.worldTransform()
+        px_per_mm = math.hypot(t.m11(), t.m12())
+        dev = painter.device()
+        dpr = dev.devicePixelRatioF() if dev is not None else 1.0
+        needed = px_per_mm * dpr * 25.4 * self._scale
+        dpi = _ld.raster_dpi(needed, screen=widget is not None)
+        img = _ld.render_snapshot(self._snapshot, dpi)
+        if img is None or img.isNull():
+            return
+        self.last_dpi = dpi
+        painter.save()
+        painter.setClipRect(self._clip, Qt.ClipOperation.IntersectClip)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawImage(self._rect, img)
+        painter.restore()
+
+
+class LinkedPageBadge(QGraphicsItem):
+    """Screen-only one-line badge for the linked page (design D9).
+
+    Top-left of the drawing area, above every sheet item. ``render_sheet``
+    hides it through ``PaperScene.prepare_for_output``, so it never prints or
+    exports (Q14).
+    """
+
+    def __init__(self, text: str, anchor: QPointF, parent=None):
+        super().__init__(parent)
+        self._text = text
+        f = QFont("Arial")
+        f.setPixelSize(TEXT_METRIC_REF_PX)
+        fm = QFontMetricsF(f)
+        s = LINKED_BADGE_CAP_MM / (fm.capHeight() or 1.0)
+        pad = LINKED_BADGE_PAD_MM
+        self._rect = QRectF(anchor.x() + pad, anchor.y() + pad,
+                            fm.horizontalAdvance(text) * s + 2 * pad,
+                            fm.height() * s + 2 * pad)
+        self.setZValue(Z_PAPER_LINKED_BADGE)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    def text(self) -> str:
+        """The badge line shown on screen."""
+        return self._text
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(self._rect)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        if not self._text:
+            return
+        painter.fillRect(self._rect, QColor(LINKED_BADGE_FILL))
+        pad = LINKED_BADGE_PAD_MM
+        _draw_mm_text(painter, self._rect.adjusted(pad, pad, -pad, -pad),
+                      self._text, LINKED_BADGE_CAP_MM,
+                      align=Qt.AlignmentFlag.AlignLeft
+                      | Qt.AlignmentFlag.AlignVCenter,
+                      color=LINKED_BADGE_INK)
+
+
 class PaperScene(QGraphicsScene):
     """QGraphicsScene representing one paper layout.
 
@@ -3069,6 +3166,82 @@ class PaperScene(QGraphicsScene):
         finally:
             self._suppress_modified = False
 
+    # -- Linked document page (sheet-linked-document design) ----------------
+
+    def drawing_area(self) -> QRectF:
+        """The sheet's drawing area, paper mm (design "Z order and clip").
+
+        The template's solved ``area_rect`` when a template title block is
+        shown; otherwise the drawing-border rect ``_setup`` draws from
+        ``MARGIN``. Screen, print and export all clip to this one rect.
+        """
+        if isinstance(self._title_tb, TitleBlockTemplateItem):
+            return QRectF(self._title_tb._layout.area_rect)
+        w, h = sheet_page_mm(self._sheet)
+        return QRectF(MARGIN, MARGIN, w - 2 * MARGIN, h - 2 * MARGIN)
+
+    def _build_linked_page(self) -> None:
+        """Add the linked page item and its badge for the current sheet."""
+        self._linked_item = None
+        self._linked_badge = None
+        ld = self._sheet.linked_document
+        if ld is None:
+            return
+        w, h = sheet_page_mm(self._sheet)
+        area = self.drawing_area()
+        try:
+            geo = _ld.placement(ld, w, h)
+        except _ld.SnapshotError:
+            geo = None
+        if geo is not None:
+            self._linked_item = LinkedPageItem(ld.snapshot_pdf, geo.rect, area,
+                                               geo.scale)
+            self.addItem(self._linked_item)
+        word_ok = doc_converter.word_available() if _ld.is_docx(ld.path) else True
+        text = _ld.badge_text(ld, sheet_w=w, sheet_h=h, area=area,
+                              file_exists=os.path.isfile(ld.path),
+                              word_ok=word_ok)
+        self._linked_badge = LinkedPageBadge(text, area.topLeft())
+        self.addItem(self._linked_badge)
+        self._linked_badge.setVisible(bool(text))
+
+    def refresh_linked_page(self) -> None:
+        """Rebuild only the linked page + badge (a link edit or a refresh)."""
+        for item in (self._linked_item, self._linked_badge):
+            if item is not None and item.scene() is self:
+                self.removeItem(item)
+        self._build_linked_page()
+
+    def linked_page_item(self) -> "LinkedPageItem | None":
+        """The linked page item, or None when the sheet has no link."""
+        return self._linked_item
+
+    def linked_badge(self) -> "LinkedPageBadge | None":
+        """The screen-only badge, or None when the sheet has no link."""
+        return self._linked_badge
+
+    def prepare_for_output(self, *, export_pass: bool = False) -> None:
+        """Ready this transient scene for print or export (design D1, D1b, D9).
+
+        The badge never prints. On the export pass the linked page item and
+        the paper background fill are left out: export places the vector page
+        under the sheet afterwards and the white fill would cover it.
+        """
+        if self._linked_badge is not None:
+            self._linked_badge.hide()
+        if export_pass and self._linked_item is not None:
+            self._linked_item.hide()
+            if self._bg_item is not None:
+                self._bg_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+
+    def linked_export_geometry(self) -> "_ld.ExportGeometry | None":
+        """Where the export post-pass places this sheet's linked page (D1)."""
+        ld = self._sheet.linked_document
+        if ld is None:
+            return None
+        w, h = sheet_page_mm(self._sheet)
+        return _ld.export_geometry(ld, w, h, self.drawing_area())
+
     @property
     def undo_stack(self) -> QUndoStack:
         """The paper-space-scoped QUndoStack owned by this scene."""
@@ -3142,6 +3315,10 @@ class PaperScene(QGraphicsScene):
                 QBrush(Qt.BrushStyle.NoBrush),
             )
             border.setZValue(2)
+
+        # Linked document page + badge (sheet-linked-document design): after the
+        # title block so the drawing area is known; z sits under it.
+        self._build_linked_page()
 
         # Vestigial programmatic block: kept for the title_block property + the
         # Scale-value refresh refs, but ALWAYS hidden — a no-template sheet
