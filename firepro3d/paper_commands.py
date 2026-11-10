@@ -6,6 +6,7 @@ destroyed/recreated on every PaperScene._setup()/paper-size change. No import
 from main.py (keeps each command unit-testable in isolation).
 """
 from __future__ import annotations
+import copy
 from PyQt6.QtGui import QUndoCommand
 from PyQt6.QtCore import QRectF
 
@@ -229,3 +230,51 @@ class EditRevisionsCommand(QUndoCommand):
     def undo(self):
         self._sheet.revisions = [dict(r) for r in self._old]
         self._scene._refresh_titleblock()
+
+
+_LINK_REFRESH_FIELDS = ("snapshot_pdf", "snapshot_at", "source_mtime",
+                        "source_size", "source_pages", "offered_pages",
+                        "last_error")
+
+
+class SetLinkedDocumentCommand(QUndoCommand):
+    """Swap a sheet's whole ``LinkedDocData`` (or None): link, relink, unlink,
+    page and scale (sheet-linked-document design D6).
+
+    Both states are deep copies, so unlink + undo restores the snapshot with
+    the link. When the restored state links the same file and page as the
+    live one, the live refresh fields carry over: a refresh is not an undo
+    step (D5), so undo never brings back a copy a refresh replaced.
+
+    Args:
+        scene: The live PaperScene (owner of the paper undo stack).
+        sheet: The Sheet whose link changes (may differ from ``scene.sheet``).
+        new_data: The new ``LinkedDocData``, or None to unlink.
+        text: Undo-menu text.
+    """
+
+    def __init__(self, scene, sheet, new_data, text: str = "Link Document"):
+        super().__init__(text)
+        self._scene, self._sheet = scene, sheet
+        self._old = copy.deepcopy(sheet.linked_document)
+        self._new = copy.deepcopy(new_data)
+
+    def _set(self, target):
+        value = copy.deepcopy(target)
+        live = self._sheet.linked_document
+        if (value is not None and live is not None
+                and value.path == live.path and value.page == live.page):
+            for name in _LINK_REFRESH_FIELDS:
+                setattr(value, name, getattr(live, name))
+
+        def op():
+            self._sheet.linked_document = value
+            if self._scene.sheet is self._sheet:
+                self._scene.refresh_linked_page()
+        self._scene._apply(op)
+
+    def redo(self):
+        self._set(self._new)
+
+    def undo(self):
+        self._set(self._old)
