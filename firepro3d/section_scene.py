@@ -810,6 +810,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     entitySelected = pyqtSignal(object)   # picked legacy entity
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
     modeChanged = pyqtSignal(str)         # "place_block" / "select" (footer badge)
+    snapToggled = pyqtSignal(bool)        # toggle_snap() ran (footer SNAP pill; D3)
     # The footer line (elevation-parity D8): the HALO readout and tool hints.
     # MainWindow._on_section_scene_built connects it to footer.set_instruction.
     instructionChanged = pyqtSignal(str)
@@ -889,6 +890,15 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         # Elevation gridlines + level datums of the current build: the snap
         # engine's line targets (snap_line_items; elevation parity D3).
         self._snap_lines: list = []
+        # Cursor snap (D3): the plan's SnapEngine, one per section scene; F3
+        # toggles this scene only. Model_Space's attribute names, so the shared
+        # manipulator / grip / handle-snap paths read them unchanged.
+        from .snap_engine import SnapEngine
+        # Read through the ``_snap_engine`` property, which syncs the plan's
+        # per-type toggles on every read (integrator OPEN-1).
+        self._snap_engine_obj = SnapEngine()
+        self._snap_result = None          # the marker SectionView paints
+        self._snap_enabled = True
 
         # Per-view Z-extent overrides keyed by gridline label live on the
         # marker (see the ``_gridline_z_overrides`` property) so they persist.
@@ -1281,10 +1291,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             self.modeChanged.emit("select")
 
     def _drop_place_state(self) -> None:
-        """Clear the armed id and remove the ghost, emitting nothing."""
+        """Clear the armed id, the placement's snap marker and the ghost,
+        emitting nothing."""
         g, self._place_ghost = self._place_ghost, None
         self._place_block_id = None
         self._place_ghost_pt = None
+        self._snap_result = None
         if g is not None and g.scene() is self:
             self.removeItem(g)
 
@@ -1339,6 +1351,111 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         rect query alone would miss the datum x gridline crossing (D3 step-1
         probe)."""
         return list(self._snap_lines)
+
+    def _snap_view(self):
+        """The view whose zoom drives the snap aperture: the shown SectionView,
+        else the last attached one (headless tests attach without showing),
+        else None (``Model_Space._snap_view`` parity)."""
+        views = self.views()
+        for v in views:
+            if v.isVisible():
+                return v
+        return views[-1] if views else None
+
+    def toggle_snap(self, enabled: bool | None = None) -> None:
+        """Toggle or set THIS section's SNAP (F3 / the footer SNAP pill through
+        ``MainWindow._active_scene()``); the plan scene's state is untouched
+        (AC13). Mirrors ``Model_Space.toggle_snap``.
+
+        Args:
+            enabled: None flips; a bool sets.
+        """
+        if enabled is None:
+            self._snap_enabled = not self._snap_enabled
+        else:
+            self._snap_enabled = bool(enabled)
+        self._snap_engine.enabled = self._snap_enabled
+        self._snap_result = None
+        for v in self.views():
+            v.viewport().update()
+        self.snapToggled.emit(self._snap_enabled)
+
+    @property
+    def _snap_engine(self):
+        """This section's ``SnapEngine`` with the plan engine's per-type
+        toggles copied in on EVERY read (integrator OPEN-1): the manipulator,
+        grip and Move handle-snap paths (``manip_handle.py:582``,
+        ``selection_manipulator.py:916/1460/1476``,
+        ``modify_tools_controller.py:831``) read ``scene._snap_engine`` and call
+        the engine directly, never ``snap_point``. None before ``__init__``
+        built it."""
+        eng = getattr(self, "_snap_engine_obj", None)
+        if eng is not None:
+            self._sync_snap_type_toggles()
+        return eng
+
+    def _sync_snap_type_toggles(self) -> None:
+        """Adopt the plan engine's per-type toggles (the footer osnap bar and
+        Settings write the plan engine only), so a section snaps to the same
+        kinds as plan."""
+        from .snap_engine import SNAP_TYPE_TOGGLES
+        src = getattr(self._ms, "_snap_engine", None)
+        if src is None:
+            return
+        for attr in SNAP_TYPE_TOGGLES:
+            setattr(self._snap_engine_obj, attr, getattr(src, attr))
+
+    def snap_point(self, scene_pos) -> QPointF:
+        """Snap *scene_pos* through this section's engine NOW (hosted-block
+        placement, a Blocks-browser drag): F3 respected, the placement ghost
+        (or the dragged grip item) excluded; the result is ``_snap_result``,
+        the marker ``SectionView.drawForeground`` paints. Replaces the retired
+        per-axis ``snap_section_point``.
+
+        Args:
+            scene_pos: Cursor, section-scene coordinates.
+
+        Returns:
+            The snapped point, or a copy of *scene_pos* (no view, snap off,
+            nothing in the aperture).
+        """
+        from .handle_snap import HandleSnapResult
+        view = self._snap_view()
+        if not self._snap_enabled or view is None:
+            self._snap_result = None
+            return QPointF(scene_pos)
+        held = self._snap_result      # (the toggles sync on the _snap_engine read below)
+        if isinstance(held, HandleSnapResult):
+            held = None     # a handle's marker, not a cursor snap (Model_Space parity)
+        res = self._snap_engine.find(
+            QPointF(scene_pos), self, view.transform(),
+            exclude=self._grip_item if self._grip_dragging else self._place_ghost,
+            held=held)
+        self._snap_result = res
+        return QPointF(res.point) if res is not None else QPointF(scene_pos)
+
+    def get_effective_position(self, scene_pos) -> QPointF:
+        """The section's cursor-snap authority — ``Model_Space``'s name and
+        contract, so ``GripHandle._cursor_point`` and the section modify host
+        (area C) reach it: the engine runs while a grip drag or a tool mode is
+        live, never in plain select mode nor in a raw-cursor mode
+        (``snap_engine.raw_cursor_mode``). No ALIGN and no grid fallback in a
+        section.
+
+        Args:
+            scene_pos: Cursor, section-scene coordinates.
+
+        Returns:
+            The snapped point, or a copy of *scene_pos* (and no marker).
+        """
+        from .snap_engine import raw_cursor_mode
+        mode = getattr(self, "mode", None)          # ModifyHostMixin (area B); None before it
+        live = ((self._grip_dragging or mode not in (None, "select"))
+                and not raw_cursor_mode(mode, getattr(self, "pick_base_pos", None)))
+        if not live:
+            self._snap_result = None
+            return QPointF(scene_pos)
+        return self.snap_point(scene_pos)
 
     def _snap_tol_scene(self, view) -> float:
         """The shared OSNAP aperture in section-scene mm at *view*'s zoom."""
@@ -1471,6 +1588,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._zones = {}
         self._cut_items = []
         self._snap_lines = []               # re-filled by the gridline / datum projections
+        self._snap_result = None            # its source items die in clear()
         self._place_ghost = None            # clear() deletes it; re-armed below
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])

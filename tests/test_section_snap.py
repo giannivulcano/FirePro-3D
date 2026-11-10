@@ -124,3 +124,95 @@ def test_raw_cursor_mode_table(mode, base, raw):
     SectionScene. Rows copied from model_space.py:4402-4419 at 41a76d1b."""
     from firepro3d.snap_engine import raw_cursor_mode
     assert raw_cursor_mode(mode, base) is raw
+
+
+def _shown_crossing_view(section_scene_for):
+    """The shown, fitted SectionView of tests/test_hosted_blocks_click._view
+    (gridline "2" at plan x = 2000 crosses the cut; host gridline "B")."""
+    from tests.test_hosted_blocks_click import _view
+    ms, sec, gl, v = _view(section_scene_for)
+    lvl = ms._level_manager.get("Level 1")
+    return ms, sec, v, QPointF(GRID_X, -lvl.elevation)
+
+
+def _px(view, n):
+    """*n* screen px in section-scene mm at *view*'s zoom."""
+    from firepro3d.snap_engine import px_to_scene
+    return px_to_scene(float(n), view.transform().m11())
+
+
+def test_f3_toggle_is_the_sections_own(qapp, section_scene_for):
+    """toggle_snap() turns the SECTION's snap off (snap_point returns the raw
+    cursor, snapToggled(False) fires) and leaves the plan scene's on (AC13)."""
+    ms, sec, v, cross = _shown_crossing_view(section_scene_for)
+    xy = lambda p: (p.x(), p.y())                     # noqa: E731
+    try:
+        near = QPointF(cross.x() + _px(v, 4), cross.y() - _px(v, 4))
+        assert xy(sec.snap_point(near)) == pytest.approx(xy(cross))   # on: the crossing
+        seen = []
+        sec.snapToggled.connect(seen.append)
+        sec.toggle_snap()
+        assert seen == [False]
+        assert xy(sec.snap_point(near)) == pytest.approx(xy(near))    # off: the raw cursor
+        assert sec._snap_result is None               # no marker to paint
+        assert ms._snap_enabled is True               # plan untouched
+        sec.toggle_snap(True)
+        assert xy(sec.snap_point(near)) == pytest.approx(xy(cross))
+    finally:
+        v.close()
+
+
+def test_section_follows_the_plan_type_toggles(qapp, section_scene_for):
+    """The footer osnap bar writes the plan engine; a section adopts its
+    per-type toggles (Intersection off -> the crossing is not offered)."""
+    ms, sec, v, cross = _shown_crossing_view(section_scene_for)
+    try:
+        ms._snap_engine.snap_intersection = False
+        sec.snap_point(QPointF(cross.x() + _px(v, 4), cross.y() - _px(v, 4)))
+        assert sec._snap_result is not None
+        assert sec._snap_result.snap_type != "intersection"
+    finally:
+        v.close()
+
+
+def test_handle_snap_paths_read_the_plan_type_toggles(qapp, section_scene_for):
+    """OPEN-1 (integrator): every reader of ``sec._snap_engine`` -- the
+    manipulator / grip / Move handle-snap paths read the attribute and call
+    the engine directly, never ``snap_point`` -- sees the plan engine's
+    per-type toggles: Intersection off in plan -> the section engine no
+    longer offers the datum x gridline crossing.
+    RED when: the ``self._sync_snap_type_toggles()`` line is deleted from the
+    ``_snap_engine`` property (the section engine keeps Intersection on)."""
+    ms, sec, v, cross = _shown_crossing_view(section_scene_for)
+    try:
+        near = QPointF(cross.x() + _px(v, 4), cross.y() - _px(v, 4))
+        on = sec._snap_engine.find(near, sec, v.transform())
+        assert on is not None and on.snap_type == "intersection"   # precondition (T13)
+        ms._snap_engine.snap_intersection = False                 # the footer osnap bar's write
+        off = sec._snap_engine.find(near, sec, v.transform())
+        assert off is None or off.snap_type != "intersection"
+    finally:
+        ms._snap_engine.snap_intersection = True
+        v.close()
+
+
+def test_gridline_grip_drag_snaps_to_a_datum(qapp, section_scene_for):
+    """A grip drag in a section snaps through get_effective_position (the
+    GripHandle cursor authority): the bottom end dropped 4 px off the Level 1
+    datum lands ON it and survives a rebuild (persisted extent)."""
+    from tests.test_elev_grip_retirement import _drive_grip
+    ms, sec, v, cross = _shown_crossing_view(section_scene_for)
+    try:
+        def gridline_2():
+            return next(it for it in sec.items()
+                        if isinstance(it, ElevGridlineItem) and abs(it._h - GRID_X) < 1e-6)
+        ex = gridline_2()
+        p2 = ex.line().p2()                           # bottom end (index 1), below Level 1
+        drop = (cross.x(), cross.y() + _px(v, 4))
+        m = _drive_grip(sec, ex, index=1, start=(p2.x(), p2.y()), path=[drop])
+        m._finish(QPointF(*drop), Qt.KeyboardModifier.NoModifier)
+        sec.rebuild()
+        ex2 = gridline_2()
+        assert ex2.line().p2().y() == pytest.approx(cross.y(), abs=1e-6)
+    finally:
+        v.close()

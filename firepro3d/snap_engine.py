@@ -868,6 +868,14 @@ class _SnapCtx:
 # SnapEngine
 # ─────────────────────────────────────────────────────────────────────────────
 
+# SnapEngine's per-type toggle attributes (the footer osnap bar / Settings
+# write them on the plan engine; a SectionScene engine copies them, D3).
+SNAP_TYPE_TOGGLES: tuple[str, ...] = (
+    "snap_endpoint", "snap_midpoint", "snap_intersection", "snap_center",
+    "snap_quadrant", "snap_nearest", "snap_perpendicular", "snap_tangent",
+)
+
+
 class SnapEngine:
     """
     Nearest SNAP resolver for a QGraphicsScene.
