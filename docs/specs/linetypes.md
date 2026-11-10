@@ -446,6 +446,29 @@ folder pick / failed load / Missing), `test_wm2_mainwindow.py` (G12 real
 MainWindow pick → repaint + one undo step), `test_wm2_parity.py` (G7 legacy
 golden recorded at base `7f97f687`, passes at base and HEAD).
 
+### WM3 — placement Colour override (designed 2026-11-09; unbuilt)
+
+Placement / nested-record **Colour** (As Authored | By Category | a colour) and the
+Model "Blocks" Colour (WM-7 / WM-8 / WM-11 / WM-12). Design, approaches and guards:
+`docs/superpowers/specs/2026-11-09-wm3-placement-colour-design.md` (D1–D7, AC1–AC9,
+G1–G9). Primitive Colour By Linetype is WM3b (`todo_open.md`).
+
+*What* (as-proposed until the build lands; rulings ratified at Phase 1 / Phase 2 FP1 /
+Phase 3 approval, 2026-11-09): one enum Colour row after Weight — `As Authored`,
+`By Category (<colour>)`, `Pick colour…`, the picked colour with its swatch (Q1);
+imported reference linework is recoloured (Weight / Linetype still skip it, Q2); the
+Model "Blocks" Colour factory is Automatic (Q3); the row is locked in pattern-tile /
+linetype-unit Block Editors (Q4); the red missing-nested placeholder is never
+recoloured; fills / hatches under B&W / Custom paper follow the existing hatch / paper
+rules as an authored fill of the same colour; perf report-only.
+
+*How* (planned): `overrides["colour"]`; `override_args` → a 3-tuple;
+`apply_overrides(colour=)` rewrites `op.colour` on every op kind except
+`RenderOp.fixed` (the placeholder); By Category is written as the internal token
+`token:blocks`, resolved at paint by `colour_tokens.resolve_colour` (canvas → Model
+"Blocks" colour, paper → the paper "Blocks" colour in every colour mode); the paper
+B&W / Custom `_paper_pen_color` stays above it.
+
 ## LT1 — Project weights, Blocks paper category, canvas mapping, Thin Lines (ratified 2026-10-03)
 
 > Slice contract for LT1 (concept LD4). The *what* was settled in the LT1
