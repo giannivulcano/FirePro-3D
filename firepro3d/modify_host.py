@@ -321,6 +321,112 @@ class ModifyHostMixin:
             self._show_status("Mode cancelled", 2000)
         self.set_mode(None)
 
+    # ── Generic entry points (hosts without Model_Space's pipeline) ──────
+    #: Modes a host runs itself beyond Select and the modify modes (S4:
+    #: SectionScene declares "note"). The generic set_mode enters them with
+    #: the same gates and teardown; the host's own handlers own their input.
+    _HOST_EXTRA_MODES: frozenset = frozenset()
+    #: Plan's Select entry text (Model_Space.set_mode's ``"select"`` row; one
+    #: home: T6 Step 4b points that row here). Integrator OPEN-8.
+    _SELECT_INSTRUCTION = "Select items to edit  ·  Space = cycle similar"
+
+    def set_mode(self, mode, template=None):
+        """Switch to *mode* on a host that is not a Model_Space.
+
+        Only Select (``None`` / ``"select"``), the modify modes and the
+        host's ``_HOST_EXTRA_MODES`` exist here; any other mode is ignored. Runs the same gates, controller
+        teardown, selection rule and entry instruction as
+        ``Model_Space.set_mode`` (which overrides this).
+
+        Args:
+            mode: The mode name, or None for Select.
+            template: Unused (signature parity with Model_Space).
+        """
+        if (mode not in (None, "select") and mode not in self._MODIFY_MODES
+                and mode not in self._HOST_EXTRA_MODES):
+            return
+        if self._view_refused(mode) or self._modify_mode_refused(mode):
+            return
+        self.mode = mode
+        self._snap_result = None            # clear stale snap marker
+        self._move_handle_session = None    # S2: a mode change ends the session
+        self._modify_ctl.clear(mode)
+        self.modeChanged.emit(mode)
+        if mode not in self._MODIFY_KEEPS_SELECTION:
+            self.clearSelection()
+        self._capture_modify_selection(mode)
+        for v in self.views():
+            v.viewport().update()
+        instr = self._MODIFY_INITIAL_STEPS.get(mode, "")
+        if instr:
+            self.instructionChanged.emit(instr)
+        if mode == "select":
+            # Plan's Select entry text (Model_Space.set_mode parity, OPEN-8).
+            self.instructionChanged.emit(self._SELECT_INSTRUCTION)
+
+    def modify_mouse_press(self, event) -> bool:
+        """Route a left press to the current modify mode's press handler.
+
+        Call first in the host's ``mousePressEvent``. The handler gets the
+        Model_Space press signature ``(event, pos, snapped, item_under,
+        node_under, pipe_under)`` with the three ``*_under`` as None (the
+        modify handlers ignore them).
+
+        Returns:
+            True when a modify mode consumed the press.
+        """
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        name = self._MODIFY_PRESS_DISPATCH.get(self.mode)
+        if name is None:
+            return False
+        scene_pos = event.scenePos()
+        snapped = self.get_effective_position(scene_pos)
+        getattr(self, name)(event, scene_pos, snapped, None, None, None)
+        event.accept()
+        return True
+
+    def modify_mouse_move(self, event) -> bool:
+        """Route a move to the current modify mode's move handler (ghost,
+        handle snap, status readout). Call first in ``mouseMoveEvent``.
+
+        Returns:
+            True when a modify mode consumed the move.
+        """
+        name = self._MODIFY_MOVE_DISPATCH.get(self.mode)
+        if name is None:
+            return False
+        scene_pos = event.scenePos()
+        self._last_scene_pos = scene_pos
+        snapped = self.get_effective_position(scene_pos)
+        self.clear_placement_state()
+        getattr(self, name)(event, snapped)
+        for v in self.views():
+            v.viewport().update()
+        return True
+
+    def modify_key_press(self, event) -> bool:
+        """Flip arrows, Enter (Flip / Mirror / Array commit) and Esc while a
+        modify mode runs. Call first in ``keyPressEvent``.
+
+        Returns:
+            True when the key was consumed.
+        """
+        if self.mode not in self._MODIFY_MODES:
+            return False
+        if self._modify_flip_arrow_key(event):
+            return True
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self._modify_enter_commit():
+                event.accept()
+                return True
+            return False
+        if event.key() == Qt.Key.Key_Escape:
+            self._cancel_mode()
+            event.accept()
+            return True
+        return False
+
     # ── Host hooks with defaults (Model_Space overrides several) ─────────
     def _visible_view(self):
         """The first visible attached view, else None (Model_Space routes

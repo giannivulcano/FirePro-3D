@@ -1456,7 +1456,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         # Emit initial step instruction for this mode
         _initial_steps = {
             **self._MODIFY_INITIAL_STEPS,
-            "select":         "Select items to edit  ·  Space = cycle similar",
+            "select":         self._SELECT_INSTRUCTION,
             "pipe":           "Pick start node",
             "sprinkler":      "Click a node or pipe to place sprinkler",
             "draw_line":      "Pick first point",
