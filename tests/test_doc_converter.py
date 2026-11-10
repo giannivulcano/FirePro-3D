@@ -116,12 +116,17 @@ def test_word_error_text_is_reported(tmp_path, monkeypatch):
 
 def test_word_error_keeps_the_wrapped_cause(tmp_path, monkeypatch):
     # Real powershell.exe -File stderr for an unregistered COM class (T5
-    # review probe): the cause is on the second console line. RED: report
-    # lines[0] only -> "Class not registered" is missing.
+    # review probes): the cause is on the second console line and the
+    # location wraps over "At " / path / "char:" lines. RED: report lines[0]
+    # only -> "Class not registered" is missing; filter only "At " -> the
+    # script path leaks into the message.
     stderr = ("New-Object : Retrieving the COM class factory for component with CLSID\n"
               "{00000000-0000-0000-0000-000000000000} failed due to the following error: 80040154 Class not registered\n"
-              "At C:\\Temp\\convert.ps1:6 char:9\n"
-              "+ $word = New-Object -ComObject Word.Application\n")
+              "At \n"
+              "C:\\Temp\\fpro_docx_x\\convert.ps1:6\n"
+              "char:9\n"
+              "+ $word = New-Object -ComObject Word.Application\n"
+              "+ CategoryInfo          : ResourceUnavailable: (:) [New-Object], COMException\n")
     src = tmp_path / "a.docx"
     src.write_bytes(b"x")
     monkeypatch.setattr(doc_converter.subprocess, "Popen",
@@ -131,7 +136,9 @@ def test_word_error_keeps_the_wrapped_cause(tmp_path, monkeypatch):
         doc_converter.convert_docx_to_pdf_bytes(str(src))
     msg = str(info.value)
     assert "Class not registered" in msg
-    assert "convert.ps1" not in msg and "+ $word" not in msg
+    assert "convert.ps1" not in msg and "char:" not in msg
+    assert "+ $word" not in msg and "CategoryInfo" not in msg
+    assert msg.endswith("80040154 Class not registered")
 
 
 def test_missing_file_is_a_conversion_error(tmp_path):

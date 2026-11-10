@@ -137,10 +137,16 @@ def convert_docx_to_pdf_bytes(docx_path: str,
         if proc.returncode != 0 or not os.path.isfile(out):
             # PowerShell wraps one error over several console lines (the
             # COM cause, e.g. "80040154 Class not registered", sits on the
-            # second), then adds "At <script>:<n>" and "+ ..." location lines.
-            lines = [ln.strip() for ln in
-                     (stderr or stdout or "").splitlines()
-                     if ln.strip() and not ln.strip().startswith(("At ", "+"))]
+            # second), then a location block: "At" (its path and "char:<n>"
+            # may wrap onto the next lines) and "+ ..." lines. Keep the
+            # message, stop at the location block.
+            lines = []
+            for ln in (stderr or stdout or "").splitlines():
+                ln = ln.strip()
+                if ln == "At" or ln.startswith("At ") or ln.startswith("+"):
+                    break
+                if ln:
+                    lines.append(ln)
             raise ConversionError(
                 " ".join(lines)[:300] if lines
                 else f"exit code {proc.returncode}")
