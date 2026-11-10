@@ -135,10 +135,15 @@ def convert_docx_to_pdf_bytes(docx_path: str,
                     raise ConversionError(
                         f"Word did not finish in {timeout} s") from None
         if proc.returncode != 0 or not os.path.isfile(out):
+            # PowerShell wraps one error over several console lines (the
+            # COM cause, e.g. "80040154 Class not registered", sits on the
+            # second), then adds "At <script>:<n>" and "+ ..." location lines.
             lines = [ln.strip() for ln in
-                     (stderr or stdout or "").splitlines() if ln.strip()]
+                     (stderr or stdout or "").splitlines()
+                     if ln.strip() and not ln.strip().startswith(("At ", "+"))]
             raise ConversionError(
-                lines[0][:200] if lines else f"exit code {proc.returncode}")
+                " ".join(lines)[:300] if lines
+                else f"exit code {proc.returncode}")
         with open(out, "rb") as fh:
             return fh.read()
     finally:

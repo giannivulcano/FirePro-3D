@@ -97,7 +97,12 @@ def test_cancel_stops_waiting_without_killing_word(tmp_path, monkeypatch):
         doc_converter.convert_docx_to_pdf_bytes(str(src), cancel=cancel)
     assert time.monotonic() - t0 < 2.0
     assert not rec["killed"]                          # PowerShell left running
-    assert os.path.isdir(os.path.dirname(rec["in_path"]))  # its folder kept
+    work = os.path.dirname(rec["in_path"])
+    try:
+        assert os.path.isdir(work)                    # its folder kept
+    finally:
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)       # no .docx copy left in %TEMP%
 
 
 def test_word_error_text_is_reported(tmp_path, monkeypatch):
@@ -107,6 +112,26 @@ def test_word_error_text_is_reported(tmp_path, monkeypatch):
                         _fake_popen({}, returncode=1, write_pdf=False))
     with pytest.raises(doc_converter.ConversionError, match="Word said no"):
         doc_converter.convert_docx_to_pdf_bytes(str(src))
+
+
+def test_word_error_keeps_the_wrapped_cause(tmp_path, monkeypatch):
+    # Real powershell.exe -File stderr for an unregistered COM class (T5
+    # review probe): the cause is on the second console line. RED: report
+    # lines[0] only -> "Class not registered" is missing.
+    stderr = ("New-Object : Retrieving the COM class factory for component with CLSID\n"
+              "{00000000-0000-0000-0000-000000000000} failed due to the following error: 80040154 Class not registered\n"
+              "At C:\\Temp\\convert.ps1:6 char:9\n"
+              "+ $word = New-Object -ComObject Word.Application\n")
+    src = tmp_path / "a.docx"
+    src.write_bytes(b"x")
+    monkeypatch.setattr(doc_converter.subprocess, "Popen",
+                        _fake_popen({}, returncode=1, write_pdf=False,
+                                    stderr=stderr))
+    with pytest.raises(doc_converter.ConversionError) as info:
+        doc_converter.convert_docx_to_pdf_bytes(str(src))
+    msg = str(info.value)
+    assert "Class not registered" in msg
+    assert "convert.ps1" not in msg and "+ $word" not in msg
 
 
 def test_missing_file_is_a_conversion_error(tmp_path):
