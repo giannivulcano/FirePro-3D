@@ -1470,8 +1470,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.section_manager.open_section(name)        # wiring: sceneBuilt / viewOpened
 
     def _on_section_scene_built(self, scene):
-        """Once per SectionScene: route its selection to the property panel."""
+        """Once per SectionScene: property panel, footer line and mode feedback."""
         scene.entitySelected.connect(self.prop_manager.show_properties)
+        # HALO "<Type> - i of N" readout and tool hints -> the footer (D8).
+        scene.instructionChanged.connect(self.footer.set_instruction)
         # Armed block placement: PLACE BLOCK badge + the plan's panel clear.
         scene.modeChanged.connect(self._update_mode_label)
         scene.modeChanged.connect(self._on_mode_changed_template)

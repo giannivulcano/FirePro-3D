@@ -135,3 +135,25 @@ def test_ctrl_a_on_a_section_tab_selects_the_section_items_once(section_win):
     assert ms.selectedItems() == [plan_gl]
     assert len([s for s in win.findChildren(QShortcut)
                 if s.key() == QKeySequence("Ctrl+A")]) == 1
+
+
+def test_halo_readout_reaches_the_footer_on_a_section_tab(section_win):
+    """AC6 / D8: hovering a section item shows plan's HALO line in the footer,
+    naming the MODEL source (not the projection class); leaving every
+    candidate clears it, as plan does."""
+    from PyQt6.QtCore import QEvent
+    from tests._note_helpers import mouse
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = win.central_tabs.currentWidget()
+    sec.clearSelection()
+    QApplication.processEvents()
+    cp = sec._hosted_copies[id(inst)]
+    centre = cp.sceneBoundingRect().center()
+    nob = Qt.MouseButton.NoButton
+    mouse(view, QEvent.Type.MouseMove, centre, buttons=nob, button=nob)
+    assert sec._halo_candidates == [cp]          # precondition: one candidate (mixin engine)
+    assert win.footer.instruction.text() == f"{type(inst).__name__} — 1 of 1"   # [RED] ''
+    far = QPointF(centre.x(), centre.y() - 20000.0)
+    mouse(view, QEvent.Type.MouseMove, far, buttons=nob, button=nob)
+    assert sec.halo_item() is None               # precondition: nothing under the cursor
+    assert win.footer.instruction.text() == ""

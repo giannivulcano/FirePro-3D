@@ -771,12 +771,38 @@ class ElevDatumItem(QGraphicsLineItem):
         self.update()
 
 
+def section_source_of(item):
+    """The model object a section item stands for (D8 readout + Properties).
+
+    A projected proxy, hosted-block copy or Note copy carries it in
+    ``_ROLE_SOURCE``; an elevation gridline stands for its plan
+    ``GridlineItem``; a level datum for its ``Level``.
+
+    Args:
+        item: A QGraphicsItem of a SectionScene.
+
+    Returns:
+        The model object, or None (ghost, decoration, unsourced item).
+    """
+    src = QGraphicsItem.data(item, _ROLE_SOURCE)
+    if src is not None:
+        return src
+    if isinstance(item, ElevGridlineItem):
+        return item._gridline
+    if isinstance(item, ElevDatumItem):
+        return item._level
+    return None
+
+
 class SectionScene(HaloSelectionMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
     entitySelected = pyqtSignal(object)   # picked legacy entity
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
     modeChanged = pyqtSignal(str)         # "place_block" / "select" (footer badge)
+    # The footer line (elevation-parity D8): the HALO readout and tool hints.
+    # MainWindow._on_section_scene_built connects it to footer.set_instruction.
+    instructionChanged = pyqtSignal(str)
 
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display on the viewport's source scene). Declared so
@@ -941,16 +967,27 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return item
 
     def _emit_halo_readout(self):
-        """Emit the HALO stack readout (§3.3) on ``cursorMoved``.
+        """Emit the HALO stack readout (selection-mode §3.3) on
+        ``instructionChanged`` -- the footer line, as
+        ``Model_Space._emit_halo_readout`` (elevation-parity D8).
 
-        Defined now to avoid a latent AttributeError from the mixin's
-        ``halo_update``; the elevation view's HALO wiring lands in the next
-        task. Format mirrors Model_Space: ``"<Type> — <i> of <N>"``."""
+        Format ``"<Type> — <i> of <N>"`` plus ``"  (<name>)"`` when the shown
+        object has a name; *Type* is the model source the item stands for
+        (``section_source_of``), so a pipe proxy reads ``Pipe``. An empty
+        string (no candidate) clears the line.
+        """
         item = self.halo_item()
         if item is None:
+            self.instructionChanged.emit("")
             return
+        src = section_source_of(item)
+        shown = src if src is not None else item
         n = len(self._halo_candidates)
-        self.cursorMoved.emit(f"{type(item).__name__} — {self._halo_index + 1} of {n}")
+        readout = f"{type(shown).__name__} — {self._halo_index + 1} of {n}"
+        name = getattr(shown, "name", None)
+        if isinstance(name, str) and name:
+            readout += f"  ({name})"
+        self.instructionChanged.emit(readout)
 
     # ── Selection sync ───────────────────────────────────────────────────
 
