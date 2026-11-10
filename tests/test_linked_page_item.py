@@ -146,3 +146,59 @@ def test_paper_size_change_recomputes_the_placement(qapp):
 def test_unlinked_sheet_adds_nothing(qapp):
     scene = _scene(None)
     assert scene.linked_page_item() is None and scene.linked_badge() is None
+
+
+def _screen_ladder(needed):
+    """The screen raster ladder from its raw constants (design Performance)."""
+    from firepro3d.constants import (
+        LINKED_PAGE_DPI_STEP, LINKED_PAGE_MIN_DPI, LINKED_PAGE_SCREEN_MAX_DPI)
+    dpi = LINKED_PAGE_MIN_DPI
+    while dpi < needed and dpi < LINKED_PAGE_SCREEN_MAX_DPI:
+        dpi *= LINKED_PAGE_DPI_STEP
+    return min(dpi, LINKED_PAGE_SCREEN_MAX_DPI)
+
+
+@pytest.mark.parametrize("zoom", [0.5, 2.0, 8.0])
+def test_screen_view_rasters_on_the_ladder_at_zoom(qapp, zoom):
+    # T6 review: every other pixel test renders with widget=None (the print
+    # branch). RED: paint passes screen=False -> zoom 2 gives the raw need
+    # (101.6 dpi), not the ladder step 121.5; zoom 8 gives 400, not 300.
+    from PyQt6.QtGui import QTransform
+    from PyQt6.QtWidgets import QGraphicsView
+    scene = _scene(make_link(TWO_PAGE, 1))
+    view = QGraphicsView(scene)
+    view.resize(400, 300)
+    view.setTransform(QTransform.fromScale(zoom, zoom))
+    view.centerOn(scene.linked_page_item().placement_rect().center())
+    try:
+        view.viewport().grab()
+        dpr = view.viewport().devicePixelRatioF()
+        needed = zoom * dpr * 25.4 * _fit("ANSI D")
+        assert scene.linked_page_item().last_dpi == pytest.approx(
+            _screen_ladder(needed))
+    finally:
+        view.setScene(None)
+        view.deleteLater()
+
+
+def test_screen_raster_follows_the_device_pixel_ratio(qapp):
+    # A hi-dpi screen (dpr 2) needs twice the source dpi. RED: drop the dpr
+    # factor -> 36 * ... ladder at 1x need (81 dpi) instead of 2x (182.25).
+    from PyQt6.QtGui import QImage, QPainter
+    from PyQt6.QtWidgets import QStyleOptionGraphicsItem, QWidget
+    scene = _scene(make_link(TWO_PAGE, 1))
+    item = scene.linked_page_item()
+    img = QImage(400, 300, QImage.Format.Format_ARGB32_Premultiplied)
+    img.setDevicePixelRatio(2.0)
+    img.fill(0xFFFFFFFF)
+    widget = QWidget()
+    painter = QPainter(img)
+    try:
+        painter.scale(1.5, 1.5)               # 1.5 logical px per mm
+        item.paint(painter, QStyleOptionGraphicsItem(), widget)
+    finally:
+        painter.end()
+        widget.deleteLater()
+    needed = 1.5 * 2.0 * 25.4 * _fit("ANSI D")
+    assert item.last_dpi == pytest.approx(_screen_ladder(needed))
+    assert item.last_dpi > _screen_ladder(needed / 2.0)
