@@ -15,7 +15,8 @@ from main import MainWindow  # noqa: E402
 from firepro3d.paper_commands import SetLinkedDocumentCommand  # noqa: E402
 from tests._mainwindow_helpers import dispose_main_window  # noqa: E402
 from tests._linked_doc_helpers import (  # noqa: E402
-    build_fixture_pdf, fixture_text, make_link, rewrite_by_rename, snapshot_text,
+    build_fixture_pdf, fixture_text, make_link, pdf_bytes, rewrite_by_rename,
+    snapshot_text,
 )
 
 
@@ -133,3 +134,99 @@ def test_delete_sheet_confirm_names_the_linked_file(_mw, tmp_path, monkeypatch):
                         or False)
     _mw._delete_sheet(_mw._sheet.number)
     assert seen and "spec.pdf" in seen[0]
+
+
+def test_recovery_open_refreshes_a_changed_file(_mw, tmp_path, monkeypatch):
+    """The recovery entry point checks linked files like File > Open does."""
+    autosave = tmp_path / "recovery.FPD"
+    monkeypatch.setattr(MainWindow, "_autosave_path",
+                        staticmethod(lambda: str(autosave)))
+    _fresh(_mw)
+    src = build_fixture_pdf(tmp_path / "docs" / "spec.pdf", 2)
+    _link(_mw, src)
+    _mw._autosave()
+    assert autosave.is_file()
+    rewrite_by_rename(src, 2, "BETA-CHANGED")
+    _fresh(_mw)
+    monkeypatch.setattr(_main_module, "themed_confirm", lambda *a, **k: True)
+    _mw._current_file = None
+    _mw._check_recovery()
+    ld = _mw.sheet_mgr.sheets[0].linked_document
+    assert ld is not None
+    assert fixture_text("BETA-CHANGED", 1) in snapshot_text(ld)
+    assert _mw._modified is True
+
+
+@pytest.fixture
+def _own_win(qapp):
+    """A throwaway window the close tests may really close."""
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    dispose_main_window(win)
+
+
+def _start_blocked_conversion(win, tmp_path):
+    """Link a .docx and start a conversion that only worker.cancel() frees."""
+    import threading
+    import time
+    from firepro3d import doc_converter
+    from firepro3d.linked_document import new_link
+    docx = tmp_path / "spec.docx"
+    docx.write_bytes(b"stand-in docx")
+    st = os.stat(docx)
+    link = new_link(str(docx), pdf_bytes(1, "ALPHA"), 1, st.st_mtime, st.st_size)
+    scene = win.paper_space_widget.paper_scene
+    scene.undo_stack.push(SetLinkedDocumentCommand(scene, win._sheet, link))
+    started, holder = threading.Event(), []
+
+    def stub(_path):
+        started.set()
+        while not holder:
+            time.sleep(0.01)
+        if holder[0].cancel_event.wait(15):
+            raise doc_converter.ConversionCancelled("cancelled")
+        return pdf_bytes(1, "NEVER")
+
+    win.linked_docs._convert_fn = stub
+    win.linked_docs._word_available_fn = lambda: True
+    win.linked_docs.request_refresh(str(docx))
+    assert started.wait(5)
+    worker = win.linked_docs.findChildren(doc_converter.ConvertWorker)[0]
+    holder.append(worker)
+    assert worker.isRunning()
+    return worker
+
+
+@pytest.mark.parametrize("modified", [False, True])
+def test_closing_the_window_stops_a_running_conversion(_own_win, tmp_path,
+                                                       monkeypatch, modified):
+    win = _own_win
+    win._modified = False
+    worker = _start_blocked_conversion(win, tmp_path)
+    win._modified = modified
+    monkeypatch.setattr(_main_module, "themed_choice",
+                        lambda *a, **k: "discard")
+    try:
+        win.close()
+        assert not worker.isRunning()
+    finally:
+        worker.cancel()
+        worker.wait(3000)
+
+
+def test_cancelled_close_keeps_the_conversion_running(_own_win, tmp_path,
+                                                      monkeypatch):
+    win = _own_win
+    win._modified = False
+    worker = _start_blocked_conversion(win, tmp_path)
+    win._modified = True
+    monkeypatch.setattr(_main_module, "themed_choice",
+                        lambda *a, **k: "cancel")
+    try:
+        win.close()
+        assert worker.isRunning()
+    finally:
+        worker.cancel()
+        worker.wait(3000)
