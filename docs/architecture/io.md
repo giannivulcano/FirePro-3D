@@ -205,3 +205,4 @@ This keeps the UI responsive during heavy file parsing. The strict separation be
 - **Display Manager** -- per-project category overrides and per-instance overrides are preserved
 - **Undo system** -- load triggers a fresh undo state push; save clears the dirty flag
 - **Paper space** -- paper mutations dirty the project and crash recovery restores sheets with full open parity; contract owned by `docs/specs/paper-space.md` §17.7
+- **Sheet-linked documents** -- a sheet's linked Word/PDF page (record + saved copy) rides inside the `sheets` key, its path stored with the underlay path helpers, and the PDF page raster helper is shared with the PDF underlay import; contract owned by [`2026-11-09-sheet-linked-document-design.md`](../superpowers/specs/2026-11-09-sheet-linked-document-design.md)
