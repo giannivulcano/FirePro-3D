@@ -13,7 +13,7 @@ import logging
 
 from PyQt6.QtWidgets import QGraphicsView
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
-from PyQt6.QtGui import QPainter, QKeySequence, QShortcut
+from PyQt6.QtGui import QPainter
 
 from . import theme as th
 
@@ -66,11 +66,9 @@ class SectionView(QGraphicsView):
         self._rb_active = False
         self._rb_end = None
 
-        # Ctrl+A — select all (excluding gridlines and datums)
-        QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
-            self._select_all_items)
-
     # ── Select All (filter annotations) ──────────────────────────────────
+    # Reached by the ONE window Ctrl+A through MainWindow._active_view (AC15);
+    # a view-level shortcut here made the key ambiguous, so neither fired.
 
     def _select_all_items(self):
         from .section_scene import ElevGridlineItem, ElevDatumItem

@@ -111,3 +111,27 @@ def test_right_click_hide_on_empty_section_canvas_hides_the_selection(
     assert fired == ["Hide"]
     assert errors == []                          # [RED] AttributeError on None.setVisible
     assert pipe._display_overrides.get("visible") is False
+
+
+def test_ctrl_a_on_a_section_tab_selects_the_section_items_once(section_win):
+    """AC15: the ONE window Ctrl+A selects every selectable section item except
+    gridlines / datums (SectionView._select_all_items), in one selection
+    change, and leaves the plan selection alone."""
+    from PyQt6.QtGui import QKeySequence, QShortcut
+    from firepro3d.section_scene import ElevDatumItem, ElevGridlineItem
+    win, ms, sec, gl, plan_gl, inst = section_win
+    crossing_pipe(ms, sec)
+    sec.clearSelection()
+    emits = []
+    sec.selectionChanged.connect(lambda: emits.append(1))
+    press(win, "Ctrl+A")
+    expected = {id(i) for i in sec.items()
+                if i.isVisible()
+                and i.flags() & i.GraphicsItemFlag.ItemIsSelectable
+                and not isinstance(i, (ElevGridlineItem, ElevDatumItem))}
+    assert expected                                    # the section has items to pick
+    assert {id(i) for i in sec.selectedItems()} == expected     # [RED] nothing selected
+    assert emits == [1]
+    assert ms.selectedItems() == [plan_gl]
+    assert len([s for s in win.findChildren(QShortcut)
+                if s.key() == QKeySequence("Ctrl+A")]) == 1

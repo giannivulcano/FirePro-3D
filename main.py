@@ -4704,11 +4704,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         return "plan"
 
     def _active_view(self):
-        """The Model_View for the active tab: the editor's view for a Block
-        Editor tab, else the plan view."""
+        """The view the window Ctrl+A acts on: the editor's view for a Block
+        Editor tab, the SectionView itself for a Section / Elevation tab
+        (AC15), else the plan view."""
+        from firepro3d.elevation_view import SectionView
         w = self._active_editor_widget()
         if w is not None:
             return w.view
+        cur = self.central_tabs.currentWidget()
+        if isinstance(cur, SectionView):
+            return cur
         return self.view
 
     # The off tooltip of the editor-only Build / Editor groups on a plan or
