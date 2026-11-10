@@ -237,13 +237,37 @@ def _pose_text(item, inst, c_def, ox, oy) -> None:
 
 
 def _bake(item, ov) -> None:
-    """Bake a placement override onto an exploded primitive (WM-11, Q6)."""
+    """Bake a placement override onto an exploded primitive (WM-11, Q6; WM3 D6).
+
+    The resolved Colour (By Category -> the current Model "Blocks" colour,
+    concrete) goes onto a text's colour (its border and leader draw in the
+    text colour; its box fill stays verbatim -- ruling R3, the canvas never
+    recolours it either), every fill layer of a filled primitive (a pattern
+    at ``token:element`` already follows the baked stroke colour) and a
+    styled primitive's ``style["colour"]``; As Authored explodes verbatim.
+    """
+    from dataclasses import replace as _dc_replace
     from . import paper_display as pd
+    from .constants import TOKEN_ELEMENT
     from .stroke_style import AS_AUTHORED, BY_CATEGORY, normalize_overrides
+    from .text_item import TextItem
+    ov = normalize_overrides(ov)
+    c = ov["colour"]
+    colour = (None if c == AS_AUTHORED
+              else pd.model_blocks_colour() if c == BY_CATEGORY else c)
+    if colour is not None and isinstance(item, TextItem):
+        item._set_property_model("Font Color", colour)          # WM3 D6: text colour
+    fl = getattr(item, "fill_layers", None)
+    if colour is not None and fl is not None and not fl.is_empty:
+        bg, pat = fl.background, fl.pattern
+        item.fill_layers = _dc_replace(
+            fl, background=None if bg is None else _dc_replace(bg, color=colour),
+            pattern=(None if pat is None else pat if pat.color == TOKEN_ELEMENT
+                     else _dc_replace(pat, color=colour)))      # WM3 D6: fill layers
+        item.update()
     st = getattr(item, "style", None)
     if st is None:
         return
-    ov = normalize_overrides(ov)
     w, lt = ov["weight"], ov["linetype"]
     if w == BY_CATEGORY:
         st["weight"] = pd.model_blocks_weight()
@@ -251,6 +275,8 @@ def _bake(item, ov) -> None:
         st["weight"] = w
     if lt != AS_AUTHORED:
         st["linetype"] = lt
+    if colour is not None:
+        st["colour"] = colour                                   # WM3 D6: stroke colour
     sync = getattr(item, "_sync_stroke_pen", None)
     if callable(sync):
         sync()
