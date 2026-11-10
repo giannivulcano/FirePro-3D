@@ -644,6 +644,15 @@ class ElevDatumItem(QGraphicsLineItem):
         t = self.head.trim_distance(ux, 0.0) if self.head.isVisible() else 0.0
         return self._bx + ux * t
 
+    def snap_segment(self) -> "tuple[QPointF, QPointF]":
+        """The DRAWN segment's ends, item coordinates: from the head's edge
+        (``line_start_h``, where ``drawForeground`` starts the line) to the
+        far end -- the endpoint / midpoint snaps ``SnapEngine._line_snaps``
+        offers (OPEN-2 ruling 2026-11-10: snap to the drawn line). T48 (F-2)
+        points the far end at ``line_end_h()``."""
+        return (QPointF(self.line_start_h(), self._v),
+                QPointF(self.line().p2().x(), self._v))
+
     def refresh_head(self) -> None:
         """Re-shape the head (block mapping, drawing scale, units, paper hooks)
         and this item's bounds + hit shape, which include it."""
@@ -876,6 +885,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._place_rot = 0.0
         self._place_mirrored = False
         self._show_datums = True
+        # Elevation gridlines + level datums of the current build: the snap
+        # engine's line targets (snap_line_items; elevation parity D3).
+        self._snap_lines: list = []
 
         # Per-view Z-extent overrides keyed by gridline label live on the
         # marker (see the ``_gridline_z_overrides`` property) so they persist.
@@ -1316,6 +1328,17 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return self.place_hosted_block(bid, scene_pt, rotation=self._place_rot,
                                        mirrored=self._place_mirrored)
 
+    # ── Snap (elevation parity D3: the plan SnapEngine) ──────────────────
+
+    def snap_line_items(self) -> list:
+        """``SnapEngine`` hook: this build's elevation gridlines and level
+        datums, taken by ``find()`` phases 2-4 like the plan's ``_gridlines``
+        (``snap_engine._line_targets``). A datum's bounding rect is its head
+        and a gridline's hit shape is trimmed at its bubbles, so the cursor
+        rect query alone would miss the datum x gridline crossing (D3 step-1
+        probe)."""
+        return list(self._snap_lines)
+
     def _snap_tol_scene(self, view) -> float:
         """The shared OSNAP aperture in section-scene mm at *view*'s zoom."""
         from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene
@@ -1446,6 +1469,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._refresh_basis()
         self._zones = {}
         self._cut_items = []
+        self._snap_lines = []               # re-filled by the gridline / datum projections
         self._place_ghost = None            # clear() deletes it; re-armed below
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
@@ -2366,6 +2390,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 grid_color, ELEV_GRIDLINE_PEN_W_MM, opacity,
                 color_src=grid_src, gridline=gl)
             self.addItem(item)
+            self._snap_lines.append(item)
 
     # ── Construction geometry ────────────────────────────────────────────
 
@@ -2431,6 +2456,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                                  scale_manager=sm)
             self.addItem(item)
             item.refresh_head()       # the head resolves its block only once in a scene
+            self._snap_lines.append(item)
 
     # ── Selection ────────────────────────────────────────────────────────
     # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable

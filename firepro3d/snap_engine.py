@@ -547,6 +547,27 @@ def _is_generic_path(item: QGraphicsItem) -> bool:
                CircleItem, RegularPolygonItem))
 
 
+def _line_targets(scene: QGraphicsScene) -> list:
+    """Long-line snap targets ``find()`` phases 2-4 take directly, because
+    their bounding rects miss their lines so the cursor rect query cannot:
+    the plan's ``_gridlines`` (bubble-only shape) plus whatever the scene's
+    optional ``snap_line_items()`` hook returns (a section's elevation
+    gridlines and level datums -- elevation parity D3).
+
+    Args:
+        scene: Any scene; one with neither attribute yields [].
+
+    Returns:
+        The candidate line items (visibility / exclude / filter are applied
+        by the caller).
+    """
+    items = list(getattr(scene, "_gridlines", None) or ())
+    hook = getattr(scene, "snap_line_items", None)
+    if callable(hook):
+        items.extend(hook())
+    return items
+
+
 def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     """The one snap-target eligibility rule (snapping-engine DD6).
 
@@ -989,8 +1010,9 @@ class SnapEngine:
                 if not self._real_at(ctx, p):
                     ctx.check(kind, p, None, name)
 
-        # Phase 2 — Gridline-to-gridline intersections
-        gl_items = [gl for gl in getattr(scene, "_gridlines", [])
+        # Phase 2 — Gridline-to-gridline intersections (every long-line
+        # target: plan gridlines + a section's elevation gridlines / datums)
+        gl_items = [gl for gl in _line_targets(scene)
                      if gl.isVisible() and (exclude is None or gl is not exclude)
                      and (item_filter is None or item_filter(gl))]
         if self.snap_intersection:
@@ -1944,10 +1966,16 @@ class SnapEngine:
     def _line_snaps(
         self, item: QGraphicsLineItem,
     ) -> list[tuple[str, QPointF, str | None]]:
-        """Endpoint + midpoint snaps for a QGraphicsLineItem."""
+        """Endpoint + midpoint snaps for a QGraphicsLineItem: the ends of its
+        ``line()``, or of the item's ``snap_segment()`` when it draws a
+        different segment (a section level datum's line starts at its head's
+        edge, elevation-parity OPEN-2 ruling). Intersection / nearest /
+        perpendicular keep using ``line()``."""
         line = item.line()
-        p1  = item.mapToScene(line.p1())
-        p2  = item.mapToScene(line.p2())
+        seg = getattr(item, "snap_segment", None)
+        a, b = seg() if callable(seg) else (line.p1(), line.p2())
+        p1  = item.mapToScene(a)
+        p2  = item.mapToScene(b)
         pts: list[tuple[str, QPointF, str | None]] = []
         if self.snap_endpoint:
             pts.append(("endpoint", p1, None))
