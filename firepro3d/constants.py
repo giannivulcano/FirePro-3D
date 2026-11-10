@@ -641,3 +641,18 @@ DISPLAY_PRECISION_MAX = 5
 DEFAULT_PRESSURE_PRECISION = 1     # psi
 DEFAULT_FLOW_PRECISION = 0         # gpm
 DEFAULT_VELOCITY_PRECISION = 1     # ft/s
+
+# -- Sheet-linked document (docs/superpowers/specs/2026-11-09-sheet-linked-document-design.md)
+PDF_PT_PER_MM = 72.0 / 25.4          # PDF user-space points per paper mm
+Z_PAPER_LINKED_PAGE = 0.5            # above the paper background (z 0), below the title block (z 1)
+Z_PAPER_LINKED_BADGE = 15_000        # screen-only badge: above every sheet item, below Z_PREVIEW
+LINKED_DOC_DEBOUNCE_MS = 1500        # folder-watch debounce (D4)
+LINKED_DOC_CONVERT_TIMEOUT_S = 120   # Word conversion timeout (D3)
+LINKED_PAGE_MIN_DPI = 36.0           # lowest raster of a linked page
+LINKED_PAGE_DPI_STEP = 1.5           # screen re-renders only past 1.5x growth (Performance)
+LINKED_PAGE_SCREEN_MAX_DPI = 300.0   # screen raster cap (Performance)
+LINKED_PAGE_PRINT_MAX_DPI = 400.0    # print raster cap, dpi of the source page (memory bound)
+LINKED_BADGE_CAP_MM = 3.0            # badge text cap height, paper mm
+LINKED_BADGE_PAD_MM = 1.0            # badge inner padding, paper mm
+LINKED_BADGE_FILL = "#FEF3C7"        # badge background (screen only, never printed)
+LINKED_BADGE_INK = "#92400E"         # badge text
