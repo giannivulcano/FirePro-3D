@@ -163,3 +163,27 @@ def test_plan_entry_instruction_unchanged(model_space, mode, text):
     model_space.set_mode(mode)
     assert model_space.mode == mode
     assert got and got[-1] == text
+
+
+def test_model_view_paints_modify_overlays_through_the_shared_function(
+        qapp, monkeypatch):
+    """Model_View hands its modify overlays to the one shared painter."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d import modify_host
+    from firepro3d.geometry_2d import LineItem
+    from tests._snap_polish_helpers import click, close_view, make_view, move
+    calls = []
+    real = modify_host.paint_modify_overlays
+    monkeypatch.setattr(modify_host, "paint_modify_overlays",
+                        lambda p, v, s: (calls.append((v, s)), real(p, v, s)))
+    view, scene = make_view(scale=1.0)   # Block Editor role, as the move suites
+    try:
+        line = LineItem(QPointF(0, 0), QPointF(100, 0))
+        scene.addItem(line); scene._draw_lines.append(line)
+        scene.select_items([line])
+        scene._modify_ctl.start("move")
+        click(view, QPointF(0, 0)); move(view, QPointF(0, 200))
+        view.viewport().repaint()
+        assert (view, scene) in calls
+    finally:
+        close_view(view, scene)
