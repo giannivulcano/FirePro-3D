@@ -127,7 +127,8 @@ def test_q12_mixed_selection_primitive_first_cannot_bypass_lock(qapp):
     QApplication.processEvents()
     assert ln.style["weight"] == "Thick"                 # the primitive took it
     assert inst.overrides == {"weight": "as_authored",
-                              "linetype": "as_authored"}
+                              "linetype": "as_authored",
+                              "colour": "as_authored"}
 
 
 # --- linetype picks on a placed block in the PROJECT scene (LT3-12 parity) --

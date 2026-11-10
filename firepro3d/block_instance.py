@@ -157,9 +157,9 @@ class BlockInstance(QGraphicsObject):
         self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
-        # Placement Weight / Linetype override (linetypes.md WM2): As
-        # Authored x2 by default; _ov_args is None while nothing overrides
-        # (render_ops' fast path returns the definition's list itself).
+        # Placement Weight / Linetype / Colour override (linetypes.md WM2,
+        # WM3): As Authored x3 by default; _ov_args is None while nothing
+        # overrides (render_ops' fast path returns the definition's list itself).
         self.overrides: dict = normalize_overrides(None)
         self._ov_args = None
         self._ov_cache = None      # (base ops list, args, derived list)
@@ -187,6 +187,9 @@ class BlockInstance(QGraphicsObject):
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
         self._paper_pen_color: Optional[QColor] = None
+        # WM3 D3: the paper "Blocks" colour a By Category placement Colour
+        # (token:blocks) paints in during a viewport pass; None on canvas.
+        self._paper_blocks_colour: Optional[QColor] = None
         # Paper mm per model mm during a viewport pass (LT2-5); None on canvas.
         self._paper_scale: Optional[float] = None
         # Placement-ghost preview (Model_Space._place_block_make_ghost): draws
@@ -534,7 +537,7 @@ class BlockInstance(QGraphicsObject):
         self.prepareGeometryChange()
         self.overrides = normalize_overrides(ov, canonical)
         a = override_args(self.overrides, canonical)
-        self._ov_args = None if a == (None, None) else a
+        self._ov_args = None if a == (None, None, None) else a
         self._ov_cache = None
         self.update()
 

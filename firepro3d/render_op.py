@@ -76,6 +76,12 @@ class RenderOp:
             definition-local (block stacking D1); None = nothing covers it.
             Ops of one covered block share one path object, so paint opens
             one clip per run.
+        fixed: Never restyled by a placement / nested-record override on
+            any axis -- the red missing-nested placeholder (WM3 D2).
+        keep_colour: Never recoloured by a placement / nested-record
+            Colour override -- a text's box fill, so the text stays
+            readable (WM3 ruling R3). Weight / linetype never touch a FILL
+            op anyway, so this is a colour-only exemption (not ``fixed``).
 
     Ops are shared flyweights — never mutate ``path`` / ``pen`` / ``origin``
     in place; build a new op (``mapped``).
@@ -97,6 +103,8 @@ class RenderOp:
     readable: bool = False
     pattern_frame: tuple | None = None
     clip_out: QPainterPath | None = None
+    fixed: bool = False
+    keep_colour: bool = False
 
     def mapped(self, t: QTransform, clips: dict | None = None) -> "RenderOp":
         """This op mapped through a similarity *t* (rigid x uniform scale,
@@ -163,23 +171,41 @@ class RenderOp:
                        readable=readable, pattern_frame=pframe, clip_out=clip)
 
 
-def apply_overrides(ops, weight=None, linetype=None):
-    """*ops* with every styled stroke's weight / linetype replaced (WM2 H2).
+def apply_overrides(ops, weight=None, linetype=None, colour=None):
+    """*ops* with a placement / nested-record override applied (WM2 H2, WM3 D2).
 
-    Keyword-agnostic: ``None`` = keep. Text / fill / pattern ops and the
-    unstyled placeholder (``weight is None``) are returned as is; the input
-    list and its shared flyweight ops are never mutated. With nothing to
+    ``None`` = keep, per axis. Weight / linetype replace styled strokes only
+    (text, fill, pattern and unstyled ``weight is None`` strokes are kept).
+    *colour* replaces ``op.colour`` on EVERY kind -- styled and imported
+    reference strokes (Q2), text, fill, pattern -- with ``by_category``
+    written as the internal ``token:blocks`` (resolved at paint) -- except a
+    ``keep_colour`` op (a text's box fill, R3). A ``fixed`` op (the
+    missing-nested placeholder) is never restyled on any axis. The input
+    list and its shared flyweight ops are never mutated; with nothing to
     replace the input list itself is returned (the As Authored fast path).
     """
-    if weight is None and linetype is None:
+    if weight is None and linetype is None and colour is None:
         return ops
     kw = {}
     if weight is not None:
         kw["weight"] = weight
     if linetype is not None:
         kw["linetype"] = linetype
-    return [replace(op, **kw) if op.kind == STROKE and op.weight is not None
-            else op for op in ops]
+    ck = colour
+    if colour is not None:
+        from .constants import TOKEN_BLOCKS
+        from .stroke_style import BY_CATEGORY
+        ck = TOKEN_BLOCKS if colour == BY_CATEGORY else colour
+    out = []
+    for op in ops:
+        if op.fixed:
+            out.append(op)              # WM3 D2: the placeholder keeps its red
+            continue
+        k = dict(kw) if kw and op.kind == STROKE and op.weight is not None else {}
+        if ck is not None and not op.keep_colour:
+            k["colour"] = ck
+        out.append(replace(op, **k) if k else op)
+    return out
 
 
 _MASK_FLATTEN = 8.0     # mask grid: curves flatten and points snap at 1/8 mm

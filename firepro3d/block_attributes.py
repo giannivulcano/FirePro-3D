@@ -317,7 +317,7 @@ class BoundPrim:
     """
     prim: dict
     transform: object
-    override_args: tuple = (None, None)
+    override_args: tuple = (None, None, None)
 
 
 def hugged_text_record(rec: dict, value: str | None = None) -> dict:
@@ -412,10 +412,11 @@ def bound_text_ops(defn, attributes: dict, host_values: dict | None, mirrored: b
                       readable=bool(rec.get("keep_upright", False)))
         t = b.transform * QTransform.fromTranslate(0.0, dy) * sm
         under, over = text_box_ops(item, QTransform())
-        out += [o.mapped(t) for o in under]
-        out.append(op.mapped(t))
-        # A nested record's override reaches its child's border (WM-6).
-        out += apply_overrides([o.mapped(t) for o in over], *b.override_args)
+        # A nested record's override reaches its child's glyphs and border
+        # (WM-6; WM3: the Colour axis recolours both). The box fill rides
+        # along but keeps its colour (keep_colour, R3).
+        out += apply_overrides([*(o.mapped(t) for o in under), op.mapped(t),
+                                *(o.mapped(t) for o in over)], *b.override_args)
     if ov_args is not None:
         out = apply_overrides(out, *ov_args)    # box borders (WM-12)
     return out, (bps, key, out)

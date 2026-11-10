@@ -53,7 +53,8 @@ def test_g6_load_prim_normalises_nested_record_overrides(qapp):
     h = _host(s, {"weight": " Thinnest "})
     h2 = BlockDefinition.from_dict(h.to_dict())
     assert h2.primitives[0]["overrides"] == {"weight": "Thinnest",
-                                             "linetype": "as_authored"}
+                                             "linetype": "as_authored",
+                                             "colour": "as_authored"}
     a = _host(s, {"weight": "as_authored"})
     assert "overrides" not in BlockDefinition.from_dict(a.to_dict()).primitives[0]
 
@@ -130,7 +131,8 @@ def test_g8_explode_composes_nested_per_axis(qapp):
                                    overrides={"weight": "Thinnest"})
     before = _runs(ms)
     (child,) = explode_instances(ms, [inst], flatten=False)
-    assert child.overrides == {"weight": "Thinnest", "linetype": "continuous"}
+    assert child.overrides == {"weight": "Thinnest", "linetype": "continuous",
+                               "colour": "as_authored"}
     assert _runs(ms) == before
     flat = explode_instances(ms, [child], flatten=True)
     assert {it.style["weight"] for it in flat} == {"Thinnest"}
