@@ -2,6 +2,14 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Paper-space sheet output -- sheet-linked Word / PDF document -- 2026-11-10
+
+- [x] [type:feature] Link a Word document to a sheet so its pages show on the sheet and update with the file (project specification sheets) [done:2026-11-10] [P2] [subject:Paper]
+  - Details: user ask 2026-11-09. The user writes project specs in Word, laid out to fit a sheet beside the title block, and wants them linked to a sheet, not retyped. Reference file: 26307 FP Specifications r1.docx. Its page is 17" x 11" landscape (ANSI B; 2x is exactly ANSI D), 4 columns, 0.5" margins, a 2.8" right margin left clear for the title block, Title + Heading1-4 numbered outline, one table, no images or fields. python-docx is not installed; PyMuPDF 1.27.2 is. Open: how the doc is rendered (Word/LibreOffice to PDF, or native reflow), page-to-sheet mapping, scale, refresh trigger, missing/locked file behaviour.
+  - Build: feature/Large, branch `feature/sheet-linked-doc` (base b6b66b51). Design `docs/superpowers/specs/2026-11-09-sheet-linked-document-design.md` (AC1-AC15). A sheet property links one page of a .docx (converted by Word in a background `powershell.exe`) or .pdf; Fit scale by default (11x17 on ANSI D = 2x), Fit / 1x / 2x / custom; clipped at the drawing area with an overlap badge; folder watch refreshes while open, changed files refresh on open; last good copy saved inside the .fpd; missing / page gone / no Word / failed / overlap / scale badges screen-only; Export PDF places the vector page under the sheet, Print draws a raster; link / relink / unlink / page / scale undoable (one command), refresh is not; Open in Word; a grown file offers sheets once. New modules: `linked_document.py`, `doc_converter.py`, `linked_doc_watcher.py`, `linked_doc_service.py`, `pdf_raster.py`. VC9 seam fix 9ec06624 (a link in flight is dropped after a sheet switch or File > New / Open). Shipped 0.96.0.
+  - Verification: per-task guards each RED-proven; keep-green 267 passed (linked-document + coupled set); live Word test passed with Word open (user); user smoke on the 26307 spec passed 2026-11-10. Full suite (VC6) waived by the user for this run.
+  - Follow-ups filed in `todo_open.md`: stale linked page after undo / auto-refresh / delete (VC9 M1, M2); Word leftovers on timeout / cancel; badge text width and GUI-thread file check; review Minors line; "New sheets from document" and refresh-before-export features.
+
 ## Paper space -- revisions table reachable and aligned -- 2026-11-09
 
 - [x] [type:bug] Sheet Properties "Edit Revisions…" button invisible; revision table floats mid-cell with text high in its rows [done:2026-11-09] [P2] [subject:UX]
