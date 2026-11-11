@@ -1226,6 +1226,11 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         entered over a mixed selection says how many items it leaves alone
         (they stay selected and unchanged)."""
         super()._capture_modify_selection(mode)
+        if mode in self._SKIP_REPORT_MODES:
+            # The mixin captures only when nothing is held, so a bare
+            # set_mode over a changed selection would report the previous
+            # tool's count: recount against the selection as it is now.
+            self.modify_selection()
         if mode in self._SKIP_REPORT_MODES and self._modify_skipped:
             self._show_status(SECTION_EDIT_SKIPPED.format(n=self._modify_skipped))
 

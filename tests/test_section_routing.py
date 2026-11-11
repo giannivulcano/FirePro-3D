@@ -157,3 +157,212 @@ def test_halo_readout_reaches_the_footer_on_a_section_tab(section_win):
     mouse(view, QEvent.Type.MouseMove, far, buttons=nob, button=nob)
     assert sec.halo_item() is None               # precondition: nothing under the cursor
     assert win.footer.instruction.text() == ""
+
+
+def plan_index(win):
+    """Index of the window's plan tab."""
+    for i in range(win.central_tabs.count()):
+        if win.central_tabs.tabText(i).startswith("Plan: "):
+            return i
+    raise AssertionError("no plan tab")
+
+
+@pytest.mark.parametrize("seq,tool", [
+    ("Shift+M", "move"), ("Shift+C", "copy"), ("Shift+R", "rotate"),
+    ("Shift+F", "flip"), ("Shift+S", "scale"),
+    ("Ctrl+C", "copy"), ("Ctrl+X", "cut"), ("Ctrl+D", "duplicate")])
+def test_modify_shortcut_on_a_section_tab_starts_on_the_section_scene(
+        section_win, seq, tool):
+    """AC1: with a hosted copy selected in the section, the window key enters
+    the tool on the SECTION scene; the hidden plan (holding its own selected
+    gridline) never enters it. Esc then ends it on the section."""
+    from firepro3d.modify_tools_controller import ModifyToolsController
+    win, ms, sec, gl, plan_gl, inst = section_win
+    plan_mode0 = ms.mode
+    press(win, seq)
+    assert sec.mode == ModifyToolsController._TOOL_MODE[tool]   # [RED] plan routed
+    assert ms.mode == plan_mode0
+    press(win, "Escape")
+    assert sec.mode in (None, "select")
+
+
+def test_esc_on_a_section_tab_clears_the_section_selection_not_the_plan(section_win):
+    """D1 fold: Esc on a section tab drops the SECTION selection; the plan's
+    selection (a different scene) is untouched."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    assert sec.selectedItems() and plan_gl.isSelected()        # fixture state
+    press(win, "Escape")
+    assert sec.selectedItems() == []                            # [RED]
+    assert plan_gl.isSelected()
+
+
+def test_undo_redo_on_a_section_tab_step_the_shared_stack_and_refresh_the_header(
+        section_win):
+    """AC11 / R13: Ctrl+Z / Ctrl+Y on a section tab step the ONE plan stack and
+    the header's undo / redo buttons follow it."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    undo_b, redo_b = win.header.undo_button(), win.header.redo_button()
+    depth0 = ms._undo_pos
+    press(win, "Delete")                       # R2: one step, the hosted block goes
+    assert inst not in ms._block_instances and ms._undo_pos == depth0 + 1
+    assert undo_b.isEnabled() and not redo_b.isEnabled()
+    press(win, "Ctrl+Z")
+    assert ms._undo_pos == depth0                               # [RED]
+    (back,) = ms._block_instances
+    assert back.host["along_mm"] == pytest.approx(2500.0)      # the fixture's placement x
+    assert redo_b.isEnabled()                                   # [RED]
+    press(win, "Ctrl+Y")
+    assert ms._undo_pos == depth0 + 1 and not ms._block_instances
+    assert not redo_b.isEnabled()
+
+
+def test_f3_on_a_section_tab_toggles_the_section_snap_only(section_win):
+    """AC13 / D3: F3 flips the SECTION's snap, never the plan's; the footer
+    SNAP pill shows the current tab's scene, also across tab switches."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = win.central_tabs.currentWidget()
+    s0, p0 = sec._snap_enabled, ms._snap_enabled
+    press(win, "F3")
+    assert sec._snap_enabled is (not s0)                       # [RED] plan toggled
+    assert ms._snap_enabled is p0
+    assert win.footer.snap_pill.isChecked() is sec._snap_enabled
+    if sec._snap_enabled is not ms._snap_enabled:               # pills distinguishable
+        win.central_tabs.setCurrentIndex(plan_index(win))
+        QApplication.processEvents()
+        assert win.footer.snap_pill.isChecked() is ms._snap_enabled
+        win.central_tabs.setCurrentWidget(view)
+        QApplication.processEvents()
+        assert win.footer.snap_pill.isChecked() is sec._snap_enabled
+
+
+def test_plan_draw_button_on_a_section_tab_is_refused(section_win):
+    """D1: a routed ribbon draw mode (Gridline) on a section tab is refused with
+    the footer reason; neither scene enters it and the button is not lit."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    btn = win._mode_buttons["draw_gridline"]
+    mode0 = ms.mode
+    btn.click()
+    QApplication.processEvents()
+    assert ms.mode == mode0
+    assert getattr(sec, "mode", None) != "draw_gridline"
+    assert win.footer.instruction.text() == win._NOT_IN_VIEW_TIP      # [RED]
+    assert not btn.isChecked()
+
+
+def test_leaving_a_section_tab_ends_its_running_tool(section_win):
+    """A tool belongs to the tab it started in (as plan placements, main.py
+    _on_tab_changed): switching away ends the section's Move."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    press(win, "Shift+M")
+    assert sec.mode == "move"                                   # precondition (AC1)
+    win.central_tabs.setCurrentIndex(plan_index(win))
+    QApplication.processEvents()
+    assert sec.mode in (None, "select")                         # [RED]
+
+
+def test_delete_on_a_section_tab_removes_any_selected_source(section_win):
+    """AC5 / R2 (integrator PI-15): Delete on a section tab removes a
+    READ-ONLY proxy's model source too -- Delete is not restricted, only
+    geometry edits are -- in one undo step; the plan's own selection stays."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    pipe = parallel_pipe(ms, sec)
+    (line,) = proxies_of(sec, pipe)
+    sec.clearSelection()
+    line.setSelected(True)
+    QApplication.processEvents()
+    pos0 = ms._undo_pos
+    press(win, "Delete")
+    assert pipe not in ms.sprinkler_system.pipes                # [RED]
+    assert ms._undo_pos == pos0 + 1
+    assert plan_gl.scene() is ms and plan_gl.isSelected()
+
+
+def test_select_on_a_section_shows_plans_select_text(section_win):
+    """OPEN-8 (integrator, plan parity): entering Select on a section tab
+    (the window's routed mode entry, `_set_active_mode`) puts plan's Select
+    instruction on the footer, not the stale tool hint.
+    RED when: the ``if mode == "select":`` emit is deleted from
+    ``ModifyHostMixin.set_mode`` (the footer keeps "Pick base point")."""
+    from firepro3d.modify_host import ModifyHostMixin
+    win, ms, sec, gl, plan_gl, inst = section_win
+    press(win, "Shift+M")
+    assert sec.mode == "move"                                   # precondition (AC1)
+    assert win.footer.instruction.text() != ModifyHostMixin._SELECT_INSTRUCTION
+    win._set_active_mode("select")
+    QApplication.processEvents()
+    assert sec.mode == "select"
+    assert win.footer.instruction.text() == ModifyHostMixin._SELECT_INSTRUCTION   # [RED]
+
+
+def _two_readonly_proxies(ms, sec):
+    """Two selectable read-only proxies (two parallel pipes, one proxy each)."""
+    a = parallel_pipe(ms, sec)
+    b = ms.add_pipe(ms.add_node(1000, -1700), ms.add_node(8000, -1700))
+    rebuild(sec)
+    return proxies_of(sec, a)[0], proxies_of(sec, b)[0]
+
+
+def test_skip_count_is_current_when_a_tool_restarts_over_a_changed_selection(
+        section_win):
+    """R3 / AC2 (carry item): a mixed selection, Shift+M through the real
+    window key -> "1 items skipped"; the selection then grows to two read-only
+    proxies with the tool still running and Shift+R restarts it -> the status
+    names 2, not the first tool's 1."""
+    from firepro3d.constants import SECTION_EDIT_SKIPPED
+    win, ms, sec, gl, plan_gl, inst = section_win
+    cp = sec._hosted_copies[id(inst)]
+    a, b = _two_readonly_proxies(ms, sec)
+    cp = sec._hosted_copies[id(inst)]
+    sec.clearSelection()
+    cp.setSelected(True)
+    a.setSelected(True)
+    QApplication.processEvents()
+    press(win, "Shift+M")
+    assert sec.mode == "move"
+    assert win.statusBar().currentMessage() == SECTION_EDIT_SKIPPED.format(n=1)
+    b.setSelected(True)                  # selection changes with the tool running
+    QApplication.processEvents()
+    win.statusBar().clearMessage()
+    press(win, "Shift+R")
+    assert sec.mode == "rotate"
+    assert win.statusBar().currentMessage() == SECTION_EDIT_SKIPPED.format(n=2)
+
+
+def test_direct_set_mode_over_a_changed_selection_reports_the_current_skip(
+        section_win):
+    """R3 (carry item): a modify mode entered by a bare ``set_mode`` (no
+    controller start) with a stale captured selection still reports the
+    CURRENT skipped count.
+    RED when: ``SectionScene._capture_modify_selection`` does not refresh
+    ``_modify_skipped`` (the ``self.modify_selection()`` line is deleted)."""
+    from firepro3d.constants import SECTION_EDIT_SKIPPED
+    win, ms, sec, gl, plan_gl, inst = section_win
+    a, b = _two_readonly_proxies(ms, sec)
+    cp = sec._hosted_copies[id(inst)]
+    sec.clearSelection()
+    cp.setSelected(True)
+    a.setSelected(True)
+    QApplication.processEvents()
+    press(win, "Shift+M")
+    assert sec.mode == "move" and sec._selected_items == [cp]
+    b.setSelected(True)
+    QApplication.processEvents()
+    win.statusBar().clearMessage()
+    sec.set_mode("rotate")
+    assert win.statusBar().currentMessage() == SECTION_EDIT_SKIPPED.format(n=2)
+
+
+def test_section_snap_toggle_reaches_the_pill_through_exactly_one_connect(
+        section_win, monkeypatch):
+    """Carry item (Unit 3 review): ``_on_section_scene_built`` wires the
+    section's ``snapToggled`` to the footer pill ONCE. One F3 updates the
+    indicator once, and the signal has exactly one receiver.
+    RED when: the connect is duplicated (two receivers, two updates)."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    assert sec.receivers(sec.snapToggled) == 1
+    calls = []
+    real = win.footer.snap_pill.setChecked
+    monkeypatch.setattr(win.footer.snap_pill, "setChecked",
+                        lambda v: (calls.append(v), real(v))[1])
+    press(win, "F3")
+    assert calls == [sec._snap_enabled]
