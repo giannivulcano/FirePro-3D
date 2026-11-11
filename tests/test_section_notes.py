@@ -303,3 +303,51 @@ def test_delete_key_on_the_section_tab_removes_the_model_note(qapp, real_system_
         assert sec._note_copies[id(back)].attributes["Text"] == "GONE"
     finally:
         _dispose(win)
+
+
+def test_plan_paste_refuses_a_section_note_record(qapp, section_scene_for):
+    """D4 / R5: a section's Note never pastes onto a plan or detail canvas;
+    the user is told why."""
+    from firepro3d.model_space import NOTE_SECTION_PASTE_REFUSED
+    ms, sec = _note_scene(section_scene_for)
+    note = place_note(ms, sec.active_view_key, (3000.0, -2000.0))
+    sec.rebuild()
+    rec = sec._note_clipboard_record(sec._note_copies[id(note)])
+    ms.active_view_key = "plan:Plan: Level 1"
+    msgs = []
+    ms._show_status = lambda m, *a, **k: msgs.append(m)
+    n0 = len(ms._block_instances)
+    assert ms.paste_items(QPointF(0.0, 0.0), data=[rec]) == []
+    assert ms._add_from_dict(rec) is None
+    assert len(ms._block_instances) == n0
+    assert msgs[-1] == NOTE_SECTION_PASTE_REFUSED
+
+
+def test_a_section_note_pastes_into_this_or_another_section_rigidly(qapp, section_scene_for):
+    """D4 / R5: pasted in a section, the note joins THAT section, shifted with
+    its tip (D7); a plan note record is refused there."""
+    from firepro3d.model_space import NOTE_INTO_SECTION_REFUSED
+    from firepro3d.section_marker import SectionMarker
+    from firepro3d.section_scene import _ROLE_SOURCE, SectionScene
+    ms, sec = _note_scene(section_scene_for)
+    note = place_note(ms, sec.active_view_key, (3000.0, -2000.0))
+    note.note["leader"] = {"edge": "L", "t": 0.5, "shoulder_mm": 5.0,
+                           "tip_x": 2500.0, "tip_y": -1500.0, "end": "", "weight": ""}
+    sec.rebuild()
+    rec = sec._note_clipboard_record(sec._note_copies[id(note)])
+    cp = sec._paste_note_record(rec, QPointF(500.0, -100.0))
+    new = cp.data(_ROLE_SOURCE)
+    assert new is not note and new.note["view"] == sec.active_view_key
+    assert new.block_pos() == pytest.approx((3500.0, -2100.0))
+    assert (new.note["leader"]["tip_x"], new.note["leader"]["tip_y"]) == pytest.approx(
+        (3000.0, -1600.0))
+    assert (note.note["leader"]["tip_x"], note.note["leader"]["tip_y"]) == (2500.0, -1500.0)
+    m2 = SectionMarker("Section 2", QPointF(0, 0), QPointF(10000, 0), 1, 8000.0)
+    sec2 = SectionScene(m2, ms, ms._level_manager, ms.scale_manager)
+    cp2 = sec2._paste_note_record(rec, QPointF(0.0, 0.0))
+    assert cp2.data(_ROLE_SOURCE).note["view"] == "section:Section 2"
+    msgs = []
+    sec2._show_status = lambda m, *a, **k: msgs.append(m)
+    plan_rec = place_note(ms, "plan:Plan: Level 1", (0.0, 0.0)).to_dict()
+    assert sec2._paste_note_record(plan_rec, QPointF(0.0, 0.0)) is None
+    assert msgs[-1] == NOTE_INTO_SECTION_REFUSED

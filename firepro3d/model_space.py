@@ -108,6 +108,14 @@ NO_VIEW_HINT = "Open a view from the Project Browser"
 # detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
 NOTE_OFF_HINT = "Notes can be placed on plan, detail, section and schematic views"
 NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
+NOTE_SECTION_PASTE_REFUSED = "A section's notes can only be pasted in a section"
+NOTE_INTO_SECTION_REFUSED = "Plan and detail notes can't be pasted in a section"
+
+
+def _note_paste_refusal(rec: dict) -> str:
+    """The footer reason a plan-side paste gives for refusing Note record *rec*."""
+    view = str(((rec.get("note") or {}).get("view")) or "")
+    return NOTE_SECTION_PASTE_REFUSED if view.startswith("section:") else NOTE_PASTE_REFUSED
 
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
@@ -6603,12 +6611,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         inst.note["view"] = self.active_view_key
         inst.level = self.active_level
 
-    def note_allowed(self) -> bool:
+    def note_allowed(self, rec: "dict | None" = None) -> bool:
         """Whether this canvas can hold a Note block: a plan scene showing a plan
-        or detail view (design D11). The paste gates ask this: a Note record is
-        view-owned, so it never lands in a schematic."""
-        return (self.scene_role == "plan"
-                and self.active_view_key.partition(":")[0] in ("plan", "detail"))
+        or detail view (design D11). The paste gates pass the record: a Note
+        is view-owned, so it never lands in a schematic, and a section's Note
+        stays in sections (elevation-parity D4; ``SectionScene.note_allowed``)."""
+        if not (self.scene_role == "plan"
+                and self.active_view_key.partition(":")[0] in ("plan", "detail")):
+            return False
+        view = str((((rec or {}).get("note")) or {}).get("view") or "")
+        return not view.startswith("section:")
 
     def note_tool_allowed(self) -> bool:
         """Whether the Note tool runs here: wherever a Note block can live, plus
@@ -9185,8 +9197,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             defn = self.get_block_definition(d.get("block_id"))
             if defn is None or place_refusal(defn) is not None:
                 return None
-            if d.get("note") and not self.note_allowed():
-                self._show_status(NOTE_PASTE_REFUSED)
+            if d.get("note") and not self.note_allowed(d):
+                self._show_status(_note_paste_refusal(d))
                 return None
             p = d.get("pos", [0.0, 0.0])
             inst = self.place_block_instance(
@@ -9450,10 +9462,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     # became a pattern / linetype / end type / schematic since the copy
                     pattern_skipped += 1
                     skip_reason = _why
-                elif obj.get("note") and not self.note_allowed():
-                    # a Note belongs to one plan / detail view (D9 / D11): refuse here
+                elif obj.get("note") and not self.note_allowed(obj):
+                    # a Note belongs to one plan / detail view (D9 / D11), a
+                    # section's Note to sections (elevation-parity D4): refuse here
                     pattern_skipped += 1
-                    skip_reason = NOTE_PASTE_REFUSED
+                    skip_reason = _note_paste_refusal(obj)
                 elif _d is not None:
                     from .block_instance import BlockInstance
                     inst = self.place_block_instance(

@@ -1779,6 +1779,42 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         ``_commit_text_edits`` and the editor's own Esc / Ctrl+Enter)."""
         return self._text_edit_ctl.commit()
 
+    def _note_clipboard_record(self, copy) -> dict:
+        """The clipboard record of Note copy *copy*: its model note's record
+        (``note["view"] == "section:<name>"``, pose in this frame). Area C's
+        section ``_clipboard_item_dicts`` serialises a ``_SectionNoteCopy``
+        through this."""
+        src = copy.data(_ROLE_SOURCE)
+        return (src if src is not None else copy).to_dict()
+
+    def _paste_note_record(self, obj: dict, offset):
+        """Paste Note record *obj* here, shifted rigidly by *offset* (D4, R5,
+        D7: the tip moves with it). Only a section's note is accepted; it joins
+        THIS section. Area C's section ``paste_items`` calls this for a
+        ``block_instance`` record carrying a ``note``; the caller pushes the
+        undo step.
+
+        Returns:
+            The new, selected ``_SectionNoteCopy``; None after the refusal status.
+        """
+        from .model_space import NOTE_INTO_SECTION_REFUSED
+        if not self.note_allowed(obj):
+            self._show_status(NOTE_INTO_SECTION_REFUSED)
+            return None
+        p = obj.get("pos", [0.0, 0.0])
+        src = self._ms.place_block_instance(
+            obj["block_id"], (p[0] + offset.x(), p[1] + offset.y()),
+            **BlockInstance.place_kwargs(obj))
+        if src is None:
+            return None
+        src.attributes = dict(obj.get("attributes", {}))
+        src.note["view"] = self.active_view_key        # the copy joins this section
+        src.shift_note_leader(offset.x(), offset.y())  # a copy is rigid (D7)
+        src.setVisible(False)                          # never on the plan canvas
+        cp = self._add_note_copy(src)
+        cp.setSelected(True)
+        return cp
+
     def set_mode(self, mode, template=None):
         """The host mixin's ``set_mode`` plus the Note tool's rule: leaving
         the tool drops a half-made note (``Model_Space.set_mode`` 1340)."""
