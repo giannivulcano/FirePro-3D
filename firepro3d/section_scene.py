@@ -372,6 +372,18 @@ class _HostedBlockCopy(BlockInstance):
         super().manip_scale_about(base, factor)
         self._write_back(old)
 
+    def to_dict(self) -> dict:
+        """The copy's record -- pose in THIS section's frame (what a paste
+        ghost shows) -- plus ``section_host``: the model block's host
+        gridline uid and offset. No plan ``host`` key, so a plan paste can
+        never place it (``Model_Space._paste_accepts``, R5)."""
+        d = super().to_dict()
+        host = getattr(self.data(_ROLE_SOURCE), "host", None)
+        if host:
+            d["section_host"] = {"gridline": host.get("gridline"),
+                                 "offset_mm": float(host.get("offset_mm", 0.0))}
+        return d
+
 
 class _SectionNoteCopy(BlockInstance):
     """Section copy of a Note owned by this section (elevation-parity D4).
@@ -1473,28 +1485,97 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             self._rebuild_held = False
             self._schedule_rebuild()
 
-    # Required clipboard hooks (ModifyHostMixin REQUIRED_HOST_METHODS). Mounted
-    # here refusing everything; C-4 / C-5 give them their section behaviour.
+    # Required clipboard hooks (ModifyHostMixin REQUIRED_HOST_METHODS): a
+    # section copies, pastes and cuts only its write-back copies (D2).
 
     def _clipboard_item_dicts(self, items) -> list:
-        """Clipboard records of *items* (none yet: C-4)."""
-        return []
+        """Clipboard records of the editable *items*: a hosted copy's
+        ``to_dict`` (with ``section_host``), a Note copy's model record
+        (area E, ``_note_clipboard_record``); read-only proxies give none."""
+        out = []
+        for it in items:
+            if isinstance(it, _HostedBlockCopy):
+                if it.data(_ROLE_SOURCE) is not None:
+                    out.append(it.to_dict())
+            elif is_section_editable(it):        # a section Note copy (E-9)
+                out.append(self._note_clipboard_record(it))
+        return out
 
     def _paste_accepts(self, obj: dict) -> bool:
-        """The paste type gate (nothing yet: C-4)."""
-        return False
+        """The section's paste allow-list (R5): a hosted-block record
+        (``section_host``) or a section's Note (area E's ``note_allowed``).
+        Plan records (walls, pipes, plain blocks, plan / detail Notes) are
+        refused -- they are edited in plan."""
+        if obj.get("type") != "block_instance":
+            return False
+        if obj.get("section_host"):
+            return True
+        return bool(obj.get("note")) and self.note_allowed(obj)
 
     def paste_items(self, offset, data=None, constraints=None, rotation_deg=None) -> list:
-        """Paste records (nothing yet: C-4)."""
-        return []
+        """Create the accepted records here, shifted by *offset*.
+
+        A hosted block lands on its own host gridline at the shifted point
+        (R4); a section Note joins this section (E-13). Records this view
+        cannot take are skipped -- the caller counts them (R5). The caller
+        pushes the undo step.
+
+        Args:
+            offset: Section-scene displacement (mm).
+            data: Records; defaults to the clipboard payload's items.
+            constraints: Unused (section copies carry no constraints).
+            rotation_deg: Unused (Polar Array turns the copies itself).
+
+        Returns:
+            The new section copies.
+        """
+        if data is None:
+            payload = self.clipboard_payload()
+            data = payload["items"] if payload else []
+        new = []
+        for obj in data:
+            if not self._paste_accepts(obj):
+                continue
+            if obj.get("section_host"):
+                cp = self._place_hosted_record(obj, offset)
+            else:
+                cp = self._paste_note_record(obj, offset)
+            if cp is not None:
+                new.append(cp)
+        return new
 
     def _add_from_dict(self, d: dict):
-        """Mirror's copy path (nothing yet: C-4)."""
-        return None
+        """Mirror's copy path: the same record -> a new model record here,
+        unshifted (the tool then reflects the returned copy)."""
+        if not self._paste_accepts(d):
+            return None
+        if d.get("section_host"):
+            return self._place_hosted_record(d, QPointF(0.0, 0.0))
+        return self._paste_note_record(d, QPointF(0.0, 0.0))
 
     def _bulk_delete(self, selected, selected_set):
-        """Cut's delete (nothing yet: C-4)."""
-        return [], 0
+        """Cut: delete the model records behind the editable copies in
+        *selected* (no undo push: the caller pushes one step) and take
+        those copies out of this scene now.
+
+        Returns:
+            The plan ``_bulk_delete`` result ``(names, n_hosted)``.
+        """
+        srcs, gone = [], []
+        for it in selected:
+            if not is_section_editable(it):
+                continue
+            src = it.data(_ROLE_SOURCE)
+            if src is not None and src in self._ms._block_instances:
+                srcs.append(src)
+            gone.append(it)
+        for it in gone:
+            top = it.parentItem() or it          # a laterally clipped copy's clip rect
+            if top.scene() is self:
+                self.removeItem(top)
+        self._hosted_copies = {k: c for k, c in self._hosted_copies.items()
+                               if all(c is not g for g in gone)}
+        return self._ms._bulk_delete(srcs, set(srcs))
 
     # ── Hide (elevation-parity D5) ──────────────────────────────────────
 
@@ -2178,48 +2259,118 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
 
         Visibility never follows the model block (always hidden in plan, D11).
         """
-        from . import hosted_blocks as hb
         self._hosted_copies = {}
+        for src in list(getattr(self._ms, "_block_instances", [])):
+            self._add_hosted_copy(src)
+
+    def _add_hosted_copy(self, src, interim: bool = False):
+        """Add (and return) the section copy of hosted model block *src*.
+
+        Args:
+            src: A model ``BlockInstance``; one without a valid host, whose
+                host is not parallel to this cut, or outside the depth /
+                lateral crop gets no copy.
+            interim: True for a copy added between rebuilds (a paste,
+                Duplicate, Array, Mirror): it goes straight to the tag band;
+                the next rebuild depth-sorts it with the rest (SB4d D5).
+
+        Returns:
+            The ``_HostedBlockCopy``, or None.
+        """
+        from . import hosted_blocks as hb
         ms, b, ppm = self._ms, self._basis, self._ppm()
-        for src in list(getattr(ms, "_block_instances", [])):
-            host = getattr(src, "host", None)
-            if not host or not hb.valid_host(host):
-                continue
-            gl = ms.gridline_by_uid(host.get("gridline"))
-            if gl is None or not hb.is_parallel(b, gl):
-                continue
-            pose = hb.section_pose(b, gl, host, src.block_rotation(),
-                                   src.block_mirrored(), ppm)
-            if pose is None:
-                continue
-            h, v, _d, mirrored, rot = pose
-            rec = src.to_dict()
-            rec.pop("host", None)                # the copy is not itself hosted
-            cp = _HostedBlockCopy.from_dict(rec, ms.get_block_definition)
-            cp.set_block_pos(h, v)
-            cp.set_block_rotation(rot)
-            cp.set_block_mirrored(mirrored)
-            cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
-            cp.setData(_ROLE_SOURCE, src)
-            # Measure in the scene: an annotative copy sizes from its scene's
-            # drawing scale, so its unparented bounds are the authored size.
-            self.addItem(cp)
-            br = cp.mapRectToScene(cp.boundingRect())
-            top = cp
-            if br.left() < b.h_min or br.right() > b.h_max:
-                if self._clip_h(br.left(), br.right()) is None:
-                    self.removeItem(cp)
-                    continue
-                clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
-                                                b.h_max - b.h_min, br.height() + 2.0))
-                clip.setPen(QPen(Qt.PenStyle.NoPen))
-                clip.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
-                self.addItem(clip)
-                cp.setParentItem(clip)
-                top = clip
+        host = getattr(src, "host", None)
+        if not host or not hb.valid_host(host):
+            return None
+        gl = ms.gridline_by_uid(host.get("gridline"))
+        if gl is None or not hb.is_parallel(b, gl):
+            return None
+        pose = hb.section_pose(b, gl, host, src.block_rotation(),
+                               src.block_mirrored(), ppm)
+        if pose is None:
+            return None
+        h, v, _d, mirrored, rot = pose
+        rec = src.to_dict()
+        rec.pop("host", None)                # the copy is not itself hosted
+        cp = _HostedBlockCopy.from_dict(rec, ms.get_block_definition)
+        cp.set_block_pos(h, v)
+        cp.set_block_rotation(rot)
+        cp.set_block_mirrored(mirrored)
+        cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
+        cp.setData(_ROLE_SOURCE, src)
+        # Measure in the scene: an annotative copy sizes from its scene's
+        # drawing scale, so its unparented bounds are the authored size.
+        self.addItem(cp)
+        br = cp.mapRectToScene(cp.boundingRect())
+        top = cp
+        if br.left() < b.h_min or br.right() > b.h_max:
+            if self._clip_h(br.left(), br.right()) is None:
+                self.removeItem(cp)
+                return None
+            clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
+                                            b.h_max - b.h_min, br.height() + 2.0))
+            clip.setPen(QPen(Qt.PenStyle.NoPen))
+            clip.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
+            self.addItem(clip)
+            cp.setParentItem(clip)
+            top = clip
+        if interim:
+            top.setZValue(Z_ANNOT_TAG)       # the next rebuild re-sorts the band
+        else:
             wx, wy = hb.world_point(gl, host, ppm)
             self._hosted_depth.append((b.sort_key(wx, wy), top))   # tag band, not the depth walk (D5)
-            self._hosted_copies[id(src)] = cp
+        self._hosted_copies[id(src)] = cp
+        return cp
+
+    def get_block_definition(self, block_id):
+        """The project's block definition (the paste ghost builds block
+        records through the host's resolver, ``_clipboard_ghost_paths``)."""
+        return self._ms.get_block_definition(block_id)
+
+    def shows_host_gridline(self, gl) -> bool:
+        """True when this view can host on *gl*: parallel to the cut and
+        inside the view depth -- the placement rule (G8,
+        ``hosted_blocks.choose_host``) applied to *gl* alone (R4)."""
+        from . import hosted_blocks as hb
+        return (self._basis is not None
+                and hb.choose_host(self._basis, [gl], self._ppm()) is gl)
+
+    def _place_hosted_record(self, obj: dict, offset):
+        """Create a model block from hosted record *obj* (a copy's
+        ``to_dict``) at its section point shifted by *offset*, on the same
+        host gridline (R4: the point sets along / elevation; the record's
+        offset is kept), facing this view with the record's in-plane pose,
+        and add its section copy. No undo push (the caller pushes).
+
+        Returns:
+            The new ``_HostedBlockCopy``, or None when this view does not
+            show the host gridline (R4), the definition is missing or
+            refuses placement, or the point is outside this view's crop.
+        """
+        from . import hosted_blocks as hb
+        from .capabilities import place_refusal
+        sh = obj.get("section_host") or {}
+        gl = self._ms.gridline_by_uid(sh.get("gridline"))
+        if gl is None or not self.shows_host_gridline(gl):
+            return None
+        defn = self._ms.get_block_definition(obj.get("block_id"))
+        if defn is None or place_refusal(defn) is not None:
+            return None
+        p = obj.get("pos", [0.0, 0.0])
+        h, v = float(p[0]) + offset.x(), float(p[1]) + offset.y()
+        ppm = self._ppm()
+        host = hb.host_at(self._basis, gl, h, -v, ppm)
+        host["offset_mm"] = float(sh.get("offset_mm", 0.0))
+        kw = BlockInstance.place_kwargs(obj)
+        kw.update(host=host, note=None, scale=kw["scale"] * ppm)
+        inst = self._ms.place_block_instance(obj["block_id"], (0.0, 0.0), **kw)
+        if inst is None:
+            return None
+        inst.attributes = dict(obj.get("attributes", {}))
+        cp = self._add_hosted_copy(inst, interim=True)
+        if cp is None:                       # outside this view's depth / crop
+            self._ms.remove_block_instance(inst)
+        return cp
 
     def _project_section_notes(self) -> None:
         """Copies of the Notes this section owns (D4): plan-store instances

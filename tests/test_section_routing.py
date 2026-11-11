@@ -169,7 +169,7 @@ def plan_index(win):
 
 @pytest.mark.parametrize("seq,tool", [
     ("Shift+M", "move"), ("Shift+C", "copy"), ("Shift+R", "rotate"),
-    ("Shift+F", "flip"), ("Shift+S", "scale"),
+    ("Shift+F", "flip"), ("Shift+S", "scale"), ("Shift+A", "array"),
     ("Ctrl+C", "copy"), ("Ctrl+X", "cut"), ("Ctrl+D", "duplicate")])
 def test_modify_shortcut_on_a_section_tab_starts_on_the_section_scene(
         section_win, seq, tool):

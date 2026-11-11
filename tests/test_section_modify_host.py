@@ -451,3 +451,97 @@ def test_far_side_write_back_round_trips_through_the_projection(
     want = _pose(cp)
     far.rebuild()
     assert _pose(far._hosted_copies[id(inst)]) == want
+
+
+# -- C-4: copies are model blocks --------------------------------------------
+from firepro3d.constants import ARRAY_DEFAULT_MEMORY
+
+
+def _new_block(ms, gl, old):
+    """The one hosted block on *gl* that is not *old*."""
+    (new,) = [b for b in _hosted(ms, gl) if b is not old]
+    return new
+
+
+def test_duplicate_places_a_model_block_on_the_same_gridline(host):
+    """AC3 / AC11: Duplicate base (2500,-1200) -> (3500,-700): a SECOND
+    model block hosted on gridline B at along 3500 / elevation 700, same
+    pose; the original untouched; one undo step; the new copy selected.
+    RED when: ``cp = self._place_hosted_record(obj, offset)`` in
+    ``SectionScene.paste_items`` becomes ``cp = None`` ("Nothing duplicated")."""
+    from firepro3d.section_scene import _ROLE_SOURCE
+    ms, sec, gl, inst, view, statuses = host
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("duplicate") is True
+    click(view, QPointF(2500.0, -1200.0))
+    click(view, QPointF(3500.0, -700.0))
+    new = _new_block(ms, gl, inst)
+    assert new.host["along_mm"] == pytest.approx(3500.0)
+    assert new.host["elevation_mm"] == pytest.approx(700.0)
+    assert new.block_id == inst.block_id and new.block_rotation() == 0.0
+    assert new.isVisible() is False                       # hosted: never in plan (D11)
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG)
+    assert ms._undo_pos == pos0 + 1
+    assert [c.data(_ROLE_SOURCE) for c in sec.selectedItems()] == [new]
+    sec.rebuild()
+    assert id(new) in sec._hosted_copies
+
+
+@pytest.mark.parametrize("aim, step", [
+    ((3500.0, -1200.0), (1000.0, 0.0)),                    # along the gridline
+    ((2500.0, -2200.0), (0.0, 1000.0))])                   # vertically
+def test_array_copies_along_the_gridline_or_vertically(host, aim, step):
+    """AC3: a linear Array by clicks only (the remembered Count, 3 =
+    ARRAY_DEFAULT_MEMORY) aimed 1000 mm along h or up creates Count-1 model
+    blocks on gridline B at 1000 mm pitch; one undo step.
+    RED when: ``SectionScene._paste_accepts`` returns False for a
+    ``section_host`` record (Array refuses: nothing copyable)."""
+    ms, sec, gl, inst, view, statuses = host
+    pos0 = ms._undo_pos
+    count = ARRAY_DEFAULT_MEMORY["linear"]["Count"]
+    assert sec._modify_ctl.start("array") is True
+    click(view, QPointF(2500.0, -1200.0))
+    move(view, QPointF(*aim))
+    click(view, QPointF(*aim))
+    got = sorted((round(b.host["along_mm"], 3), round(b.host["elevation_mm"], 3))
+                 for b in _hosted(ms, gl) if b is not inst)
+    want = sorted((PLACED_ALONG + k * step[0], PLACED_ELEV + k * step[1])
+                  for k in range(1, count))
+    assert got == want
+    assert ms._undo_pos == pos0 + 1
+
+
+def test_copy_writes_the_section_payload(host):
+    """R4 / R5 contract (and area E's): Copy writes ``scene_role = "section"``
+    and the hosted record = the copy's pose in this section + section_host;
+    no plan ``host`` key (a plan paste must never place it).
+    RED when: the ``d["section_host"] = ...`` line is deleted from
+    ``_HostedBlockCopy.to_dict``."""
+    ms, sec, gl, inst, view, statuses = host
+    assert sec._modify_ctl.start("copy") is True
+    click(view, QPointF(2500.0, -1200.0))                 # base
+    payload = sec.clipboard_payload()
+    assert payload["scene_role"] == "section"
+    assert payload["base"] == pytest.approx([2500.0, -1200.0])
+    (rec,) = payload["items"]
+    assert rec["type"] == "block_instance" and rec["block_id"] == inst.block_id
+    assert rec["pos"] == [2500.0, -1200.0]
+    assert rec["section_host"] == {"gridline": gl._uid, "offset_mm": 0.0}
+    assert "host" not in rec
+    assert inst in ms._block_instances                     # Copy deletes nothing
+
+
+def test_cut_removes_the_model_block_in_one_step(host):
+    """R3 / AC11: Cut (base click) copies the record and deletes the MODEL
+    block in one undo step; undo brings it back.
+    RED when: ``SectionScene._bulk_delete`` returns ``[], 0`` without
+    deleting (the block stays)."""
+    ms, sec, gl, inst, view, statuses = host
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("cut") is True
+    click(view, QPointF(2500.0, -1200.0))
+    assert inst not in ms._block_instances
+    assert sec.clipboard_payload()["items"][0]["section_host"]["gridline"] == gl._uid
+    assert ms._undo_pos == pos0 + 1
+    ms.undo()
+    assert len(_hosted(ms, gl)) == 1
