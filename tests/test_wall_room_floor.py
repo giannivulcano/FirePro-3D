@@ -773,6 +773,7 @@ class TestWallProperties:
             "Type", "Name", "Mark", "Colour", "Thickness", "Fill Mode",
             "Building Material", "Alignment", "Base Level", "Base Offset", "Top Level",
             "Top Offset", "Height", "Join Start", "Join End",
+            "Phase",  # PH1 (project-phasing AC1)
         }
         assert expected_keys == set(props.keys())
 
@@ -926,6 +927,7 @@ class TestRoomProperties:
             "Compartment Type", "Ceiling Type",
             "Sprinkler Count", "Coverage/Sprinkler", "Max Coverage",
             "Coverage Status",
+            "Phase",  # PH1 (project-phasing AC1)
         }
         assert expected_keys == set(props.keys())
 
