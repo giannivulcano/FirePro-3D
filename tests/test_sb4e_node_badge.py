@@ -2,7 +2,7 @@
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 
 from firepro3d import element_params as ep
 from tests._sb4e_helpers import dispose, solve, tree_scene
@@ -193,3 +193,45 @@ def test_g5_panel_commit_pushes_undo_and_marks_modified(qapp, tree):
     finally:
         pm._refresh_timer.stop()                    # tests own teardown (panel timer crash)
         pm.deleteLater()
+
+
+def test_g4_click_on_the_badge_selects_the_node(qapp, shown_model_view, real_system_library):
+    from firepro3d import paper_display as pd
+    from firepro3d.water_supply import WaterSupply
+    from tests._snap_polish_helpers import click, move
+    view, ms = shown_model_view
+    ws = WaterSupply(0.0, 0.0)
+    ms.addItem(ws)
+    ms.water_supply_node = ws
+    ms.sprinkler_system.supply_node = ws
+    a = ms.add_node(0.0, 0.0)
+    b = ms.add_node(1500.0, 0.0)
+    ms.add_pipe(a, b)
+    ms.add_sprinkler(b)
+    solve(ms)
+    n = next(x for x in (a, b) if x._hydraulic_badge is not None)
+    badge = n._hydraulic_badge
+    ms.set_mode("select")
+    view.centerOn(badge.sceneBoundingRect().center())
+    qapp.processEvents()
+    hit = badge.sceneBoundingRect().center()
+    # precondition: the click lands on the badge only, not on the node's marker
+    dt = view.viewportTransform()
+    under = ms.items(hit, Qt.ItemSelectionMode.IntersectsItemShape,
+                     Qt.SortOrder.DescendingOrder, dt)
+    assert badge in under and n not in under
+    assert not n.isSelected()
+    move(view, hit)                      # hover first: a select click commits the HALO pick
+    qapp.processEvents()
+    assert ms.halo_item() is n
+    click(view, hit)
+    qapp.processEvents()
+    assert n.isSelected() and not badge.isSelected()
+    assert ms.selectedItems() == [n]
+    assert badge.overlay_pens()                               # ring on screen
+    orig = pd.paper_pass_active
+    pd.paper_pass_active = lambda: True
+    try:
+        assert badge.overlay_pens() == []                     # never plots
+    finally:
+        pd.paper_pass_active = orig

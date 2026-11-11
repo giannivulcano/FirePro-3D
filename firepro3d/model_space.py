@@ -5231,13 +5231,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Resolve a hit child item to its selectable parent entity.
 
         Sprinklers resolve to their owning Node; a DesignAreaBadge to its
-        parent DesignArea; a gridline label child to its GridlineItem. Anything
-        else is returned unchanged.
+        parent DesignArea; a hydraulic node badge to its Node (SB4e AC5); a
+        gridline label child to its GridlineItem. Anything else is returned
+        unchanged.
         """
         if isinstance(item, Sprinkler):
             return item.node
         if isinstance(item, DesignAreaBadge):
             return item.parentItem()
+        from .hydraulic_node_badge import HydraulicNodeBadge
+        if isinstance(item, HydraulicNodeBadge):     # SB4e AC5: the badge picks its node
+            return item.host
         parent = item.parentItem() if hasattr(item, "parentItem") else None
         if isinstance(parent, GridlineItem):
             return parent
