@@ -1,0 +1,2 @@
+# PDF fixtures carry byte offsets (xref); never convert their line endings.
+tests/fixtures/**/*.pdf binary

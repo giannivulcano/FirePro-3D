@@ -663,6 +663,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.scene.sceneModified.connect(self._on_scene_modified)
         self.paper_space_widget.paper_scene.sheetModified.connect(
             self._on_paper_modified)
+        # Sheet-linked documents (docs/superpowers/specs/2026-11-09-sheet-linked-
+        # document-design.md): one refresh service per window. Bound methods only
+        # (test-harness Invariant 6).
+        from firepro3d.linked_doc_service import LinkedDocService
+        self.linked_docs = LinkedDocService(
+            sheets_getter=self._linked_doc_sheets,
+            scene_getter=self._linked_doc_scene,
+            manager_getter=self._linked_doc_manager,
+            notify=self._linked_doc_notify,
+            on_sheets_added=self._on_linked_sheets_added,
+            parent=self)
+        self.paper_space_widget.paper_scene.linked_docs = self.linked_docs
+        self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
+            self.linked_docs.rebind)
         self.scene.radiationConfirm.connect(self._radiation_on_confirm)
         self.scene.radiationCancel.connect(self._radiation_on_cancel)
         self.scene.instructionDisplay.connect(self.footer.set_instruction)
@@ -1006,6 +1020,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Instant create (grill): auto number, default name, becomes active."""
         sheet = self.sheet_mgr.create()
         self._switch_sheet(sheet)
+        self.linked_docs.rebind()
         self._on_paper_modified()
 
     def _delete_sheet(self, number: str):
@@ -1019,13 +1034,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             self, "Delete Sheet",
             f"Delete sheet {sheet.number} - {sheet.name}?\n"
             f"{len(sheet.sheet_views)} view(s) and {len(sheet.annotations)} "
-            f"annotation(s) will be removed.",
+            f"annotation(s) will be removed."
+            + (f"\nIts linked page of {os.path.basename(sheet.linked_document.path)} "
+               "is unlinked with it." if sheet.linked_document is not None else ""),
             danger=True, ok_label="Delete",
         ):
             return
         neighbor = self.sheet_mgr.delete(sheet)
         if sheet is self._sheet:
             self._switch_sheet(neighbor)
+        self.linked_docs.rebind()        # the deleted sheet's file may no longer be linked
         self._on_paper_modified()
         # Reset the panel unconditionally: when the deleted sheet was NOT active
         # the _switch_sheet branch is skipped and the panel may still hold a
@@ -1061,7 +1079,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             sheet, self.sheet_mgr,
             on_change=self._on_sheet_meta_changed,
             on_reject=lambda msg: self.statusBar().showMessage(msg, 4000),
-            scene_getter=lambda: self.paper_space_widget.paper_scene)
+            scene_getter=lambda: self.paper_space_widget.paper_scene,
+            linked_docs=getattr(self, "linked_docs", None))
 
     def _on_sheet_meta_changed(self):
         """Rename/renumber committed: refresh titleblock Sheet No + UI + dirty.
@@ -1070,6 +1089,26 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         AND the 50ms refresh timer both repopulate the panel; follow-up filed.
         """
         self.paper_space_widget.paper_scene._refresh_titleblock()
+        self._on_paper_modified()
+
+    # -- Sheet-linked documents ------------------------------------------------
+
+    def _linked_doc_sheets(self) -> list:
+        return list(self.sheet_mgr.sheets)
+
+    def _linked_doc_scene(self):
+        return self.paper_space_widget.paper_scene
+
+    def _linked_doc_manager(self):
+        return self.sheet_mgr
+
+    def _linked_doc_notify(self, message: str, timeout_ms: int = 6000) -> None:
+        self.statusBar().showMessage(message, timeout_ms)
+
+    def _on_linked_sheets_added(self) -> None:
+        """Sheets created for a linked document's pages (D10 / D11)."""
+        self._push_sheet_list()
+        self.linked_docs.rebind()
         self._on_paper_modified()
 
     def _activate_paper_sheet(self, number: str | None = None):
@@ -3636,6 +3675,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # the user has enough dialogs during recovery — divergence re-offers on
         # the next normal File→Open).
         self._maybe_offer_template_push()
+        # D4/D5: compare each linked file once; a refresh here dirties the
+        # project (after _modified was cleared above), so the new copy is saved.
+        self.linked_docs.check_all_on_open()
 
     def _guarded_load(self, file: str) -> bool:
         """Run ``_apply_loaded_file``; report a failure. Returns True on success.
@@ -3765,6 +3807,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             # the new sheet so any immediate switch back shows the right adapter.
             self.prop_manager.show_properties(
                 self._sheet_props_adapter(self._sheet))
+        self.linked_docs.reset()         # watch the loaded project's linked files; drop in-flight links
         return True
 
     # ── Recent files ──────────────────────────────────────────────────────
@@ -3841,6 +3884,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 return                          # the error said the file is intact
             self._modified = True
             self._update_title()
+            self.linked_docs.check_all_on_open()
         self._cleanup_autosave()
 
     def _cleanup_autosave(self):
@@ -3988,6 +4032,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._push_titleblock_template()
         self._push_sheet_list()
         self._recompute_placed_views()
+        self.linked_docs.reset()         # a new project links nothing; drop in-flight links
         # Refresh the property panel so it wraps the fresh default sheet, not
         # any pre-new-file detached Sheet adapter (stale adapter bug: §19.4).
         if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
@@ -5828,6 +5873,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             fill_types.fill_type_bus().changed.disconnect(self._on_fill_types_changed)
         except (TypeError, RuntimeError):
             pass
+        self.linked_docs.shutdown()      # drop a running Word conversion (ratified: close now)
         self.schematic_scenes.dispose_all()
         # Child widgets don't receive closeEvent; release the 3D view's VTK
         # render window explicitly so its GL context doesn't leak past teardown.

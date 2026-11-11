@@ -1,7 +1,7 @@
 ---
 status: current           # SV1 built 2026-10-08 (kind + editor + browser); SV2 built 2026-10-09 (viewport); SV3 built 2026-10-09 (templates folder, Save as Template, New-from-template); SV4 built 2026-10-09 (Manager Kind column + gating, Duplicate, available_views group, kind frozen on load / reload). Concept ratified 2026-10-07 (grill Q1–Q18 + brainstorm SD1–SD11)
-last-verified: 2026-11-06  # notes on schematics Account: pointer, D-S7, rest not re-audited; prior 2026-11-05  # block stacking Account: stacking pointer only, rest not re-audited; prior 2026-11-04  # SB4f Account (D-S2 + D-S10 + the sheet-furniture pointers only; rest not re-audited); prior 2026-10-21  # SB1a Account (D-S14 delta (a2): Edit Attributes disabled; pointer only, rest not re-audited); prior 2026-10-20 paper-authored-weights Account: D-S12 named authored weights plot at their own mm (pointer to paper-space 6.2); prior disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
-verified-commit: bfe51a30  # notes merge on main (v0.93.0; pointer, D-S7); prior d1221e2d  # block stacking merge on main (v0.89.0); prior dab5a2f2   # SB4f on main (v0.87.0; D-S2 / D-S10 / pointers only); prior 0c06b766   # SB1a Account (D-S14 only); prior d49eb6d6 paper-authored-weights (D-S12 only); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
+last-verified: 2026-11-10  # sheet-linked doc Account: containment bullet + D-S2 linked-page amendment pointer only, rest not re-audited; prior 2026-11-06  # notes on schematics Account: pointer, D-S7, rest not re-audited; prior 2026-11-05  # block stacking Account: stacking pointer only, rest not re-audited; prior 2026-11-04  # SB4f Account (D-S2 + D-S10 + the sheet-furniture pointers only; rest not re-audited); prior 2026-10-21  # SB1a Account (D-S14 delta (a2): Edit Attributes disabled; pointer only, rest not re-audited); prior 2026-10-20 paper-authored-weights Account: D-S12 named authored weights plot at their own mm (pointer to paper-space 6.2); prior disk-scan Account: pointers to block-system "Library on disk" at D-S15 / I-O / One-tier root / SV4 (b); applies-to comments; New Schematic loads with the templates root; prior SV4 Account: the "SV4 — as built" section + acceptance ticks + ratified deltas (D-S3 / D-S4 / D-S14 / D-S16 notes) verified against the code; prior SV3 / SV2 Accounts same day
+verified-commit: f1dcede4  # feature/sheet-linked-doc close (0.96.0; D-S2 amendment only); prior bfe51a30  # notes merge on main (v0.93.0; pointer, D-S7); prior d1221e2d  # block stacking merge on main (v0.89.0); prior dab5a2f2   # SB4f on main (v0.87.0; D-S2 / D-S10 / pointers only); prior 0c06b766   # SB1a Account (D-S14 only); prior d49eb6d6 paper-authored-weights (D-S12 only); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior f2a059d6 SV4 (main, Small run: 4a7452e5 kind-swap refusal + f2a059d6 polish); prior 3f31e0af (SV3), 7dd64383 (SV2), b851b1aa (SV1), 7f97f687 (proposal)
 applies-to:               # seams this contract governs (SV1–SV4 seams built); the rest of each file is owned by the spec named in parentheses
   - firepro3d/block_definition.py     # `kind` key only (rest: block-system.md)
   - firepro3d/block_editor.py         # kind-aware open / title / capability lock / Save dialog + template toggle / save_schematic_template / save_as_template only (rest: block-system.md)
@@ -63,6 +63,10 @@ one mechanism by which block content reaches paper.
   of any kind — user or System — is ever a child of `PaperScene`. C9's "a north
   arrow / legend is a paper Block" is re-read as "a paper *schematic* or
   title-block territory" (sheet furniture: ruled at SB4f, see D-S2).
+  *Amendment (2026-11-10):* a sheet may also show **at most one linked document
+  page** — a sheet property, not a placed item and not a `BlockInstance`
+  ([sheet-linked-document design](../superpowers/specs/2026-11-09-sheet-linked-document-design.md)
+  "Containment amendment").
 - **A schematic is a `BlockDefinition` with `kind == "schematic"`** in the
   project's one block registry — nesting, usage counting, cycle guard, bundling
   and undo capture are the shipped block mechanisms, not copies.
@@ -93,7 +97,8 @@ one mechanism by which block content reaches paper.
   contract. **Out of scope:** legends / symbol keys — a schedule-like
   placed-table feature (`paper-space.md` §9.1), not a schematic.
 - **D-S2 Sheet containment.** A sheet holds viewports + title block + sheet
-  text only (Architecture, first bullet). The P1 "Paper-space block placement"
+  text only (Architecture, first bullet; plus at most one linked document page
+  as a sheet property, amendment 2026-11-10). The P1 "Paper-space block placement"
   task is superseded; SB7's paper-tag host becomes (viewport, element) only.
   *(SB4f delta, 2026-11-04.)* The view title under a viewport is a host-bound label
   (`ViewTitleLabel`, a child of the `SheetViewport`), not a `BlockInstance`, so D-S2

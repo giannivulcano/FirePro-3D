@@ -6,8 +6,11 @@ destroyed/recreated on every PaperScene._setup()/paper-size change. No import
 from main.py (keeps each command unit-testable in isolation).
 """
 from __future__ import annotations
+import copy
 from PyQt6.QtGui import QUndoCommand
 from PyQt6.QtCore import QRectF
+
+from .linked_document import path_key
 
 
 def _find_text_item(scene, data):
@@ -229,3 +232,59 @@ class EditRevisionsCommand(QUndoCommand):
     def undo(self):
         self._sheet.revisions = [dict(r) for r in self._old]
         self._scene._refresh_titleblock()
+
+
+_LINK_REFRESH_FIELDS = ("snapshot_pdf", "snapshot_at", "source_mtime",
+                        "source_size", "source_pages", "offered_pages",
+                        "last_error")
+
+
+class SetLinkedDocumentCommand(QUndoCommand):
+    """Swap a sheet's whole ``LinkedDocData`` (or None): link, relink, unlink,
+    page and scale (sheet-linked-document design D6).
+
+    Both states are deep copies, so unlink + undo restores the snapshot with
+    the link. When the restored state links the same file and page as the
+    live one, the live refresh fields carry over: a refresh is not an undo
+    step (D5), so undo never brings back a copy a refresh replaced. The
+    first redo (the push) skips the carry-over, so a same-file relink keeps
+    the copy it brings.
+
+    Args:
+        scene: The live PaperScene (owner of the paper undo stack).
+        sheet: The Sheet whose link changes (may differ from ``scene.sheet``).
+        new_data: The new ``LinkedDocData``, or None to unlink.
+        text: Undo-menu text.
+    """
+
+    def __init__(self, scene, sheet, new_data, text: str = "Link Document"):
+        super().__init__(text)
+        self._scene, self._sheet = scene, sheet
+        self._old = copy.deepcopy(sheet.linked_document)
+        self._new = copy.deepcopy(new_data)
+        self._pushed = False
+
+    def _set(self, target, carry: bool = True):
+        value = copy.deepcopy(target)
+        live = self._sheet.linked_document
+        if (carry and value is not None and live is not None
+                and path_key(value.path) == path_key(live.path)
+                and value.page == live.page):
+            for name in _LINK_REFRESH_FIELDS:
+                setattr(value, name, getattr(live, name))
+
+        def op():
+            self._sheet.linked_document = value
+            if self._scene.sheet is self._sheet:
+                self._scene.refresh_linked_page()
+        self._scene._apply(op)
+
+    def redo(self):
+        # The push applies new_data as given: a relink to the same file and
+        # page brings a fresher copy that must win. Later redos carry over a
+        # refresh that landed after the undo.
+        self._set(self._new, carry=self._pushed)
+        self._pushed = True
+
+    def undo(self):
+        self._set(self._old)

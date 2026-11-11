@@ -16,8 +16,9 @@ from __future__ import annotations
 import datetime
 import json
 import math
+import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from .constants import (
     DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
@@ -26,6 +27,8 @@ from .constants import (
     TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM, TOKEN_AUTO,
     VIEW_TITLE_ORIGIN_X_MM, VIEW_TITLE_ORIGIN_Y_MM, SCALE_RATIO_MAX,
     VIEW_TITLE_LINE_MIN_MM,
+    Z_PAPER_LINKED_PAGE, Z_PAPER_LINKED_BADGE,
+    LINKED_BADGE_CAP_MM, LINKED_BADGE_PAD_MM, LINKED_BADGE_FILL, LINKED_BADGE_INK,
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
@@ -35,6 +38,9 @@ from .text_item import (  # text-height pt/mm helpers -- one home in text_item (
     _parse_height_pt, _parse_text_height_mm, _text_cap_ratio,
 )
 from .house_dialog import HouseDialog
+from .linked_document import LinkedDocData
+from . import linked_document as _ld
+from . import doc_converter
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsObject, QGraphicsTextItem,
@@ -385,6 +391,8 @@ class Sheet:
     """Revision history for this sheet. Each entry: {"no", "description", "date"}."""
     orientation: str = ""
     """Sheet orientation override: "" = native PAPER_SIZES dims, "landscape" or "portrait"."""
+    linked_document: "LinkedDocData | None" = None
+    """At most one linked Word/PDF page (sheet-linked-document design Data model)."""
 
     @classmethod
     def create_default(cls) -> "Sheet":
@@ -420,7 +428,7 @@ class Sheet:
         return None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "number": self.number,
             "name": self.name,
             "paper_size": self.paper_size,
@@ -430,6 +438,9 @@ class Sheet:
             "annotations": [a.to_dict() for a in self.annotations],
             "revisions": [dict(r) for r in self.revisions],
         }
+        if self.linked_document is not None:
+            d["linked_document"] = self.linked_document.to_dict()
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Sheet":
@@ -460,6 +471,8 @@ class Sheet:
             annotations=[TextAnnotationData.from_dict(a)
                          for a in d.get("annotations", [])],
             revisions=[dict(r) for r in d.get("revisions", [])],
+            linked_document=(LinkedDocData.from_dict(d["linked_document"])
+                             if d.get("linked_document") else None),
         )
 
 
@@ -600,6 +613,18 @@ class SheetManager:
 # SheetProperties — property-panel adapter for a Sheet (spec §19.4)
 # ─────────────────────────────────────────────────────────────────────────────
 
+LINKED_SCALE_OPTIONS = ("Fit", "1x", "2x", SCALE_CUSTOM)
+"""Page Scale row entries (sheet-linked-document design D7, AC4)."""
+
+
+def _linked_scale_label(ld: "LinkedDocData") -> str:
+    """The Page Scale row value for a link's scale setting."""
+    fixed = {"fit": "Fit", "1": "1x", "2": "2x"}
+    if ld.scale_mode in fixed:
+        return fixed[ld.scale_mode]
+    return f"Custom ({ld.scale_custom:g}x)"
+
+
 class SheetProperties:
     """Property-panel adapter for a Sheet (duck-typed protocol, spec §19.4).
 
@@ -613,15 +638,17 @@ class SheetProperties:
     _TB_KEYS = ("Rev", "Date", "Drawn By", "Checked By")
 
     def __init__(self, sheet: "Sheet", manager: "SheetManager",
-                 on_change=None, on_reject=None, scene_getter=None):
+                 on_change=None, on_reject=None, scene_getter=None,
+                 linked_docs=None):
         self._sheet = sheet
         self._mgr = manager
         self._on_change = on_change or (lambda: None)
         self._on_reject = on_reject or (lambda msg: None)
         self._scene_getter = scene_getter or (lambda: None)
+        self._linked = linked_docs      # LinkedDocService, or None (no link flows)
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Sheet Number": {"type": "string", "value": self._sheet.number},
             "Sheet Name": {"type": "string", "value": self._sheet.name},
             "Paper Size": {"type": "label", "value": self._sheet.paper_size},
@@ -640,6 +667,123 @@ class SheetProperties:
             "": {"type": "button", "value": "Edit Revisions…",
                  "callback": self._open_revisions},
         }
+        props.update(self._linked_rows())
+        return props
+
+    # -- Linked document rows (sheet-linked-document design D6, D7, D11, D12) --
+
+    def _linked_rows(self) -> dict:
+        ld = self._sheet.linked_document
+        svc = self._linked
+        if ld is None:
+            return {
+                "Linked Document": {
+                    "type": "button", "value": "Link…",
+                    "callback": self._link_document,
+                    "enabled": svc is not None,
+                    "tooltip": "Show one page of a Word or PDF file on this sheet."},
+            }
+        exists = os.path.isfile(ld.path)
+        n_pages = max(ld.source_pages, ld.page, 1)
+        scale_value = _linked_scale_label(ld)
+        scale_opts = list(LINKED_SCALE_OPTIONS)
+        if scale_value not in scale_opts:
+            scale_opts = [scale_value] + scale_opts
+        w, h = sheet_page_mm(self._sheet)
+        try:
+            used = f"{_ld.placement(ld, w, h).scale:g}x"
+        except _ld.SnapshotError:
+            used = "-"
+        return {
+            "Linked Document": {
+                "type": "label",
+                "value": f"{os.path.basename(ld.path)}, page {ld.page}",
+                "tooltip": ld.path},
+            "ld_relink": {"type": "button", "label": "", "value": "Relink…",
+                          "callback": self._relink_document,
+                          "enabled": svc is not None},
+            "ld_unlink": {"type": "button", "label": "", "value": "Unlink",
+                          "callback": self._unlink_document},
+            "ld_refresh": {"type": "button", "label": "", "value": "Refresh",
+                           "callback": self._refresh_document,
+                           "enabled": svc is not None and exists},
+            "ld_open": {"type": "button", "label": "",
+                        "value": "Open in Word" if _ld.is_docx(ld.path) else "Open PDF",
+                        "callback": self._open_document, "enabled": exists},
+            "Linked Page": {"type": "enum", "value": str(ld.page),
+                            "options": [str(i) for i in range(1, n_pages + 1)]},
+            "Page Scale": {"type": "enum", "value": scale_value,
+                           "options": scale_opts},
+            "Scale Used": {"type": "label", "value": used},
+        }
+
+    def _link_document(self) -> None:
+        scene = self._scene_getter()
+        if self._linked is not None and scene is not None:
+            self._linked.link_interactive(scene, self._sheet, relink=False,
+                                          on_done=self._on_change)
+
+    def _relink_document(self) -> None:
+        scene = self._scene_getter()
+        if self._linked is not None and scene is not None:
+            self._linked.link_interactive(scene, self._sheet, relink=True,
+                                          on_done=self._on_change)
+
+    def _unlink_document(self) -> None:
+        scene = self._scene_getter()
+        if scene is None or self._sheet.linked_document is None:
+            return
+        from .paper_commands import SetLinkedDocumentCommand
+        scene.undo_stack.push(SetLinkedDocumentCommand(
+            scene, self._sheet, None, "Unlink Document"))
+        self._on_change()
+
+    def _refresh_document(self) -> None:
+        ld = self._sheet.linked_document
+        if self._linked is not None and ld is not None:
+            self._linked.request_refresh(ld.path)
+
+    def _open_document(self) -> None:
+        ld = self._sheet.linked_document
+        if ld is not None and not _ld.open_source(ld.path):
+            self._on_reject(f"{os.path.basename(ld.path)} was not found.")
+
+    def _set_linked_page(self, value) -> None:
+        ld = self._sheet.linked_document
+        scene = self._scene_getter()
+        try:
+            page = int(str(value))
+        except ValueError:
+            return
+        if (ld is None or page == ld.page or scene is None
+                or self._linked is None):
+            return
+        self._linked.change_page(scene, self._sheet, page,
+                                 on_done=self._on_change)
+
+    def _set_linked_scale(self, text: str) -> None:
+        ld = self._sheet.linked_document
+        scene = self._scene_getter()
+        if ld is None or scene is None:
+            return
+        fixed = {"Fit": "fit", "1x": "1", "2x": "2"}
+        if text in fixed:
+            mode, custom = fixed[text], ld.scale_custom
+        elif text == SCALE_CUSTOM:
+            from .linked_doc_service import ask_custom_scale
+            value = ask_custom_scale(None, ld.scale_custom)
+            if value is None:
+                return                  # the panel refresh re-shows the old value
+            mode, custom = "custom", float(value)
+        else:
+            return                      # the current "Custom (Nx)" entry re-picked
+        if (mode, custom) == (ld.scale_mode, ld.scale_custom):
+            return
+        from .paper_commands import SetLinkedDocumentCommand
+        scene.undo_stack.push(SetLinkedDocumentCommand(
+            scene, self._sheet, replace(ld, scale_mode=mode, scale_custom=custom),
+            "Change Linked Scale"))
+        self._on_change()
 
     def _open_revisions(self):
         """Open the revisions dialog and fire on_change on dismiss."""
@@ -662,6 +806,12 @@ class SheetProperties:
             key: Property label from ``get_properties()``.
             value: New value (coerced to ``str`` and stripped).
         """
+        if key == "Linked Page":
+            self._set_linked_page(value)
+            return
+        if key == "Page Scale":
+            self._set_linked_scale(str(value))
+            return
         if key in self._TB_KEYS:
             scene = self._scene_getter()
             if str(value) == self._sheet.title_block_fields.get(key, ""):
@@ -2853,6 +3003,98 @@ class _MoveTextBoxAdapter(ResizeTextBoxCommand):
         self.setText("Move Text")
 
 
+class LinkedPageItem(QGraphicsItem):
+    """The sheet's linked document page (sheet-linked-document design D1b).
+
+    Paints a raster of the one-page snapshot at the device's resolution (screen:
+    the view's zoom on a 1.5x ladder capped at 300 dpi; print: the printer's,
+    capped), clipped to the drawing area. Sits above the paper background and
+    below the title block (``Z_PAPER_LINKED_PAGE``). Not selectable, not
+    movable, takes no mouse button: it is a sheet property, not a placed item.
+    """
+
+    def __init__(self, snapshot_b64: str, place_rect: QRectF, area: QRectF,
+                 scale: float, parent=None):
+        super().__init__(parent)
+        self._snapshot = snapshot_b64
+        self._rect = QRectF(place_rect)
+        self._clip = QRectF(place_rect).intersected(area)
+        self._scale = scale
+        self.last_dpi = 0.0
+        self.setZValue(Z_PAPER_LINKED_PAGE)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    def placement_rect(self) -> QRectF:
+        """The whole page's rect on the sheet (paper mm, before the clip)."""
+        return QRectF(self._rect)
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(self._clip)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        if self._clip.isEmpty():
+            return
+        t = painter.worldTransform()
+        px_per_mm = math.hypot(t.m11(), t.m12())
+        dev = painter.device()
+        dpr = dev.devicePixelRatioF() if dev is not None else 1.0
+        needed = px_per_mm * dpr * 25.4 * self._scale
+        dpi = _ld.raster_dpi(needed, screen=widget is not None)
+        img = _ld.render_snapshot(self._snapshot, dpi)
+        if img is None or img.isNull():
+            return
+        self.last_dpi = dpi
+        painter.save()
+        painter.setClipRect(self._clip, Qt.ClipOperation.IntersectClip)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.drawImage(self._rect, img)
+        painter.restore()
+
+
+class LinkedPageBadge(QGraphicsItem):
+    """Screen-only one-line badge for the linked page (design D9).
+
+    Top-left of the drawing area, above every sheet item. ``render_sheet``
+    hides it through ``PaperScene.prepare_for_output``, so it never prints or
+    exports (Q14).
+    """
+
+    def __init__(self, text: str, anchor: QPointF, parent=None):
+        super().__init__(parent)
+        self._text = text
+        f = QFont("Arial")
+        f.setPixelSize(TEXT_METRIC_REF_PX)
+        fm = QFontMetricsF(f)
+        s = LINKED_BADGE_CAP_MM / (fm.capHeight() or 1.0)
+        pad = LINKED_BADGE_PAD_MM
+        self._rect = QRectF(anchor.x() + pad, anchor.y() + pad,
+                            fm.horizontalAdvance(text) * s + 2 * pad,
+                            fm.height() * s + 2 * pad)
+        self.setZValue(Z_PAPER_LINKED_BADGE)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+
+    def text(self) -> str:
+        """The badge line shown on screen."""
+        return self._text
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(self._rect)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        if not self._text:
+            return
+        painter.fillRect(self._rect, QColor(LINKED_BADGE_FILL))
+        pad = LINKED_BADGE_PAD_MM
+        _draw_mm_text(painter, self._rect.adjusted(pad, pad, -pad, -pad),
+                      self._text, LINKED_BADGE_CAP_MM,
+                      align=Qt.AlignmentFlag.AlignLeft
+                      | Qt.AlignmentFlag.AlignVCenter,
+                      color=LINKED_BADGE_INK)
+
+
 class PaperScene(QGraphicsScene):
     """QGraphicsScene representing one paper layout.
 
@@ -2869,6 +3111,7 @@ class PaperScene(QGraphicsScene):
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver):
         super().__init__()
+        self.linked_docs = None     # LinkedDocService (word check), set by the window
         self._sheet = sheet
         self._resolver = resolver
         self._bg_item = None
@@ -3061,6 +3304,85 @@ class PaperScene(QGraphicsScene):
         finally:
             self._suppress_modified = False
 
+    # -- Linked document page (sheet-linked-document design) ----------------
+
+    def drawing_area(self) -> QRectF:
+        """The sheet's drawing area, paper mm (design "Z order and clip").
+
+        The template's solved ``area_rect`` when a template title block is
+        shown; otherwise the drawing-border rect ``_setup`` draws from
+        ``MARGIN``. Screen, print and export all clip to this one rect.
+        """
+        if isinstance(self._title_tb, TitleBlockTemplateItem):
+            return QRectF(self._title_tb._layout.area_rect)
+        w, h = sheet_page_mm(self._sheet)
+        return QRectF(MARGIN, MARGIN, w - 2 * MARGIN, h - 2 * MARGIN)
+
+    def _build_linked_page(self) -> None:
+        """Add the linked page item and its badge for the current sheet."""
+        self._linked_item = None
+        self._linked_badge = None
+        ld = self._sheet.linked_document
+        if ld is None:
+            return
+        w, h = sheet_page_mm(self._sheet)
+        area = self.drawing_area()
+        try:
+            geo = _ld.placement(ld, w, h)
+        except _ld.SnapshotError:
+            geo = None
+        if geo is not None:
+            self._linked_item = LinkedPageItem(ld.snapshot_pdf, geo.rect, area,
+                                               geo.scale)
+            self.addItem(self._linked_item)
+        svc = self.linked_docs
+        word_ok = True
+        if _ld.is_docx(ld.path):
+            word_ok = svc.word_ok() if svc is not None else doc_converter.word_available()
+        text = _ld.badge_text(ld, sheet_w=w, sheet_h=h, area=area,
+                              file_exists=os.path.isfile(ld.path),
+                              word_ok=word_ok)
+        self._linked_badge = LinkedPageBadge(text, area.topLeft())
+        self.addItem(self._linked_badge)
+        self._linked_badge.setVisible(bool(text))
+
+    def refresh_linked_page(self) -> None:
+        """Rebuild only the linked page + badge (a link edit or a refresh)."""
+        for item in (self._linked_item, self._linked_badge):
+            if item is not None and item.scene() is self:
+                self.removeItem(item)
+        self._build_linked_page()
+
+    def linked_page_item(self) -> "LinkedPageItem | None":
+        """The linked page item, or None when the sheet has no link."""
+        return self._linked_item
+
+    def linked_badge(self) -> "LinkedPageBadge | None":
+        """The screen-only badge, or None when the sheet has no link."""
+        return self._linked_badge
+
+    def prepare_for_output(self, *, export_pass: bool = False) -> None:
+        """Ready this transient scene for print or export (design D1, D1b, D9).
+
+        The badge never prints. On the export pass the linked page item and
+        the paper background fill are left out: export places the vector page
+        under the sheet afterwards and the white fill would cover it.
+        """
+        if self._linked_badge is not None:
+            self._linked_badge.hide()
+        if export_pass and self._linked_item is not None:
+            self._linked_item.hide()
+            if self._bg_item is not None:
+                self._bg_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+
+    def linked_export_geometry(self) -> "_ld.ExportGeometry | None":
+        """Where the export post-pass places this sheet's linked page (D1)."""
+        ld = self._sheet.linked_document
+        if ld is None:
+            return None
+        w, h = sheet_page_mm(self._sheet)
+        return _ld.export_geometry(ld, w, h, self.drawing_area())
+
     @property
     def undo_stack(self) -> QUndoStack:
         """The paper-space-scoped QUndoStack owned by this scene."""
@@ -3134,6 +3456,10 @@ class PaperScene(QGraphicsScene):
                 QBrush(Qt.BrushStyle.NoBrush),
             )
             border.setZValue(2)
+
+        # Linked document page + badge (sheet-linked-document design): after the
+        # title block so the drawing area is known; z sits under it.
+        self._build_linked_page()
 
         # Vestigial programmatic block: kept for the title_block property + the
         # Scale-value refresh refs, but ALWAYS hidden — a no-template sheet

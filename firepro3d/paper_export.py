@@ -72,12 +72,14 @@ def _page_rect(painter: QPainter) -> QRectF:
 def render_sheet(sheet: Sheet, resolver: ViewResolver,
                  painter: QPainter, target_rect: QRectF,
                  template: "TitleBlockTemplate | None" = None,
-                 project_info: "dict | None" = None) -> None:
+                 project_info: "dict | None" = None,
+                 *, export_pass: bool = False):
     """Render one *sheet* into *target_rect* (device px) of *painter*.
 
     Builds a transient PaperScene, optionally installs a title-block template,
-    renders the paper rectangle (0,0,w,h in mm) into ``target_rect``, then
-    disposes the scene.
+    readies it for output (the linked-page badge never prints), renders the
+    paper rectangle (0,0,w,h in mm) into ``target_rect``, then disposes the
+    scene.
 
     Args:
         sheet: The sheet to render.
@@ -89,15 +91,27 @@ def render_sheet(sheet: Sheet, resolver: ViewResolver,
         project_info: Project-info dict passed to ``set_template`` (used by
             ``build_field_values`` to populate template field values).
             Ignored when *template* is None.
+        export_pass: True for ``export_pdf``'s QPdfWriter pass: the linked
+            page and (on a linked sheet) the paper fill are left out so the
+            vector page placed underneath afterwards shows (design D1).
+
+    Returns:
+        The linked page's ``ExportGeometry`` on an export pass of a linked
+        sheet, else None.
     """
     w_mm, h_mm = sheet_page_mm(sheet)
     scene = PaperScene(sheet, resolver)
+    geometry = None
     try:
         if template is not None:
             scene.set_template(template, project_info or {})
+        scene.prepare_for_output(export_pass=export_pass)
+        if export_pass:
+            geometry = scene.linked_export_geometry()
         scene.render(painter, target_rect, QRectF(0, 0, w_mm, h_mm))
     finally:
         scene.dispose()
+    return geometry
 
 
 def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
@@ -120,7 +134,7 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
 
     Raises:
         ValueError: If *sheets* is empty.
-        OSError: If *path* cannot be written (no partial file is produced).
+        OSError: If *path* cannot be written (no partial file is produced), or the linked-page post-pass failed (the plain sheet export is left).
     """
     if not sheets:
         raise ValueError("export_pdf requires at least one sheet")
@@ -133,8 +147,9 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
     writer.setResolution(dpi)
 
     painter: QPainter | None = None
+    placements: list = []
     try:
-        for sheet in sheets:
+        for index, sheet in enumerate(sheets):
             _set_page(writer, sheet)
             if painter is None:
                 painter = QPainter(writer)
@@ -143,11 +158,19 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             else:
                 writer.newPage()
-            render_sheet(sheet, resolver, painter, _page_rect(painter),
-                         template=template, project_info=project_info)
+            geometry = render_sheet(sheet, resolver, painter, _page_rect(painter),
+                                    template=template, project_info=project_info,
+                                    export_pass=True)
+            if geometry is not None:
+                placements.append((index, geometry))
     finally:
         if painter is not None and painter.isActive():
             painter.end()
+    if placements:
+        # D1: the original page goes UNDER each linked sheet page (vector,
+        # selectable text). The painter has ended, so the file is complete.
+        from .linked_document import place_pages_under
+        place_pages_under(path, placements)
 
 
 def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer,

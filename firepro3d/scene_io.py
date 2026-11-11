@@ -65,6 +65,7 @@ class SceneIOMixin:
         """
         self._project_path = os.path.abspath(filename)
         from .display_manager import get_display_settings_for_save
+        from .linked_document import relativize_sheet_links
 
         # --- Nodes (assign temp IDs) ---
         node_list = list(self.sprinkler_system.nodes)
@@ -179,7 +180,9 @@ class SceneIOMixin:
                                     if getattr(self, "_detail_manager", None) else []),
             "sections":            (self._section_manager.to_list()
                                     if getattr(self, "_section_manager", None) else []),
-            "sheets":              [s.to_dict() for s in self._sheets] if hasattr(self, '_sheets') else [],
+            "sheets":              (relativize_sheet_links(
+                                        [s.to_dict() for s in self._sheets], project_dir)
+                                    if hasattr(self, '_sheets') else []),
             "titleblock_template": getattr(self, "_titleblock_template", None),
         }
         # Ensure all underlays have cache entries
@@ -313,6 +316,8 @@ class SceneIOMixin:
         from .paper_space import Sheet
         sheet_data = payload.get("sheets", [])
         self._sheets = [Sheet.from_dict(d) for d in sheet_data]
+        from .linked_document import resolve_sheet_links
+        resolve_sheet_links(self._sheets, os.path.dirname(os.path.abspath(filename)))
 
         # --- Title block template (embedded copy is authoritative) ---
         self._titleblock_template = payload.get("titleblock_template", None)
