@@ -144,6 +144,8 @@ class SceneIOMixin:
         fill_types_data = fill_types.project_table().to_payload()
         from . import materials
         materials_data = materials.project_table().to_payload()
+        from . import phase_registry
+        phases_data = phase_registry.to_list()
 
         # --- Assemble and write ---
         payload = {
@@ -158,6 +160,7 @@ class SceneIOMixin:
             "paper_display":       paper_display_data,
             "fill_types":          fill_types_data,
             "materials":           materials_data,
+            "phases":              phases_data,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
                                     if self._plan_view_manager else []),
@@ -256,6 +259,8 @@ class SceneIOMixin:
 
         version = payload.get("version", 1)
         migrate_project_payload(payload)    # HF1 (D-A20): before display_settings is read
+        from . import phase_registry
+        phase_registry.migrate_payload(payload)   # D-PH6: before any deserializer
         self._clear_scene()
         self._project_path = os.path.abspath(filename)
 
@@ -275,6 +280,7 @@ class SceneIOMixin:
         fill_types.load_project_fill_types(payload.get("fill_types"))
         from . import materials
         materials.load_project_materials(payload.get("materials"))
+        phase_registry.load_project_phases(payload.get("phases"))   # before any element reads an id
 
         # --- Scale ---
         if "scale" in payload:
