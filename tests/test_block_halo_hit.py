@@ -150,6 +150,8 @@ def test_point_hit_where_a_stroke_crosses_the_text_box(qapp, pose):
     # can cancel (a mirrored pose flips one) and shape() reads a hole there.
     # Qt's point / pixel hit tests must still hit the block: they go through
     # BlockInstance.contains / collidesWithPath, which test each part.
+    # Only the mirrored param can go RED (the plain pose's windings agree);
+    # the plain param is the control.
     view, scene = make_view(role="plan", scale=1.0, mode="select")
     try:
         txt = TextItem(TextAnnotationData(text="AB", x=-150.0, y=-80.0,
