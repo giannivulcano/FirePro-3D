@@ -1346,6 +1346,18 @@ class Swatch(QWidget):
         self._chip.set_color(hex_color)
         self._label.setText(self._text_for(hex_color))
 
+    def set_tooltip(self, text):
+        """Show *text* over the whole swatch, the chip included.
+
+        ``setToolTip`` alone sets only the container: the chip keeps its own
+        "Pick <context>" tip, so hovering the chip never shows *text*.
+
+        Args:
+            text: The tooltip for the container and the chip.
+        """
+        self.setToolTip(text)
+        self._chip.setToolTip(text)
+
     def hex(self):
         return self._hex
 

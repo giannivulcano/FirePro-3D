@@ -84,6 +84,26 @@ def test_blocks_row_tooltip_names_colour(qapp):
     d.reject()
 
 
+def test_blocks_swatch_chip_hover_shows_by_category_tooltip(qapp):
+    """WM3 Group E review Imp 1: hovering the swatch's chip (its only
+    interactive part) shows the By Category text, not the generic
+    'Pick model blocks colour'. Driven as Qt delivers a hover: a ToolTip
+    help event to the chip, then the shown QToolTip text is read."""
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtGui import QHelpEvent
+    from PyQt6.QtWidgets import QApplication, QToolTip
+    d = DisplayManager(Model_Space())
+    d.show()
+    chip = d._model_blocks_swatch._chip
+    QToolTip.hideText()
+    QApplication.sendEvent(chip, QHelpEvent(
+        QEvent.Type.ToolTip, QPoint(2, 2), chip.mapToGlobal(QPoint(2, 2))))
+    shown = QToolTip.text()
+    QToolTip.hideText()
+    d.reject()
+    assert "By Category" in shown and "Pick model blocks colour" not in shown
+
+
 def test_blocks_weight_and_colour_round_trip_through_project(qapp):
     pd.set_model_blocks_weight("Heavy")
     pd.set_model_blocks_colour(_G)
