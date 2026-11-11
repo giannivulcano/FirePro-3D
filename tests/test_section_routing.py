@@ -27,6 +27,7 @@ KEYS = {
     "Shift+S": (Qt.Key.Key_S, SHIFT), "Shift+A": (Qt.Key.Key_A, SHIFT),
     "Ctrl+C": (Qt.Key.Key_C, CTRL), "Ctrl+X": (Qt.Key.Key_X, CTRL),
     "Ctrl+D": (Qt.Key.Key_D, CTRL), "Ctrl+A": (Qt.Key.Key_A, CTRL),
+    "Ctrl+V": (Qt.Key.Key_V, CTRL),
     "Ctrl+Z": (Qt.Key.Key_Z, CTRL), "Ctrl+Y": (Qt.Key.Key_Y, CTRL),
     "F3": (Qt.Key.Key_F3, NOMOD), "Escape": (Qt.Key.Key_Escape, NOMOD),
     "Delete": (Qt.Key.Key_Delete, NOMOD),
