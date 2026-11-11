@@ -81,6 +81,10 @@ def build_scene(shipped_hatches):
                                            height_mm=250.0, color="#ff8800")))
     rec = _record(layer_overrides={"A-WALL": {"colour": "#ff0000"}})
     group, _ = ms._build_batched_underlay_group(_geoms(), rec)
+    # The 100 mm underlay at the origin sits under the block; move it to
+    # clear paper and enlarge it so the goldens actually show its colour.
+    group.setPos(-2200.0, 600.0)
+    group.setScale(5.0)
     ms.underlays.append((rec, group))
     return ms
 
