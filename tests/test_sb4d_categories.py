@@ -11,7 +11,8 @@ from tests._sb4d_helpers import add_sheet, dispose, plan_scene
 def test_registries(qapp):
     from firepro3d import element_params as ep
     from firepro3d import system_blocks as sb
-    assert ep.CATEGORIES[-4:] == ("Elevation", "Section", "Detail", "View Title")
+    assert ep.CATEGORIES[-5:] == ("Elevation", "Section", "Detail", "View Title",
+                                  "Hydraulic Node")
     assert [(k, s.tier, s.kind) for k, s in ep.PARAMS["Elevation"].items()] == [("Direction", 1, "text")]
     for cat in ("Section", "Detail"):
         assert [(k, s.tier, s.kind) for k, s in ep.PARAMS[cat].items()] == [

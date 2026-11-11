@@ -12,7 +12,7 @@ from tests._sb4f_helpers import place
 def test_registries(qapp):
     from firepro3d import element_params as ep
     from firepro3d import system_blocks as sb
-    assert ep.CATEGORIES[-1] == "View Title"
+    assert ep.CATEGORIES[-2:] == ("View Title", "Hydraulic Node")
     assert [(k, s.tier, s.kind) for k, s in ep.PARAMS["View Title"].items()] == [
         ("Number", 1, "text"), ("Title", 1, "text"), ("Scale", 1, "text")]
     assert sb.ANNOTATION_CATEGORIES[-1] == "View Title"
