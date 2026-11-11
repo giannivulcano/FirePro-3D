@@ -50,14 +50,16 @@ def test_badge_is_top_level_in_the_tag_band_and_follows_its_node(qapp):
     ms, sec, det, tabs = plan_scene()
     try:
         n = ms.add_node(1000.0, 1000.0)
-        n.create_hydraulic_badge(1, 50.0, 40.0, 10.0, 10.0)      # position "Right"
+        n.create_hydraulic_badge()                               # side "Right", stack 1/1
         b = n._hydraulic_badge
-        from firepro3d.hydraulic_node_badge import _POSITION_OFFSETS
+        from firepro3d.constants import HYD_BADGE_OFFSET_MM
+        k = b._k(None, b.definition())
+        right = QPointF(HYD_BADGE_OFFSET_MM * k, 0)
         assert b.parentItem() is None and b.scene() is ms
         assert b.zValue() == Z_ANNOT_TAG
-        assert b.pos() == n.scenePos() + _POSITION_OFFSETS["Right"]
+        assert b.pos() == n.scenePos() + right
         n.setPos(2000.0, 1500.0)
-        assert b.pos() == QPointF(2000.0, 1500.0) + _POSITION_OFFSETS["Right"]
+        assert b.pos() == QPointF(2000.0, 1500.0) + right
         n.setVisible(False)
         assert not b.isVisible()
         n.setVisible(True)
@@ -73,7 +75,7 @@ def test_badge_is_top_level_in_the_tag_band_and_follows_its_node(qapp):
 
 def _badged_node(ms):
     n = ms.add_node(1000.0, 1000.0)
-    n.create_hydraulic_badge(1, 50.0, 40.0, 10.0, 10.0)
+    n.create_hydraulic_badge()
     return n, n._hydraulic_badge
 
 
@@ -83,7 +85,7 @@ def test_badge_takes_the_node_opacity(qapp):
         n, b = _badged_node(ms)
         n.setOpacity(0.4)
         assert b.opacity() == pytest.approx(0.4)
-        n.create_hydraulic_badge(2, 50.0, 40.0, 10.0, 10.0)      # a new badge copies it
+        n.create_hydraulic_badge()                               # a new badge copies it
         assert n._hydraulic_badge.opacity() == pytest.approx(0.4)
         ms.removeItem(n)
         n.setOpacity(0.7)

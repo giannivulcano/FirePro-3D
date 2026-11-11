@@ -30,6 +30,7 @@ def serialize_node(node, node_id: dict) -> dict:
 
     ``node_id`` maps node -> integer id. Mirrors ``save_to_file``'s node block.
     """
+    from .node import HYDRAULIC_ROW_KEYS
     entry = {
         "id":                node_id[node],
         "x":                 node.scenePos().x(),
@@ -39,8 +40,12 @@ def serialize_node(node, node_id: dict) -> dict:
         "ceiling_level":     getattr(node, "ceiling_level", DEFAULT_LEVEL),
         "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
         "room_name":         getattr(node, "_room_name", ""),
-        "sprinkler":         node.sprinkler.get_properties() if node.has_sprinkler() else None,
+        "sprinkler":         ({k: v for k, v in node.sprinkler.get_properties().items()
+                               if k not in HYDRAULIC_ROW_KEYS}
+                              if node.has_sprinkler() else None),
     }
+    if getattr(node, "badge_position", "Auto") != "Auto":
+        entry["badge_position"] = node.badge_position      # SB4e R3: sparse, absent = Auto
     node_ovr = getattr(node, "_display_overrides", {})
     if node_ovr:
         entry["display_overrides"] = node_ovr
@@ -243,6 +248,7 @@ def deserialize_node(scene, entry):
 
     node.level = entry.get("level", DEFAULT_LEVEL)
     node._room_name = entry.get("room_name", "")
+    node.badge_position = entry.get("badge_position", "Auto")
     node.ceiling_level = entry.get("ceiling_level", node.level)
     if "ceiling_offset_mm" in entry:
         node.ceiling_offset = entry["ceiling_offset_mm"]

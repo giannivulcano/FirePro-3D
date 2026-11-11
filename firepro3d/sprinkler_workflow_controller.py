@@ -13,7 +13,6 @@ docs/specs/hydraulic-solver-and-reporting.md
 """
 from __future__ import annotations
 
-import math
 
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QBrush, QColor, QTransform
@@ -417,46 +416,16 @@ class SprinklerWorkflowController:
         for pipe in self._scene.sprinkler_system.pipes:
             pipe.update_label()
             pipe.update()
-        from .hydraulic_node_badge import best_position_for_node
-
-        # Group major nodes by 2D scene position to detect overlaps (vertical drops)
-        pos_groups: dict[tuple, list] = {}
-        for node in self._scene.sprinkler_system.nodes:
+        from .hydraulic_node_badge import layout_badges
+        # Badges on major nodes only (numeric labels, AC7); values are live.
+        nodes = list(self._scene.sprinkler_system.nodes)
+        labels = getattr(result, "node_labels", None) or {}
+        for node in nodes:
             node.remove_hydraulic_badge()
-            label = result.node_labels.get(node) if hasattr(result, 'node_labels') else None
-            # Only create badges for major nodes (purely numeric labels)
-            if label is not None and label.isdigit():
-                sp = node.scenePos()
-                key = (round(sp.x(), 0), round(sp.y(), 0))
-                pos_groups.setdefault(key, []).append(node)
-
-        for nodes_at_pos in pos_groups.values():
-            # All nodes at this 2D position share auto-position, stack vertically
-            pos_label = best_position_for_node(nodes_at_pos[0])
-            for stack_idx, node in enumerate(nodes_at_pos):
-                nn = result.node_numbers[node]
-                p_actual = result.node_pressures.get(node, 0.0)
-                p_required = result.required_node_pressures.get(node, 0.0)
-                q_out = 0.0
-                if node.has_sprinkler():
-                    try:
-                        k = float(node.sprinkler._properties.get(
-                            "K-Factor", {}).get("value", 5.6))
-                    except (ValueError, TypeError):
-                        k = 5.6
-                    q_out = k * math.sqrt(max(p_actual, 0.0))
-                q_total = 0.0
-                for pipe in node.pipes:
-                    pf = abs(result.pipe_flows.get(pipe, 0.0))
-                    if pf > q_total:
-                        q_total = pf
-                label = result.node_labels.get(node, str(nn)) if hasattr(result, 'node_labels') else str(nn)
-                node.create_hydraulic_badge(nn, p_actual, p_required,
-                                            q_out, q_total,
-                                            position=pos_label,
-                                            stack_index=stack_idx,
-                                            stack_total=len(nodes_at_pos),
-                                            node_label=label)
+            label = labels.get(node)
+            if label is not None and str(label).isdigit():
+                node.create_hydraulic_badge()
+        layout_badges(nodes)
 
         for node in self._scene.sprinkler_system.nodes:
             node.update()

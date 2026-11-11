@@ -119,6 +119,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         # X / Y / Z move the node (D10); Y is up-positive
         if self.node is not None:
             props.update(self.node.position_rows())
+            props.update(self.node.hydraulic_rows())
         # Show room assignment from parent node
         room_name = getattr(self.node, "_room_name", "") if self.node else ""
         if room_name:
@@ -127,6 +128,10 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         return props
 
     def set_property(self, key: str, value):
+        if key == "Badge Position":
+            if self.node is not None:
+                self.node.set_property(key, value)
+            return
         if key in ("X", "Y", "Z"):
             # Saved rows replay on a node-less template and move nothing.
             if self.node is not None:

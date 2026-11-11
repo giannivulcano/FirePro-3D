@@ -11,6 +11,12 @@ from .view_scale import scene_hit_width
 from .displayable_item import DisplayableItemMixin
 from .paper_display import shows_selection
 
+# Panel rows of a badged node (S1): row label -> Hydraulic Node key (AC6).
+_HYD_ROWS = (("Node Number", "NodeNumber"), ("Required P", "RequiredPressure"),
+             ("Actual P", "Pressure"), ("Flow Out q", "Flow"), ("Total Flow Q", "TotalFlow"))
+HYDRAULIC_ROW_KEYS = frozenset(("Badge Position", *(r for r, _ in _HYD_ROWS)))
+
+
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     RADIUS = 13
     HALO_AREA = True  # HALO: cursor inside = direct hit
@@ -46,6 +52,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         self.ceiling_offset: float = DEFAULT_CEILING_OFFSET_MM
         self._room_name: str = ""   # set by auto-populate to link to a room
         self._hydraulic_badge = None
+        self.badge_position: str = "Auto"   # SB4e R3, saved sparse
 
         # Property panel support — shown for plain (non-sprinkler) nodes
         self._properties: dict = {
@@ -68,9 +75,40 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if self._room_name:
             props["Room"] = {"type": "string", "value": self._room_name,
                              "readonly": True}
+        props.update(self.hydraulic_rows())
         return props
 
+    def hydraulic_rows(self) -> dict:
+        """Badge Position + read-only live values, only on a badged node (S1)."""
+        if self._hydraulic_badge is None:
+            return {}
+        from . import element_params
+        from .hydraulic_node_badge import BADGE_POSITION_OPTIONS
+        hv = element_params.host_values(self, {k for _, k in _HYD_ROWS})
+        rows = {"Badge Position": {"type": "enum", "value": self.badge_position,
+                                   "options": list(BADGE_POSITION_OPTIONS)}}
+        for row, key in _HYD_ROWS:
+            v = hv.get(key)
+            txt = v.text if v is not None else None
+            rows[row] = {"type": "label", "value": txt if txt is not None else "-"}
+        return rows
+
+    def _set_badge_position(self, value: str) -> None:
+        from .hydraulic_node_badge import BADGE_POSITION_OPTIONS, layout_badges
+        if value not in BADGE_POSITION_OPTIONS or value == self.badge_position:
+            return
+        self.badge_position = value
+        sc = self.scene()
+        ss = getattr(sc, "sprinkler_system", None)
+        if ss is not None:
+            layout_badges(list(ss.nodes))
+        if sc is not None and hasattr(sc, "request_undo_push"):
+            sc.request_undo_push()          # coalesced by the panel commit (one step)
+
     def set_property(self, key: str, value: str):
+        if key == "Badge Position":
+            self._set_badge_position(str(value))
+            return
         if key in ("X", "Y", "Z"):
             self._edit_position(key, value)
             return
@@ -352,7 +390,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
                 for p in self.pipes:
                     p.update_geometry()
             if getattr(self, "_hydraulic_badge", None) is not None:
-                self._hydraulic_badge._centre_on_offset()     # top-level badge follows (SB4d D5)
+                self._hydraulic_badge.place()     # top-level badge follows (SB4d D5)
 
         badge = getattr(self, "_hydraulic_badge", None)
         if badge is not None:
@@ -370,30 +408,26 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             elif change == gc.ItemSceneHasChanged and value is not None and badge.scene() is None:
                 value.addItem(badge)
                 badge.setOpacity(self.opacity())
-                badge._centre_on_offset()
+                badge.place()
 
         return super().itemChange(change, value)
 
     # -------------------------------------------------------------------------
     # Hydraulic badge management
 
-    def create_hydraulic_badge(self, node_number, pressure, required_pressure,
-                               flow_out, total_flow, position="Right",
-                               stack_index=0, stack_total=1, node_label=""):
-        """Create a selectable hydraulic node badge (top-level, synced by this node)."""
+    def create_hydraulic_badge(self):
+        """Create this node's badge (top-level, synced by this node); its values
+        are live from the scene's hydraulic result (SB4e). ``layout_badges``
+        places it."""
         from .hydraulic_node_badge import HydraulicNodeBadge
         self.remove_hydraulic_badge()
-        self._hydraulic_badge = HydraulicNodeBadge(
-            self, node_number, pressure, required_pressure,
-            flow_out, total_flow,
-            position=position, stack_index=stack_index,
-            stack_total=stack_total, node_label=node_label,
-        )
+        self._hydraulic_badge = HydraulicNodeBadge(self)
         sc = self.scene()
         if sc is not None:                    # top-level (SB4d D5): joins the node's scene
             sc.addItem(self._hydraulic_badge)
         self._hydraulic_badge.setVisible(self.isVisible())
         self._hydraulic_badge.setOpacity(self.opacity())
+        self._hydraulic_badge.place()
 
     def remove_hydraulic_badge(self):
         """Remove the hydraulic badge if present."""
