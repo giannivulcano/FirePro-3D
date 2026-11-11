@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
 
 from .colour_tokens import is_token, resolve_colour, swatch_label, token_label
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
-from .stroke_style import AS_AUTHORED as _AS_AUTHORED
 from .theme import M, detect as _detect, theme_bus
 
 _DISABLED_OPACITY = 0.4        # disabled painted cell widgets (Swatch chip, EyeToggle)
@@ -1213,23 +1212,6 @@ def paint_no_fill(p: QPainter, r: QRectF, radius: float = 3) -> None:
     p.restore()
 
 
-def paint_as_authored(p: QPainter, r: QRectF, radius: float = 3) -> None:
-    """Paint the As Authored glyph into *r*: the rounded rect in three
-    vertical bands (red / green / blue) -- "the block's own colours". Used
-    for the paper "Blocks" colour sentinel (WM3 S1); caller draws any border."""
-    p.save()
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    clip = QPainterPath()
-    clip.addRoundedRect(r, radius, radius)
-    p.setClipPath(clip)
-    p.setPen(Qt.PenStyle.NoPen)
-    third = r.width() / 3.0
-    for i, c in enumerate(("#d9423b", "#3fae5a", "#3b6fd9")):    # theme-exempt: fixed glyph colours
-        p.setBrush(QColor(c))
-        p.drawRect(QRectF(r.left() + i * third, r.top(), third + 0.5, r.height()))
-    p.restore()
-
-
 def no_fill_icon(w: int, h: int):
     """QIcon of the No-Fill glyph for QPushButton-based swatches."""
     from PyQt6.QtGui import QIcon, QPixmap
@@ -1278,9 +1260,6 @@ class _Chip(QWidget):
         if not self._color:                      # No Fill (todo #70)
             paint_no_fill(p, r, 3)
             p.setBrush(Qt.BrushStyle.NoBrush)
-        elif self._color == _AS_AUTHORED:        # paper "Blocks" colour (WM3 S1)
-            paint_as_authored(p, r, 3)
-            p.setBrush(Qt.BrushStyle.NoBrush)
         else:
             p.setBrush(resolve_colour(self._color))
         p.setPen(QPen(QColor(t.border_subtle), 1))
@@ -1322,7 +1301,7 @@ class Swatch(QWidget):
         lay.setSpacing(M.PROP_HEX_GAP)
         lay.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         self._chip = _Chip(self._hex)
-        self._chip.setToolTip(self._tip_for(self._hex))
+        self._chip.setToolTip(f"Pick {context.lower()}")
         self._chip.clicked.connect(self._on_chip)
         self._label = QLabel(self._text_for(self._hex))
         self._label.setStyleSheet(f"color: {t.muted}; font-size: {M.PROP_FIELD_FS}px;")
@@ -1347,12 +1326,6 @@ class Swatch(QWidget):
     def _text_for(v):
         return swatch_label(v)        # one home: colour_tokens.swatch_label (WM3 D4)
 
-    def _tip_for(self, v):
-        """Chip tooltip: "Pick <context>", or "As Authored" for the paper
-        "Blocks" colour sentinel (WM3 S1)."""
-        return (swatch_label(v) if v == _AS_AUTHORED
-                else f"Pick {self._context.lower()}")
-
     def _on_chip(self):
         self.clicked.emit()
         if self._auto_pick:
@@ -1371,7 +1344,6 @@ class Swatch(QWidget):
         self._hex = hex_color
         self.setProperty("_color", hex_color)
         self._chip.set_color(hex_color)
-        self._chip.setToolTip(self._tip_for(hex_color))
         self._label.setText(self._text_for(hex_color))
 
     def hex(self):

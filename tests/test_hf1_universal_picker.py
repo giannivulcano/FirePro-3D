@@ -507,13 +507,10 @@ def test_graphic_override_stroke_no_stroke_draws_nothing(mw, qapp, monkeypatch):
 
 def test_pick_colour_has_no_opt_out_flags(qapp, monkeypatch):
     """The retired allow_none / allow_tokens kwargs are gone (slice B): the
-    one picker takes (initial, parent, context) and always shows every row.
-    WM3 S1 (user ruling 2026-11-11) adds ONE opt-IN kwarg, ``as_authored``
-    (default off: the paper "Blocks" Colour chip only), not an opt-out."""
+    one picker takes (initial, parent, context) and always shows every row."""
     import inspect
-    params = inspect.signature(colour_picker.pick_colour).parameters
-    assert list(params) == ["initial", "parent", "context", "as_authored"]
-    assert params["as_authored"].default is False
+    assert list(inspect.signature(colour_picker.pick_colour).parameters) == [
+        "initial", "parent", "context"]
     seen = []
 
     def exec_(self):

@@ -2248,12 +2248,7 @@ class DisplayManager(HouseDialog):
         cur_hex = btn.property("_color")
         if cur_hex is None:
             cur_hex = "#000000"
-        if key == _MODEL_BLOCKS_KEY and prop == "color":
-            # WM3 S1: only the paper "Blocks" Colour chip offers As Authored.
-            hex_val = colour_picker.pick_colour(cur_hex, self, f"{key} · {prop}",
-                                                as_authored=True)
-        else:
-            hex_val = colour_picker.pick_colour(cur_hex, self, f"{key} · {prop}")
+        hex_val = colour_picker.pick_colour(cur_hex, self, f"{key} · {prop}")
         if hex_val is None:
             return
 
