@@ -12,6 +12,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d import hosted_blocks as hb
+from firepro3d.block_instance import BlockInstance
 from firepro3d.section_marker import SectionMarker
 from tests._modify_tools_helpers import ignore_os_mouse
 from tests._snap_polish_helpers import click, move
@@ -67,6 +68,9 @@ def test_probe_hosted_pose_is_the_in_plane_pose(qapp, section_scene_for):
     exact for a rotate about an off-origin pivot, a mirror (front and far
     side) and a scale. So rotate / mirror / scale in a section are
     expressible in ``_pose_rot`` / ``_pose_mirrored`` / ``_pose_scale``.
+    The transforms call ``BlockInstance``'s own ``manip_*`` (not the copy's
+    override, which since C-3 writes back itself) so the probe's test-side
+    inverse stays the only write.
     RED when: ``hosted_blocks.section_pose`` stops negating the far-side
     rotation (``-rotation if back else rotation`` -> ``rotation``)."""
     ms, sec, gl, inst = _setup(section_scene_for)
@@ -80,7 +84,7 @@ def test_probe_hosted_pose_is_the_in_plane_pose(qapp, section_scene_for):
     assert (b.block_rotation(), b.block_mirrored()) == (-30.0, True)
 
     old = f.block_pos()                       # rotate 90 about 500 mm left
-    f.manip_rotate(90.0, QPointF(old[0] - 500.0, old[1]))
+    BlockInstance.manip_rotate(f, 90.0, QPointF(old[0] - 500.0, old[1]))
     want = _pose(f)
     assert want[:3] == (2000.0, -1700.0, 120.0)      # 30 + 90; (500,0) turned up
     _inverse(sec, f, inst, old)
@@ -91,7 +95,8 @@ def test_probe_hosted_pose_is_the_in_plane_pose(qapp, section_scene_for):
     assert b.block_rotation() == pytest.approx(-120.0) and b.block_mirrored()
 
     old = b.block_pos()                       # mirror in the FAR section
-    b.manip_reflect(QPointF(old[0] + 100.0, 0.0), QPointF(old[0] + 100.0, -1000.0))
+    BlockInstance.manip_reflect(b, QPointF(old[0] + 100.0, 0.0),
+                                QPointF(old[0] + 100.0, -1000.0))
     want_far = _pose(b)
     _inverse(far, b, inst, old)
     for s in (sec, far):
@@ -100,7 +105,7 @@ def test_probe_hosted_pose_is_the_in_plane_pose(qapp, section_scene_for):
 
     f = sec._hosted_copies[id(inst)]           # scale x2 about an off-origin base
     old = f.block_pos()
-    f.manip_scale_about(QPointF(old[0] - 100.0, old[1] + 100.0), 2.0)
+    BlockInstance.manip_scale_about(f, QPointF(old[0] - 100.0, old[1] + 100.0), 2.0)
     want = _pose(f)
     _inverse(sec, f, inst, old)
     sec.rebuild()
@@ -322,3 +327,103 @@ def test_one_snap_engine_call_per_move_in_a_tool(host, monkeypatch):
                         lambda p: (calls.append(p), real(p))[1])
     move(view, QPointF(2700.0, -1300.0))
     assert len(calls) == 1
+
+
+# -- C-3: rotate / flip / scale write the model block ------------------------
+
+def _hosted(ms, gl):
+    """The model blocks hosted on gridline *gl* (undo re-creates instances)."""
+    return ms.hosted_blocks_on(ms.gridline_by_uid(gl._uid))
+
+
+def test_rotate_tool_turns_the_model_block_about_the_view_normal(host):
+    """AC3 / AC11: Rotate 90 deg (Y-up CCW) about a pivot 500 mm left of the
+    insertion point turns the MODEL block (rotation 90) and swings its host
+    point to along 2000 / elevation 1700; one undo step; re-projected in this
+    section, a same-side parallel section and the far-side one (rotation
+    negated, mirror toggled there -- hosted-blocks D4); undo restores.
+    RED when: ``self._write_back(old)`` is deleted from
+    ``_HostedBlockCopy.manip_rotate`` (model stays 0 deg at along 2500)."""
+    ms, sec, gl, inst, view, statuses = host
+    same, far = _same_side(ms), _far_side(ms)
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("rotate") is True
+    click(view, QPointF(2000.0, -1200.0))                 # pivot
+    click(view, QPointF(3000.0, -1200.0))                 # start ray, heading 0
+    move(view, QPointF(2000.0, -2200.0))
+    click(view, QPointF(2000.0, -2200.0))                 # end ray, heading 90
+    assert inst.block_rotation() == pytest.approx(90.0)
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG - 500.0)
+    assert inst.host["elevation_mm"] == pytest.approx(PLACED_ELEV + 500.0)
+    assert inst.host["gridline"] == gl._uid and inst.host["offset_mm"] == 0.0
+    assert ms._undo_pos == pos0 + 1
+    for s in (sec, same, far):
+        s.rebuild()
+    assert _pose(sec._hosted_copies[id(inst)])[:4] == (2000.0, -1700.0, 90.0, False)
+    assert _pose(same._hosted_copies[id(inst)])[2:4] == (90.0, False)
+    assert _pose(far._hosted_copies[id(inst)])[2:4] == (-90.0, True)
+    ms.undo()
+    (back,) = _hosted(ms, gl)
+    assert back.block_rotation() == pytest.approx(0.0)
+    assert back.host["along_mm"] == pytest.approx(PLACED_ALONG)
+
+
+def test_flip_arrow_and_enter_flip_the_model_block(host):
+    """AC3: Flip left-right (the real Right-arrow, then Enter, on the
+    SectionView) mirrors the MODEL block across the vertical line through
+    the selection's centre: mirrored, rotation 0, along mirrored about the
+    centre; one undo step; the far side sees it un-mirrored (D4).
+    RED when: ``self._write_back(old)`` is deleted from
+    ``_HostedBlockCopy.manip_reflect``."""
+    ms, sec, gl, inst, view, statuses = host
+    far = _far_side(ms)
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("flip") is True
+    cx = sec._flip_center.x()                             # the tool's own centre
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    QTest.keyClick(view, Qt.Key.Key_Return)
+    assert inst.block_mirrored() is True
+    assert inst.block_rotation() == pytest.approx(0.0)
+    assert inst.host["along_mm"] == pytest.approx(2.0 * cx - PLACED_ALONG)
+    assert inst.host["elevation_mm"] == pytest.approx(PLACED_ELEV)
+    assert ms._undo_pos == pos0 + 1
+    far.rebuild()
+    assert far._hosted_copies[id(inst)].block_mirrored() is False
+
+
+def test_scale_tool_scales_the_model_block(host):
+    """AC3: Scale with base 500 mm left of the insertion point, reference at
+    the insertion point (1x = 500 mm), new size at 1000 mm -> factor 2: the
+    MODEL block's scale is 2 and its host point moves to along 3000; one
+    undo step; a parallel section shows the doubled block.
+    RED when: ``self._write_back(old)`` is deleted from
+    ``_HostedBlockCopy.manip_scale_about``."""
+    ms, sec, gl, inst, view, statuses = host
+    same = _same_side(ms)
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("scale") is True
+    click(view, QPointF(2000.0, -1200.0))                 # base
+    click(view, QPointF(2500.0, -1200.0))                 # reference: 500 mm = 1x
+    move(view, QPointF(3000.0, -1200.0))
+    click(view, QPointF(3000.0, -1200.0))                 # 1000 mm -> x2
+    assert inst.block_scale() == pytest.approx(2.0)
+    assert inst.host["along_mm"] == pytest.approx(3000.0)
+    assert inst.host["elevation_mm"] == pytest.approx(PLACED_ELEV)
+    assert ms._undo_pos == pos0 + 1
+    same.rebuild()
+    assert same._hosted_copies[id(inst)].block_scale() == pytest.approx(2.0)
+
+
+def test_a_bare_write_back_is_one_deferred_step(host, qapp):
+    """AC11: a copy turned outside a tool (no tool push follows) still
+    records exactly one undo step, from the deferred flush.
+    RED when: the ``self._mark_section_edit()`` line is deleted from
+    ``SectionScene._write_hosted_pose`` (no step at all)."""
+    ms, sec, gl, inst, view, statuses = host
+    pos0 = ms._undo_pos
+    cp = sec._hosted_copies[id(inst)]
+    cp.manip_rotate(45.0, QPointF(*cp.block_pos()))
+    assert inst.block_rotation() == pytest.approx(45.0)
+    qapp.processEvents()
+    qapp.processEvents()
+    assert ms._undo_pos == pos0 + 1

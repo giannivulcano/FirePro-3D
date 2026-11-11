@@ -318,6 +318,36 @@ class _HostedBlockCopy(BlockInstance):
             move(self, dx, dy)
         super().translate(dx, dy)          # live feedback until the rebuild
 
+    # Rotate / Flip-Mirror / Scale act in the section plane (about the view
+    # normal, across an in-plane axis): the copy turns like any block, then
+    # its section writes the new in-plane pose to the MODEL block (design D2,
+    # probe C-1) -- the copy alone would be lost at the next rebuild.
+
+    def _write_back(self, old_xy) -> None:
+        """Hand this copy's new pose to its section (no-op off a section)."""
+        sc = self.scene()
+        fn = getattr(sc, "_write_hosted_pose", None) if sc is not None else None
+        if fn is not None:
+            fn(self, old_xy)
+
+    def manip_rotate(self, angle_deg: float, pivot) -> None:
+        """Rotate about the view normal, then write the model block."""
+        old = self.block_pos()
+        super().manip_rotate(angle_deg, pivot)
+        self._write_back(old)
+
+    def manip_reflect(self, p1, p2) -> None:
+        """Mirror across an in-plane axis, then write the model block."""
+        old = self.block_pos()
+        super().manip_reflect(p1, p2)
+        self._write_back(old)
+
+    def manip_scale_about(self, base, factor: float) -> None:
+        """Scale about an in-plane base point, then write the model block."""
+        old = self.block_pos()
+        super().manip_scale_about(base, factor)
+        self._write_back(old)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ElevGridlineItem — selectable gridline in elevation view
@@ -1265,6 +1295,13 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         host["along_mm"] = float(host["along_mm"]) + dx * hb.h_sign(self._basis, gl)
         host["elevation_mm"] = float(host["elevation_mm"]) - dy
         self._ms._sync_hosted_blocks(gl)
+        self._mark_section_edit()
+
+    def _mark_section_edit(self) -> None:
+        """Mark one pending section undo step (a hosted drag, a write-back):
+        the manipulator release (``_commit_elev_grip``), a tool commit's own
+        ``push_undo_state`` (which folds it in) or the deferred flush
+        records it once (D10, AC11)."""
         if not self._hosted_push_pending:
             self._hosted_push_pending = True
             QTimer.singleShot(0, self._flush_hosted_push)
@@ -1275,6 +1312,41 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             return
         self._hosted_push_pending = False
         self._ms.push_undo_state()
+
+    def _write_hosted_pose(self, copy, old_xy) -> None:
+        """Write hosted *copy*'s new in-plane pose to its model block
+        (elevation parity D2; probe C-1 -- the inverse of
+        ``hosted_blocks.section_pose``).
+
+        The copy's h / v move ``along_mm`` (by the section's h direction) /
+        ``elevation_mm`` (gridline, offset and facing are kept); its
+        rotation / mirror / scale become the model's ``_pose_rot`` /
+        ``_pose_mirrored`` / ``_pose_scale`` -- rotation negated and mirror
+        toggled when this section sees the host from its far side (D4),
+        scale times pixels-per-mm (copies are built at ``scale / ppm``).
+        Marks one pending section undo step.
+
+        Args:
+            copy: The ``_HostedBlockCopy`` a tool just transformed.
+            old_xy: Its ``block_pos()`` before the transform.
+        """
+        from . import hosted_blocks as hb
+        src = copy.data(_ROLE_SOURCE)
+        host = getattr(src, "host", None)
+        gl = self._ms.gridline_by_uid(host.get("gridline")) if host else None
+        if gl is None:
+            return
+        back = hb.facing_of(self._basis, gl) != int(host.get("facing", 1))
+        x, y = copy.block_pos()
+        host["along_mm"] = (float(host["along_mm"])
+                            + (x - old_xy[0]) * hb.h_sign(self._basis, gl))
+        host["elevation_mm"] = -y
+        rot = copy.block_rotation()
+        src.set_block_rotation(-rot if back else rot)
+        src.set_block_mirrored(copy.block_mirrored() != back)
+        src.set_block_scale(copy.block_scale() * self._ppm())
+        self._ms._sync_hosted_blocks(gl)
+        self._mark_section_edit()
 
     # ── Shared project undo stack (elevation-parity R13 / D1) ────────────
     # A section owns no stack: every section edit pushes onto the plan
