@@ -453,6 +453,7 @@ class PropertyManager(QWidget):
                 widget.setCurrentText(str(meta["value"]))
                 actions = meta.get("action_options") or {}
                 if actions:
+                    widget.setWheelSteps(False)  # a scroll never opens the picker (WM3)
                     prev = "< mixed >" if is_mixed else str(meta["value"])
                     widget.currentTextChanged.connect(
                         lambda val, k=key, w=widget, p=prev, a=actions, ic=icons:

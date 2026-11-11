@@ -1023,6 +1023,7 @@ class Selector(QComboBox):
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
         self._show_icon = False      # opt-in: swatch left of the text (Materials Section selector)
+        self._wheel_steps = True     # opt-out: a row whose option runs an action (WM3 Colour)
         # Size lives in the widget's OWN QSS: setFont() loses to the app QSS
         # ``QWidget { font-size }`` (13 px everywhere outside the property
         # panel's field rule — ui-design-system.md).
@@ -1040,6 +1041,23 @@ class Selector(QComboBox):
         exactly as before."""
         self._show_icon = bool(on)
         self.update()
+
+    def setWheelSteps(self, on: bool) -> None:
+        """Opt out of stepping the selection with the mouse wheel.
+
+        Args:
+            on: False makes a closed selector ignore the wheel (the event
+                passes to the parent, so the panel still scrolls); the popup
+                list scrolls as usual. Used by a row whose option opens a
+                dialog, so a scroll never opens it (WM3 Colour row).
+        """
+        self._wheel_steps = bool(on)
+
+    def wheelEvent(self, event):
+        if not self._wheel_steps:
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
     def paintEvent(self, event):
         t = _detect()

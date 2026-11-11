@@ -206,6 +206,45 @@ def test_panel_pick_colour_cancel_restores_without_a_write(qapp, monkeypatch, ma
     assert inst.overrides["colour"] == OVR and ms._undo_pos == pos
 
 
+def _wheel_down(widget):
+    """A real wheel-down notch delivered to *widget* (no cursor movement)."""
+    from PyQt6.QtCore import QPoint, Qt
+    from PyQt6.QtGui import QWheelEvent
+    c = QPointF(widget.rect().center())
+    ev = QWheelEvent(c, QPointF(widget.mapToGlobal(c.toPoint())), QPoint(0, 0),
+                     QPoint(0, -120), Qt.MouseButton.NoButton,
+                     Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    QApplication.sendEvent(widget, ev)
+    QApplication.processEvents()
+
+
+def test_wheel_over_colour_row_does_nothing(qapp, monkeypatch, make_pm):
+    """User ruling (2026-11-10, Group D review): scrolling over the Colour row
+    never steps it -- no By Category write, no picker from a scroll. Other
+    enum rows (Weight) keep stepping on the wheel (positive control)."""
+    from firepro3d import colour_picker
+    calls = []
+    monkeypatch.setattr(colour_picker, "pick_colour",
+                        lambda *a, **k: calls.append(a) or OVR)
+    s = sprinkler_def()
+    ms, inst = scene_with([s], s.id)
+    ms.push_undo_state()
+    pm = make_pm([inst])
+    weight = pm._prop_widgets["Weight"]
+    w_before = weight.currentText()
+    _wheel_down(weight)
+    assert weight.currentText() != w_before          # the event is live: Weight steps
+    pm = make_pm([inst])                              # fresh panel after the Weight write
+    combo = pm._prop_widgets["Colour"]
+    before = combo.currentText()
+    pos = ms._undo_pos
+    for _ in range(3):                                # past By Category and Pick colour
+        _wheel_down(combo)
+    assert combo.currentText() == before == "As Authored"
+    assert inst.overrides["colour"] == "as_authored"
+    assert calls == [] and ms._undo_pos == pos
+
+
 def test_mixed_selection_block_first_by_category_skips_the_primitive(qapp, make_pm):
     s = sprinkler_def()
     ms, inst = scene_with([s], s.id)
