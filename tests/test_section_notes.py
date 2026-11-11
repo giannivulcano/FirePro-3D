@@ -227,3 +227,79 @@ def test_switching_tools_while_editing_a_section_note_keeps_the_text(qapp, real_
         assert note.attributes["Text"] == "hi"
     finally:
         _dispose(win)
+
+
+def _window_note(text="MMMM"):
+    """Shown window, one section tab current, one model Note of that section
+    (pose (3000, -2000) in its frame) projected; a baseline undo step."""
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, markers, views = open_section_window(1)
+    ms = win.scene
+    ms.register_block_definition(load_block_file(
+        os.path.join(system_blocks_path(), "Annotations", "Note.fpdb")))
+    note = place_note(ms, "section:" + markers[0].name, (3000.0, -2000.0), text=text)
+    note.setVisible(False)
+    ms.push_undo_state()
+    view, sec = views[0], views[0].scene()
+    # The window's 200 ms view-refresh debounce (started by the undo push)
+    # would fire mid-test and its section rebuild commits a live Note editor
+    # (by design): run it now so the test owns the timing.
+    timer = getattr(win, "_view_refresh_timer", None)
+    if timer is not None and timer.isActive():
+        timer.stop()
+        win._refresh_all_views()
+    settle(sec)
+    cp = sec._note_copies[id(note)]
+    aim(view, cp.note_box_scene().center(), 0.5)
+    return win, ms, view, sec, note
+
+
+def test_double_click_edits_the_model_note_text_in_one_step(qapp, real_system_library):
+    """AC9 (D13 via D4): double-click the copy -> the editor opens on it; typed
+    text lands on the MODEL note's Text; one undo step; undo restores."""
+    from PyQt6.QtCore import Qt
+    from firepro3d.text_item import editing_text_item
+    from tests._note_helpers import dbl, key
+    win, ms, view, sec, note = _window_note("MMMM")
+    try:
+        cp = sec._note_copies[id(note)]
+        pos = ms._undo_pos
+        dbl(view, cp.note_box_scene().center())
+        assert editing_text_item(sec) is sec._note_ctl.overlay is not None
+        key(view, Qt.Key.Key_End)
+        key(view, Qt.Key.Key_Z)
+        key(view, Qt.Key.Key_Escape)
+        assert note.attributes["Text"] == "MMMMz"
+        assert ms._undo_pos == pos + 1
+        ms.undo()                                     # restore re-creates the instances
+        from firepro3d.note_controller import notes_of
+        (back,) = notes_of(ms, sec.active_view_key)
+        assert back.attributes["Text"] == "MMMM"
+    finally:
+        _dispose(win)
+
+
+def test_delete_key_on_the_section_tab_removes_the_model_note(qapp, real_system_library):
+    """AC9 / R2: the window Delete shortcut on the section tab removes the
+    selected copy's model note in one step; undo brings it back to the section."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.note_controller import notes_of
+    from tests._section_window_helpers import settle
+    win, ms, view, sec, note = _window_note("GONE")
+    try:
+        key_ = sec.active_view_key
+        sec.clearSelection()
+        sec._note_copies[id(note)].setSelected(True)
+        pos = ms._undo_pos
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_Delete)
+        QApplication.processEvents()
+        assert notes_of(ms, key_) == []
+        assert ms._undo_pos == pos + 1
+        ms.undo()
+        settle(sec)
+        (back,) = notes_of(ms, key_)
+        assert sec._note_copies[id(back)].attributes["Text"] == "GONE"
+    finally:
+        _dispose(win)
