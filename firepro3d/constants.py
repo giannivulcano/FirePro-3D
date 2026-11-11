@@ -648,3 +648,8 @@ DEFAULT_VELOCITY_PRECISION = 1     # ft/s
 # Footer reason when a modify / clipboard shortcut is pressed on the 3D tab
 # (elevation-parity R16 / AC14): its active scene would be the hidden plan.
 VIEW_3D_EDIT_REFUSED_HINT = "Modify and clipboard tools work in 2D views, not in 3D"
+
+# -- Elevation parity: the section modify host (design D2, rulings R3-R5) ----
+# R3: a section's modify tools act only on its write-back copies; read-only
+# model proxies in the selection are skipped (or refuse the tool) with this.
+SECTION_EDIT_SKIPPED = "{n} items skipped (edit in plan)"

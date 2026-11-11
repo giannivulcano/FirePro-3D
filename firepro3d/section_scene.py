@@ -33,7 +33,7 @@ from PyQt6.QtCore import QSettings
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM,
                         Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG,
-                        RISER_SYMBOL_SIZE_MM)
+                        RISER_SYMBOL_SIZE_MM, SECTION_EDIT_SKIPPED)
 from . import theme as th
 from .paper_display import shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
@@ -42,6 +42,8 @@ from .block_pose import reflect_pose
 from . import materials
 from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
+from .modify_host import ModifyHostMixin
+from .modify_tools_controller import ModifyToolsController
 from .bound_label import BoundLabelItem, OutlinedLabel
 from .cad_math import CAD_Math
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
@@ -62,6 +64,14 @@ _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 # Footer status when a section placement finds no host gridline (hosted-blocks G9).
 HOSTED_REFUSAL = ("Can't place here — a block in a section needs a "
                   "gridline parallel to the cut inside the view's depth.")
+
+
+def is_section_editable(item) -> bool:
+    """True for a section item the section's modify tools act on: a
+    write-back copy of a model record (gridline-hosted block, section
+    Note) carrying ``SECTION_EDITABLE = True`` (elevation parity D2 / R1).
+    Projected model proxies, gridlines and datums are read-only here."""
+    return getattr(item, "SECTION_EDITABLE", False) is True
 
 # Depth walk (_assign_depth_z_values): farthest item first from _DEPTH_Z_START
 # in _DEPTH_Z_STEP steps, clamped at constants.Z_DEPTH_CEIL so projected model
@@ -298,6 +308,8 @@ class _HostedBlockCopy(BlockInstance):
     ``_ROLE_SOURCE`` names the model block; a drag lands on the model via
     :meth:`translate` (D10) and the section rebuilds from it.
     """
+
+    SECTION_EDITABLE = True     # the section modify tools act on it (D2 / R3)
 
     def translate(self, dx: float, dy: float) -> None:
         sc = self.scene()
@@ -798,16 +810,12 @@ def section_source_of(item):
     return None
 
 
-class SectionScene(HaloSelectionMixin, QGraphicsScene):
+class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
     entitySelected = pyqtSignal(object)   # picked legacy entity
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
-    modeChanged = pyqtSignal(str)         # "place_block" / "select" (footer badge)
     snapToggled = pyqtSignal(bool)        # toggle_snap() ran (footer SNAP pill; D3)
-    # The footer line (elevation-parity D8): the HALO readout and tool hints.
-    # MainWindow._on_section_scene_built connects it to footer.set_instruction.
-    instructionChanged = pyqtSignal(str)
 
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display on the viewport's source scene). Declared so
@@ -909,6 +917,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         # HALO preselection + scene-drawn rubber-band state (mixin).
         self._init_halo_state()
 
+        # Modify host (elevation parity D2): the plan's ModifyToolsController
+        # and its transients via ModifyHostMixin. scene_role is set BEFORE the
+        # constraint controller: any role but plan / block_editor leaves it
+        # disabled (a missing role would read as "plan" and enable it).
+        from .constraint_controller import ConstraintController
+        self.scene_role = "section"
+        self.constraint_ctl = ConstraintController(self)
+        self._init_modify_host()
+        self._modify_skipped = 0        # read-only items the last tool left out (R3)
+        self._rebuild_held = False      # a debounced rebuild waiting for a tool to end
+        self.modeChanged.connect(self._run_held_rebuild)
+
         # Theme (re-applied by rebuild(), so a live theme switch follows)
         self._apply_theme_colours()
         self._datum_color = QColor("#4488cc")
@@ -920,7 +940,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._rebuild_timer = QTimer(self)
         self._rebuild_timer.setSingleShot(True)
         self._rebuild_timer.setInterval(100)
-        self._rebuild_timer.timeout.connect(self.rebuild)
+        self._rebuild_timer.timeout.connect(self._rebuild_when_idle)
         self._ms.sceneModified.connect(self._schedule_rebuild)
         self.selectionChanged.connect(self._on_selection_changed)
 
@@ -1027,6 +1047,9 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # manipulator's live-apply GripHandle borrows them during a drag.
 
     def mousePressEvent(self, event):
+        # A running modify tool owns the left press (ModifyHostMixin, D2).
+        if self.modify_mouse_press(event):
+            return
         if event.button() == Qt.MouseButton.RightButton:
             # Don't pass right-click to base — it deselects items.
             # contextMenuEvent handles right-click menus separately.
@@ -1070,6 +1093,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     event.accept()
                     return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        # A running modify tool: ghost, handle snap, readout (D2).
+        if self.modify_mouse_move(event):
+            return
+        super().mouseMoveEvent(event)
+
+    def keyPressEvent(self, event):
+        # A running modify tool: flip arrows, Enter commit, Esc (D2).
+        if self.modify_key_press(event):
+            return
+        super().keyPressEvent(event)
 
     def contextMenuEvent(self, event):
         """Show right-click context menu for elevation view entities."""
@@ -1127,6 +1162,94 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         """Restore all hidden source entities and rebuild."""
         self._ms._show_all_hidden()
         self.rebuild()
+
+    # -- Modify host (elevation parity D2; ModifyHostMixin hooks) ----------
+
+    #: Modes whose entry reports the read-only items a tool leaves out (R3):
+    #: the modes of the select-first tools.
+    _SKIP_REPORT_MODES = frozenset(
+        ModifyToolsController._TOOL_MODE[t]
+        for t in ModifyToolsController._SELECT_FIRST)
+
+    def modify_selection(self) -> list:
+        """ModifyHostMixin hook: the editable subset of the selection
+        (``is_section_editable``: hosted-block and Note copies). Records how
+        many read-only items it left out, for the R3 footer.
+
+        Returns:
+            The editable selected items, in selection order.
+        """
+        sel = list(self.selectedItems())
+        editable = [it for it in sel if is_section_editable(it)]
+        self._modify_skipped = len(sel) - len(editable)
+        return editable
+
+    def modify_empty_hint(self) -> str:
+        """ModifyHostMixin hook: the R3 refusal when nothing selected is
+        editable here (or the plain select-first hint with no selection)."""
+        n = len(self.selectedItems())
+        return (SECTION_EDIT_SKIPPED.format(n=n) if n
+                else super().modify_empty_hint())
+
+    def _capture_modify_selection(self, mode) -> None:
+        """The mixin's entry capture, then the R3 footer: a select-first tool
+        entered over a mixed selection says how many items it leaves alone
+        (they stay selected and unchanged)."""
+        super()._capture_modify_selection(mode)
+        if mode in self._SKIP_REPORT_MODES and self._modify_skipped:
+            self._show_status(SECTION_EDIT_SKIPPED.format(n=self._modify_skipped))
+
+    def push_undo_state(self) -> None:
+        """One step on the shared plan stack (R13 / AC11). A pending deferred
+        section step (a copy write marked for the drag / write-back flush) is
+        folded into this push, so a tool commit is one step, never two."""
+        self._hosted_push_pending = False
+        self._ms.push_undo_state()
+
+    def _halo_mode_ok(self) -> bool:
+        """HaloSelectionMixin hook: HALO hover runs only in Select (plan
+        parity, ``Model_Space._halo_mode_ok``); a running tool owns the
+        cursor."""
+        return getattr(self, "mode", None) in (None, "select")
+
+    def _rebuild_when_idle(self) -> None:
+        """The debounced rebuild (``_rebuild_timer``), held while a modify
+        tool runs: the tool holds the copies it acts on (``_selected_items``)
+        and ``rebuild()``'s ``clear()`` would delete them under it. The held
+        rebuild runs when the tool ends (``_run_held_rebuild``)."""
+        if getattr(self, "mode", None) in self._MODIFY_MODES:
+            self._rebuild_held = True
+            return
+        self.rebuild()
+
+    def _run_held_rebuild(self, mode) -> None:
+        """``modeChanged`` slot: a tool ended, so schedule the rebuild it held."""
+        if self._rebuild_held and mode not in self._MODIFY_MODES:
+            self._rebuild_held = False
+            self._schedule_rebuild()
+
+    # Required clipboard hooks (ModifyHostMixin REQUIRED_HOST_METHODS). Mounted
+    # here refusing everything; C-4 / C-5 give them their section behaviour.
+
+    def _clipboard_item_dicts(self, items) -> list:
+        """Clipboard records of *items* (none yet: C-4)."""
+        return []
+
+    def _paste_accepts(self, obj: dict) -> bool:
+        """The paste type gate (nothing yet: C-4)."""
+        return False
+
+    def paste_items(self, offset, data=None, constraints=None, rotation_deg=None) -> list:
+        """Paste records (nothing yet: C-4)."""
+        return []
+
+    def _add_from_dict(self, d: dict):
+        """Mirror's copy path (nothing yet: C-4)."""
+        return None
+
+    def _bulk_delete(self, selected, selected_set):
+        """Cut's delete (nothing yet: C-4)."""
+        return [], 0
 
     def _move_hosted_source(self, copy, dx: float, dy: float) -> None:
         """A drag on a hosted copy moves its model block in its plane only:
@@ -1346,16 +1469,6 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         probe)."""
         return list(self._snap_lines)
 
-    def _snap_view(self):
-        """The view whose zoom drives the snap aperture: the shown SectionView,
-        else the last attached one (headless tests attach without showing),
-        else None (``Model_Space._snap_view`` parity)."""
-        views = self.views()
-        for v in views:
-            if v.isVisible():
-                return v
-        return views[-1] if views else None
-
     def toggle_snap(self, enabled: bool | None = None) -> None:
         """Toggle or set THIS section's SNAP (F3 / the footer SNAP pill through
         ``MainWindow._active_scene()``); the plan scene's state is untouched
@@ -1551,6 +1664,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
     def rebuild(self):
         """Clear and re-project all entities from the model."""
+        if getattr(self, "mode", None) in self._MODIFY_MODES:
+            # clear() would delete the copies a running tool holds: end it
+            # (the debounced path holds instead -- _rebuild_when_idle).
+            self.set_mode(None)
         self._apply_theme_colours()
         self._marker.auto_fit(self._ms)           # geometry re-seeded (s4.3); basis below reads it
         self._refresh_basis()

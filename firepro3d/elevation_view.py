@@ -225,7 +225,11 @@ class SectionView(QGraphicsView):
         # move): a live grip drag / tool mode snaps and leaves the marker in
         # _snap_result, plain select mode clears a stale one. A manipulator
         # drag snaps through its own handle path, so it is skipped here.
-        if sc is not None and hasattr(sc, "get_effective_position"):
+        if (sc is not None and hasattr(sc, "get_effective_position")
+                and getattr(sc, "mode", None)
+                not in getattr(sc, "_MODIFY_MODES", ())):
+            # A running modify tool resolves the cursor in the scene's own
+            # dispatch (ModifyHostMixin.modify_mouse_move): one engine call.
             manip = sc._live_manip() if hasattr(sc, "_live_manip") else None
             if manip is None or not manip.is_dragging():
                 had = sc._snap_result is not None
@@ -285,6 +289,10 @@ class SectionView(QGraphicsView):
         # Snap trace + marker: the plan's one painter (Model_View parity, D3).
         from .snap_engine import paint_snap_indicator
         paint_snap_indicator(painter, self, getattr(scene, "_snap_result", None))
+        # Modify-tool overlays (move / paste ghost, rotate ray, mirror axis,
+        # flip crosshair): the plan's one painter (elevation parity D2).
+        from .modify_host import paint_modify_overlays
+        paint_modify_overlays(painter, self, scene)
         from .halo import paint_halo_highlight, paint_rubber_band
         theme = th.detect()
         # HALO hover highlight (gated on suppression like the plan view).
@@ -317,6 +325,13 @@ class SectionView(QGraphicsView):
             event.accept()
             return
         sc = self.scene()
+        if (sc is not None and getattr(sc, "mode", None)
+                in getattr(sc, "_MODIFY_MODES", ())):
+            # A running modify tool owns the keys (flip arrows, Enter commit,
+            # Esc) through the scene's ModifyHostMixin.modify_key_press -- not
+            # the select-mode HALO cycle / escape ladder below (D2).
+            super().keyPressEvent(event)
+            return
         # Armed block placement owns Space (rotate; Shift = reverse) and Esc.
         if sc is not None and getattr(sc, "_place_block_id", None) is not None:
             if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():
