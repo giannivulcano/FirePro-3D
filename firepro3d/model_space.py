@@ -60,6 +60,7 @@ from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
 from .bound_label import BoundLabelItem, eligible_definition, resolve_annotation_block
+from .hydraulic_node_badge import HydraulicNodeBadge
 from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
@@ -5239,7 +5240,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             return item.node
         if isinstance(item, DesignAreaBadge):
             return item.parentItem()
-        from .hydraulic_node_badge import HydraulicNodeBadge
         if isinstance(item, HydraulicNodeBadge):     # SB4e AC5: the badge picks its node
             return item.host
         parent = item.parentItem() if hasattr(item, "parentItem") else None
@@ -6382,6 +6382,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             selection = selection.node
         else:
             selection = next((i for i in items if isinstance(i, Node)), None)
+        if selection is None:
+            # A hydraulic node badge resolves to its node (SB4e AC5); it is
+            # drawn above pipes, so it wins over a pipe under it.
+            selection = next((i.host for i in items
+                              if isinstance(i, HydraulicNodeBadge)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
         # Also check for walls, floors, roofs, view markers, design-area

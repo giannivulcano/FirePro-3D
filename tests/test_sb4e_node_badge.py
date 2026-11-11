@@ -235,3 +235,31 @@ def test_g4_click_on_the_badge_selects_the_node(qapp, shown_model_view, real_sys
         assert badge.overlay_pens() == []                     # never plots
     finally:
         pd.paper_pass_active = orig
+
+
+def test_g4_click_without_a_hover_selects_the_node(qapp, shown_model_view, real_system_library):
+    """No HALO pick (no move first, or Esc cleared it): the press path itself
+    resolves the badge to its node (review T6 I1)."""
+    from firepro3d.water_supply import WaterSupply
+    from tests._snap_polish_helpers import click
+    view, ms = shown_model_view
+    ws = WaterSupply(0.0, 0.0)
+    ms.addItem(ws)
+    ms.water_supply_node = ws
+    ms.sprinkler_system.supply_node = ws
+    a = ms.add_node(0.0, 0.0)
+    b = ms.add_node(1500.0, 0.0)
+    ms.add_pipe(a, b)
+    ms.add_sprinkler(b)
+    solve(ms)
+    n = next(x for x in (a, b) if x._hydraulic_badge is not None)
+    badge = n._hydraulic_badge
+    ms.set_mode("select")
+    view.centerOn(badge.sceneBoundingRect().center())
+    qapp.processEvents()
+    hit = badge.sceneBoundingRect().center()
+    ms.halo_clear()
+    assert ms.halo_item() is None
+    click(view, hit)
+    qapp.processEvents()
+    assert ms.selectedItems() == [n]
