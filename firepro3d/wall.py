@@ -110,6 +110,7 @@ def compute_wall_quad(
 
 from .displayable_item import DisplayableItemMixin
 from . import materials
+from . import phase_registry
 from .paper_display import shows_selection
 
 
@@ -183,6 +184,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._colour: str = normalize_colour(color, _DEFAULT_COLOUR)
         self._fill_mode: str = FILL_NONE
         self.material_id: str = MATERIAL_NONE_ID
+        self.phase: str = phase_registry.PHASE_NEW     # project-phasing PD1 (status id)
 
         # Shared display-manager attributes
         self.init_displayable()
@@ -880,6 +882,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "Type":         {"type": "label",     "value": "Wall"},
             "Name":         {"type": "string",    "value": self.name},
             "Mark":         {"type": "string",    "value": self._mark},
+            phase_registry.ROW_KEY: phase_registry.property_row(self),
             "Colour":       {"type": "color",     "value": self._colour},
             "Thickness":    {"type": "dimension", "value": self._fmt(self._thickness_mm),
                              "value_mm": self._thickness_mm},
@@ -944,6 +947,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             self.update()
         elif key == materials.ROW_KEY:
             materials.set_from_row(self, value)
+        elif key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
         elif key == "Alignment":
             self._alignment = str(value)
             self.invalidate_geometry()
@@ -1010,6 +1015,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "openings":      openings_data,
         }
         materials.write_element(self, d)
+        phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283: Hide / colours
 
     @classmethod
@@ -1070,6 +1076,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             wall._join_mode_pt2 = "Solid"
         wall.display_overrides_from_dict(data)         # L283 (canonical_id on section_type)
         materials.read_element(wall, data)             # M7: after the canonical_id re-point
+        phase_registry.read_element(wall, data)
         # Openings restored by caller after wall_opening module is available
         return wall
 

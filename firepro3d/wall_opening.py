@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QPainterPathStroker
 
+from . import phase_registry
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .constants import (
@@ -144,6 +145,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         self.mirror_hinge: bool = False    # flip leaf/hinge side (along-wall)
         self.mirror_facing: bool = False   # flip front/back face (cross-wall)
         self._mark: str = ""               # SB2b instance Mark
+        self.phase: str = phase_registry.PHASE_NEW
 
         # ── Qt item setup ─────────────────────────────────────────────────────
         self.setZValue(Z_CAT_OPENING)
@@ -612,6 +614,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             "level":           self.level,
             "mark":            self._mark,
         }
+        phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
@@ -653,6 +656,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         obj.mirror_facing = bool(data.get("mirror_facing", False))
         obj.level = data.get("level", DEFAULT_LEVEL)
         obj._mark = data.get("mark", "")
+        phase_registry.read_element(obj, data)
 
         if wall is not None:
             obj._reposition()
@@ -695,6 +699,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             if cur is not None:
                 props["Type"] = {"type": "label", "value": cur.type_name}
             props["Mark"] = {"type": "string", "value": self._mark}
+        props[phase_registry.ROW_KEY] = phase_registry.property_row(self)
         props["Width"] = {"type": "dimension", "value_mm": self._width_mm}
         props["Height"] = {"type": "dimension", "value_mm": self._height_mm}
         props["Sill Height"] = {"type": "dimension", "value_mm": self._sill_mm}
@@ -936,6 +941,9 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             value: New value — mm float for dimension keys, str for enum/level_ref,
                    bool for bool keys.  Unknown keys are silently ignored.
         """
+        if key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)   # its own undo step; no reposition
+            return
         if key == "Mark":
             self._mark = str(value)
             return

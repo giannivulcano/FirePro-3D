@@ -75,6 +75,7 @@ def _scene_hit_width(item) -> float:
 
 from .displayable_item import DisplayableItemMixin
 from . import materials
+from . import phase_registry
 from .paper_display import shows_selection
 
 
@@ -115,6 +116,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._cut_cache: list | None = None
 
         self.init_displayable()
+        self.phase: str = phase_registry.PHASE_NEW
         self.material_id: str = MATERIAL_NONE_ID
         self.name: str = ""
 
@@ -427,6 +429,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "Type": {"type": "label", "value": "Floor Slab"},
             "Name": {"type": "string", "value": self.name},
             materials.ROW_KEY: materials.property_row(self),
+            phase_registry.ROW_KEY: phase_registry.property_row(self),
         }
         lm = self._level_manager()
         top_z = _resolve_boundary_z(
@@ -519,6 +522,8 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             self.name = str(value)
         elif key == materials.ROW_KEY:
             materials.set_from_row(self, value)
+        elif key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
         elif key == "Top Reference":
             mode = _TOP_MODE_REVERSE.get(value)
             if mode is not None:          # defensive: out-of-options label no-ops
@@ -578,6 +583,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         if self.openings:               # only when non-empty: void-less files unchanged (AC7)
             d["openings"] = [op.to_dict() for op in self.openings]
         materials.write_element(self, d)
+        phase_registry.write_element(self, d)
         # Per-instance Display-Manager overrides: the shared mixin helper (L283).
         return self.display_overrides_to_dict(d)
 
@@ -608,6 +614,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._bottom_mode = "thickness"
         slab.display_overrides_from_dict(data)      # incl. the HF5 canonical_id re-point
         materials.read_element(slab, data)
+        phase_registry.read_element(slab, data)
         if data.get("openings"):
             from .floor_opening import FloorOpening
             for rec in data["openings"]:            # re-attach owned voids (A2)

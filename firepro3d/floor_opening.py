@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QColor, QPainterPath, QPainterPathStroker, QPen, QPolygonF
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QStyle
 
+from . import phase_registry
 from .colour_tokens import resolve_colour
 from .constants import Z_OPENING_ABOVE_HOST
 from .displayable_item import DisplayableItemMixin
@@ -58,6 +59,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
         self.init_displayable()
         self.feature_id: str = feature_id
         self._points: list[QPointF] = [QPointF(p) for p in points]
+        self.phase: str = phase_registry.PHASE_NEW
         self.host = host
         self._mark: str = mark
         # Pure z-range visibility, exactly as the host (z_range_mm delegates).
@@ -168,6 +170,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
             "points": [[p.x(), p.y()] for p in self._points],
             "mark": self._mark,
         }
+        phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)
 
     @classmethod
@@ -178,6 +181,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
                  feature_id=data.get("feature_id", DEFAULT_FLOOR_OPENING_FEATURE),
                  mark=data.get("mark", ""))
         op.display_overrides_from_dict(data)
+        phase_registry.read_element(op, data)
         return op
 
     # ── Property panel (floor-opening design A8) ─────────────────────────────
@@ -201,16 +205,20 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
             "Host": {"type": "label", "value": (self.host.name if self.host is not None else "") or "Floor"},
             "Points": {"type": "label", "value": str(len(self._points))},
             "Mark": {"type": "string", "value": self._mark},
+            phase_registry.ROW_KEY: phase_registry.property_row(self),
         }
 
     def set_property(self, key: str, value) -> None:
-        """Apply a panel edit.  Only Mark is editable; a changed Mark requests
+        """Apply a panel edit.  Mark and Phase are editable; a changed Mark requests
         one undo step (coalesced by the panel's deferred push).
 
         Args:
             key: Property key from ``get_properties()``.
             value: New value (str for Mark); other keys are ignored.
         """
+        if key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
+            return
         if key != "Mark":
             return
         new = str(value)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import math
 
+from . import phase_registry
 from .colour_tokens import normalize_colour, resolve_colour
 from .geometry_utils import triangulate_polygon
 
@@ -137,6 +138,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         self._ridge_position: float = 0.5     # reserved for future offset
 
         self.init_displayable()
+        self.phase: str = phase_registry.PHASE_NEW
         self.name: str = ""
 
         self.setZValue(Z_ROOF)
@@ -473,7 +475,8 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         return {
             "Type":         {"type": "label",     "value": "Roof"},
             "Name":         {"type": "string",    "value": self.name},
-            "Colour":       {"type": "color",     "value": self._colour},
+            phase_registry.ROW_KEY: phase_registry.property_row(self),
+            "Colour":      {"type": "color",     "value": self._colour},
             "Roof Type":    {"type": "enum",      "value": self._roof_type.capitalize(),
                              "options": [t.capitalize() for t in ROOF_TYPES]},
             "Pitch":        {"type": "string",    "value": f"{self._pitch_deg}°"},
@@ -558,6 +561,8 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
+        elif key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
         elif key == "Colour":
             from .stroke_style import is_block_only_colour_label
             if is_block_only_colour_label(value):
@@ -611,6 +616,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             "level":           self.level,
             "name":            self.name,
         }
+        phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
@@ -643,6 +649,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         roof._ridge_position = data.get("ridge_position", 0.5)
         roof.level = data.get("level", DEFAULT_LEVEL)
         roof.name = data.get("name", "")
+        phase_registry.read_element(roof, data)
         roof.display_overrides_from_dict(data)         # L283
         return roof
 

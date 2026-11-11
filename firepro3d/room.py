@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import QGraphicsPolygonItem, QGraphicsItem, QStyle
 from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QPainterPath
 from PyQt6.QtCore import Qt, QPointF
 
+from . import phase_registry
 from .bound_label import BoundLabelItem, TagBlockHost
 from .colour_tokens import resolve_colour
 from .constants import DEFAULT_LEVEL, Z_ANNOT_TAG
@@ -71,6 +72,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
 
         # Shared display-manager attributes
         self.init_displayable()
+        self.phase: str = phase_registry.PHASE_NEW
 
         # Identity
         self.name: str = ""
@@ -445,7 +447,8 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
             "Type":              {"type": "label",     "value": "Room"},
             "Room Name":         {"type": "string",    "value": self.name},
             "Mark":              {"type": "string",    "value": self._mark},
-            "Show Label":        {"type": "enum",      "value": "True" if self._show_label else "False",
+            phase_registry.ROW_KEY: phase_registry.property_row(self),
+            "Show Label":       {"type": "enum",      "value": "True" if self._show_label else "False",
                                   "options": ["True", "False"]},
             "Tag":               self._tag_row(),      # SB3b: per-room tag block (None = project default)
             # No "Fill Color" row — the Display Manager owns room
@@ -501,6 +504,8 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         elif key == "Mark":
             self._mark = str(value)
             self._tag.refresh()
+        elif key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
         elif key == "Show Label":
             self._show_label = (str(value) == "True")
             self._update_label()
@@ -576,6 +581,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         }
         if self._tag_block is not None:
             d["tag_block"] = self._tag_block          # SB3b: absent = project default
+        phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283
 
     @classmethod
@@ -599,6 +605,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         room._design_point = (float(dp[0]), float(dp[1])) if dp else None
         tb = data.get("tag_block")                     # SB3b: missing / non-str / "" -> None
         room._tag_block = tb if isinstance(tb, str) and tb else None
+        phase_registry.read_element(room, data)
         room._rebuild()  # rebuild polygon + label now that name/tag are set
         room.display_overrides_from_dict(data)         # L283: after the rebuild
         return room
