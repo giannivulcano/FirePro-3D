@@ -113,3 +113,31 @@ def test_a_hidden_wall_takes_its_opening_pieces_and_a_hidden_slab_its_mask(qapp,
     sec.rebuild()
     assert pieces(op) and not any(i.isVisible() for i in pieces(op))
     assert not any(i.isVisible() for i in pieces(slab))
+
+
+def test_browser_hide_and_show_reach_every_open_section_without_a_rebuild(qapp, monkeypatch):
+    """AC7 (R8 / R9): Model Browser Hide on a pipe -> it leaves BOTH open
+    sections at once, the same items, no rebuild; Browser Show brings them back."""
+    from PyQt6 import sip
+    from tests._mainwindow_helpers import dispose_main_window
+    from tests._section_window_helpers import action, browser_menu, open_section_window, settle
+    win, _markers, views = open_section_window(2)
+    ms = win.scene
+    try:
+        pipe = _pipe(ms, (2000.0, -1000.0, 2400.0), (6000.0, -1000.0, 2400.0))
+        scenes = [v.scene() for v in views]
+        for sc in scenes:
+            settle(sc)
+        pieces = [_pipe_pieces(sc, pipe) for sc in scenes]
+        assert all(p and all(i.isVisible() for i in p) for p in pieces)
+        action(browser_menu(win, [pipe], monkeypatch), "Hide").trigger()
+        assert pipe._display_overrides.get("visible") is False
+        for sc, p in zip(scenes, pieces):
+            assert not sc._rebuild_timer.isActive()              # Hide asked for no rebuild
+            assert all(not sip.isdeleted(i) for i in p)
+            assert not any(i.isVisible() for i in p)
+        action(browser_menu(win, [pipe], monkeypatch), "Show").trigger()
+        for p in pieces:
+            assert all(i.isVisible() for i in p)
+    finally:
+        dispose_main_window(win)

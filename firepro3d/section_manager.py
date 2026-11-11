@@ -83,6 +83,9 @@ class SectionManager(QObject):
         self.markers: dict[str, SectionMarker] = {}          # key: view_name
         self._views: dict[str, tuple[SectionScene, SectionView | None]] = {}
         self._counter = 0
+        # A Hide / Show anywhere (plan, Model Browser, a section) reaches every
+        # live section scene without a rebuild (elevation-parity D5).
+        model_space.hiddenChanged.connect(self.reapply_hidden)
 
     # -- keys -------------------------------------------------------------------------
     @staticmethod
@@ -279,6 +282,15 @@ class SectionManager(QObject):
     def rebuild_all(self) -> None:
         for scene, _v in self._views.values():
             scene.rebuild()
+
+    def reapply_hidden(self) -> None:
+        """Re-run every live section scene's hidden pass (D5, R8): open tabs
+        and tab-less sheet scenes alike. No rebuild."""
+        for scene, _v in list(self._views.values()):
+            try:
+                scene._apply_hidden_pass()
+            except RuntimeError:          # a scene deleted under a queued signal
+                pass
 
     def focus_hosted(self, inst) -> bool:
         """Focus a view that shows gridline-hosted block *inst* and select its
