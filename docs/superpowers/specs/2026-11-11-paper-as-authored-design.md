@@ -103,11 +103,16 @@ their owner row, as today.
   OFF -> the row colour for both.
 - **Underlays:** ON -> each layer's effective colour; OFF -> the Underlay
   row colour (today: B&W forces `#000000`, Custom keeps layer colours).
-- **SVG re-tint guard:** with a row ON, an SVG category (Sprinkler, Fitting,
-  Water Supply, Hydraulic Badge, Node) re-tints from its Model token only
-  when the user saved a Model colour for it (`display/<key>/color` present —
-  the same rule that decides whether the canvas tints it). Without this the
-  new factory `token:auto` would tint a never-tinted badge black on paper.
+- **SVG symbols (R6, replaces the Phase 3 "re-tint guard"):** with a row ON,
+  an SVG category item (Sprinkler, Fitting, Water Supply, Hydraulic Badge)
+  re-tints on paper when its effective Model colour **or fill** (own
+  override, else the Model category value) is a token, each token resolved
+  on the paper surface (Automatic -> black, Background -> white, Accent ->
+  the light-theme accent); a hex half keeps its canvas value. With neither a
+  token, the canvas tint plots unchanged (today's Full Color). The Phase 3
+  guard ("re-tint only when `display/<key>/color` is saved") was dropped: a
+  probe found `apply_default_display_settings` (`main.py` startup) writes
+  that key for every category, and the canvas tints every SVG item at load.
 
 **D7 — Tokens (R1, G5).** `colour_tokens._paper_mode` becomes a boolean
 "painting on paper" check (pass active, or a `paints_on_paper` scene). On
@@ -134,7 +139,9 @@ the snapshot including toggles. Picking a colour flips nothing.
 
 Phase 3 rulings: R1 Accent always accent on paper; R2 Underlay row = toggle
 + Colour only; R3 approach A; R4 sections 1-5 approved as presented; R5 glyph
-A (palette). All via AskUserQuestion, 2026-11-11.
+A (palette). All via AskUserQuestion, 2026-11-11. Phase 4 (2026-11-11): R5
+re-ratified after the mockup PNGs were served to the user (A palette); R6
+SVG symbols re-resolve token colour and fill on paper (D6).
 
 ## Acceptance Criteria
 
@@ -157,8 +164,9 @@ A (palette). All via AskUserQuestion, 2026-11-11.
 - [ ] AC7 No `PaperColorMode`, `load/save_paper_color_mode`,
       `paper_pass_color_mode` or `color_mode` write remains (grep guard); the
       PDF export of an AC2 sheet matches the screen render.
-- [ ] AC8 SVG re-tint guard (D6): an unsaved SVG category plots untinted
-      with its row ON; a saved one re-tints on paper.
+- [ ] AC8 SVG symbols (D6 / R6): with the row ON, a token Model fill
+      (Background) plots white and a token colour (Automatic) black on paper;
+      a hex colour plots its canvas hex; RED with the fill-token half reverted.
 - [ ] AC9 Accent on an unrowed item plots the light-theme accent on paper (D7).
 
 ## Verification Checklist
