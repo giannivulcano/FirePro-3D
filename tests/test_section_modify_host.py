@@ -729,3 +729,54 @@ def test_moved_copy_stays_selected_after_the_debounced_rebuild(host):
     QTest.qWait(250)                                       # the debounced rebuild
     cp2 = sec._hosted_copies[id(inst)]
     assert sec.selectedItems() == [cp2]
+
+
+# -- C-9b: typed input in a section ------------------------------------------
+
+def test_typed_move_is_section_mm_on_a_calibrated_project(host):
+    """C-9: on a CALIBRATED project (2 px per mm) a typed "500 mm" Move in a
+    section moves the model block 500 mm along its gridline (section units are
+    mm; the HUD must not divide by pixels_per_mm). Real digit / Tab / Return
+    keys; one undo step; the HUD closes.
+    RED when: ``SectionScene._hud_scale_manager`` returns ``self._sm`` (the
+    calibrated project ScaleManager: the block moves 1000 mm)."""
+    ms, sec, gl, inst, view, statuses = host
+    ms.scale_manager.set_pixels_per_mm(2.0)
+    sec.rebuild()
+    cp = sec._hosted_copies[id(inst)]
+    # gridline origin (0,-3000) px -> world (0, 1500) mm; along 2500 -> h 2500
+    assert cp.block_pos() == pytest.approx((2500.0, -1200.0))   # precondition
+    sec.select_items([cp])
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("move") is True
+    click(view, QPointF(2500.0, -1200.0))
+    QTest.keyClick(view, Qt.Key.Key_5)                    # engages, seeds "5"
+    hud = sec.dynamic_input
+    assert hud is not None and hud.is_engaged()
+    QTest.keyClicks(hud.editor("dX"), "00 mm")
+    QTest.keyClick(hud.editor("dX"), Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("dY"), "0 mm")
+    QTest.keyClick(hud.editor("dY"), Qt.Key.Key_Return)
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG + 500.0)
+    assert inst.host["elevation_mm"] == pytest.approx(PLACED_ELEV)
+    assert ms._undo_pos == pos0 + 1
+    assert sec.dynamic_input is None
+
+
+def test_tab_engages_and_a_canvas_click_is_inert_while_typing(host):
+    """C-9: Tab on the SectionView engages the HUD; a canvas click while a
+    field has the keyboard commits nothing and the tool stays live.
+    RED when: the press gate (``if hud is not None and sc.is_input_mode():``)
+    is deleted from ``SectionView.mousePressEvent`` (the click commits the
+    Move: along 3000), or ``focusNextPrevChild`` is deleted (Tab leaves the
+    view: no HUD)."""
+    ms, sec, gl, inst, view, statuses = host
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("move") is True
+    click(view, QPointF(2500.0, -1200.0))
+    QTest.keyClick(view, Qt.Key.Key_Tab)
+    assert sec.is_input_mode() is True
+    click(view, QPointF(3000.0, -1200.0))
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG)
+    assert sec.mode == "move" and sec.is_input_mode() is True
+    assert ms._undo_pos == pos0

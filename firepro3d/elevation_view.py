@@ -157,6 +157,19 @@ class SectionView(QGraphicsView):
     # ── Pan (middle mouse) ───────────────────────────────────────────────
 
     def mousePressEvent(self, event):
+        sc = self.scene()
+        hud = getattr(sc, "dynamic_input", None) if sc is not None else None
+        if hud is not None and sc.is_input_mode():
+            # A HUD field has the keyboard (C-9, Model_View parity): the
+            # press commits nothing and the field gets its focus back;
+            # middle-button panning still works.
+            if event.button() == Qt.MouseButton.MiddleButton:
+                self._panning = True
+                self._pan_start = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            hud.restore_focus()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.pos()
@@ -332,6 +345,15 @@ class SectionView(QGraphicsView):
             return True
         return super().event(ev)
 
+    def focusNextPrevChild(self, next_child: bool) -> bool:
+        """Keep Tab on the canvas (Model_View parity): Tab engages the
+        typed-input HUD, and the HUD's own Tab cycles its fields.
+
+        Returns:
+            False always ("focus was not moved").
+        """
+        return False
+
     def keyPressEvent(self, event):
         from .text_item import editing_text_item
         if editing_text_item(self.scene()) is not None:
@@ -347,6 +369,12 @@ class SectionView(QGraphicsView):
             # A running modify tool owns the keys (flip arrows, Enter commit,
             # Esc) through the scene's ModifyHostMixin.modify_key_press -- not
             # the select-mode HALO cycle / escape ladder below (D2).
+            if (event.key() == Qt.Key.Key_Tab
+                    and hasattr(sc, "begin_dynamic_input")
+                    and sc.begin_dynamic_input()):
+                # Tab engages the typed-input HUD (C-9, Model_View parity).
+                event.accept()
+                return
             super().keyPressEvent(event)
             return
         # Armed block placement owns Space (rotate; Shift = reverse) and Esc.

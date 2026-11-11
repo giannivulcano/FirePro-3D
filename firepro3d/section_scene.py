@@ -97,6 +97,24 @@ def is_section_editable(item) -> bool:
     Projected model proxies, gridlines and datums are read-only here."""
     return getattr(item, "SECTION_EDITABLE", False) is True
 
+
+class _SectionHudScale:
+    """The project ScaleManager as a section's Dynamic Input HUD sees it.
+
+    Section-scene units ARE millimetres, so the HUD's scene<->mm conversion
+    must be the identity even on a calibrated (px) project; formatting and
+    parsing (display unit, precision, bare-number unit) stay the project's.
+    Everything but ``is_calibrated`` is forwarded.
+    """
+
+    is_calibrated = False
+
+    def __init__(self, sm):
+        self._sm = sm
+
+    def __getattr__(self, name):
+        return getattr(self._sm, name)
+
 # Depth walk (_assign_depth_z_values): farthest item first from _DEPTH_Z_START
 # in _DEPTH_Z_STEP steps, clamped at constants.Z_DEPTH_CEIL so projected model
 # items never reach the annotation band (SB4d D5 / Q17).
@@ -1146,6 +1164,10 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self.scene_role = "section"
         self.constraint_ctl = ConstraintController(self)
         self._init_modify_host()
+        # Typed input (C-9): the plan's Dynamic Input HUD coordinator; the
+        # modify schemas only (the section has no draw tools).
+        from .placement_input_coordinator import PlacementInputCoordinator
+        self._plc = PlacementInputCoordinator(self)
         self._modify_skipped = 0        # read-only items the last tool left out (R3)
         self._rebuild_held = False      # a debounced rebuild waiting for a tool to end
         self.modeChanged.connect(self._run_held_rebuild)
@@ -1524,6 +1546,13 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         parity, ``Model_Space._halo_mode_ok``); a running tool owns the
         cursor."""
         return getattr(self, "mode", None) in (None, "select")
+
+    def _hud_scale_manager(self):
+        """ModifyHostMixin hook (C-9): the project's units, never calibrated
+        -- section-scene units are mm."""
+        # The model's live ScaleManager (a project open replaces it), ``_sm``
+        # the fallback (R-C9b-01).
+        return _SectionHudScale(getattr(self._ms, "scale_manager", None) or self._sm)
 
     def _rebuild_when_idle(self) -> None:
         """The debounced rebuild (``_rebuild_timer``), held while a modify
