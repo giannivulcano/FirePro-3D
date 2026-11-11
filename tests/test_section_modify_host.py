@@ -674,3 +674,38 @@ def test_a_mixed_clipboard_pastes_the_fitting_part(host):
     click(view, QPointF(4000.0, -500.0))
     assert _new_block(ms, gl, inst).host["along_mm"] == pytest.approx(4000.0)
     assert statuses[-1] == "Pasted 1 item(s) (1 skipped)"
+
+
+# -- C-6: Mirror across a section gridline -----------------------------------
+
+def test_mirror_across_a_section_gridline_creates_a_mirrored_model_block(host):
+    """AC3 / AC11: a plan gridline crossing the cut at x = 4000 projects an
+    elevation gridline at h = 4000; Mirror picks it as the axis and creates
+    a SECOND model block on gridline B at along 2*4000 - 2500 = 5500,
+    mirrored (rotation 0 -> reflect_pose(0, False, +-90) = 0); the original
+    stays; one undo step.
+    RED when: ``axis_picker.pick_axis`` reads ``getattr(scene, "_gridlines",
+    [])`` again instead of ``_line_targets(scene)`` (no axis: nothing
+    mirrored)."""
+    from firepro3d.section_scene import ElevGridlineItem
+    from tests._hosted_blocks_helpers import gridline
+    ms, sec, gl, inst, view, statuses = host
+    gridline(ms, (4000, 2000), (4000, -8000), "4")         # crosses the cut
+    sec.rebuild()
+    sec.select_items([sec._hosted_copies[id(inst)]])
+    (eg,) = [it for it in sec.items() if isinstance(it, ElevGridlineItem)
+             and abs(it.mapToScene(it.line().p1()).x() - 4000.0) < 1e-6]
+    a, b = eg.drawn_endpoints()
+    mid = QPointF(4000.0, round((a.y() + b.y()) / 20.0) * 10.0)   # on the line, 10 mm grid
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("mirror") is True
+    move(view, mid)
+    click(view, mid)
+    new = _new_block(ms, gl, inst)
+    assert new.host["along_mm"] == pytest.approx(2 * 4000.0 - PLACED_ALONG)
+    assert new.host["elevation_mm"] == pytest.approx(PLACED_ELEV)
+    assert new.block_mirrored() is True
+    assert new.block_rotation() == pytest.approx(0.0)
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG)
+    assert inst.block_mirrored() is False
+    assert ms._undo_pos == pos0 + 1

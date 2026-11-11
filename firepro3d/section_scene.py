@@ -501,6 +501,8 @@ class ElevGridlineItem(QGraphicsLineItem):
     bubbles resolve nothing and paint nothing.
     """
 
+    AXIS_SOURCE = True     # a Mirror axis in its section (axis_picker, elevation parity D2)
+
     def __init__(self, h_pos: float, v_top: float, v_bot: float,
                  label: str, color: QColor, pen_w: float,
                  opacity: float = 1.0, color_src: str | None = None,
@@ -760,6 +762,8 @@ class ElevDatumItem(QGraphicsLineItem):
     from ``line_start_h()`` (the head's outline) to ``_h_max``, so it stays
     visible when the head scrolls off-screen (SB4c D3 / AC4).
     """
+
+    AXIS_SOURCE = True     # a Mirror axis in its section (axis_picker, elevation parity D2)
 
     def __init__(self, v_pos: float, h_min: float, h_max: float, level,
                  datum_color: QColor, pen_w: float, *, opacity: float = 1.0,
