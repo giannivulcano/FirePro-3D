@@ -780,3 +780,45 @@ def test_tab_engages_and_a_canvas_click_is_inert_while_typing(host):
     assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG)
     assert sec.mode == "move" and sec.is_input_mode() is True
     assert ms._undo_pos == pos0
+
+
+# -- VC9 seam guards: write-back on a reversed cut and on a calibrated project --
+
+@pytest.mark.parametrize("op", ["rotate", "reflect", "scale", "translate"])
+def test_reversed_section_write_back_round_trips(qapp, section_scene_for, op):
+    """A section whose h axis runs against the host gridline (h_sign -1):
+    the pose a modify op leaves on the copy survives a rebuild, i.e. the
+    model block took the same pose through the projection."""
+    ms, sec, gl, inst = _setup(section_scene_for)
+    rev = _section(ms, (10000, -1000), (0, -1000), -1, name="Rev")
+    assert hb.h_sign(rev._basis, gl) == -1          # scenario: reversed cut
+    cp = rev._hosted_copies[id(inst)]
+    old = cp.block_pos()
+    if op == "rotate":
+        cp.manip_rotate(90.0, QPointF(old[0] - 500.0, old[1]))
+    elif op == "reflect":
+        cp.manip_reflect(QPointF(old[0] + 100.0, 0.0),
+                         QPointF(old[0] + 100.0, -1000.0))
+    elif op == "scale":
+        cp.manip_scale_about(QPointF(old[0] - 100.0, old[1] + 100.0), 2.0)
+    else:
+        cp.translate(300.0, 0.0)
+    want = _pose(cp)
+    rev.rebuild()
+    assert _pose(rev._hosted_copies[id(inst)]) == want
+
+
+def test_scale_write_back_on_a_calibrated_project(qapp, section_scene_for):
+    """ppm 2: a section Scale x2 doubles the model block's scale and the
+    copy keeps its pose across a rebuild."""
+    ms, sec, gl, inst = _setup(section_scene_for)
+    s0 = inst.block_scale()
+    ms.scale_manager.set_pixels_per_mm(2.0)
+    sec.rebuild()
+    cp = sec._hosted_copies[id(inst)]
+    old = cp.block_pos()
+    cp.manip_scale_about(QPointF(old[0] - 100.0, old[1] + 100.0), 2.0)
+    want = _pose(cp)
+    sec.rebuild()
+    assert _pose(sec._hosted_copies[id(inst)]) == want
+    assert inst.block_scale() == pytest.approx(2.0 * s0)
