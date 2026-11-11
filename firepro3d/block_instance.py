@@ -1340,9 +1340,12 @@ class BlockInstance(QGraphicsObject):
         path. Returns a copy (callers may mutate it).
 
         The parts are composed with ``addPath``, not a boolean union (see
-        :meth:`_hit_parts`); Qt's own hit tests go through
-        :meth:`collidesWithPath` / :meth:`contains`, which test each part, so
-        click, HALO and crossing band see the exact union."""
+        :meth:`_hit_parts`), so this path is NOT the exact union: where a
+        stroke crosses an area its winding can cancel the area's (a mirrored
+        pose flips one orientation) and that overlap reads as a hole. Qt's
+        hit tests never read it -- they go through :meth:`collidesWithPath`
+        / :meth:`contains`, which test each part and are exact; a new caller
+        that needs the hit region must use those, not ``shape()``."""
         parts = self._hit_parts()
         if parts is None:
             return QPainterPath(self._posed_path(self.render_ops()))
@@ -1373,11 +1376,16 @@ class BlockInstance(QGraphicsObject):
             return super().collidesWithPath(path, mode)
         if path.isEmpty():
             return False
-        # Qt's own pre-filter: no collision unless the rects meet (a zero-size
-        # rect still meets, as Qt's _q_adjustRect pads it).
+        # Qt's own pre-filter (QGraphicsItem::collidesWithPath): the rects
+        # must strictly intersect, a zero width / height padded first as
+        # Qt's _q_adjustRect does.
         a, b = self.boundingRect(), path.controlPointRect()
-        if (a.right() < b.left() or b.right() < a.left()
-                or a.bottom() < b.top() or b.bottom() < a.top()):
+        for r in (a, b):
+            if not r.width():
+                r.adjust(-0.00001, 0.0, 0.00001, 0.0)
+            if not r.height():
+                r.adjust(0.0, -0.00001, 0.0, 0.00001)
+        if not a.intersects(b):
             return False
         live = [p for p in parts if not p.isEmpty()]
         if not live:

@@ -133,12 +133,43 @@ def test_hover_on_a_detailed_block_with_a_text_box_stays_fast(qapp):
         elapsed = time.perf_counter() - t0
         assert hit is inst
         # Measured 2026-11-11 (move + flushed repaint of 500 big rings): fixed
-        # ~2.5 s, the old union 16.3 s. 8 s clears host noise on both sides.
-        assert elapsed < 8.0, f"hover took {elapsed:.2f}s"              # [RED]
+        # ~2.5 s (4.5 s on a loaded host), the old union 16.3-19 s.
+        assert elapsed < 10.0, f"hover took {elapsed:.2f}s"             # [RED]
         box = d.text_snap_points()[0]
         assert _hover(view, scene, inst.full_pose_transform().map(box[8])) is inst
         # Off the block: 75 mm outside the nearest ring (centre (25, 265)).
         assert _hover(view, scene, oracle(inst, -150.0, 250.0)) is None
+    finally:
+        close_view(view, scene)
+
+
+@pytest.mark.parametrize("pose", _POSES, ids=_IDS)
+def test_point_hit_where_a_stroke_crosses_the_text_box(qapp, pose):
+    # S1 review I1/I2: shape() composes the stroke band and the area paths
+    # without a union, so where a stroke crosses the text box their windings
+    # can cancel (a mirrored pose flips one) and shape() reads a hole there.
+    # Qt's point / pixel hit tests must still hit the block: they go through
+    # BlockInstance.contains / collidesWithPath, which test each part.
+    view, scene = make_view(role="plan", scale=1.0, mode="select")
+    try:
+        txt = TextItem(TextAnnotationData(text="AB", x=-150.0, y=-80.0,
+                                          height_mm=20.0)).to_dict()
+        probe = BlockDefinition.new(name="T", library="L", series="S",
+                                    origin=(0.0, 0.0), primitives=[txt])
+        c = probe.text_snap_points()[0][8]               # text box centre (local)
+        line = {"type": "draw_line", "pt1": [c.x() - 120.0, c.y()],
+                "pt2": [c.x() + 120.0, c.y()], "color": "#ffffff",
+                "lineweight": 1.0}
+        d = BlockDefinition.new(name="X", library="L", series="S",
+                                origin=(0.0, 0.0), primitives=[line, txt])
+        scene.register_block_definition(d)
+        pos, rot, mir, s = pose
+        inst = scene.place_block_instance(d.id, pos, rotation=rot,
+                                          mirrored=mir, scale=s)
+        box = d.text_snap_points()[0]
+        cross = inst.full_pose_transform().map(box[8])   # on the line, in the box
+        assert inst in scene.items(cross)                                # [RED]
+        assert inst in view.items(view.mapFromScene(cross))              # [RED]
     finally:
         close_view(view, scene)
 
