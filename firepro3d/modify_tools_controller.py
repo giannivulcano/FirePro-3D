@@ -840,7 +840,7 @@ class ModifyToolsController:
         if (s.mode not in ("move", "duplicate") or view is None
                 or s._snap_engine is None):    # a host without snap (no engine)
             return
-        moving =list(s._selected_items or s.selectedItems())
+        moving = list(s._selected_items or s.selectedItems())
         moving += [it.node for it in moving
                    if isinstance(it, Sprinkler) and it.node is not None]
         if moving:
