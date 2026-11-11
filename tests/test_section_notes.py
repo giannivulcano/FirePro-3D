@@ -351,3 +351,51 @@ def test_a_section_note_pastes_into_this_or_another_section_rigidly(qapp, sectio
     plan_rec = place_note(ms, "plan:Plan: Level 1", (0.0, 0.0)).to_dict()
     assert sec2._paste_note_record(plan_rec, QPointF(0.0, 0.0)) is None
     assert msgs[-1] == NOTE_INTO_SECTION_REFUSED
+
+
+def test_ctrl_c_v_carries_a_section_note_into_a_parallel_section(qapp, real_system_library):
+    """AC9 + R4/R5 through the real keys: Ctrl+C (base click) on a Note copy in
+    section 1, Ctrl+V (click) on section 2's tab -> a new model note keyed to
+    section 2; a plan paste of the same clipboard is refused."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from firepro3d.note_controller import notes_of
+    from tests._note_helpers import click
+    from tests._section_window_helpers import aim, open_section_window, settle, show_tab
+    win, markers, views = open_section_window(2)
+    ms = win.scene
+    try:
+        ms.register_block_definition(load_block_file(
+            os.path.join(system_blocks_path(), "Annotations", "Note.fpdb")))
+        k1, k2 = ("section:" + m.name for m in markers)
+        note = place_note(ms, k1, (3000.0, -2000.0))
+        note.setVisible(False)
+        ms.push_undo_state()
+        # The window's 200 ms view-refresh debounce would rebuild mid-test:
+        # run it now so the test owns the timing.
+        timer = getattr(win, "_view_refresh_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+            win._refresh_all_views()
+        sec1, sec2 = views[0].scene(), views[1].scene()
+        settle(sec1)
+        settle(sec2)
+        sec1.clearSelection()
+        sec1._note_copies[id(note)].setSelected(True)
+        base = QPointF(3000.0, -2000.0)
+        aim(views[0], base, 0.5)
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        click(views[0], base)
+        show_tab(win, views[1])
+        dest = QPointF(4000.0, -2000.0)
+        aim(views[1], dest, 0.5)
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_V, Qt.KeyboardModifier.ControlModifier)
+        click(views[1], dest)
+        (pasted,) = notes_of(ms, k2)
+        assert pasted.block_pos()[0] - 3000.0 == pytest.approx(1000.0, abs=50.0)
+        assert notes_of(ms, k1) == [note]
+        n0 = len(ms._block_instances)
+        assert ms.paste_items(QPointF(0.0, 0.0)) == []          # plan, from the real clipboard
+        assert len(ms._block_instances) == n0
+    finally:
+        _dispose(win)
