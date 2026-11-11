@@ -759,8 +759,9 @@ class ElevDatumItem(QGraphicsLineItem):
     mutate it in place, so the head re-paints with no rebuild) and owns one
     ``LevelDatumHead`` (``head``) whose block origin sits on the line at
     ``_bx``. The dash-dot line is painted by ``SectionScene.drawForeground``
-    from ``line_start_h()`` (the head's outline) to ``_h_max``, so it stays
-    visible when the head scrolls off-screen (SB4c D3 / AC4).
+    from ``line_start_h()`` (the head's outline) to ``line_end_h()`` (the
+    right grip), so it stays visible when the head scrolls off-screen (SB4c
+    D3 / AC4) and follows a right-grip drag (elevation-parity D7).
     """
 
     AXIS_SOURCE = True     # a Mirror axis in its section (axis_picker, elevation parity D2)
@@ -775,8 +776,6 @@ class ElevDatumItem(QGraphicsLineItem):
         self._scale_manager_ref = scale_manager
         self._color_src = color_src   # stored colour string, resolved per paint (HF1)
         self._v = v_pos
-        self._h_min = h_min
-        self._h_max = h_max
         self._datum_color = datum_color
         self._pen_w = pen_w
         self._paper_render = False    # paper pass (SB4c D4): set / cleared by enter / exit_paper_pass
@@ -803,15 +802,21 @@ class ElevDatumItem(QGraphicsLineItem):
         return (self._datum_color if self._color_src is None
                 else resolve_colour(self._color_src, item=self))
 
+    def line_end_h(self) -> float:
+        """Scene h of the line's far end: the right grip (``line().p2()``),
+        which ``apply_grip(1)`` and ``manip_translate`` move and a D7 record
+        restores -- what ``drawForeground`` draws to."""
+        return self.line().p2().x()
+
     def line_start_h(self) -> float:
         """Scene h where the datum line starts: where the ray from the head
-        origin toward the line's far end (``_h_max``, the h ``drawForeground``
-        draws to) leaves the head's block outline -- derived, as
+        origin toward the line's far end (``line_end_h()``, the h
+        ``drawForeground`` draws to) leaves the head's block outline -- derived, as
         ``ElevGridlineItem`` derives its bubbles' rays from p1 -> p2; (+1, 0)
         whenever the head sits left of the far end. No trim when the head is
         hidden or draws nothing. Screen and paper alike: during a paper pass
         the head's k is 1 / S, so the outline is the printed one."""
-        ux = 1.0 if self._h_max >= self._bx else -1.0
+        ux = 1.0 if self.line_end_h() >= self._bx else -1.0
         t = self.head.trim_distance(ux, 0.0) if self.head.isVisible() else 0.0
         return self._bx + ux * t
 
@@ -819,10 +824,10 @@ class ElevDatumItem(QGraphicsLineItem):
         """The DRAWN segment's ends, item coordinates: from the head's edge
         (``line_start_h``, where ``drawForeground`` starts the line) to the
         far end -- the endpoint / midpoint snaps ``SnapEngine._line_snaps``
-        offers (OPEN-2 ruling 2026-11-10: snap to the drawn line). T48 (F-2)
-        points the far end at ``line_end_h()``."""
+        offers (OPEN-2 ruling 2026-11-10: snap to the drawn line); the far end
+        is ``line_end_h()``, the one home shared with paint and HALO trace."""
         return (QPointF(self.line_start_h(), self._v),
-                QPointF(self.line().p2().x(), self._v))
+                QPointF(self.line_end_h(), self._v))
 
     def refresh_head(self) -> None:
         """Re-shape the head (block mapping, drawing scale, units, paper hooks)
@@ -856,14 +861,15 @@ class ElevDatumItem(QGraphicsLineItem):
 
     def halo_trace_path(self, scene_scale=None) -> QPainterPath:
         """Composite HALO trace mirroring what is drawn: the line from the
-        head's outline to ``_h_max`` (``drawForeground``) plus the head
-        outline -- never the raw ``line()`` from ``h_min`` inside the head
+        head's outline to ``line_end_h()`` (``drawForeground``) plus the head
+        outline -- never the raw ``line()`` from its left end inside the head
         (``ElevGridlineItem`` parity). ``scene_scale`` is unused."""
         path = QPainterPath()
         h_start = self.line_start_h()
-        if self._h_max > h_start:
+        h_end = self.line_end_h()
+        if h_end > h_start:
             path.moveTo(QPointF(h_start, self._v))
-            path.lineTo(QPointF(self._h_max, self._v))
+            path.lineTo(QPointF(h_end, self._v))
         path.addPath(self.shape())
         return path
 
@@ -2476,7 +2482,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     # ── Foreground (datum lines) ─────────────────────────────────────────
 
     def drawForeground(self, painter, rect):
-        """Draw datum lines from the head's outline across the crop box (basis h_min..h_max).
+        """Draw datum lines from the head's outline to each datum's right end (``line_end_h``).
 
         Drawn in foreground so lines remain visible even when the head
         has scrolled out of the viewport.
@@ -2489,7 +2495,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
                 continue
             v = item._v
             h_start = item.line_start_h()
-            h_end = item._h_max
+            h_end = item.line_end_h()          # the right grip (D7), not the build-time crop edge
             if h_end <= h_start:
                 continue
 

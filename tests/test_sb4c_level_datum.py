@@ -497,7 +497,7 @@ def test_halo_trace_is_the_trimmed_line_plus_the_head_outline(qapp, section_scen
     p0 = trace.elementAt(0)
     assert (p0.x, p0.y) == pytest.approx((dt._bx + SQ_TRIM * k, dt._v), abs=0.02 * k)
     p1 = trace.elementAt(1)
-    assert (p1.x, p1.y) == pytest.approx((dt._h_max, dt._v))
+    assert (p1.x, p1.y) == pytest.approx((dt.line_end_h(), dt._v))
     outline = dt.head.mapToParent(dt.head.outline_path()).boundingRect()
     assert trace.boundingRect().united(outline) == trace.boundingRect()   # outline is in the trace
     assert trace.boundingRect().left() == pytest.approx(outline.left())
