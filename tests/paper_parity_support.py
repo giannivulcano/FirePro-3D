@@ -72,6 +72,8 @@ def build_scene(shipped_hatches):
     n1, n2 = ms.add_node(-2000.0, 1500.0), ms.add_node(2000.0, 1500.0)
     ms.add_pipe(n1, n2)
     ms.add_sprinkler(n2)
+    # No lone node: Node.paint draws nothing unless selected, so the Node
+    # row has no pixels to pin (its CUSTOM_ROWS entry is inert).
     ms.addItem(WallSegment(QPointF(-2000.0, -1500.0), QPointF(2000.0, -1500.0),
                            thickness_mm=200))
     for y, col in ((-2000.0, "#ffffff"), (-2200.0, "#ff00ff")):
@@ -80,7 +82,12 @@ def build_scene(shipped_hatches):
     ms.addItem(TextItem(TextAnnotationData(text="P", x=1800.0, y=-2300.0,
                                            height_mm=250.0, color="#ff8800")))
     rec = _record(layer_overrides={"A-WALL": {"colour": "#ff0000"}})
-    group, _ = ms._build_batched_underlay_group(_geoms(), rec)
+    # _geoms() draws both layers on one segment (A-DOOR covers A-WALL);
+    # cross them so the red A-WALL override shows.
+    geoms = _geoms()
+    door = next(g for g in geoms if g["layer"] == "A-DOOR")
+    door["y1"], door["y2"] = 100, 0
+    group, _ = ms._build_batched_underlay_group(geoms, rec)
     # The 100 mm underlay at the origin sits under the block; move it to
     # clear paper and enlarge it so the goldens actually show its colour.
     group.setPos(-2200.0, 600.0)
@@ -111,7 +118,9 @@ def load_mode_via_project(mode: str) -> None:
 
 def load_mode_via_qsettings(mode: str) -> None:
     """An existing user's settings: categories (no as_authored) plus the
-    legacy key -- written raw, exactly as the base build stored them."""
+    legacy key -- written raw, exactly as the base build stored them.
+    Bypasses save_paper_categories on purpose (that API changes on the
+    branch); only the rows above are written, load backfills the rest."""
     s = QSettings("GV", "FirePro3D")
     for key, props in legacy_categories(mode).items():
         for prop, val in props.items():

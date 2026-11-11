@@ -36,4 +36,8 @@ def test_legacy_qsettings_plot_as_base(qapp, shipped_hatches, mode):
 def test_goldens_are_distinct():
     """A guard that cannot tell the modes apart proves nothing."""
     imgs = [QImage(str(GOLDEN_DIR / f"{m}.png")) for m in MODES]
-    assert imgs[0] != imgs[1] and imgs[1] != imgs[2] and imgs[0] != imgs[2]
+    for i, j in ((0, 1), (1, 2), (0, 2)):
+        a, b = imgs[i], imgs[j]
+        diff = sum(1 for y in range(a.height()) for x in range(a.width())
+                   if a.pixel(x, y) != b.pixel(x, y))
+        assert diff > 1000, f"{MODES[i]} vs {MODES[j]}: only {diff} px differ"
