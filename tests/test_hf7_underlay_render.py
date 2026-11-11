@@ -7,6 +7,7 @@ from firepro3d.underlay_freeze import _UnderlayPathItem
 from firepro3d.underlay_runs import assign_runs
 from tests._hf7_helpers import (BAIT, built_scene, extract, fills, is_bait, new_doc,
                                 render, ring_hatch, sample, square)
+from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
 
 RECT = QRectF(-20, -120, 240, 240)
 
@@ -320,8 +321,8 @@ def test_paper_pass_leaves_the_mask_brush_and_plots_white(qapp, monkeypatch):
     line = {"kind": "line", "layer": "A", "x1": 0, "y1": -50, "x2": 100, "y2": -50}
     mask = _mask(20, -80, 80, -20, layer="B")
     monkeypatch.setattr(theme, "detect", lambda: theme.DARK)     # dark screen theme
-    for mode in (pd.PaperColorMode.BW, pd.PaperColorMode.FULL_COLOR):
-        pd.save_paper_color_mode(mode)
+    for mode in (BW, FULL_COLOR):
+        set_paper_mode(mode)
         scene, rec, group = built_scene([line, mask])
         m = [c for c in group.childItems() if c.data(UNDERLAY_MASK_SLOT)][0]
         before = m.brush().color().name()

@@ -377,8 +377,9 @@ def test_underlay_built_with_token_or_no_fill_paints_right(ms, force_theme):
 
 
 def _paper_pass(ms, mode):
-    from firepro3d.paper_display import apply_paper_overrides, save_paper_color_mode
-    save_paper_color_mode(mode)
+    from firepro3d.paper_display import apply_paper_overrides
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
+    set_paper_mode(mode)
     return apply_paper_overrides(ms, QRectF(-2000, -2000, 4000, 4000),
                                  paper_scale=50.0)
 
@@ -386,10 +387,11 @@ def _paper_pass(ms, mode):
 @pytest.mark.parametrize("mode_name,expect", [("FULL_COLOR", "#000000"),
                                               ("BW", "#000000")])
 def test_underlay_token_auto_is_black_on_paper(ms, force_theme, mode_name, expect):
-    from firepro3d.paper_display import PaperColorMode, restore_model_display
+    from firepro3d.paper_display import restore_model_display
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     _rec, g = _underlay(ms, colour=TOKEN_AUTO)
-    saved = _paper_pass(ms, PaperColorMode[mode_name])
+    saved = _paper_pass(ms, {"FULL_COLOR": FULL_COLOR, "BW": BW}[mode_name])
     try:
         px = _underlay_pixels(g)
         assert expect in px and DARK_INK not in px
@@ -399,11 +401,12 @@ def test_underlay_token_auto_is_black_on_paper(ms, force_theme, mode_name, expec
 
 
 def test_underlay_accent_is_light_accent_on_paper_and_black_in_bw(ms, force_theme):
-    from firepro3d.paper_display import PaperColorMode, restore_model_display
+    from firepro3d.paper_display import restore_model_display
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     _rec, g = _underlay(ms, colour=TOKEN_ACCENT)
-    for mode, want in ((PaperColorMode.FULL_COLOR, ACCENT_PAPER),
-                       (PaperColorMode.BW, "#000000")):
+    for mode, want in ((FULL_COLOR, ACCENT_PAPER),
+                       (BW, "#000000")):
         saved = _paper_pass(ms, mode)
         try:
             px = _underlay_pixels(g)
@@ -414,9 +417,10 @@ def test_underlay_accent_is_light_accent_on_paper_and_black_in_bw(ms, force_them
 
 
 def test_underlay_no_fill_is_not_drawn_on_paper(ms):
-    from firepro3d.paper_display import PaperColorMode, restore_model_display
+    from firepro3d.paper_display import restore_model_display
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     _rec, g = _underlay(ms, colour="")
-    saved = _paper_pass(ms, PaperColorMode.FULL_COLOR)
+    saved = _paper_pass(ms, FULL_COLOR)
     try:
         assert _underlay_pixels(g) == {BG}
     finally:
@@ -424,10 +428,11 @@ def test_underlay_no_fill_is_not_drawn_on_paper(ms):
 
 
 def test_underlay_paper_pass_keeps_a_valid_pen_for_a_token(ms):
-    from firepro3d.paper_display import PaperColorMode, restore_model_display
+    from firepro3d.paper_display import restore_model_display
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from firepro3d.underlay_freeze import _UnderlayPathItem
     _rec, g = _underlay(ms, colour=TOKEN_AUTO)
-    saved = _paper_pass(ms, PaperColorMode.FULL_COLOR)
+    saved = _paper_pass(ms, FULL_COLOR)
     try:
         kids = [c for c in g.childItems() if isinstance(c, _UnderlayPathItem)]
         assert kids and all(c.pen().color().isValid() for c in kids)
@@ -517,15 +522,13 @@ def _label_ink(ps):
 
 
 def _full_colour(monkeypatch):
-    from firepro3d import paper_display
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: paper_display.PaperColorMode.FULL_COLOR)
+    from tests.paper_mode_shim import FULL_COLOR, set_paper_mode
+    set_paper_mode(FULL_COLOR)
 
 
 def _bw(monkeypatch):
-    from firepro3d import paper_display
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: paper_display.PaperColorMode.BW)
+    from tests.paper_mode_shim import BW, set_paper_mode
+    set_paper_mode(BW)
 
 
 def test_titleblock_border_picker_shows_theme_and_no_fill(tmp_path, monkeypatch,
@@ -594,7 +597,9 @@ def test_titleblock_border_accent_is_paper_green_and_black_in_bw(
         ps.dispose()
         _bw(monkeypatch)
         ps = _paper_scene(dlg.working)
-        assert _near(_edge_pixel(ps), "#000000")
+        # paper-as-authored R1: Accent on an unrowed item plots the accent
+        # whatever the rows' toggles (was black under B&W)
+        assert _near(_edge_pixel(ps), ACCENT_PAPER)
         ps.dispose()
     finally:
         _dispose(dlg)
@@ -653,7 +658,7 @@ def test_titleblock_field_text_token_and_no_fill(tmp_path, monkeypatch, force_th
         _bw(monkeypatch)
         _set_text(dlg, TOKEN_ACCENT, monkeypatch)
         ps = _paper_scene(dlg.working)
-        assert _near(_label_ink(ps), "#000000")
+        assert _near(_label_ink(ps), ACCENT_PAPER)      # paper-as-authored R1 (was black in B&W)
         ps.dispose()
         _full_colour(monkeypatch)
         _set_text(dlg, "", monkeypatch)
@@ -716,7 +721,7 @@ def test_titleblock_field_fill_token_and_no_fill(tmp_path, monkeypatch, force_th
         _bw(monkeypatch)
         _set_fill(dlg, TOKEN_ACCENT, monkeypatch)
         ps = _paper_scene(dlg.working)
-        assert _fill_pixel(ps) == "#000000"
+        assert _fill_pixel(ps) == ACCENT_PAPER          # paper-as-authored R1 (was black in B&W)
         ps.dispose()
         _full_colour(monkeypatch)
         _set_fill(dlg, "", monkeypatch)
@@ -778,7 +783,8 @@ def test_titleblock_pdf_export_border_token_is_paper_green_or_black(
         assert any(max(abs(a - b) for a, b in zip(c, want)) <= 2 for c in col), col
         _bw(monkeypatch)
         bw = stroke_colours("bw.pdf")
-        assert not any(max(abs(a - b) for a, b in zip(c, want)) <= 2 for c in bw), bw
+        # paper-as-authored R1: the unrowed border keeps the accent in B&W
+        assert any(max(abs(a - b) for a, b in zip(c, want)) <= 2 for c in bw), bw
     finally:
         _dispose(dlg)
 

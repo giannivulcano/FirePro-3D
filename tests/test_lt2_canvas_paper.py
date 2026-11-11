@@ -6,7 +6,7 @@ from firepro3d import paper_display as pd
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests.test_lt1_block_paper import (_HALF_LEN, _block_strokes, _export,
                                         _nested, _render_model, _row_run)
 
@@ -62,7 +62,7 @@ def test_canvas_named_weight_and_thin_lines(qapp):
 @pytest.mark.parametrize("scale", [0.02, 0.01])
 @pytest.mark.parametrize("nested", [False, True])
 def test_pdf_by_block_and_named(qapp, tmp_path, scale, nested):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     blocks_mm = pd.resolve_line_weight_mm(
         pd.load_paper_categories()["Blocks"]["line_weight"])
     for weight, want in (("by_block", blocks_mm),

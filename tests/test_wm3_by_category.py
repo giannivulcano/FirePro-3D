@@ -4,7 +4,7 @@ import pytest
 from PyQt6.QtGui import QColor
 
 from firepro3d import paper_display as pd
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import BW, CUSTOM, FULL_COLOR, set_paper_mode
 from tests.test_lt1_block_paper import _crop, _export, _render_model
 from tests.wm3_support import (AUTHORED, OVR, composite_scene, lit_outside_origin,
                                pdf_colours, rgb)
@@ -44,26 +44,35 @@ def test_g3_model_blocks_colour_is_read_live_at_paint(qapp, shipped_hatches):
     assert lit_outside_origin(_render_model(ms)) == {OVR, _TEXTFILL}
 
 
-@pytest.mark.parametrize("bad", ["", None, "token:blocks", "token:bg", "garbage"])
+@pytest.mark.parametrize("bad", ["", None, "token:blocks", "garbage"])   # token:bg is pickable now (paper-as-authored D7)
 def test_set_model_blocks_colour_rejects_unpickable_values(qapp, bad):
     pd.set_model_blocks_colour(_MODEL)
     pd.set_model_blocks_colour(bad)
     assert pd.model_blocks_colour() == "token:auto"       # -> factory
 
 
-@pytest.mark.parametrize("mode", [PaperColorMode.FULL_COLOR, PaperColorMode.BW,
-                                  PaperColorMode.CUSTOM])
+def test_set_model_blocks_colour_accepts_background(qapp):
+    pd.set_model_blocks_colour("token:bg")                # paper-as-authored D7
+    assert pd.model_blocks_colour() == "token:bg"
+
+
+@pytest.mark.parametrize("mode", [FULL_COLOR, BW,
+                                  CUSTOM])
 def test_g3_by_category_on_a_sheet_is_paper_blocks_colour(qapp, shipped_hatches,
                                                           tmp_path, mode):
-    save_paper_color_mode(mode)
+    set_paper_mode(mode)
     _paper_blocks(_PAPER)
-    pd.set_model_blocks_colour(_MODEL)                    # must NOT reach paper
+    pd.set_model_blocks_colour(_MODEL)
+    # paper-as-authored S6: Blocks row ON (Full Color) -> the Model "Blocks"
+    # colour resolved on paper; OFF (B&W / Custom) -> the paper row colour
+    # (the Model colour must NOT reach paper).
+    want = _MODEL if mode == FULL_COLOR else _PAPER
     ms, _ = composite_scene(shipped_hatches, {"colour": "by_category"})
-    twin, _ = composite_scene(shipped_hatches, colour=_PAPER)
+    twin, _ = composite_scene(shipped_hatches, colour=want)
     got = pdf_colours(_export(tmp_path, ms, 0.02, "bc.pdf"))
     assert got == pdf_colours(_export(tmp_path, twin, 0.02, "tw.pdf"))
-    assert set(got[0]) == {rgb(_PAPER)}
-    assert set(got[1]) == {rgb(_PAPER), rgb(_TEXTFILL)}   # the text-box fill keeps its own (R3)
+    assert set(got[0]) == {rgb(want)}
+    assert set(got[1]) == {rgb(want), rgb(_TEXTFILL)}     # the text-box fill keeps its own (R3)
 
 
 # -- unit tests of the pass-time cache (not G3 guards: _blocks_colour's
@@ -71,6 +80,7 @@ def test_g3_by_category_on_a_sheet_is_paper_blocks_colour(qapp, shipped_hatches,
 # output -- it only keeps QSettings off the paint path during a pass) -------
 
 def test_unit_paper_hook_is_set_for_the_pass_and_restored(qapp, shipped_hatches):
+    set_paper_mode(BW)          # Blocks row OFF: the hook caches the row colour (was the implicit default)
     _paper_blocks(_PAPER)
     ms, inst = composite_scene(shipped_hatches, {"colour": "by_category"})
     assert inst._paper_blocks_colour is None
@@ -91,7 +101,7 @@ def test_unit_non_blocks_apply_block_callers_never_set_the_hook(qapp):
     d = sprinkler_def()
     ms, inst = scene_with([d], d.id)
     cat = pd.load_paper_categories()["Blocks"]
-    pd._apply_block(inst, cat, PaperColorMode.FULL_COLOR, 0.18, 0.02)
+    pd._apply_block(inst, cat, True, 0.18, 0.02)
     assert inst._paper_blocks_colour is None
-    pd._apply_block(inst, cat, PaperColorMode.FULL_COLOR, 0.18, 0.02, blocks_hook=True)
+    pd._apply_block(inst, cat, True, 0.18, 0.02, blocks_hook=True)
     assert inst._paper_blocks_colour is not None

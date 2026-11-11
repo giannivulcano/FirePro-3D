@@ -208,9 +208,7 @@ def _paper_digest(scene, monkeypatch):
     from firepro3d.paper_space import Sheet, SheetViewData, PaperScene, ViewResolver
 
     monkeypatch.setattr(pd, "load_paper_categories",
-                        lambda settings=None: copy.deepcopy(pd.factory_paper_categories()))
-    monkeypatch.setattr(pd, "load_paper_color_mode",
-                        lambda settings=None: pd.PaperColorMode.FULL_COLOR)
+                        lambda settings=None: copy.deepcopy(pd.factory_paper_categories()))   # rows ON (D3)
     monkeypatch.setattr(pd, "load_line_weights",
                         lambda settings=None: list(pd.FACTORY_LINE_WEIGHTS))
     crop = QRectF(-500.0, -2000.0, 9000.0, 4000.0)

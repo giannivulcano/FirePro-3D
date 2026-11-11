@@ -3,7 +3,7 @@ import fitz
 import pytest
 
 from firepro3d import paper_display as pd
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.stroke_style import canvas_px
 from tests.lt3_support import make_linetype
 from tests.test_lt1_block_paper import _block_strokes, _export, _render_model
@@ -72,7 +72,7 @@ def test_g5_by_linetype_takes_override_dash_weight(qapp):
 
 @pytest.mark.parametrize("scale", [0.02, 0.01])
 def test_g1_g2_g3_pdf(qapp, tmp_path, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     d = sprinkler_def()
     ms, _ = scene_with([d], d.id)
     got = sorted(round(w, 3) for w, _c in _block_strokes(
@@ -108,7 +108,7 @@ def _pdf_dash_rows(pdf):
 
 
 def test_g4_pdf_has_dashes(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     lt = make_linetype(length=9.0, dashes=((0.0, 6.0),))
     d = sprinkler_def()
     plain, _ = scene_with([lt, d], d.id)

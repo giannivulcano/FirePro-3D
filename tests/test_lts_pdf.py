@@ -4,7 +4,7 @@ from PyQt6.QtCore import QPointF
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests.lt3_support import make_linetype
 from tests.test_lt1_block_paper import _export
 from tests.test_lt3_pdf import _viewport_hlines
@@ -24,7 +24,7 @@ def _fixed_scene():
 
 
 def test_g_lts3_fixed_linetype_prints_authored_mm(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     pdf = _export(tmp_path, _fixed_scene(), 0.01, "lts_fixed.pdf")      # 1:100
     full = [x1 - x0 for x0, x1, _ in _viewport_hlines(pdf) if 0.5 < x1 - x0]
     inner = full[1:-1]

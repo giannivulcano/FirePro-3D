@@ -315,8 +315,9 @@ def test_roof_polygon_placement_keeps_the_stored_colour(ms, monkeypatch, stored)
 # ── P1: a paper pass reaches each class ─────────────────────────────────────
 
 def _paper_pass(ms, mode):
-    from firepro3d.paper_display import apply_paper_overrides, save_paper_color_mode
-    save_paper_color_mode(mode)
+    from firepro3d.paper_display import apply_paper_overrides
+    from tests.paper_mode_shim import CUSTOM, FULL_COLOR, set_paper_mode
+    set_paper_mode(mode)
     return apply_paper_overrides(ms, QRectF(-5000, -5000, 10000, 10000),
                                  paper_scale=0.002)   # 125 model-mm pen: visible in _pixels
 
@@ -332,13 +333,14 @@ def _set_paper_category(key, **props):
 @pytest.mark.parametrize("value,name", [(TOKEN_ACCENT, ACCENT_PAPER), ("", None)])
 def test_paper_tab_colour_reaches_the_class_and_restores(ms, force_theme, kind,
                                                          value, name):
-    from firepro3d.paper_display import PaperColorMode, restore_model_display
+    from firepro3d.paper_display import restore_model_display
+    from tests.paper_mode_shim import CUSTOM, FULL_COLOR, set_paper_mode
     force_theme("dark")
     item = _CLASSES[kind](ms)
     cat = {"wall": "Wall", "room": "Room"}[kind]
     _set_paper_category(cat, color=value, fill=value)
     item._display_color = TOKEN_AUTO
-    saved = _paper_pass(ms, PaperColorMode.CUSTOM)
+    saved = _paper_pass(ms, CUSTOM)
     try:
         px = _pixels(item)
         if name:
@@ -353,11 +355,12 @@ def test_paper_tab_colour_reaches_the_class_and_restores(ms, force_theme, kind,
 
 @pytest.mark.parametrize("kind", ["wall", "room"])
 def test_full_colour_paper_token_stroke_is_paper_green(ms, force_theme, kind):
-    from firepro3d.paper_display import PaperColorMode, restore_model_display
+    from firepro3d.paper_display import restore_model_display
+    from tests.paper_mode_shim import CUSTOM, FULL_COLOR, set_paper_mode
     force_theme("dark")
     item = _CLASSES[kind](ms)
     item._display_color = TOKEN_ACCENT
-    saved = _paper_pass(ms, PaperColorMode.FULL_COLOR)
+    saved = _paper_pass(ms, FULL_COLOR)
     try:
         assert ACCENT_PAPER in _pixels(item)
     finally:
@@ -394,7 +397,7 @@ def _pdf_colours(pdf):
 def test_export_pdf_paper_tab_colour(qapp, tmp_path, force_theme, kind, value):
     pytest.importorskip("fitz")
     from firepro3d.model_space import Model_Space
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import CUSTOM, FULL_COLOR, set_paper_mode
     from tests.test_lt1_block_paper import _export
     force_theme("dark")
     scene = Model_Space()
@@ -402,7 +405,7 @@ def test_export_pdf_paper_tab_colour(qapp, tmp_path, force_theme, kind, value):
     item.setPos(0, 0)
     _set_paper_category({"wall": "Wall", "room": "Room"}[kind],
                         color=value, fill=value)
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     got = _pdf_colours(_export(tmp_path, scene, 0.01, "c.pdf"))
     green = (0x2f, 0x9e, 0x63)
     if value:

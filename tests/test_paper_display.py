@@ -6,17 +6,15 @@ from PyQt6.QtWidgets import QGraphicsScene
 from PyQt6.QtCore import QSettings, QRectF, QPointF
 from PyQt6.QtGui import QPen, QColor
 
+from firepro3d.constants import TOKEN_AUTO, TOKEN_BG
 from firepro3d.paper_display import (
     LineWeightDef,
-    PaperColorMode,
     FACTORY_LINE_WEIGHTS,
     factory_paper_categories,
     load_line_weights,
     save_line_weights,
     load_paper_categories,
     save_paper_categories,
-    load_paper_color_mode,
-    save_paper_color_mode,
     get_paper_display_for_save,
     apply_paper_display_from_project,
     apply_paper_overrides,
@@ -25,6 +23,9 @@ from firepro3d.paper_display import (
     validate_line_weight_name,
     validate_line_weight_width,
 )
+from tests.paper_mode_shim import set_paper_mode
+
+_TOGGLED_ROWS = ("Pipe", "Wall", "Blocks", "Construction")   # every toggled row but Underlay
 
 
 @pytest.fixture(autouse=True)
@@ -70,39 +71,24 @@ class TestLineWeightDefs:
         assert loaded[0].name == "Thinnest"          # MW-4 factory
 
 
-class TestPaperColorMode:
-    def test_default_is_bw(self):
-        assert load_paper_color_mode() == PaperColorMode.BW
-
-    def test_round_trip(self):
-        save_paper_color_mode(PaperColorMode.FULL_COLOR)
-        assert load_paper_color_mode() == PaperColorMode.FULL_COLOR
-        save_paper_color_mode(PaperColorMode.CUSTOM)
-        assert load_paper_color_mode() == PaperColorMode.CUSTOM
-
-    def test_invalid_value_returns_bw(self):
-        s = QSettings("GV", "FirePro3D")
-        s.setValue("paper/color_mode", "garbage")
-        assert load_paper_color_mode() == PaperColorMode.BW
-
-
 class TestPaperCategories:
-    def test_factory_defaults_all_21_categories(self):
+    def test_factory_defaults_all_22_categories(self):
         # 15 model-mirrored categories (SB4d D7 split the Elevation Marker row
         # into Elevation / Section Marker) + the paper-only "Construction" category
         # (bug #3: construction/draw geometry plots via a pen-only paper category)
         # + the paper-only Hatch pattern-line weight (hatch D-A31)
         # + the paper-only "Blocks" category (linetypes.md LT1-2 / H6)
-        # + Door / Window / Opening (2026-10-04 opening split).
+        # + Door / Window / Opening (2026-10-04 opening split)
+        # + the paper-only "Underlay" row (paper-as-authored D2).
         cats = factory_paper_categories()
-        assert len(cats) == 21
+        assert len(cats) == 22      # paper-as-authored D2: +Underlay (was 21)
         assert "Section Marker" in cats
 
     def test_factory_opening_categories_light(self):
         for k in ("Door", "Window", "Opening"):
             c = factory_paper_categories()[k]
             # MW-5: 0.18 mm -> the new factory's Thinnest (was "Light")
-            assert c["line_weight"] == "Thinnest" and c["color"] == "#000000"
+            assert c["line_weight"] == "Thinnest" and c["color"] == TOKEN_AUTO   # paper-as-authored D3
             assert c["fill"] is None and c["visible"] is True
 
     def test_factory_blocks_category_light_no_fill(self):
@@ -111,7 +97,7 @@ class TestPaperCategories:
         assert c["line_weight"] == "Thinnest"      # MW-5: 0.18 mm
         assert c["fill"] is None
         assert c["section_color"] is None
-        assert c["color"] == "#000000"
+        assert c["color"] == TOKEN_AUTO       # paper-as-authored D3
         assert c["visible"] is True and c["opacity"] == 100
 
     def test_factory_hatch_category_is_very_light(self):
@@ -120,18 +106,18 @@ class TestPaperCategories:
     def test_factory_construction_pen_only(self):
         """Construction is a paper-only, pen-only category (color #000000, no fill)."""
         c = factory_paper_categories()["Construction"]
-        assert c["color"] == "#000000"
+        assert c["color"] == TOKEN_AUTO     # paper-as-authored D3
         assert c["fill"] is None
         assert c["section_color"] is None
         assert c["line_weight"] == "Thinnest"      # MW-5: 0.18 mm
         assert c["visible"] is True
 
     def test_factory_bw_colors(self):
-        """Factory default is B&W -- all colors black, fills white."""
+        """Factory default: every colour Automatic (black on paper), fills Background."""
         for key, vals in factory_paper_categories().items():
-            assert vals["color"] == "#000000", f"{key} color"
+            assert vals["color"] == TOKEN_AUTO, f"{key} color"      # paper-as-authored D3
             if vals["fill"] is not None:
-                assert vals["fill"] == "#ffffff", f"{key} fill"
+                assert vals["fill"] == TOKEN_BG, f"{key} fill"      # paper-as-authored D3
 
     def test_factory_wall_heavy(self):
         assert factory_paper_categories()["Wall"]["line_weight"] == "Thin"      # MW-5: 0.35 mm
@@ -158,7 +144,7 @@ class TestPaperCategories:
 class TestProjectPersistence:
     def test_get_paper_display_for_save(self):
         result = get_paper_display_for_save()
-        assert "color_mode" in result
+        assert "color_mode" not in result       # paper-as-authored D5
         assert "categories" in result
         assert "Pipe" in result["categories"]
 
@@ -179,7 +165,9 @@ class TestProjectPersistence:
         cats = load_paper_categories()
         assert cats["Pipe"]["line_weight"] == "Heavy"
         assert cats["Pipe"]["opacity"] == 80
-        assert load_paper_color_mode() == PaperColorMode.FULL_COLOR
+        # paper-as-authored D5: the legacy mode maps to per-row toggles (D4)
+        assert cats["Pipe"]["as_authored"] is True
+        assert cats["Underlay"]["as_authored"] is True
 
     def test_apply_from_project_missing_key_uses_factory(self):
         apply_paper_display_from_project({})
@@ -191,24 +179,31 @@ class TestProjectFilePersistence:
     """Integration tests for project-file save/load round-trip."""
 
     def test_save_includes_paper_display(self):
-        save_paper_color_mode(PaperColorMode.CUSTOM)
+        set_paper_mode("custom")
         cats = load_paper_categories()
         cats["Pipe"]["line_weight"] = "Heavy"
         save_paper_categories(cats)
         result = get_paper_display_for_save()
-        assert result["color_mode"] == "custom"
+        # paper-as-authored D5: the per-row toggles ride in the categories
+        assert "color_mode" not in result
+        assert result["categories"]["Pipe"]["as_authored"] is False
+        assert result["categories"]["Underlay"]["as_authored"] is True
         assert result["categories"]["Pipe"]["line_weight"] == "Heavy"
 
     def test_load_missing_paper_display_uses_factory(self):
         apply_paper_display_from_project({})
-        assert load_paper_color_mode() == PaperColorMode.BW
         cats = load_paper_categories()
+        # paper-as-authored D4: a missing color_mode maps as B&W (rows OFF)
+        assert all(cats[k]["as_authored"] is False for k in _TOGGLED_ROWS)
         assert cats["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
 
     def test_backward_compat_no_paper_display_key(self):
         """Simulates loading a project file that predates paper_display."""
         apply_paper_display_from_project(None)
-        assert load_paper_color_mode() == PaperColorMode.BW
+        cats = load_paper_categories()
+        # paper-as-authored D4: no paper_display maps as B&W (every row OFF)
+        assert all(cats[k]["as_authored"] is False for k in _TOGGLED_ROWS)
+        assert cats["Underlay"]["as_authored"] is False
 
 
 class TestApplyRestore:
@@ -232,16 +227,16 @@ class TestApplyRestore:
 
     def test_apply_bw_changes_pipe_color(self, scene_with_pipe):
         scene, pipe = scene_with_pipe
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         source_rect = QRectF(0, 0, 200, 200)
         saved = apply_paper_overrides(scene, source_rect)
-        assert pipe._display_color == "#000000"
+        assert pipe._display_color == TOKEN_AUTO       # paper-as-authored D3 (was "#000000")
         restore_model_display(saved)
         assert pipe._display_color == "#4488ff"
 
     def test_apply_full_color_keeps_model_colors(self, scene_with_pipe):
         scene, pipe = scene_with_pipe
-        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        set_paper_mode("full_color")
         source_rect = QRectF(0, 0, 200, 200)
         saved = apply_paper_overrides(scene, source_rect)
         assert pipe._display_color == "#4488ff"
@@ -251,7 +246,7 @@ class TestApplyRestore:
         scene, pipe = scene_with_pipe
         original_color = pipe._display_color
         original_opacity = pipe.opacity()
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         source_rect = QRectF(0, 0, 200, 200)
         saved = apply_paper_overrides(scene, source_rect)
         restore_model_display(saved)
@@ -264,7 +259,7 @@ class TestApplyRestore:
         # must pre-divide by paper_scale (§9.9.1) or the line plots as a
         # sub-pixel hairline at plot scale and reads as invisible on the sheet.
         scene, pipe = scene_with_pipe
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         rect = QRectF(0, 0, 200, 200)
         saved = apply_paper_overrides(scene, rect, paper_scale=1.0)
         w_full = pipe._paper_pen_width
@@ -285,7 +280,7 @@ class TestApplyRestore:
         scene, pipe = scene_with_pipe
         lab = pipe.label
         assert lab._paper_scale is None and lab._paper_pen_color is None
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         saved = apply_paper_overrides(scene, QRectF(0, 0, 200, 200))
         assert lab._paper_scale is not None            # plots at printed size
         assert lab._paper_pen_color is not None        # BW recolour, reads on paper
@@ -429,10 +424,10 @@ class TestViewportIntegration:
 
     def test_bw_mode_sets_wall_black(self, scene_with_wall):
         scene, wall = scene_with_wall
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         source_rect = QRectF(-10, -60, 220, 120)
         saved = apply_paper_overrides(scene, source_rect)
-        assert wall._display_color == "#000000"
+        assert wall._display_color == TOKEN_AUTO       # paper-as-authored D3 (was "#000000")
         restore_model_display(saved)
         assert wall._display_color == "#666666"
 
@@ -450,7 +445,7 @@ class TestViewportIntegration:
 
     def test_full_color_preserves_model_colors(self, scene_with_wall):
         scene, wall = scene_with_wall
-        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        set_paper_mode("full_color")
         source_rect = QRectF(-10, -60, 220, 120)
         saved = apply_paper_overrides(scene, source_rect)
         assert wall._display_color == "#666666"  # unchanged
@@ -472,10 +467,10 @@ class TestViewportIntegration:
         scene, wall = scene_with_wall
         wall._display_overrides = {"color": "#ff0000"}
         wall._display_color = "#ff0000"
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         source_rect = QRectF(-10, -60, 220, 120)
         saved = apply_paper_overrides(scene, source_rect)
-        assert wall._display_color == "#000000"
+        assert wall._display_color == TOKEN_AUTO       # paper-as-authored D3 (was "#000000")
         restore_model_display(saved)
         assert wall._display_color == "#ff0000"
 
@@ -483,7 +478,7 @@ class TestViewportIntegration:
 class TestProjectRoundTrip:
     def test_save_load_round_trip(self):
         """Verify paper display survives project save -> load cycle."""
-        save_paper_color_mode(PaperColorMode.CUSTOM)
+        set_paper_mode("custom")
         cats = load_paper_categories()
         cats["Pipe"]["line_weight"] = "Heavy"
         cats["Pipe"]["opacity"] = 75
@@ -491,11 +486,13 @@ class TestProjectRoundTrip:
 
         saved_data = get_paper_display_for_save()
 
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         save_paper_categories(factory_paper_categories())
 
         apply_paper_display_from_project(saved_data)
-        assert load_paper_color_mode() == PaperColorMode.CUSTOM
         loaded = load_paper_categories()
+        # paper-as-authored D5: the toggles round-trip with the categories
+        assert loaded["Pipe"]["as_authored"] is False
+        assert loaded["Underlay"]["as_authored"] is True
         assert loaded["Pipe"]["line_weight"] == "Heavy"
         assert loaded["Pipe"]["opacity"] == 75

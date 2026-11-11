@@ -12,15 +12,15 @@ from tests.test_hf1_seam_fixes import force_theme   # noqa: F401  (fixture re-ex
 def test_token_bg_resolves_canvas_bg_on_canvas_and_white_on_paper(qapp, force_theme):
     from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
     from firepro3d.colour_tokens import resolve_colour
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     assert resolve_colour(TOKEN_BG).name() == QColor(theme.DARK.canvas_bg).name()
     paper = QGraphicsScene()
     paper.paints_on_paper = True                  # what _paper_mode reads
     item = QGraphicsRectItem(0, 0, 1, 1)
     paper.addItem(item)
-    for mode in (PaperColorMode.BW, PaperColorMode.FULL_COLOR):
-        save_paper_color_mode(mode)
+    for mode in (BW, FULL_COLOR):
+        set_paper_mode(mode)
         assert resolve_colour(TOKEN_BG, item=item).name() == "#ffffff"
 
 
@@ -57,11 +57,11 @@ def test_void_and_mask_carry_bg_source_frame_carries_auto(qapp, section_scene_fo
 def test_dark_theme_export_edges_black_voids_white(qapp, tmp_path, force_theme, section_scene_for):
     """Acceptance (b): the exported PDF's drawings inside the viewport hold a
     black stroke (frame) and white fills (void + mask) and no canvas colours."""
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from tests.test_lt1_block_paper import _export
     from tests.test_hf1_seam_fixes import _plot_colours
     force_theme("dark")
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     ms, sec, op, slab = _section_with_opening_and_slab(section_scene_for)
     # 1:100 -> an 8 m crop around (0, 0): the wall, door frame and slab mask lie
     # fully inside the viewport box (_plot_colours skips drawings that touch its edge).
@@ -143,15 +143,15 @@ def test_section_viewport_background_plots_paper_white(
     """AC5: a blank point inside a section sheet viewport rasterises paper
     white in both colour modes, never the canvas colour (plan parity)."""
     import fitz
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from tests.test_lt1_block_paper import _export, _VP_X, _VP_Y
     force_theme(theme_name)
-    for mode in (PaperColorMode.BW, PaperColorMode.FULL_COLOR):
-        save_paper_color_mode(mode)
+    for mode in (BW, FULL_COLOR):
+        set_paper_mode(mode)
         ms, sec, op, slab = _section_with_opening_and_slab(section_scene_for)
         # 1:100, crop +-4 m about (0, 0): paper (VP+3, VP+3) mm = scene
         # (-3700, -3700), above the wall top and clear of the datum text.
-        pdf = _export(tmp_path, sec, 0.01, f"bg_{theme_name}_{mode.name}.pdf")
+        pdf = _export(tmp_path, sec, 0.01, f"bg_{theme_name}_{mode}.pdf")
         doc = fitz.open(str(pdf))
         try:
             pt = 72.0 / 25.4

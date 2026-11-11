@@ -234,8 +234,8 @@ from tests.test_sb3_paper import TAG_MM, _export, _text_height  # noqa: E402
 
 @pytest.mark.parametrize("scale", [0.02, 0.005])          # 1:50, 1:200
 def test_g7_pdf_pipe_label_cap_height_is_the_authored_mm(qapp, tmp_path, scale):
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
-    save_paper_color_mode(PaperColorMode.BW)
+    from tests.paper_mode_shim import set_paper_mode
+    set_paper_mode("bw")
     ms = _scene()
     p = _pipe(ms, -1.0e6, 0.0, 1.0e6, 0.0)                 # nodes far outside the viewport
     p.set_property("Mark", "H")                             # cap-height glyph, no ascender

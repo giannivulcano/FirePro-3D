@@ -8,7 +8,7 @@ import pytest
 from PyQt6.QtCore import QPointF
 
 from firepro3d import paper_display as pd
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests._section_paper_helpers import export_scene, strokes_near, to_paper
 from tests.test_section_classification import _placed_scene, _wall
 
@@ -25,7 +25,7 @@ def _paper_rect(item, centre):
 @pytest.mark.parametrize("lw_mm", [0.35, 0.7])
 def test_cut_and_beyond_walls_plot_at_wall_weight(qapp, tmp_path, section_scene_for, lw_mm):
     from firepro3d.section_scene import _ElevCutRect, _ElevProxyRect, _ROLE_SOURCE
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     cats = pd.load_paper_categories()
     cats["Wall"]["line_weight"] = pd.nearest_weight_name(lw_mm)
     pd.save_paper_categories(cats)

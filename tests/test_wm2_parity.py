@@ -4,7 +4,7 @@ import os
 
 import fitz
 
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests.test_lt1_block_paper import _export, _render_model
 from tests.test_lt1_block_paper import _line_def, _nested
 
@@ -34,7 +34,7 @@ def _legacy_scene():
 
 
 def test_g7_canvas_and_pdf_match_golden(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     img = _render_model(_legacy_scene())
     pdf = _export(tmp_path, _legacy_scene(), 0.02, "g7.pdf")
     doc = fitz.open(str(pdf))

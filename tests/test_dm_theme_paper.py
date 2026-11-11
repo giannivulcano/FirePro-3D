@@ -6,7 +6,8 @@ from PyQt6.QtWidgets import QApplication, QDialogButtonBox
 
 from firepro3d import colour_picker
 from firepro3d import display_manager as dm
-from firepro3d.paper_display import PaperColorMode, load_paper_categories, save_paper_color_mode
+from firepro3d.paper_display import load_paper_categories
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.theme import M, detect
 from firepro3d.ui_kit import EyeToggle, Swatch
 from tests._dm_theme_helpers import dispose_dm, mw, open_dm, table_px  # noqa: F401
@@ -26,7 +27,7 @@ def test_paper_tree_table_look_and_row_height(mw):
 
 
 def test_paper_colour_chip_click_persists_and_eye_cancel_restores(mw, monkeypatch):
-    save_paper_color_mode(PaperColorMode.CUSTOM)          # colour cells are live only in Custom
+    set_paper_mode("custom")          # colour cells are live only in Custom
     monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: "#00cc00")
     dlg = open_dm(mw, "paper")
     try:
@@ -53,7 +54,7 @@ def test_paper_colour_chip_click_persists_and_eye_cancel_restores(mw, monkeypatc
 
 
 def test_paper_not_applicable_cells_stay_disabled_chips(mw):
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     dlg = open_dm(mw, "paper")
     try:
         hatch = dlg._paper_cat_data["Hatch"]               # weight-only row (_LW_ONLY)
@@ -66,7 +67,7 @@ def test_paper_not_applicable_cells_stay_disabled_chips(mw):
 
 
 def test_paper_section_cell_is_a_compact_chip(mw, monkeypatch):
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     monkeypatch.setattr(colour_picker, "pick_colour", lambda *a, **k: "#12ab34")
     dlg = open_dm(mw, "paper")
     try:

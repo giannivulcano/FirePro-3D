@@ -15,7 +15,7 @@ from PyQt6.QtGui import QColor
 from firepro3d import paper_display as pd
 from firepro3d.floor_slab import FloorSlab
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.roof import RoofItem
 from firepro3d.room import Room
 from firepro3d.wall import WallSegment
@@ -94,7 +94,7 @@ def _set_weight(kind, weight):
 @pytest.mark.parametrize("weight", ["Very Light", "Heavy"])
 @pytest.mark.parametrize("kind", ["Wall", "Room", "Floor", "Roof"])
 def test_outline_plots_at_category_weight(qapp, tmp_path, kind, weight, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     _set_weight(kind, weight)
     widths = _inner_stroke_widths(_export(tmp_path, _build(kind), scale))
     want = pd.resolve_line_weight_mm(weight)
@@ -104,7 +104,7 @@ def test_outline_plots_at_category_weight(qapp, tmp_path, kind, weight, scale):
 
 @pytest.mark.parametrize("scale", [0.02, 0.01])
 def test_roof_secondary_lines_plot_at_roof_weight(qapp, tmp_path, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     _set_weight("Roof", "Heavy")
     widths = _inner_stroke_widths(_export(tmp_path, _build("HipRoof"), scale))
     want = pd.resolve_line_weight_mm("Heavy")
@@ -146,7 +146,7 @@ def _build_opening(kind):
 @pytest.mark.parametrize("scale", [0.02, 0.01])
 @pytest.mark.parametrize("kind", ["Door", "Window", "Opening"])
 def test_opening_plots_at_its_category_weight(qapp, tmp_path, kind, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     _set_weight("Wall", "Heavy")      # 0.35
     _set_weight(kind, "Medium")       # 0.25 -- distinct from 1.5 px (0.127)
     widths = _inner_stroke_widths(_export(tmp_path, _build_opening(kind), scale))
@@ -161,7 +161,7 @@ def test_opening_plots_at_its_category_weight(qapp, tmp_path, kind, scale):
 def test_hidden_opening_category_hides_symbol(qapp, tmp_path, kind):
     """Hiding the opening's OWN row drops its strokes (stroke count, not width:
     under the Wall row an opening would plot at the wall weight)."""
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     _set_weight("Wall", "Heavy")
     shown = _inner_stroke_widths(_export(tmp_path, _build_opening(kind), 0.02))
     cats = pd.load_paper_categories()

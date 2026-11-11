@@ -169,9 +169,9 @@ def _paper_scene(section_scene_for):
 def test_pipe_row_prints_the_label_and_restores(qapp, section_scene_for):
     """AC6: the row reaches the label through _apply_block, then restore."""
     from firepro3d import paper_display as pd
-    from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
-                                         restore_model_display, save_paper_color_mode)
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from tests.paper_mode_shim import set_paper_mode
+    set_paper_mode("custom")
     cats = pd.load_paper_categories()
     cats["Pipe"]["color"] = "#0000ff"
     pd.save_paper_categories(cats)
@@ -193,9 +193,9 @@ def test_pipe_row_prints_the_label_and_restores(qapp, section_scene_for):
 def test_full_colour_prints_the_label_at_the_row_weight_keeping_its_colour(qapp, section_scene_for):
     """AC6: Full Colour sets scale and weight, no colour override, like plan."""
     from firepro3d import paper_display as pd
-    from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
-                                         restore_model_display, save_paper_color_mode)
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from tests.paper_mode_shim import set_paper_mode
+    set_paper_mode("full_color")
     cats = pd.load_paper_categories()
     sec, pipe, lab = _paper_scene(section_scene_for)
     plan = _plan_label_hooks(sec, pipe)

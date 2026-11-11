@@ -17,7 +17,7 @@ from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG, TOKEN_BLOCKS, TOKEN_P
 
 _log = logging.getLogger(__name__)
 _warned: set[str] = set()
-_LABELS = {TOKEN_AUTO: "Automatic", TOKEN_ACCENT: "Accent"}
+_LABELS = {TOKEN_AUTO: "Automatic", TOKEN_ACCENT: "Accent", TOKEN_BG: "Background"}
 _PAPER_INK = "#000000"
 
 
@@ -27,9 +27,9 @@ def is_token(value) -> bool:
 
 
 def token_label(value) -> str | None:
-    """UI label of a token ("Automatic" / "Accent"); None for hex and the
-    internal tokens TOKEN_BG / TOKEN_BLOCKS (never offered in a picker)."""
-    if not is_token(value) or value in (TOKEN_BG, TOKEN_BLOCKS):
+    """UI label of a token ("Automatic" / "Accent" / "Background"); None for
+    hex and the internal token TOKEN_BLOCKS (never offered in a picker)."""
+    if not is_token(value) or value == TOKEN_BLOCKS:
         return None
     return _LABELS.get(value, "Automatic")
 
@@ -50,12 +50,12 @@ def normalize_colour(value, default: str = "#ffffff") -> str:
 
 
 def picked_colour(value) -> str | None:
-    """A user-pickable colour (WM3 D1): lower-case ``#rrggbb``,
-    ``token:auto`` or ``token:accent``; None for anything else -- ``""``
-    (No Fill), the internal tokens (``token:bg`` / ``token:element`` /
-    ``token:blocks``), unknown tokens, garbage."""
+    """A user-pickable colour (WM3 D1, paper-as-authored D7): lower-case
+    ``#rrggbb``, ``token:auto``, ``token:accent`` or ``token:bg``; None for
+    anything else -- ``""`` (No Fill), ``token:element`` / ``token:blocks``,
+    unknown tokens, garbage."""
     v = normalize_colour(value, "")
-    if v in (TOKEN_AUTO, TOKEN_ACCENT):
+    if v in (TOKEN_AUTO, TOKEN_ACCENT, TOKEN_BG):
         return v
     if v.startswith("#"):
         c = QColor(v)
@@ -71,7 +71,8 @@ def swatch_label(value) -> str:
 
 def colour_from_label(label) -> str | None:
     """Inverse of :func:`swatch_label` for a pickable colour: "Automatic" /
-    "Accent" -> its token, a hex label -> lower-case hex; else None."""
+    "Accent" / "Background" -> its token, a hex label -> lower-case hex;
+    else None."""
     s = str(label)
     for tok, lab in _LABELS.items():
         if s == lab:
@@ -79,38 +80,29 @@ def colour_from_label(label) -> str | None:
     return picked_colour(s) if s.startswith("#") else None
 
 
-def _paper_mode(item):
-    """None on the canvas; else the PaperColorMode that applies to *item*.
-
-    Inside the SheetViewport window (screen, PDF, print) categorised items get
-    their B&W/Custom colour substituted upstream, but uncategorised ones
-    (TextItem) do not -- so the pass reports BW when the pass was applied under
-    B&W, else FULL_COLOR. A ``paints_on_paper`` scene (PaperScene, white
-    previews) reads the saved mode.
-    """
+def _on_paper(item) -> bool:
+    """True when *item* paints on paper: inside a paper pass (SheetViewport:
+    screen, PDF, print) or on a ``paints_on_paper`` scene (PaperScene, white
+    previews). Paper has no colour mode any more (paper-as-authored D7)."""
     if _pd.paper_pass_active():
-        if _pd.paper_pass_color_mode() is _pd.PaperColorMode.BW:
-            return _pd.PaperColorMode.BW
-        return _pd.PaperColorMode.FULL_COLOR
+        return True
     sc = item.scene() if item is not None else None
-    if sc is not None and getattr(sc, "paints_on_paper", False):
-        return _pd.load_paper_color_mode()
-    return None
+    return bool(sc is not None and getattr(sc, "paints_on_paper", False))
 
 
 def _blocks_colour(item) -> QColor:
     """``token:blocks`` -- a By Category placement Colour (WM3 D3): the
-    Model "Blocks" colour on the canvas; on paper (every colour mode) the
-    paper "Blocks" category colour, cached on the instance for the pass by
-    ``paper_display._apply_block``, else read from the categories."""
-    if _paper_mode(item) is None:                # canvas: the Model "Blocks" colour
+    Model "Blocks" colour on the canvas; on paper, the colour cached on the
+    instance for the pass by ``paper_display._apply_block``, else
+    ``paper_display.paper_blocks_value`` of the Blocks row."""
+    if not _on_paper(item):                      # canvas: the Model "Blocks" colour
         v = _pd.model_blocks_colour()
         return resolve_colour(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item=item)
     c = getattr(item, "_paper_blocks_colour", None)
     if c is not None:
         return QColor(c)
-    v = _pd.load_paper_categories()["Blocks"]["color"]
-    return _pd._paper_qcolor(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item)
+    return _pd._paper_qcolor(
+        _pd.paper_blocks_value(_pd.load_paper_categories()["Blocks"]), item)
 
 
 def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
@@ -118,7 +110,8 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
 
     Hex passes through ``QColor(value)`` unchanged. ``token:auto`` -> theme
     ``ink`` on canvas, black on paper; ``token:accent`` -> theme ``accent`` on
-    canvas, the light-theme accent on paper; B&W paper -> black for both.
+    canvas, the light-theme accent on paper; ``token:bg`` -> canvas
+    background on canvas, white on paper.
     ``token:blocks`` (internal, WM3) -> :func:`_blocks_colour`.
     An unknown token draws as Automatic (one warning per value). ``""`` (No
     Fill / no stroke, universal picker) is fully transparent whatever *alpha*,
@@ -131,20 +124,18 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
         c = QColor(value) if value else QColor()
     else:
         if value == TOKEN_BG:
-            mode = _paper_mode(item)
-            c = QColor(_th.detect().canvas_bg) if mode is None else QColor("#ffffff")
+            c = QColor("#ffffff") if _on_paper(item) else QColor(_th.detect().canvas_bg)
         elif value == TOKEN_BLOCKS:
             c = _blocks_colour(item)
         else:
             if value not in _LABELS and value not in _warned:
                 _warned.add(value)
                 _log.warning("unknown colour token %r drawn as Automatic", value)
-            mode = _paper_mode(item)
-            if mode is None:
+            if not _on_paper(item):
                 t = _th.detect()
                 c = QColor(t.accent if value == TOKEN_ACCENT else t.ink)
-            elif value == TOKEN_ACCENT and mode is _pd.PaperColorMode.FULL_COLOR:
-                c = QColor(_th.LIGHT.accent)
+            elif value == TOKEN_ACCENT:
+                c = QColor(_th.LIGHT.accent)     # R1: always the accent on paper
             else:
                 c = QColor(_PAPER_INK)
     if alpha is not None:

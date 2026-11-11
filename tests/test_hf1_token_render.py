@@ -73,18 +73,18 @@ def test_g8a_theme_switch_repaints_without_recompile(qapp, force_theme):
 
 # ── Task 4: paper surface (G8b, AC2) ────────────────────────────────────────
 from firepro3d.constants import TOKEN_ACCENT  # noqa: E402
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode  # noqa: E402
+from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode  # noqa: E402
 from tests.test_lt1_block_paper import _HALF_LEN, _block_strokes, _export  # noqa: E402
 
 
 @pytest.mark.parametrize("mode,colour,rgb", [
-    (PaperColorMode.FULL_COLOR, TOKEN_AUTO, (0.0, 0.0, 0.0)),
-    (PaperColorMode.FULL_COLOR, TOKEN_ACCENT, (0x2f / 255, 0x9e / 255, 0x63 / 255)),
-    (PaperColorMode.BW, TOKEN_ACCENT, (0.0, 0.0, 0.0)),
+    (FULL_COLOR, TOKEN_AUTO, (0.0, 0.0, 0.0)),
+    (FULL_COLOR, TOKEN_ACCENT, (0x2f / 255, 0x9e / 255, 0x63 / 255)),
+    (BW, TOKEN_ACCENT, (0.0, 0.0, 0.0)),
 ])
 def test_g8b_pdf_token_colour(qapp, tmp_path, force_theme, mode, colour, rgb):
     force_theme("dark")
-    save_paper_color_mode(mode)         # conftest gives each test a fresh QSettings
+    set_paper_mode(mode)         # conftest gives each test a fresh QSettings
     ms = Model_Space()
     ln = LineItem(QPointF(-_HALF_LEN, 0), QPointF(_HALF_LEN, 0), colour)
     d = BlockDefinition.new(name="P", library="L", series="S",
@@ -103,7 +103,7 @@ def test_g8b_paper_text_annotation_is_black(qapp, force_theme):
     from firepro3d.paper_space import PaperScene, Sheet, ViewResolver
     from firepro3d.text_item import TextAnnotationData, TextItem
     force_theme("dark")
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     sc = PaperScene(Sheet.create_default(), MagicMock(spec=ViewResolver))
     t = TextItem(TextAnnotationData(text="A"))
     sc.addItem(t)
@@ -120,7 +120,7 @@ def test_g8b_titleblock_previews_resolve_tokens_as_paper(qapp, force_theme):
     from firepro3d.titleblock_editor import TitleBlockEditorDialog
     from PyQt6.QtWidgets import QGraphicsRectItem
     force_theme("dark")
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     dlg = TitleBlockEditorDialog(project_template=None)
     canvas = StripCanvas()
     scenes = [dlg._preview_scene, dlg._field_preview_scene, canvas._scene]
@@ -239,19 +239,24 @@ def _scene_with_line_and_text(colour):
     return ms
 
 
-@pytest.mark.parametrize("mode,colour,rgb", [
-    (PaperColorMode.FULL_COLOR, TOKEN_AUTO, (0.0, 0.0, 0.0)),
-    (PaperColorMode.FULL_COLOR, TOKEN_ACCENT, (0x2f / 255, 0x9e / 255, 0x63 / 255)),
-    (PaperColorMode.BW, TOKEN_AUTO, (0.0, 0.0, 0.0)),
-    (PaperColorMode.BW, TOKEN_ACCENT, (0.0, 0.0, 0.0)),
+_ACC = (0x2f / 255, 0x9e / 255, 0x63 / 255)
+
+
+@pytest.mark.parametrize("mode,colour,rgb,text_rgb", [
+    (FULL_COLOR, TOKEN_AUTO, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+    (FULL_COLOR, TOKEN_ACCENT, _ACC, _ACC),
+    (BW, TOKEN_AUTO, (0.0, 0.0, 0.0), (0.0, 0.0, 0.0)),
+    # paper-as-authored R1: the unrowed TextItem plots the accent whatever the
+    # row toggles; the Construction line follows its (OFF) row -> black
+    (BW, TOKEN_ACCENT, (0.0, 0.0, 0.0), _ACC),
 ], ids=["full-auto", "full-accent", "bw-auto", "bw-accent"])
 def test_c1_non_block_line_and_text_plot_paper_colour(
-        qapp, tmp_path, force_theme, mode, colour, rgb):
+        qapp, tmp_path, force_theme, mode, colour, rgb, text_rgb):
     """A token LineItem / TextItem in model space (not inside a block) must plot
     in paper colours through the real export_pdf path, never canvas ink."""
     from tests.test_lt1_block_paper import _text_fills
     force_theme("dark")                 # canvas ink would be #e6e9ec
-    save_paper_color_mode(mode)
+    set_paper_mode(mode)
     pdf = _export(tmp_path, _scene_with_line_and_text(colour), 0.02, "c1.pdf")
     strokes = _block_strokes(pdf, 0.02)
     assert strokes, "line not found in PDF"
@@ -260,4 +265,4 @@ def test_c1_non_block_line_and_text_plot_paper_colour(
     fills = _text_fills(pdf)
     assert fills, "text glyph not found in PDF"
     for got in fills:
-        assert got == pytest.approx(rgb, abs=0.01), fills
+        assert got == pytest.approx(text_rgb, abs=0.01), fills

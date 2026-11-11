@@ -16,7 +16,7 @@ from PyQt6.QtGui import QColor, QImage, QPainter
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import ArcItem, LineItem, PolylineItem, SplineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests.lt3_support import hidden
 from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
 
@@ -129,7 +129,7 @@ def _pdf_sig(pdf):
 
 
 def test_e1_legacy_strokes_match_base_golden(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     plan = _canvas_sig(_render(_plan(), QRectF(-2000, -2000, 4000, 4000)))
     editor = _canvas_sig(_render(_editor(), QRectF(-200, -200, 400, 400)))
     pdf = _pdf_sig(_export(tmp_path, _plan(), 0.02, "e1.pdf"))

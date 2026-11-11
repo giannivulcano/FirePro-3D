@@ -17,7 +17,7 @@ from firepro3d.filled_region import FilledRegionItem
 from firepro3d.geometry_2d import LineItem, PolylineItem, RectangleItem
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
 from tests._paper_iso_helpers import _DetailMgrStub
 from tests.lt3_support import hidden
@@ -45,7 +45,7 @@ class _DetailStub:
 @pytest.fixture
 def construction_thick(qapp):
     """B&W paper, Construction = Thick; restores the categories after."""
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     before = pd.load_paper_categories()
     cats = pd.load_paper_categories()
     cats["Construction"]["line_weight"] = CAT

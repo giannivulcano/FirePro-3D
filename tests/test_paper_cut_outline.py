@@ -14,7 +14,7 @@ from PyQt6.QtCore import QPointF
 from firepro3d import paper_display as pd
 from firepro3d.floor_slab import FloorSlab
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.wall import WallSegment
 from tests._section_paper_helpers import export_scene, to_paper
 
@@ -79,7 +79,7 @@ def _min_first_dark_run(pdf, face_y_mm):
 @pytest.mark.parametrize("cut", [False, True])
 @pytest.mark.parametrize("kind", ["Wall", "Floor"])
 def test_cut_outline_plots_full_category_weight(qapp, tmp_path, kind, cut, lw_mm):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     lw = _set_paper(kind, lw_mm)
     ms, top_y = _build(kind, cut)
     pdf = export_scene(tmp_path, ms, SCALE, _ORIGIN, f"{kind}_{cut}_{lw_mm}.pdf")

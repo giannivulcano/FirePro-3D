@@ -19,7 +19,7 @@ from main import MainWindow
 
 from firepro3d import paper_display as pd
 from firepro3d.model_space import Model_Space, underlay_layer_pen
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.underlay import Underlay
 from tests._mainwindow_helpers import dispose_main_window
 
@@ -129,7 +129,7 @@ def _vp_stroke_widths(pdf):
 
 def _parity(tmp_path, ms, refresh=lambda: None):
     """Export with Thin Lines off, then on (re-baking via *refresh*)."""
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     off = _vp_stroke_widths(_export(tmp_path, ms, "off.pdf"))
     pd.set_thin_lines(True)
     refresh()

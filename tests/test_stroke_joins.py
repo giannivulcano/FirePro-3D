@@ -917,9 +917,9 @@ def test_g6_sheet_pdf_export_is_mitered(qapp, tmp_path, monkeypatch):
     mapped by the viewport scale (stroke width read from the PDF)."""
     import fitz
     from firepro3d import paper_display as pd
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     cats = pd.load_paper_categories()
     cats["Blocks"]["line_weight"] = "Heavy"
     pd.save_paper_categories(cats)
@@ -1253,9 +1253,9 @@ def test_g6_loose_corner_on_a_sheet_pdf_is_mitered(qapp, tmp_path, monkeypatch):
     pen). PyMuPDF rasterises the corner at high zoom: the exterior square
     of the right-angle corner is inked."""
     import fitz
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     scale = 0.02
     ms = Model_Space()
     for it in (LineItem(QPointF(-1000, 500), QPointF(0, 500)),

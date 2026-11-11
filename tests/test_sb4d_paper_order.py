@@ -9,8 +9,8 @@ unfilled wall would leave the probe white and the guard vacuous."""
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QImage, QPainter
 
-from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
-                                     restore_model_display, save_paper_color_mode)
+from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.wall import FILL_SOLID
 from tests._sb4d_helpers import dispose, is_red, plan_scene, tag_def, wall
 
@@ -27,7 +27,7 @@ def _pixel(ms):
 
 
 def test_guard3_paper_render_keeps_the_screen_order(qapp):
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)        # authored colours on paper (isolated settings)
+    set_paper_mode("full_color")        # authored colours on paper (isolated settings)
     ms, sec, det, tabs = plan_scene()
     try:
         tall = wall(ms, top_offset=20000.0)                 # z 200.3

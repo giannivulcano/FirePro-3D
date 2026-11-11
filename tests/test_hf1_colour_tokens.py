@@ -38,10 +38,9 @@ def test_canvas_resolution_follows_theme(qapp, force_theme, name, ink, acc):
 
 def test_paper_scene_resolves_black_and_light_accent(qapp, force_theme, monkeypatch):
     from firepro3d import paper_display
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: PaperColorMode.FULL_COLOR)
+    set_paper_mode(FULL_COLOR)
     sc = QGraphicsScene()
     sc.paints_on_paper = True
     it = QGraphicsLineItem()
@@ -52,15 +51,17 @@ def test_paper_scene_resolves_black_and_light_accent(qapp, force_theme, monkeypa
 
 def test_paper_bw_forces_black(qapp, force_theme, monkeypatch):
     from firepro3d import paper_display
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: PaperColorMode.BW)
+    set_paper_mode(BW)
     sc = QGraphicsScene()
     sc.paints_on_paper = True
     it = QGraphicsLineItem()
     sc.addItem(it)
-    assert resolve_colour(TOKEN_ACCENT, item=it).name() == "#000000"
+    # paper-as-authored R1: Accent plots the light-theme accent on paper
+    # whatever the rows' toggles (was black under B&W); Automatic stays black.
+    assert resolve_colour(TOKEN_ACCENT, item=it).name() == "#2f9e63"
+    assert resolve_colour(TOKEN_AUTO, item=it).name() == "#000000"
     assert resolve_colour("#ff0000", item=it).name() == "#ff0000"   # hex untouched
 
 
@@ -73,22 +74,20 @@ def test_paper_pass_resolves_black(qapp, force_theme, monkeypatch):
 
 def test_paper_pass_accent_resolves_light_accent(qapp, force_theme, monkeypatch):
     from firepro3d import paper_display
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     monkeypatch.setattr(paper_display, "paper_pass_active", lambda: True)
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: PaperColorMode.FULL_COLOR)
+    set_paper_mode(FULL_COLOR)
     assert resolve_colour(TOKEN_ACCENT).name() == "#2f9e63"
 
 
 def test_real_paper_scene_accent_resolves_light_accent(qapp, force_theme, monkeypatch):
     from unittest.mock import MagicMock
     from firepro3d import paper_display
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from firepro3d.paper_space import PaperScene, Sheet, ViewResolver
     force_theme("dark")
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: PaperColorMode.FULL_COLOR)
+    set_paper_mode(FULL_COLOR)
     resolver = MagicMock(spec=ViewResolver)
     resolver.resolve.return_value = None
     ps = PaperScene(Sheet.create_default(), resolver)

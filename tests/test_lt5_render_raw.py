@@ -15,7 +15,7 @@ from firepro3d import path_walk as pw
 from firepro3d import theme
 from firepro3d.geometry_2d import LineItem, RectangleItem, SplineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests.lt3_support import hidden, make_linetype
 from tests.lt5_support import arrow, set_ends
 from tests.test_lt1_block_paper import _VP_W, _VP_X, _VP_Y, _export
@@ -90,7 +90,7 @@ def _construction(weight):
 
 @pytest.mark.parametrize("weight", ["Thinnest", "Thin"])   # Light 0.18 / Heavy 0.35 (MW-6)
 def test_e2_fixed_arrow_prints_3mm_on_any_weight_and_closed_draws_none(qapp, tmp_path, weight):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     _construction(weight)
     a = arrow()
     ms = _plan([a])
@@ -111,7 +111,7 @@ def test_e2_fixed_arrow_prints_3mm_on_any_weight_and_closed_draws_none(qapp, tmp
 
 
 def test_e3_stroke_stops_at_the_trim(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     a = arrow()
     ms = _plan([a])
     ln = _add(ms, LineItem(QPointF(-1500.0, 0.0), QPointF(1500.0, 0.0)))
@@ -126,7 +126,7 @@ def test_e3_stroke_stops_at_the_trim(qapp, tmp_path):
 
 
 def test_e3_over_trim_draws_no_stroke_but_both_ends(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     a = arrow()
 
     def export(ends, name):
@@ -159,7 +159,7 @@ def test_e8_missing_end_badge_on_canvas_never_on_paper(qapp, tmp_path):
     warn = QColor(theme.detect().warn)
     assert sum(1 for x, y in diff if _close(QColor(a.pixel(x, y)), warn)) > 10
     assert "Missing end type: deadbeef" in ln_m.toolTip()
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ex = _paper(300.0, 0.0)[0]
     near = lambda fs: [f for f in fs if abs((f[0] + f[2]) / 2.0 - ex) < 3.0]
     assert near(_fills(_export(tmp_path, ms_m, _S, "e8.pdf"))) == []   # never plots

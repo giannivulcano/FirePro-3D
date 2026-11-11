@@ -209,8 +209,8 @@ def test_paper_pass_between_canvas_paints(qapp, tmp_path):
     leaves the canvas render unchanged."""
     from tests.test_lt1_block_paper import _export
     from tests.test_lt3_pdf import _viewport_hlines
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
-    save_paper_color_mode(PaperColorMode.BW)
+    from tests.paper_mode_shim import set_paper_mode
+    set_paper_mode("bw")
     ms, _ = _build("Very Heavy")
     inst = ms._block_instances[0]
     inst.set_block_pos(0.0, 0.0)                     # viewport crop is origin-centred

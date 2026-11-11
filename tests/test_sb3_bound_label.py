@@ -244,9 +244,9 @@ def test_grip_sits_on_the_tag_anchor_and_apply_grip_writes_label_offset(qapp):
     assert room.grip_points() == [] and not room._tag.isVisible()
 
 
-from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
-                                     load_paper_categories, resolve_line_weight_mm,
-                                     restore_model_display, save_paper_color_mode)
+from firepro3d.paper_display import (apply_paper_overrides, load_paper_categories,
+                                     resolve_line_weight_mm, restore_model_display)
+from tests.paper_mode_shim import set_paper_mode
 
 
 def test_paper_pass_routes_the_tag_through_apply_block_and_restores_it(qapp):
@@ -254,7 +254,7 @@ def test_paper_pass_routes_the_tag_through_apply_block_and_restores_it(qapp):
     _tag_def(ms)
     room = _add_room(ms, "R101", 0.0, 0.0, 6000.0, 4000.0)
     tag = room._tag
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     h_model = tag.boundingRect().height() - 2 * PEN_MARGIN          # authored x drawing scale 100
     lw = resolve_line_weight_mm(load_paper_categories()["Room"]["line_weight"])
     saved = apply_paper_overrides(ms, QRectF(0, 0, 6000, 4000), paper_scale=0.02)

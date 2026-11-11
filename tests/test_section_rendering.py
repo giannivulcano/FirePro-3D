@@ -75,10 +75,10 @@ def test_cut_hatch_is_drawn_against_the_section_scene(qapp, section_scene_for):
     assert with_override == pytest.approx(50.0)
 
 
-def test_token_bg_has_no_picker_label():
+def test_token_bg_has_picker_label_background():
     from firepro3d.colour_tokens import token_label
     from firepro3d.constants import TOKEN_BG
-    assert token_label(TOKEN_BG) is None
+    assert token_label(TOKEN_BG) == "Background"     # paper-as-authored D7 (was None)
 
 
 def test_behind_wall_keeps_todays_fill(qapp, section_scene_for):

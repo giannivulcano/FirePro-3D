@@ -16,6 +16,7 @@ from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def
 from firepro3d.paper_display import (
     factory_paper_categories, load_paper_categories, save_paper_categories,
     get_paper_display_for_save, apply_paper_display_from_project)
+from tests.paper_mode_shim import BW, FULL_COLOR
 
 
 @pytest.fixture
@@ -78,18 +79,16 @@ _CROPS = {
 def paper_env(monkeypatch):
     """Controlled paper display settings — never touches the real QSettings.
 
-    apply_paper_overrides reads load_paper_color_mode / load_paper_categories /
+    apply_paper_overrides reads load_paper_categories /
     (via resolve_line_weight_mm) load_line_weights as module globals; patching
-    the module attributes redirects all three to in-test state.
+    the module attributes redirects both to in-test state. The rows start in
+    the legacy B&W state (every row OFF, D4).
     """
-    env = SimpleNamespace(
-        cats=copy.deepcopy(pd.factory_paper_categories()),
-        mode=pd.PaperColorMode.BW,
-    )
+    cats = copy.deepcopy(pd.factory_paper_categories())
+    pd.apply_legacy_mode(cats, BW)
+    env = SimpleNamespace(cats=cats)
     monkeypatch.setattr(pd, "load_paper_categories",
                         lambda settings=None: copy.deepcopy(env.cats))
-    monkeypatch.setattr(pd, "load_paper_color_mode",
-                        lambda settings=None: env.mode)
     monkeypatch.setattr(pd, "load_line_weights",
                         lambda settings=None: list(pd.FACTORY_LINE_WEIGHTS))
     return env
@@ -223,7 +222,7 @@ class TestViewportTrueScale:
         ts.model._gridlines.append(gl2)
         apply_duplicate_warnings(ts.model._gridlines)  # production invocation
         assert ts.gl.bubble1._duplicate  # warning armed
-        ts.env.mode = pd.PaperColorMode.FULL_COLOR
+        pd.apply_legacy_mode(ts.env.cats, FULL_COLOR)
         img = _render_paper(ts.paper)
         b, g, r = _np_bgr(img)
         # Warning pen is exactly #ff8800, drawn without antialiasing — a tight

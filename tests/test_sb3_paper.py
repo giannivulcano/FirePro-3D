@@ -14,7 +14,7 @@ from firepro3d.bound_label import PEN_MARGIN
 from firepro3d.element_params import host_values
 from firepro3d.level_manager import LevelManager
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.room import Room
 
 _VP_X, _VP_Y, _VP_W = 65.0, 30.0, 80.0
@@ -94,7 +94,7 @@ def _text_height(pdf):
 
 @pytest.mark.parametrize("scale", [0.02, 0.005])          # 1:50, 1:200
 def test_ac4_pdf_tag_cap_height_is_the_authored_mm(qapp, tmp_path, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms, _d, room = _scene_with_room()
     h = _text_height(_export(tmp_path, ms, scale, f"t{int(1 / scale)}.pdf"))
     assert abs(h - TAG_MM) < 0.3, h            # P-B (Task 0 recorded the base value for a 3 mm "H")

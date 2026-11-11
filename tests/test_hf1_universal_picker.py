@@ -230,15 +230,14 @@ def test_2d_fill_token_paints_theme_ink_on_canvas(mw, qapp, monkeypatch,
 
 def test_2d_fill_token_paints_black_on_full_colour_paper(mw, qapp, monkeypatch,
                                                          force_theme):
-    from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
-                                         restore_model_display,
-                                         save_paper_color_mode)
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from tests.paper_mode_shim import CUSTOM, FULL_COLOR, set_paper_mode
     force_theme("dark")
     r = _solid_rect(mw.scene)
     _pick_fill_returns(monkeypatch, BackgroundLayer(TOKEN_AUTO, 1.0))
     _click_fill(mw, qapp, r)
     assert DARK_INK in _pixels(r)
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     saved = apply_paper_overrides(mw.scene, QRectF(-5000, -5000, 10000, 10000))
     try:
         px = _pixels(r)
@@ -333,9 +332,9 @@ def test_text_fill_token_resolves_for_paper_scene(qapp, force_theme, monkeypatch
     from firepro3d import paper_display
     from firepro3d.paper_space import PaperScene, Sheet, ViewResolver
     from firepro3d.text_item import TextAnnotationData
+    from tests.paper_mode_shim import FULL_COLOR, set_paper_mode
     force_theme("dark")
-    monkeypatch.setattr(paper_display, "load_paper_color_mode",
-                        lambda *a, **k: paper_display.PaperColorMode.FULL_COLOR)
+    set_paper_mode(FULL_COLOR)
     resolver = MagicMock(spec=ViewResolver)
     resolver.resolve.return_value = None
     ps = PaperScene(Sheet.create_default(), resolver)
@@ -444,17 +443,19 @@ def test_dm_paper_tab_colour_reaches_the_paper_pen(qapp, monkeypatch, force_them
                                                    value, name, alpha):
     from firepro3d.display_manager import DisplayManager
     from firepro3d.model_space import Model_Space
-    from firepro3d.paper_display import PaperColorMode
+    from firepro3d.paper_display import load_paper_categories
+    from tests.paper_mode_shim import CUSTOM, set_paper_mode
     force_theme("dark")
     ms, gl = _grid_scene()
     _pick_returns(monkeypatch, value)
+    set_paper_mode(CUSTOM)          # row OFF: the row colour paints over the item
     dm = DisplayManager(ms)
     try:
         dm._on_paper_color_clicked("Grid Line", "color")
     finally:
         _dispose(dm)
-    from firepro3d.paper_display import load_paper_color_mode
-    assert load_paper_color_mode() is PaperColorMode.CUSTOM
+    # paper-as-authored D8: a colour pick flips nothing (was: switched to Custom)
+    assert load_paper_categories()["Grid Line"]["as_authored"] is False
     grid, bubble_pen = _paper_pass_colours(ms, gl)
     assert grid.alpha() == alpha and bubble_pen.alpha() == alpha
     if name:

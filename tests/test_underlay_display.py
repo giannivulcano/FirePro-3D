@@ -14,9 +14,8 @@ from firepro3d import paper_display as pd
 from firepro3d.constants import UNDERLAY_LINE_WIDTH_PX
 from firepro3d.level_manager import LevelManager
 from firepro3d.model_space import Model_Space, underlay_layer_pen
-from firepro3d.paper_display import (apply_paper_overrides,
-                                     restore_model_display, PaperColorMode,
-                                     save_paper_color_mode)
+from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+from tests.paper_mode_shim import BW, set_paper_mode
 from firepro3d.underlay import Underlay
 
 
@@ -313,10 +312,10 @@ class TestTabSwitchVisibility:
 
 
 @pytest.fixture(autouse=True)
-def _restore_color_mode():
-    prior = pd.load_paper_color_mode()
+def _restore_paper_rows():
+    prior = pd.load_paper_categories()
     yield
-    save_paper_color_mode(prior)
+    pd.save_paper_categories(prior)
 
 
 def _paper_scene_setup(qapp, **rec_kw):
@@ -331,7 +330,7 @@ def _paper_scene_setup(qapp, **rec_kw):
 class TestPaperUnderlayStage:
     def test_bw_mode_blackens_strokes_and_restores(self, qapp):
         scene, rec, group, rect = _paper_scene_setup(qapp)
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
         before = child.pen().color().name()
         saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
@@ -343,7 +342,7 @@ class TestPaperUnderlayStage:
     def test_full_color_keeps_authored_colours(self, qapp):
         scene, rec, group, rect = _paper_scene_setup(
             qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
-        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        set_paper_mode("full_color")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
         saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
                                       source_view_key="plan:x")
@@ -354,7 +353,7 @@ class TestPaperUnderlayStage:
         """Spec D6: black ONLY in BW — Custom keeps authored colours too."""
         scene, rec, group, rect = _paper_scene_setup(
             qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
-        save_paper_color_mode(PaperColorMode.CUSTOM)
+        set_paper_mode("custom")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
         saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
                                       source_view_key="plan:x")
@@ -364,7 +363,7 @@ class TestPaperUnderlayStage:
     def test_named_weight_true_mm_pen(self, qapp):
         scene, rec, group, rect = _paper_scene_setup(
             qapp, line_weight_name="Heavy")     # factory 0.35mm
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
         paper_scale = 0.02
         saved = apply_paper_overrides(scene, rect, paper_scale=paper_scale,
@@ -525,7 +524,7 @@ def _measure_stroke_mm(pdf_path):
 class TestExportUnderlayParity:
     def test_export_bw_underlay_black(self, qapp, tmp_path):
         """BW export blackens underlay strokes AND text fills; model restored."""
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         out, rec, group = _export_single_viewport_pdf(
             tmp_path, [_VLINE, _TEXT], "bw.pdf",
             line_weight_name="Very Heavy")   # 0.50mm — unambiguous sampling
@@ -552,7 +551,7 @@ class TestExportUnderlayParity:
 
     def test_export_weight_true_mm(self, qapp, tmp_path):
         """Named weight "Heavy" measures ≈0.35mm on the exported page."""
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         out, _, _ = _export_single_viewport_pdf(
             tmp_path, [_VLINE], "heavy.pdf", line_weight_name="Heavy")
         measured_mm = _measure_stroke_mm(out)
@@ -567,7 +566,7 @@ class TestExportUnderlayParity:
         DPI → 1.5 raster px at the (equal) raster DPI; allow +2px AA fringe
         (the same slack the gridline suite gives its Very Light stroke).
         """
-        save_paper_color_mode(PaperColorMode.BW)
+        set_paper_mode("bw")
         out, _, _ = _export_single_viewport_pdf(tmp_path, [_VLINE], "hair.pdf")
         pm, ppm = _pdf_pixmap(out)
         row = int((_VP_A_Y + _VP_W / 2) * ppm)

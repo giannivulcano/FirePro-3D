@@ -32,7 +32,7 @@ from firepro3d.filled_region import FilledRegionItem
 from firepro3d.floor_slab import FloorSlab
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.wall import WallSegment
 from tests._mainwindow_helpers import dispose_main_window
 
@@ -201,9 +201,9 @@ def _digests(win, tmp_path, path=FIXTURE):
     """(canvas, paper B&W, paper full colour) of the opened legacy fixture."""
     _open_fixture(win, path)
     canvas = _img_digest(_canvas_img(win.scene))
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     bw = _paper_digest(_paper_pdf(win.scene, tmp_path, "bw.pdf"))
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     colour = _paper_digest(_paper_pdf(win.scene, tmp_path, "colour.pdf"))
     return canvas, bw, colour
 
@@ -301,7 +301,7 @@ def test_restyle_through_tab_updates_region_and_cut_wall(mw):
     typed region: the region panel's ``set_property("Fill Type", ...)`` on a
     region that is then compiled into a placed block's definition."""
     from firepro3d import fill_types as ft
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     w1, w2, _slab = _open_fixture(mw)
     w2._display_overrides["color"] = "#ff0000"        # as the Display Manager sets it
 
@@ -395,7 +395,7 @@ def test_open_file_takes_the_files_own_table_and_ignores_old_section_keys(mw, tm
     qs.setValue("display/Wall/section_type", "Wall Section")
     qs.setValue("display/Wall/section_look",
                 json.dumps({"background": {"color": "#ff0000", "opacity": 1.0}}))
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     w1, _w2, _slab = _open_fixture(mw, path)
     assert ft.project_table().get("proj-ws") is not None
     assert not [t for t in ft.project_table().all()
@@ -474,10 +474,10 @@ def test_bw_paper_cut_hatch_is_element_colour_not_the_types_literal_red(mw, tmp_
         if it.parentItem() is None and it is not w1:   # fixture's red region would
             it.setVisible(False)                       # otherwise colour the page)
     mw.scene.update()
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     colour_red, colour_n = _paper_has_red(_paper_pdf(mw.scene, tmp_path, "c.pdf"))
     assert colour_red and colour_n > 3                   # control: the scene can plot red
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     bw_red, bw_n = _paper_has_red(_paper_pdf(mw.scene, tmp_path, "b.pdf"))
     assert bw_n > 3 and not bw_red
 
@@ -489,7 +489,7 @@ def test_by_element_follows_category_colour_and_item_override(mw, monkeypatch):
     category colour recolours the un-overridden wall's hatch; the wall with a
     red per-item line colour keeps red (AC5)."""
     from firepro3d import colour_picker
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     w1, w2, _slab = _open_fixture(mw)
     w2._display_overrides["color"] = "#ff0000"
     # The real Display Manager path: pick the Wall category colour, then OK.

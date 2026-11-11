@@ -21,6 +21,7 @@ from firepro3d.gridline import GridlineItem
 from firepro3d.wall import WallSegment
 from tests.test_build_editor_tabs import _editors, _plan_index, mw  # noqa: F401
 from tests.test_constraint_e2e import _click, _drag, _send
+from tests.paper_mode_shim import BW
 
 
 @pytest.fixture
@@ -164,10 +165,9 @@ def paper_env(monkeypatch):
     """Controlled paper settings -- never the real QSettings (copied from
     tests/test_selection_never_plots.py)."""
     cats = copy.deepcopy(pd.factory_paper_categories())
+    pd.apply_legacy_mode(cats, BW)           # rows OFF (D4)
     monkeypatch.setattr(pd, "load_paper_categories",
                         lambda settings=None: copy.deepcopy(cats))
-    monkeypatch.setattr(pd, "load_paper_color_mode",
-                        lambda settings=None: pd.PaperColorMode.BW)
     monkeypatch.setattr(pd, "load_line_weights",
                         lambda settings=None: list(pd.FACTORY_LINE_WEIGHTS))
 

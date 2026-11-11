@@ -13,8 +13,8 @@ from PyQt6.QtGui import QColor
 from firepro3d import theme
 from firepro3d.block_definition import _PLACEHOLDER_COLOR, BlockDefinition
 from firepro3d.geometry_2d import LineItem
-from firepro3d.paper_display import (PaperColorMode, load_paper_categories,
-                                     save_paper_color_mode)
+from firepro3d.paper_display import load_paper_categories
+from tests.paper_mode_shim import BW, CUSTOM, FULL_COLOR, set_paper_mode
 from tests.test_lt1_block_paper import _export, _render_model
 from tests.wm2_support import nested_record, scene_with
 from tests.wm3_support import (AUTHORED, BOXES, OVR, box_colours, composite_defs,
@@ -23,7 +23,7 @@ from tests.wm3_support import (AUTHORED, BOXES, OVR, box_colours, composite_defs
 
 
 _TEXTFILL = AUTHORED["textfill"]   # R3: the "H" box fill never takes the override
-_MODES = [PaperColorMode.FULL_COLOR, PaperColorMode.BW, PaperColorMode.CUSTOM]
+_MODES = [FULL_COLOR, BW, CUSTOM]
 
 
 def _authored(comp):
@@ -79,7 +79,7 @@ def test_r3_text_box_fill_keeps_its_colour_on_canvas(qapp, shipped_hatches):
 
 @pytest.mark.parametrize("mode", _MODES)
 def test_g2_pdf_colour_plots_as_the_authored_twin(qapp, shipped_hatches, tmp_path, mode):
-    save_paper_color_mode(mode)
+    set_paper_mode(mode)
     ms, _ = composite_scene(shipped_hatches, {"colour": OVR})
     twin, _ = composite_scene(shipped_hatches, colour=OVR)
     plain, _ = composite_scene(shipped_hatches)
@@ -90,7 +90,7 @@ def test_g2_pdf_colour_plots_as_the_authored_twin(qapp, shipped_hatches, tmp_pat
     strokes, fills = got
     assert sum(strokes.values()) == sum(authored[0].values())      # nothing dropped
     assert sum(fills.values()) == sum(authored[1].values())
-    if mode is PaperColorMode.FULL_COLOR:
+    if mode is FULL_COLOR:
         assert set(strokes) == {rgb(OVR)}
         assert set(fills) == {rgb(OVR), rgb(_TEXTFILL)}
     else:
@@ -104,7 +104,7 @@ def test_g2_pdf_colour_plots_as_the_authored_twin(qapp, shipped_hatches, tmp_pat
 
 @pytest.mark.parametrize("mode", _MODES)
 def test_r3_text_box_fill_keeps_its_colour_in_pdf(qapp, shipped_hatches, tmp_path, mode):
-    save_paper_color_mode(mode)
+    set_paper_mode(mode)
     plain, _ = composite_scene(shipped_hatches)
     ms, _ = composite_scene(shipped_hatches, {"colour": OVR})
     a = pdf_colours(_export(tmp_path, plain, 0.02, "a.pdf"))[1]
@@ -210,7 +210,7 @@ def test_g8_imported_reference_linework_is_recoloured(qapp):
 def test_g8_imported_reference_linework_is_recoloured_in_pdf(qapp, tmp_path):
     """AC2 "(canvas + PDF)": probed As Authored Full Colour = one red stroke
     (the import) + one orange (the printed reference), no fills."""
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     defs, hid = _ref_host()
     plain, _ = scene_with(defs, hid)
     a = pdf_colours(_export(tmp_path, plain, 0.02, "a.pdf"))

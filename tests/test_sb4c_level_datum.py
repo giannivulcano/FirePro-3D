@@ -338,9 +338,9 @@ def _circles_at(pdf, cx, cy, tol=0.5):
 
 @pytest.mark.parametrize("scale", [0.02, 0.005])     # 1:50, 1:200; canvas k = 100 would print 20 / 5 mm
 def test_ac7_datum_head_prints_at_its_authored_mm(qapp, tmp_path, section_scene_for, scale):
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from tests._section_paper_helpers import export_scene, to_paper
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms, sec, dt, _d = _datum_scene(section_scene_for)
     centre = QPointF(dt._bx, 0.0)
     pdf = export_scene(tmp_path, sec, scale, centre, f"head_{int(1 / scale)}.pdf")
@@ -356,11 +356,11 @@ def test_ac7_datum_head_prints_at_its_authored_mm(qapp, tmp_path, section_scene_
 def test_ac7_elevation_bubble_prints_at_the_plan_blocks_authored_mm(
         qapp, tmp_path, section_scene_for, scale):
     from firepro3d.gridline import GridlineItem
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from firepro3d.section_scene import ElevGridlineItem
     from tests._section_paper_helpers import export_scene, to_paper
     from tests.test_sb4b_gridline_bubble import CIRCLE_R, _bubble_def
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms, sec = section_scene_for("north")
     _bubble_def(ms)                                           # 4.75 mm circle, the plan Gridline default
     gl = GridlineItem(QPointF(2500.0, -3000.0), QPointF(2500.0, 3000.0), label="1")
@@ -383,9 +383,9 @@ def test_ac4_paper_datum_line_starts_at_the_printed_outline(qapp, tmp_path, sect
     """1:50: the printed trim is SQ_TRIM = 8 mm (paper k = 1 / S = 50) on the
     ray toward the line's far end; the canvas k (100) would leave 16 mm, the
     reversed ray 4 mm."""
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from tests._section_paper_helpers import drawings, export_scene, to_paper
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms, sec, dt, _d = _datum_scene(section_scene_for, "square")
     scale = 0.02
     centre = QPointF(dt._bx, 0.0)
@@ -399,9 +399,9 @@ def test_ac4_paper_datum_line_starts_at_the_printed_outline(qapp, tmp_path, sect
 
 
 def test_ac5_datum_selection_ring_never_plots(qapp, tmp_path, section_scene_for):
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from tests._section_paper_helpers import drawings, export_scene
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     ms, sec, dt, _d = _datum_scene(section_scene_for)
     dt.setSelected(True)
     ring = dt.line_color().lighter(150)

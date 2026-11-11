@@ -11,7 +11,7 @@ from firepro3d.block_definition import BlockDefinition
 from firepro3d.block_instance import BlockInstance
 from firepro3d.fill_layers import BackgroundLayer, FillLayers
 from firepro3d.geometry_2d import CircleItem, LineItem
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests.lt3_support import make_linetype
 from tests.lt5_support import arrow, dot, make_end, set_ends
 from tests.test_lt1_block_paper import _export, _render_model
@@ -42,7 +42,7 @@ def _blob(img, cx=350, cy=200, r=14, band=3):
 
 @pytest.mark.parametrize("linetyped", [False, True])
 def test_both_op_paths_trim_the_stroke_and_draw_the_end_on_paper(qapp, tmp_path, linetyped):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     a = arrow()
     defs, ref = [a], "continuous"
     if linetyped:
@@ -67,7 +67,7 @@ def test_both_op_paths_trim_the_stroke_and_draw_the_end_on_paper(qapp, tmp_path,
 def test_e7_end_stroke_plots_at_the_placement_override_width(qapp, tmp_path, weight):
     """E7's surviving half (ET1 retired weight-relative sizing): an end's
     stroke op plots at the placement's resolved width, like the line."""
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     # A stroke-only end: one 2 mm bar parallel to the line, 1 mm above it.
     bar = make_end("Bar", [LineItem(QPointF(-2.0, -1.0), QPointF(0.0, -1.0)).to_dict()])
     d = _line_block(finish=bar.id)                   # authored Thickest (0.70)

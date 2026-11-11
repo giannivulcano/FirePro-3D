@@ -27,12 +27,13 @@ def test_normalize_overrides_colour_axis():
                                             "colour": "as_authored"}
     assert ss.normalize_overrides({"colour": " #00FF00 "})["colour"] == "#00ff00"
     assert ss.normalize_overrides({"colour": "#0f0"})["colour"] == "#00ff00"
-    for keep in ("as_authored", "by_category", TOKEN_AUTO, TOKEN_ACCENT):
+    for keep in ("as_authored", "by_category", TOKEN_AUTO, TOKEN_ACCENT,
+                 TOKEN_BG):                      # paper-as-authored D7: Background is pickable
         assert ss.normalize_overrides({"colour": keep})["colour"] == keep
 
 
 @pytest.mark.parametrize("bad", [None, 3, "", "  ", "#zz", "red", "by_linetype",
-                                 "by_block", "continuous", TOKEN_BG, TOKEN_ELEMENT,
+                                 "by_block", "continuous", TOKEN_ELEMENT,
                                  TOKEN_BLOCKS, "token:nope", "As Authored"])
 def test_normalize_overrides_invalid_colour_is_as_authored(bad):
     assert ss.normalize_overrides({"colour": bad})["colour"] == ss.AS_AUTHORED
@@ -111,10 +112,11 @@ def test_fixed_survives_mapped_and_marks_the_placeholder():
 
 
 def test_colour_token_helpers():
-    assert ct.token_label(TOKEN_BLOCKS) is None              # internal, like token:bg
+    assert ct.token_label(TOKEN_BLOCKS) is None              # internal
     assert ct.picked_colour("#00FF00") == "#00ff00"
     assert ct.picked_colour(QColor("#123456")) == "#123456"
-    for bad in ("", None, TOKEN_BG, TOKEN_BLOCKS, TOKEN_ELEMENT, "#zz", "red"):
+    assert ct.picked_colour(TOKEN_BG) == TOKEN_BG            # paper-as-authored D7: pickable
+    for bad in ("", None, TOKEN_BLOCKS, TOKEN_ELEMENT, "#zz", "red"):
         assert ct.picked_colour(bad) is None, bad
     assert ct.swatch_label("") == "None"
     assert ct.swatch_label(TOKEN_AUTO) == "Automatic"

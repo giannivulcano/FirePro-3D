@@ -76,7 +76,7 @@ def test_set_property_colour_labels_and_values(qapp):
     assert inst.overrides["colour"] == "by_category"
     inst.set_property("Colour", "Automatic")
     assert inst.overrides["colour"] == "token:auto"
-    for ignored in (_PICK, "", "No such colour", "token:bg"):
+    for ignored in (_PICK, "", "No such colour"):     # token:bg is pickable now (paper-as-authored D7)
         inst.set_property("Colour", ignored)
         assert inst.overrides["colour"] == "token:auto", ignored
     inst.set_property("Colour", "As Authored")

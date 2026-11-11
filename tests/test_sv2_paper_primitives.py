@@ -7,9 +7,8 @@ from PyQt6.QtGui import QColor, QImage, QPainter
 from firepro3d.geometry_2d import (EllipseItem, LineItem, RegularPolygonItem,
                                    SplineItem)
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import (PaperColorMode, apply_paper_overrides,
-                                     restore_model_display,
-                                     save_paper_color_mode)
+from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.text_item import TextAnnotationData, TextItem
 
 _CROP = QRectF(-60, -60, 120, 120)
@@ -54,13 +53,13 @@ def _scene_with(item, list_attr):
     (lambda: LineItem(QPointF(-40, 0), QPointF(40, 0)), "_draw_lines"),
 ])
 def test_raw_primitive_plots_dark_on_bw_paper(qapp, make, attr):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     img = _render(_scene_with(make(), attr))
     assert _count(img, lambda c: c.lightness() < 128) > 20
 
 
 def test_text_in_viewport_scene_renders(qapp):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     t = TextItem(TextAnnotationData(text="RISER"))
     t.setPos(-30, 0)
     img = _render(_scene_with(t, "_texts"))         # raised TypeError before

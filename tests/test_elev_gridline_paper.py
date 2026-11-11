@@ -10,7 +10,7 @@ from PyQt6.QtCore import QPointF
 from firepro3d import paper_display as pd
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from tests._section_paper_helpers import (VP_W, VP_X, drawings, export_scene,
                                           to_paper)
 
@@ -65,7 +65,7 @@ def _same_dashes(a, b):
 
 @pytest.mark.parametrize("scale", [0.01, 0.02])            # 1:100, 1:50
 def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, real_system_library, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms, c = _plan_scene()
     plan_pdf = export_scene(tmp_path, ms, scale, c, f"plan_{scale}.pdf")
     sec, eg, ce = _elev_scene(section_scene_for)
@@ -81,7 +81,7 @@ def test_elevation_gridline_plots_like_plan(qapp, tmp_path, section_scene_for, r
 
 
 def test_hidden_grid_line_row_hides_elevation_gridline(qapp, tmp_path, section_scene_for):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     cats = pd.load_paper_categories()
     cats["Grid Line"]["visible"] = False
     pd.save_paper_categories(cats)
@@ -94,7 +94,7 @@ def test_hidden_grid_line_row_hides_elevation_gridline(qapp, tmp_path, section_s
 
 
 def test_paper_pass_restores_elevation_gridline(qapp, tmp_path, section_scene_for):
-    save_paper_color_mode(PaperColorMode.BW)             # the pass swaps colour srcs
+    set_paper_mode("bw")             # the pass swaps colour srcs
     sec, eg, ce = _elev_scene(section_scene_for)
 
     def _state():
@@ -108,7 +108,7 @@ def test_paper_pass_restores_elevation_gridline(qapp, tmp_path, section_scene_fo
 
 
 def test_elevation_datum_plots_through_level_datum_row(qapp, tmp_path, section_scene_for):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     sec, eg, ce = _elev_scene(section_scene_for)
     pdf = export_scene(tmp_path, sec, 0.01, ce, "datum.pdf")
     expect = pd.resolve_line_weight_mm(
@@ -128,7 +128,7 @@ def test_custom_grid_line_colour_reaches_elevation_gridline(qapp, tmp_path, sect
                                                             real_system_library):   # SB4b: the plan bubble is the shipped GridlineBubble block
     """Custom mode: the row colour (not the paper-surface token default)
     reaches the elevation line and bubble, as on the plan gridline."""
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     cats = pd.load_paper_categories()
     cats["Grid Line"]["color"] = "#cc0000"
     pd.save_paper_categories(cats)
@@ -167,7 +167,7 @@ def _datum_line(pdf, ce):
 
 def test_level_datum_row_colour_and_opacity_reach_datum_line(qapp, tmp_path, section_scene_for):
     """Custom row colour and row Opacity reach the drawForeground datum line."""
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     cats = pd.load_paper_categories()
     cats["Level Datum"]["color"] = "#cc0000"
     cats["Level Datum"]["opacity"] = 50
@@ -182,7 +182,7 @@ def test_level_datum_row_colour_and_opacity_reach_datum_line(qapp, tmp_path, sec
 
 def test_paper_pass_restores_elevation_datum(qapp, tmp_path, section_scene_for):
     from firepro3d.section_scene import ElevDatumItem
-    save_paper_color_mode(PaperColorMode.BW)             # the pass swaps colour srcs
+    set_paper_mode("bw")             # the pass swaps colour srcs
     sec, eg, ce = _elev_scene(section_scene_for)
     (dt,) = [i for i in sec.items()                      # Level 1, inside the crop
              if isinstance(i, ElevDatumItem) and abs(i._v) < 1e-6]

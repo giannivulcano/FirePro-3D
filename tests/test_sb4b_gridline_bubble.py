@@ -253,8 +253,8 @@ def test_g9_per_end_visibility_grips_and_lock_carry_over(qapp):
 @pytest.mark.parametrize("scale", [0.02, 0.005])          # 1:50, 1:200
 def test_g2_pdf_bubble_mark_cap_height_is_the_authored_mm(qapp, tmp_path, scale):
     from tests.test_sb3_paper import _export, _text_height, TAG_MM
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
-    save_paper_color_mode(PaperColorMode.BW)
+    from tests.paper_mode_shim import set_paper_mode
+    set_paper_mode("bw")
     ms = _scene()
     _bubble_def(ms)
     gl = _gridline(ms, (0.0, 0.0), (0.0, 1.0e6), label="H")     # far end outside the crop
@@ -267,9 +267,9 @@ def test_g2_pdf_bubble_mark_cap_height_is_the_authored_mm(qapp, tmp_path, scale)
 def test_g3_duplicate_ring_never_plots_and_line_trims_at_paper_size(qapp, tmp_path):
     import fitz
     from tests.test_sb3_paper import _export
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import set_paper_mode
     from firepro3d.gridline import apply_duplicate_warnings
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     ms = _scene()
     _bubble_def(ms)
     a = _gridline(ms, (0.0, 0.0), (0.0, 1.0e6), label="A")

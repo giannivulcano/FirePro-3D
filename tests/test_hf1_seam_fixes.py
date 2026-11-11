@@ -160,10 +160,10 @@ def test_i2_latched_dm_categories_plot_paper_colour_on_full_colour(
         qapp, tmp_path, force_theme, colour, rgb, real_system_library):   # SB4b: the shipped GridlineBubble block
     """A gridline and a sprinkler symbol whose category is Automatic/Accent
     latch the CANVAS colour; the Full Colour pass must re-resolve them."""
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from tests.test_lt1_block_paper import _export
     force_theme("dark")                       # canvas ink #e6e9ec / accent #63be8b
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     ms, gl, spr = _gridline_and_sprinkler_scene(colour)
     canvas_grid = gl._grid_color.name()
     pdf = _export(tmp_path, ms, 0.02, "i2.pdf")
@@ -365,20 +365,20 @@ def tint_spy(monkeypatch):
 
 
 def _pass(ms, mode):
-    from firepro3d.paper_display import (
-        apply_paper_overrides, restore_model_display, save_paper_color_mode)
-    save_paper_color_mode(mode)
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
+    set_paper_mode(mode)
     saved = apply_paper_overrides(ms, QRectF(-5000, -5000, 10000, 10000))
     return saved, restore_model_display
 
 
 def test_ib_token_fitting_full_colour_paper_then_canvas(qapp, force_theme, tint_spy,
                                                         show_plain_fittings):
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     ms, fits = _fitting_scene(TOKEN_AUTO)
     tint_spy["hex"].clear()
-    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    saved, restore = _pass(ms, FULL_COLOR)
     assert tint_spy["hex"] and set(tint_spy["hex"]) == {"#000000"}   # paper ink
     tint_spy["hex"].clear()
     restore(saved)
@@ -388,11 +388,11 @@ def test_ib_token_fitting_full_colour_paper_then_canvas(qapp, force_theme, tint_
 
 def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy,
                                                  show_plain_fittings):
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     ms, fits = _fitting_scene(TOKEN_AUTO)
     tint_spy["hex"].clear()
-    saved, restore = _pass(ms, PaperColorMode.BW)
+    saved, restore = _pass(ms, BW)
     assert tint_spy["hex"] and set(tint_spy["hex"]) == {"#000000"}   # B&W pass tinted it black
     tint_spy["hex"].clear()
     restore(saved)
@@ -401,11 +401,11 @@ def test_ib_bw_pass_restores_fitting_canvas_tint(qapp, force_theme, tint_spy,
 
 def test_ib_hex_fitting_restore_does_not_retint(qapp, force_theme, tint_spy,
                                                 show_plain_fittings):
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     ms, fits = _fitting_scene("#ff0000")
     before = [f._display_color for f in fits]
-    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    saved, restore = _pass(ms, FULL_COLOR)
     tint_spy["calls"] = 0
     restore(saved)
     assert tint_spy["calls"] == 0
@@ -424,13 +424,13 @@ def _detail_marker_scene(colour):
 
 
 def test_id_detail_marker_token_full_colour_paper_then_canvas(qapp, force_theme):
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
     QSettings("GV", "FirePro3D").setValue("display/Detail Marker/color", TOKEN_AUTO)
     ms, m = _detail_marker_scene(TOKEN_AUTO)
     canvas_tag, canvas_pen = m._tag_color.name(), m.pen().color().name()
     assert canvas_tag == "#e6e9ec"
-    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    saved, restore = _pass(ms, FULL_COLOR)
     assert m._tag_color.name() == "#000000" and m.pen().color().name() == "#000000"
     restore(saved)
     assert m._tag_color.name() == canvas_tag and m.pen().color().name() == canvas_pen
@@ -440,7 +440,7 @@ def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
     """A cardinal SectionMarker is PAPER_EXCLUDED (hidden for the pass), so its
     ``_apply_marker`` token branch is unreachable; pin that and the restore."""
     from PyQt6.QtCore import QRectF
-    from firepro3d.paper_display import PaperColorMode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from firepro3d.section_marker import SectionMarker
     from firepro3d.model_space import Model_Space
     force_theme("dark")
@@ -451,7 +451,7 @@ def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
     ms.addItem(m)
     assert m.shape().boundingRect().intersects(QRectF(-5000, -5000, 10000, 10000))
     before = m._marker_color.name()
-    saved, restore = _pass(ms, PaperColorMode.FULL_COLOR)
+    saved, restore = _pass(ms, FULL_COLOR)
     assert not m.isVisible() and m._marker_color.name() == before
     restore(saved)
     assert m.isVisible() and m._marker_color.name() == before
@@ -510,9 +510,9 @@ def test_e1_elevation_on_sheet_plots_paper_colours(
     """An Automatic wall and an Accent gridline in an elevation view placed in
     a sheet viewport plot black / paper green (black on B&W) through the real
     export_pdf path -- never the dark theme's canvas ink / accent."""
-    from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     force_theme("dark")
-    save_paper_color_mode(getattr(PaperColorMode, mode))
+    set_paper_mode({"BW": BW, "FULL_COLOR": FULL_COLOR}[mode])
     elev = _auto_wall_and_accent_gridline_elevation(section_scene_for)
     pdf = _elevation_sheet_pdf(tmp_path, elev)
     strokes, fills = _plot_colours(pdf)

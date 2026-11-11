@@ -10,7 +10,7 @@ from PyQt6.QtCore import QPointF, QRectF
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 
 _VP_X, _VP_Y, _VP_W = 65.0, 30.0, 80.0
 HALF = 3.0
@@ -94,7 +94,7 @@ def _text_height(pdf):
 
 @pytest.mark.parametrize("scale", [0.02, 0.005, 0.0])       # 1:50, 1:200, NTS
 def test_g3_annotative_plots_authored_mm(qapp, tmp_path, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms = _scene()
     widths = _h_stroke_widths(_export(tmp_path, ms, scale, "a.pdf"))
     assert len(widths) == 1, widths
@@ -103,7 +103,7 @@ def test_g3_annotative_plots_authored_mm(qapp, tmp_path, scale):
 
 
 def test_g3_text_same_printed_size_across_viewports(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     hs = [_text_height(_export(tmp_path, _scene(text=True), s, f"t{i}.pdf"))
           for i, s in enumerate((0.02, 0.005, 0.0))]
     assert all(1.0 < h < 4.5 for h in hs), hs                  # printed mm, not model mm
@@ -111,7 +111,7 @@ def test_g3_text_same_printed_size_across_viewports(qapp, tmp_path):
 
 
 def test_g_real_size_unchanged(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     w50 = _h_stroke_widths(_export(tmp_path, _scene("real_size", half=1500.0), 0.02, "r50.pdf"))
     w200 = _h_stroke_widths(_export(tmp_path, _scene("real_size", half=1500.0), 0.005, "r200.pdf"))
     assert len(w50) == 1 and abs(w50[0] - 60.0) < 0.5, w50       # 3000 mm x 1:50

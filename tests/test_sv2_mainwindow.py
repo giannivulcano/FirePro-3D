@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import QApplication, QDialog
 from firepro3d import paper_display as pd
 from firepro3d.block_editor import BlockEditorWidget, BlockSaveDialog
 from firepro3d.geometry_2d import LineItem
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 from firepro3d.paper_space import SheetViewPropertiesDialog, sheet_page_mm
 from firepro3d.project_browser import _ROLE_NAME, _ROLE_TYPE
 from tests.test_sv1_schematics_mainwindow import (  # noqa: F401 (fixture)
@@ -189,7 +189,7 @@ def test_g1_sheet_round_trip_renders(mw, monkeypatch, tmp_path):
 
 def test_g3_pdf_strokes_weights_and_nts(mw, monkeypatch, tmp_path, real_system_library):
     from firepro3d import paper_export
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     w, defn, _ = _new_saved_schematic(mw, monkeypatch)
     vp = _drop_on_sheet(mw, monkeypatch, defn.id)
     d = vp.data

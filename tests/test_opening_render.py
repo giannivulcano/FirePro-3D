@@ -153,6 +153,8 @@ def test_opening_gets_paper_override(qapp, model_scene):
     scene.addItem(op); w.openings.append(op)
     op._reposition()
 
+    from tests.paper_mode_shim import set_paper_mode
+    set_paper_mode("bw")        # was the implicit default mode (D4: rows OFF)
     rect = scene.itemsBoundingRect().adjusted(-100, -100, 100, 100)
     saved = apply_paper_overrides(scene, rect)
 

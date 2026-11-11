@@ -47,7 +47,7 @@ import json
 import pytest
 from PyQt6.QtCore import QPointF
 
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import BW, set_paper_mode
 from tests.test_lt1_block_paper import _HALF_LEN, _block_strokes, _export
 
 # Base-commit (8ee2ad3) widths in mm, measured by running this scenario in a
@@ -58,7 +58,7 @@ _BASE_WIDTHS = {0.02: 0.17990455163849722, 0.01: 0.17990455163849722}
 
 @pytest.mark.parametrize("scale", [0.02, 0.01])
 def test_g9_legacy_block_prints_identically(qapp, tmp_path, scale):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     ms = Model_Space()
     legacy = {"schema": 1, "id": "leg", "version": 3, "name": "Leg",
               "library": "L", "series": "S", "origin": [0, 0],

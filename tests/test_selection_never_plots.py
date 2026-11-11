@@ -14,6 +14,7 @@ from PyQt6.QtGui import QImage, QPainter
 from PyQt6.QtWidgets import QGraphicsItem
 
 import firepro3d.paper_display as pd
+from tests.paper_mode_shim import BW
 
 PX_PER_MM = 8
 _CROP = QRectF(-1500.0, -1500.0, 3000.0, 3000.0)     # 1:50 into a 60 mm viewport
@@ -23,12 +24,11 @@ _CROP = QRectF(-1500.0, -1500.0, 3000.0, 3000.0)     # 1:50 into a 60 mm viewpor
 def paper_env(monkeypatch):
     """Controlled paper settings -- never the real QSettings (copied from
     test_gridline_paper_scale.py's fixture)."""
-    env = SimpleNamespace(cats=copy.deepcopy(pd.factory_paper_categories()),
-                          mode=pd.PaperColorMode.BW)
+    cats = copy.deepcopy(pd.factory_paper_categories())
+    pd.apply_legacy_mode(cats, BW)           # rows OFF (D4)
+    env = SimpleNamespace(cats=cats)
     monkeypatch.setattr(pd, "load_paper_categories",
                         lambda settings=None: copy.deepcopy(env.cats))
-    monkeypatch.setattr(pd, "load_paper_color_mode",
-                        lambda settings=None: env.mode)
     monkeypatch.setattr(pd, "load_line_weights",
                         lambda settings=None: list(pd.FACTORY_LINE_WEIGHTS))
     return env

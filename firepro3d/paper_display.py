@@ -157,7 +157,6 @@ _THIN_LINES = False
 # >0 while a paper pass (apply_paper_overrides .. restore_model_display) is
 # live: Thin Lines is a view toggle and never reaches paper/PDF (LT1-8).
 _THIN_SUSPEND = 0
-_PASS_COLOR_MODE = None     # PaperColorMode of the live pass; None outside one
 # MW-2: System factor (QSettings view/model_weight_factor), cached so paint
 # never reads QSettings; MainWindow restores it at startup.
 _MODEL_FACTOR: float = MODEL_WEIGHT_FACTOR
@@ -238,6 +237,15 @@ def model_blocks_factory_colour() -> str:
 def model_blocks_colour() -> str:
     """The Model-tab "Blocks" colour (factory: Automatic)."""
     return _MODEL_BLOCKS_COLOUR or model_blocks_factory_colour()
+
+
+def paper_blocks_value(cat: dict) -> str:
+    """The stored colour ``token:blocks`` plots on paper (WM3 D3, task
+    ruling 6): the Model "Blocks" colour when the Blocks row is As Authored,
+    else the row colour; a stray ``token:blocks`` reads as Automatic."""
+    from .constants import TOKEN_AUTO, TOKEN_BLOCKS
+    v = model_blocks_colour() if row_as_authored(cat) else cat["color"]
+    return TOKEN_AUTO if v == TOKEN_BLOCKS else v
 
 
 def set_model_blocks_colour(value) -> None:
@@ -411,16 +419,6 @@ def shows_selection(item) -> bool:
     return item.isSelected() and not paper_pass_active()
 
 
-def paper_pass_color_mode():
-    """The saved ``PaperColorMode`` the live paper pass was applied under
-    (``FULL_COLOR`` when no pass recorded one -- e.g. a test-forced counter).
-
-    ``colour_tokens`` reads it so an item with no paper category (TextItem)
-    still plots a token as black under B&W.
-    """
-    return _PASS_COLOR_MODE or PaperColorMode.FULL_COLOR
-
-
 def auto_model_px(width_mm: float) -> int:
     """Auto canvas width (MW-3): round-half-up(mm x factor), min 1 -- the
     value the Line Weights tab shows as "Auto (n)" (Thin Lines ignored)."""
@@ -535,7 +533,7 @@ _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
     "Hydraulic Badge", "Wall", "Door", "Window", "Opening", "Roof", "Room",
     "Floor", "Grid Line", "Level Datum", "Elevation Marker", "Section Marker",
-    "Detail Marker", "Construction", "Hatch", "Blocks",
+    "Detail Marker", "Construction", "Hatch", "Blocks", "Underlay",
 ]
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
@@ -548,6 +546,17 @@ _HAS_SECTION = {"Wall", "Roof", "Floor"}
 # Categories where only the line weight is meaningful (D-A31): the Display
 # Manager disables every other cell and its colour-mode / reset loops skip them.
 _LW_ONLY = {"Hatch"}
+
+# Rows whose only live cells are the As Authored toggle + Colour (R2): the
+# Underlay row -- layers keep their own weights and visibility.
+_AUTH_ONLY = {"Underlay"}
+
+# Retired global Color Mode (paper-as-authored D5): read once to migrate.
+_LEGACY_MODE_KEY = "paper/color_mode"
+
+# Persisted per-category properties (D1: as_authored is one of them).
+_PROPS = ("color", "fill", "section_color", "line_weight", "opacity",
+          "visible", "as_authored")
 
 # Factory paper weight per category as an intended paper mm (MW-5: today's
 # printed widths; resolved to the nearest live row when materialised).
@@ -564,16 +573,58 @@ _FACTORY_LW_MM = {
 
 
 def _make_factory_category(key: str) -> dict:
-    """Build the factory default paper-space settings for one category."""
+    """Factory paper settings for one category (D3): Automatic colour /
+    section, Background fill, As Authored ON (every row but Hatch). The
+    Underlay row has no weight (R2)."""
+    from .constants import TOKEN_AUTO, TOKEN_BG
     cat = {
-        "color": "#000000",
-        "fill": "#ffffff" if key in _HAS_FILL else None,
-        "section_color": "#000000" if key in _HAS_SECTION else None,
-        "line_weight": nearest_weight_name(_FACTORY_LW_MM[key]),
+        "color": TOKEN_AUTO,
+        "fill": TOKEN_BG if key in _HAS_FILL else None,
+        "section_color": TOKEN_AUTO if key in _HAS_SECTION else None,
+        "line_weight": (nearest_weight_name(_FACTORY_LW_MM[key])
+                        if key in _FACTORY_LW_MM else None),
         "opacity": 100,
         "visible": True,
     }
+    if key not in _LW_ONLY:
+        cat["as_authored"] = True
     return cat
+
+
+def _parse_bool(raw) -> bool:
+    """A stored bool: QSettings hands strings back ("true"/"false")."""
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.lower() not in ("false", "0")
+    return bool(raw)
+
+
+def row_as_authored(cat: dict) -> bool:
+    """True when a paper row plots its items' own colours (D1)."""
+    return bool(cat.get("as_authored", True))
+
+
+def legacy_as_authored(mode) -> tuple[bool, bool]:
+    """``(rows, underlay)`` As Authored for a retired Color Mode string
+    (D4): full_color -> ON / ON; custom -> OFF / ON; bw, missing or unknown
+    -> OFF / OFF."""
+    m = str(mode) if mode is not None else ""
+    if m == "full_color":
+        return True, True
+    if m == "custom":
+        return False, True
+    return False, False
+
+
+def apply_legacy_mode(cats: dict, mode, keys=None) -> None:
+    """Set ``as_authored`` per D4 on *keys* (default: every toggled row) of
+    *cats*, in place. Hatch never carries it."""
+    rows, und = legacy_as_authored(mode)
+    for key in (cats if keys is None else keys):
+        if key in _LW_ONLY or key not in cats:
+            continue
+        cats[key]["as_authored"] = und if key in _AUTH_ONLY else rows
 
 
 def factory_paper_categories() -> dict[str, dict]:
@@ -583,32 +634,35 @@ def factory_paper_categories() -> dict[str, dict]:
 
 
 def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
-    """Load paper-space category overrides from QSettings."""
+    """Load paper-space category overrides from QSettings. A legacy
+    ``paper/color_mode`` key migrates once (D5): rows with no stored
+    ``as_authored`` take the D4 value, the result is saved and the key removed."""
     if settings is None:
         settings = QSettings("GV", "FirePro3D")
     result: dict[str, dict] = {}
+    unset: list[str] = []
     factory_all = factory_paper_categories()
     for key in _CATEGORY_KEYS:
-        factory = factory_all[key]
-        # Start with factory defaults so any new keys are backfilled automatically.
-        entry: dict = dict(factory)
-        for prop in ("color", "fill", "section_color", "line_weight",
-                     "opacity", "visible"):
+        entry: dict = dict(factory_all[key])    # backfills new keys / rows
+        for prop in _PROPS:
             raw = settings.value(f"paper/categories/{key}/{prop}")
-            if raw is not None:
-                if prop == "opacity":
-                    entry[prop] = int(float(raw))
-                elif prop == "visible":
-                    if isinstance(raw, bool):
-                        entry[prop] = raw
-                    elif isinstance(raw, str):
-                        entry[prop] = raw.lower() not in ("false", "0")
-                    else:
-                        entry[prop] = bool(raw)
-                else:
-                    entry[prop] = raw
-            # else: factory default already set above
+            if raw is None:
+                if prop == "as_authored" and key not in _LW_ONLY:
+                    unset.append(key)
+                continue
+            if prop == "opacity":
+                entry[prop] = int(float(raw))
+            elif prop in ("visible", "as_authored"):
+                entry[prop] = _parse_bool(raw)
+            else:
+                entry[prop] = raw
         result[key] = entry
+    legacy = settings.value(_LEGACY_MODE_KEY)
+    if legacy is not None:
+        apply_legacy_mode(result, legacy, unset)
+        save_paper_categories(result, settings)
+        settings.remove(_LEGACY_MODE_KEY)
+        settings.sync()
     return result
 
 
@@ -621,12 +675,12 @@ def save_paper_categories(cats: dict[str, dict],
     factory_all = factory_paper_categories()
     for key in _CATEGORY_KEYS:
         entry = cats.get(key, factory_all[key])
-        for prop in ("color", "fill", "section_color", "line_weight",
-                     "opacity", "visible"):
+        for prop in _PROPS:
             val = entry.get(prop)
             if val is not None:
                 settings.setValue(f"paper/categories/{key}/{prop}",
-                                 str(val).lower() if prop == "visible" else val)
+                                  str(val).lower() if prop in ("visible", "as_authored")
+                                  else val)
             else:
                 settings.remove(f"paper/categories/{key}/{prop}")
     settings.sync()
@@ -639,7 +693,6 @@ def save_paper_categories(cats: dict[str, dict],
 def get_paper_display_for_save() -> dict:
     """Return paper display settings for embedding in the project file."""
     return {
-        "color_mode": load_paper_color_mode().value,
         "categories": load_paper_categories(),
         "line_weights": [d.to_dict() for d in project_line_weights()],
         "line_weight_aliases": weight_aliases(),
@@ -664,31 +717,30 @@ def apply_project_weights(data: dict | None) -> None:
 
 
 def apply_paper_display_from_project(data: dict | None):
-    """Apply paper display settings loaded from a project file."""
+    """Apply paper display settings loaded from a project file. A legacy
+    ``color_mode`` maps to per-row toggles where a row stores none (D4); it
+    is never written back (D5)."""
     apply_project_weights(data)
-    if not data:
-        # No paper_display in project -- reset to factory
-        save_paper_color_mode(PaperColorMode.BW)
-        save_paper_categories(factory_paper_categories())
-        return
-    # Color mode
-    mode_str = data.get("color_mode", "bw")
-    try:
-        mode = PaperColorMode(mode_str)
-    except ValueError:
-        mode = PaperColorMode.BW
-    save_paper_color_mode(mode)
-    # Categories -- merge project values over factory defaults
-    proj_cats = data.get("categories", {})
+    data = data if isinstance(data, dict) else {}
+    proj_cats = data.get("categories") or {}
     merged: dict[str, dict] = {}
+    unset: list[str] = []
     factory_all = factory_paper_categories()
     for key in _CATEGORY_KEYS:
-        factory = factory_all[key]
-        proj = proj_cats.get(key, {})
-        entry = dict(factory)
+        proj = proj_cats.get(key) or {}
+        entry = dict(factory_all[key])
         entry.update({k: v for k, v in proj.items() if v is not None})
+        if key not in _LW_ONLY:
+            if proj.get("as_authored") is None:
+                unset.append(key)
+            else:
+                entry["as_authored"] = _parse_bool(proj["as_authored"])
         merged[key] = entry
+    apply_legacy_mode(merged, data.get("color_mode"), unset)
     save_paper_categories(merged)
+    s = QSettings("GV", "FirePro3D")
+    s.remove(_LEGACY_MODE_KEY)
+    s.sync()
 
 
 # ---------------------------------------------------------------------------
@@ -873,13 +925,13 @@ def _paper_qcolor(value, item=None):
     return resolve_colour(value, item=item)
 
 
-def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
+def _apply_generic(item, cat, authored, lw_mm, paper_scale: float = 1.0):
     """Apply paper overrides to a generic item (Wall, Door / Window / Opening, Room, Floor, Roof).
 
     ``_paper_pen_width`` (true on-paper mm in model units, §9.9.1) is read by
     ``DisplayableItemMixin._outline_pen`` in the outline-painting items.
     """
-    if color_mode != PaperColorMode.FULL_COLOR:
+    if not authored:
         item._display_color = cat["color"]
         if hasattr(item, "_display_fill_color") and cat["fill"] is not None:
             item._display_fill_color = cat["fill"]
@@ -899,7 +951,7 @@ def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
     item.update()
 
 
-def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
+def _apply_construction(item, cat, authored, lw_mm, paper_scale):
     """Apply paper overrides to construction/draw geometry.
 
     These items read ``self.pen()`` directly in paint(), so the PEN COLOR (not
@@ -919,7 +971,7 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     from .stroke_style import apply_stroke_joins, is_named_weight   # circular at import time
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
-        if color_mode != PaperColorMode.FULL_COLOR:
+        if not authored:
             pen.setColor(_paper_qcolor(cat["color"], item))
         else:
             # The pen still holds the canvas-resolved ink (HF1): a token colour
@@ -945,7 +997,7 @@ def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     item.update()
 
 
-def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
+def _apply_pipe(pipe, cat, authored, lw_mm, paper_scale):
     """Apply paper overrides to a Pipe — uses _paper_pen_width hook.
 
     The pen width is normalised to true ON-PAPER mm (§9.9.1, matching
@@ -956,14 +1008,14 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
     scales (the line reads as invisible on the sheet). Dividing by ``paper_scale``
     makes it plot at exactly ``lw_mm`` on paper regardless of viewport scale.
     """
-    if color_mode != PaperColorMode.FULL_COLOR:
+    if not authored:
         pipe._display_color = cat["color"]
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
     pipe.update()
 
 
-def _apply_block(inst, cat, color_mode, lw_mm, paper_scale, blocks_hook=False):
+def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
     """Paper overrides for a BlockInstance (linetypes.md LT1-2 / H5).
 
     Every stroke op plots non-cosmetic at the "Blocks" weight in true paper mm
@@ -981,10 +1033,10 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale, blocks_hook=False):
         inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
-    inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
-                             if color_mode != PaperColorMode.FULL_COLOR else None)
+    inst._paper_pen_color = None if authored else _paper_qcolor(cat["color"], inst)
     if blocks_hook:
-        inst._paper_blocks_colour = _paper_qcolor(cat["color"], inst)   # WM3 D3: By Category on paper
+        # WM3 D3 + task ruling 6: By Category on paper.
+        inst._paper_blocks_colour = _paper_qcolor(paper_blocks_value(cat), inst)
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
 
@@ -1005,30 +1057,33 @@ def _marker_heads(item) -> list:
             if h is not None]
 
 
-def _model_colour_token(item, cat_key: str, cache: dict | None = None):
-    """The token colour string the MODEL side stores for *item*, else None.
+def _model_colour_token(item, cat_key: str, cache: dict | None = None,
+                        prop: str = "color"):
+    """The token colour string the MODEL side stores for *item* (its *prop*:
+    ``"color"`` or ``"fill"``), else None.
 
     Display Manager consumers (SVG tints, marker / gridline pens) latch the
-    token already resolved for the canvas; a Full Colour paper pass keeps
+    token already resolved for the canvas; a row-As-Authored paper pass keeps
     authored colours and so must re-resolve a token on the paper surface.
-    Effective value = the item's own override, else its model category colour
-    (*cache* holds one QSettings read per category per pass).
+    Effective value = the item's own override, else its model category value
+    (*cache* holds one QSettings read per (category, prop) per pass).
     """
     from .colour_tokens import is_token
-    c = (getattr(item, "_display_overrides", None) or {}).get("color")
+    c = (getattr(item, "_display_overrides", None) or {}).get(prop)
     if c is None:
-        if cache is not None and cat_key in cache:
-            c = cache[cat_key]
+        ck = (cat_key, prop)
+        if cache is not None and ck in cache:
+            c = cache[ck]
         else:
             from .display_manager import _CATEGORY_MAP, _read_category_from_settings
-            c = (_read_category_from_settings(cat_key)["color"]
+            c = (_read_category_from_settings(cat_key)[prop]
                  if cat_key in _CATEGORY_MAP else None)
             if cache is not None:
-                cache[cat_key] = c
+                cache[ck] = c
     return c if is_token(c) else None
 
 
-def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
+def _apply_gridline(gl, cat, authored, lw_mm, paper_scale, model_token=None):
     """Apply paper overrides to a GridlineItem's LINE (§9.9.1): weight + the
     paper-mm dash. Its bubbles are annotation blocks and take ``_apply_block``
     in the walk (SB4b D12). *model_token*: the model-side token colour (Full
@@ -1037,7 +1092,7 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
     gl._paper_render = True          # write-together unit with the floats below
     gl._paper_line_w = lw_mm / S
     gl._paper_line_w_mm = lw_mm      # ON-PAPER mm (NOT divided by S) — dash normaliser
-    if color_mode != PaperColorMode.FULL_COLOR:
+    if not authored:
         gl._grid_color = _paper_qcolor(cat["color"], gl)
     elif model_token is not None:
         from .colour_tokens import resolve_colour
@@ -1047,11 +1102,11 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale, model_token=None):
     gl.update()
 
 
-def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
+def _apply_marker(marker, cat, authored, lw_mm, color_attr="_marker_color",
                   model_token=None):
     """Apply paper overrides to an elevation / section / detail marker's LINE
     (SB4d D7: no fill -- the heads are annotation blocks)."""
-    if color_mode == PaperColorMode.FULL_COLOR and model_token is not None:
+    if authored and model_token is not None:
         # Full Colour keeps authored colours, but a token latched for the
         # canvas must re-resolve on paper (restore puts the saved colour back).
         from .colour_tokens import resolve_colour
@@ -1061,7 +1116,7 @@ def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color",
             pen = marker.pen()
             pen.setColor(c)
             marker.setPen(pen)
-    if color_mode != PaperColorMode.FULL_COLOR:
+    if not authored:
         _pc = _paper_qcolor(cat["color"], marker)
         setattr(marker, color_attr, _pc)
         if hasattr(marker, "pen"):
@@ -1119,6 +1174,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     from PyQt6.QtGui import QBrush, QColor, QPen
     from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
     from .display_manager import _set_svg_tint
+    from .colour_tokens import is_token
     from .block_definition import is_scaffold_item as _is_scaffold_item
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
@@ -1128,16 +1184,25 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     from .annotative import printed_text_k
     from .text_item import TextItem
 
-    color_mode = load_paper_color_mode()
     cats = load_paper_categories()
     saved: list[dict] = []
     _tok_cache: dict = {}
 
-    def _full_tok(it, key):
-        """Model-side token colour to re-resolve (Full Colour only)."""
-        if color_mode != PaperColorMode.FULL_COLOR:
-            return None
-        return _model_colour_token(it, key, _tok_cache)
+    def _auth_tok(it, key, authored):
+        """Model-side token colour to re-resolve on paper (row ON only)."""
+        return _model_colour_token(it, key, _tok_cache) if authored else None
+
+    def _svg_paper_retint(it, owner, key):
+        """R6: a row-ON SVG symbol re-tints when its Model colour or fill is
+        a token; each token resolves on the paper surface, a hex half keeps
+        its canvas value. True when it re-tinted."""
+        c = _model_colour_token(owner, key, _tok_cache)
+        f = _model_colour_token(owner, key, _tok_cache, "fill")
+        if c is None and f is None:
+            return False
+        _set_svg_tint(it, c if c is not None else getattr(owner, "_display_color", None),
+                      f if f is not None else getattr(owner, "_display_fill_color", None))
+        return True
     # Drafting-tile scale for the hatch renderer during THIS viewport render
     # (D-A30); cleared by restore_model_display. First entry → cleared even if
     # the pass fails part-way.
@@ -1145,9 +1210,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     saved.append({"hatch_scene": scene})
     # Thin Lines never plots (LT1-8): suspend it for the pass so paint-time
     # canvas pens (text borders) resolve their real width; lifted by restore.
-    global _THIN_SUSPEND, _PASS_COLOR_MODE
+    global _THIN_SUSPEND
     _THIN_SUSPEND += 1
-    _PASS_COLOR_MODE = color_mode
     saved.append({"thin_suspend": True})
     text_scale = getattr(scene, "text_print_scale", None)   # a Printed schematic (N15)
     try:
@@ -1204,6 +1268,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             cat = cats.get(cat_key)
             if cat is None:
                 continue
+            authored = row_as_authored(cat)
             if getattr(item, "_paper_cat", None) is not None:
                 # Section / elevation proxy (AC2): the source category's
                 # whole paper row, as _apply_generic gives the plan item --
@@ -1227,7 +1292,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     if lab is not None:
                         lab.setVisible(False)
                     continue
-                if color_mode != PaperColorMode.FULL_COLOR:
+                if not authored:
                     item._pen_src = cat["color"]
                     if hasattr(item, "_section_src"):          # cut wall / slab
                         if cat.get("section_color") is not None:
@@ -1245,7 +1310,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                          / max(paper_scale, 1e-9))
                 item.setOpacity(cat["opacity"] / 100.0)
                 if lab is not None and lab.isVisible():
-                    _apply_block(lab, cat, color_mode,
+                    _apply_block(lab, cat, authored,
                                  resolve_line_weight_mm(cat["line_weight"]), paper_scale)
                     lab.setOpacity(1.0)
                 item.update()
@@ -1264,7 +1329,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     saved.append(entry)
                     item.setVisible(False)
                     continue
-                bw = color_mode != PaperColorMode.FULL_COLOR
+                bw = not authored
                 lw_elev = resolve_line_weight_mm(cat["line_weight"])
                 # Saved only once the pass is entered: restore never sees a
                 # half-entered item.
@@ -1276,7 +1341,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     if h.isVisible():
                         entry["heads"].append((h, h._paper_pen_width, h._paper_pen_color,
                                                h._paper_scale))
-                        _apply_block(h, cat, color_mode, lw_elev, paper_scale)
+                        _apply_block(h, cat, authored, lw_elev, paper_scale)
                         h.setOpacity(1.0)
                 item.prepareGeometryChange()    # trim / bounds move with the paper k
                 item.update()
@@ -1336,45 +1401,42 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             lw_mm = resolve_line_weight_mm(cat["line_weight"])
 
             if isinstance(item, Pipe):
-                _apply_pipe(item, cat, color_mode, lw_mm, paper_scale)
+                _apply_pipe(item, cat, authored, lw_mm, paper_scale)
                 # Pipe label (SB4a D10): the one annotative path -- the label
                 # is a BoundLabelItem and takes _apply_block's hooks; its
                 # opacity stays 1. A hidden label is skipped.
                 if item.label.isVisible():
-                    _apply_block(item.label, cat, color_mode, lw_mm, paper_scale)
+                    _apply_block(item.label, cat, authored, lw_mm, paper_scale)
                     item.label.setOpacity(1.0)
             elif isinstance(item, GridlineItem):
-                _apply_gridline(item, cat, color_mode, lw_mm, paper_scale,
-                                _full_tok(item, cat_key))
+                _apply_gridline(item, cat, authored, lw_mm, paper_scale,
+                                _auth_tok(item, cat_key, authored))
                 for b in (item.bubble1, item.bubble2):     # SB4b D12: annotative path
                     if b.isVisible():
-                        _apply_block(b, cat, color_mode, lw_mm, paper_scale)
+                        _apply_block(b, cat, authored, lw_mm, paper_scale)
                         b.setOpacity(1.0)
                 item.prepareGeometryChange()               # the trim moves with k
             elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
-                if color_mode != PaperColorMode.FULL_COLOR:
+                if not authored:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
                 else:
-                    _tok = _full_tok(item, cat_key)
-                    if _tok is not None:       # re-tint on the paper surface
-                        _set_svg_tint(item, _tok,
-                                      getattr(item, "_display_fill_color", None))
+                    _svg_paper_retint(item, item, cat_key)
                 item.setOpacity(cat["opacity"] / 100.0)
             elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
-                _apply_marker(item, cat, color_mode, lw_mm,
+                _apply_marker(item, cat, authored, lw_mm,
                               "_tag_color" if cat_key == "Detail Marker" else "_marker_color",
-                              _full_tok(item, cat_key))
+                              _auth_tok(item, cat_key, authored))
                 for h in _marker_heads(item):          # SB4d D1: annotative heads print at authored mm
                     if h.isVisible():
-                        _apply_block(h, cat, color_mode, lw_mm, paper_scale)   # SB4d: marker heads
+                        _apply_block(h, cat, authored, lw_mm, paper_scale)   # SB4d: marker heads
                         h.setOpacity(1.0)
                 item.prepareGeometryChange()           # the arrow / leader follow the paper k
             elif cat_key == "Blocks":
-                _apply_block(item, cat, color_mode, lw_mm, paper_scale, blocks_hook=True)
+                _apply_block(item, cat, authored, lw_mm, paper_scale, blocks_hook=True)
             elif cat_key == "Construction":
-                _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
+                _apply_construction(item, cat, authored, lw_mm, paper_scale)
             else:
-                _apply_generic(item, cat, color_mode, lw_mm, paper_scale)
+                _apply_generic(item, cat, authored, lw_mm, paper_scale)
                 # WallOpening gap fill: set paper-white so the gap reads as a
                 # clean hole on white paper instead of the dark screen background.
                 from .wall_opening import WallOpening as _WallOpening
@@ -1387,7 +1449,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # from the parent). A hidden tag is skipped.
                 from .room import Room as _Room
                 if isinstance(item, _Room) and item._tag.isVisible():
-                    _apply_block(item._tag, cat, color_mode, lw_mm, paper_scale)
+                    _apply_block(item._tag, cat, authored, lw_mm, paper_scale)
                     item._tag.setOpacity(1.0)
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
@@ -1414,21 +1476,19 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     if not fitting_cat.get("visible", True):
                         f.symbol.setVisible(False)
                         continue
-                    if color_mode != PaperColorMode.FULL_COLOR:
+                    if not row_as_authored(fitting_cat):
                         _set_svg_tint(f.symbol, fitting_cat["color"],
                                       fitting_cat.get("fill"))
                         f._display_color = fitting_cat["color"]
                         f._display_fill_color = fitting_cat.get("fill")
                         entry["retinted"] = True
                     else:
-                        _tok = _full_tok(f, "Fitting")
-                        if _tok is not None:   # re-tint on the paper surface
-                            _set_svg_tint(f.symbol, _tok,
-                                          getattr(f, "_display_fill_color", None))
-                            entry["retinted"] = True
+                        entry["retinted"] = _svg_paper_retint(f.symbol, f, "Fitting")
                     f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
         # ── Underlays (§16.5) — records drive per-layer paper appearance ──
+        und_cat = cats.get("Underlay") or factory_paper_categories()["Underlay"]
+        und_auth = row_as_authored(und_cat)
         for record, group in getattr(scene, "underlays", []):
             if group is None:
                 continue
@@ -1451,12 +1511,17 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     continue          # a mask paints the sheet, not the layer
                 entry["children"].append({"item": child, "pen": child.pen(),
                                           "brush": child.brush()})
-                # Black ONLY in BW (spec D6): Full Color AND Custom keep
-                # the authored effective layer colours.
-                colour = (QColor("#000000")
-                          if color_mode == PaperColorMode.BW
-                          else _paper_qcolor(
-                              record.effective_layer_colour(layer)))
+                src = getattr(child, "_colour_src", None)
+                if not und_auth and is_token(src):
+                    # Row OFF: a token layer colour re-resolves at paint and
+                    # would ignore the row colour set below; drop it for the
+                    # pass (restore puts it back). "" (No Fill) stays hidden.
+                    entry["children"][-1]["colour_src"] = src
+                    child._colour_src = None
+                # D6: row ON -> the layer's effective colour; OFF -> the
+                # Underlay row colour (factory Automatic = black on paper).
+                colour = (_paper_qcolor(record.effective_layer_colour(layer))
+                          if und_auth else _paper_qcolor(und_cat["color"]))
                 if child.pen().style() == Qt.PenStyle.NoPen:
                     child.setBrush(QBrush(colour))      # text batch
                     continue
@@ -1498,7 +1563,7 @@ def restore_model_display(saved: list[dict]):
     from .annotative import is_annotative as _is_annot
     from PyQt6.QtGui import QColor, QBrush, QPen
 
-    global _THIN_SUSPEND, _PASS_COLOR_MODE
+    global _THIN_SUSPEND
     for entry in saved:
         if "hatch_scene" in entry:
             entry["hatch_scene"]._hatch_paper_scale = None
@@ -1511,8 +1576,6 @@ def restore_model_display(saved: list[dict]):
                                  "suspension counter unbalanced (%d)",
                                  _THIN_SUSPEND)
                 _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
-                if _THIN_SUSPEND == 0:
-                    _PASS_COLOR_MODE = None
             continue
         if "print_text" in entry:
             entry["print_text"].set_print_pass(None)
@@ -1523,6 +1586,8 @@ def restore_model_display(saved: list[dict]):
                 try:
                     ch["item"].setPen(ch["pen"])
                     ch["item"].setBrush(ch["brush"])
+                    if "colour_src" in ch:
+                        ch["item"]._colour_src = ch["colour_src"]
                 except RuntimeError:
                     pass
             try:

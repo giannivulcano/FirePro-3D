@@ -16,7 +16,7 @@ from firepro3d import paper_display as pd
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
 from firepro3d.model_space import Model_Space
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import set_paper_mode
 
 # A4 sheet, one 80 mm-square viewport at (65, 30); crop centred on model (0,0)
 # and sized 80 mm / scale so the viewport stays 80 mm at every scale.
@@ -118,7 +118,7 @@ def _block_strokes(pdf, scale):
 @pytest.mark.parametrize("thin", [False, True])           # LT1-8: never plots
 @pytest.mark.parametrize("scale", [0.02, 0.01])          # 1:50 and 1:100
 def test_block_plots_at_blocks_weight(qapp, tmp_path, scale, thin):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     pd.set_thin_lines(thin)
     strokes = _block_strokes(
         _export(tmp_path, _scene_with_blocks(), scale, "b.pdf"), scale)
@@ -127,7 +127,7 @@ def test_block_plots_at_blocks_weight(qapp, tmp_path, scale, thin):
 
 
 def test_nested_block_follows_category_weight_change(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     cats = pd.load_paper_categories()
     cats["Blocks"]["line_weight"] = "Heavy"
     pd.save_paper_categories(cats)
@@ -138,11 +138,11 @@ def test_nested_block_follows_category_weight_change(qapp, tmp_path):
 
 
 def test_white_block_plots_black_in_bw_authored_in_full_color(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     bw = _block_strokes(
         _export(tmp_path, _scene_with_blocks(), 0.02, "bw.pdf"), 0.02)
     assert len(bw) == 1 and bw[0][1] == (0.0, 0.0, 0.0), bw
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     fc = _block_strokes(
         _export(tmp_path, _scene_with_blocks(), 0.02, "fc.pdf"), 0.02)
     assert len(fc) == 1 and fc[0][1] == (1.0, 1.0, 1.0), fc
@@ -151,7 +151,7 @@ def test_white_block_plots_black_in_bw_authored_in_full_color(qapp, tmp_path):
 
 def test_selected_block_plots_authored_colour_in_full_color(qapp, tmp_path):
     """Selection is canvas feedback: a selected block plots authored on paper."""
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     ms = _scene_with_blocks()
     inst = ms._block_instances[0]
     assert inst.flags() & inst.GraphicsItemFlag.ItemIsSelectable
@@ -190,19 +190,19 @@ def _text_fills(pdf):
 
 def test_block_text_plots_black_in_bw(qapp, tmp_path):
     """LT1-2: B&W forces the category colour onto TEXT ops too."""
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     fills = _text_fills(_export(tmp_path, _scene_with_blocks(text=True),
                                 0.02, "t.pdf"))
     assert fills, "block text glyph not found in PDF"
     assert all(f == (0.0, 0.0, 0.0) for f in fills), fills
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)       # authored white kept
+    set_paper_mode("full_color")       # authored white kept
     fc = _text_fills(_export(tmp_path, _scene_with_blocks(text=True),
                              0.02, "tf.pdf"))
     assert fc and all(f == (1.0, 1.0, 1.0) for f in fc), fc
 
 
 def test_custom_mode_forces_category_colour(qapp, tmp_path):
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     cats = pd.load_paper_categories()
     cats["Blocks"]["color"] = "#ff0000"
     pd.save_paper_categories(cats)
@@ -224,7 +224,7 @@ def test_paper_tab_has_blocks_row_under_drafting(qapp):
     """H6: the Paper tab row source (_PS_GROUPS) shows Blocks with weight /
     colour / visibility / opacity live and fill / section disabled."""
     from firepro3d.display_manager import DisplayManager
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     dlg = DisplayManager(Model_Space())
     try:
         row = dlg._paper_cat_data["Blocks"]

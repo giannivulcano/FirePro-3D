@@ -12,7 +12,7 @@ import pytest
 from PyQt6.QtCore import QSettings
 
 from firepro3d import paper_display as pd
-from firepro3d.paper_display import PaperColorMode, save_paper_color_mode
+from tests.paper_mode_shim import BW, CUSTOM, set_paper_mode
 from tests._section_paper_helpers import drawings, export_scene, to_paper
 from tests.test_section_classification import _placed_scene, _wall
 
@@ -74,13 +74,13 @@ def _near(c, ref, tol=0.02):
     return c is not None and all(abs(a - b) <= tol for a, b in zip(c, ref))
 
 
-@pytest.mark.parametrize("mode", [PaperColorMode.CUSTOM, PaperColorMode.BW])
+@pytest.mark.parametrize("mode", [CUSTOM, BW])
 def test_proxies_plot_through_paper_row_colours(qapp, tmp_path, section_scene_for, mode):
-    save_paper_color_mode(mode)
+    set_paper_mode(mode)
     _rows()
     sec, cuts, beyond, centre = _scene(section_scene_for)
     _give_cut_a_body(cuts)
-    pdf = export_scene(tmp_path, sec, SCALE, centre, f"col_{mode.value}.pdf")
+    pdf = export_scene(tmp_path, sec, SCALE, centre, f"col_{mode}.pdf")
     for it in cuts + beyond:
         ds = _inside(pdf, it, centre)
         assert ds, type(it).__name__
@@ -105,7 +105,7 @@ def test_proxies_plot_through_paper_row_colours(qapp, tmp_path, section_scene_fo
 def test_hex_paper_row_fill_and_section_reach_the_proxies(qapp, tmp_path, section_scene_for):
     """A Custom paper row with real colours: cut body = Section colour, beyond
     body = Fill, strokes = Colour -- each from its own column."""
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     _rows()
     cats = pd.load_paper_categories()
     cats["Wall"].update(color="#0000ff", fill="#ff0000", section_color="#00ff00")
@@ -143,7 +143,7 @@ def test_cut_symbol_ink_takes_the_pipe_row_colour(qapp, section_scene_for):
     """The stroke takes the row Colour; no Section colour leaves no body."""
     from firepro3d.colour_tokens import section_fill_colour
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
-    save_paper_color_mode(PaperColorMode.CUSTOM)
+    set_paper_mode("custom")
     cats = pd.load_paper_categories()
     cats["Pipe"]["color"] = "#0000ff"
     pd.save_paper_categories(cats)
@@ -163,7 +163,7 @@ def test_set_section_colour_keeps_the_s_legible_on_a_mono_sheet(qapp, section_sc
     from tests.test_section_pipe_symbols import _ink, _render
     s = QSettings("GV", "FirePro3D")
     s.setValue("display/Pipe/section", "#00ff00")
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     sec, c = _cut_symbol(section_scene_for)
     centre = c.rect().center()
     rect = c.rect().adjusted(-50.0, -50.0, 50.0, 50.0)
@@ -173,7 +173,7 @@ def test_set_section_colour_keeps_the_s_legible_on_a_mono_sheet(qapp, section_sc
     assert _ink(img, rect, centre.x() + 40.0, centre.y())[0] == 0      # no body
     restore_model_display(saved)
     assert c._brush_src == "#00ff00"
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     saved = apply_paper_overrides(sec, sec.sceneRect(), SCALE)
     img = _render(sec, rect)
     assert _ink(img, rect, centre.x() + 40.0, centre.y())[1] == "#00ff00"     # body
@@ -184,7 +184,7 @@ def test_set_section_colour_keeps_the_s_legible_on_a_mono_sheet(qapp, section_sc
 
 def test_full_colour_keeps_model_proxy_colours(qapp, tmp_path, section_scene_for):
     """Plan parity: Full Colour leaves model colours (white outline, grey beyond fill)."""
-    save_paper_color_mode(PaperColorMode.FULL_COLOR)
+    set_paper_mode("full_color")
     _rows()
     sec, cuts, beyond, centre = _scene(section_scene_for)
     pdf = export_scene(tmp_path, sec, SCALE, centre, "col_full.pdf")
@@ -196,7 +196,7 @@ def test_full_colour_keeps_model_proxy_colours(qapp, tmp_path, section_scene_for
 
 def test_hidden_wall_row_hides_proxies_and_restores(qapp, tmp_path, section_scene_for):
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
-    save_paper_color_mode(PaperColorMode.BW)
+    set_paper_mode("bw")
     _rows(paper_visible=False)
     sec, cuts, beyond, centre = _scene(section_scene_for)
     pdf = export_scene(tmp_path, sec, SCALE, centre, "col_hidden.pdf")
