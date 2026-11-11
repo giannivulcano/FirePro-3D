@@ -399,3 +399,81 @@ def test_ctrl_c_v_carries_a_section_note_into_a_parallel_section(qapp, real_syst
         assert len(ms._block_instances) == n0
     finally:
         _dispose(win)
+
+
+def _place_by_tool(win, view):
+    """Place a Note reading "hi" through the real Note tool on *view* (E-10 flow)."""
+    from PyQt6.QtCore import Qt
+    from tests._note_helpers import key
+    _arm_and_click(win, view)
+    for k in (Qt.Key.Key_H, Qt.Key.Key_I, Qt.Key.Key_Escape):
+        key(view, k)
+
+
+def test_a_section_note_persists_and_shows_only_in_its_section(qapp, real_system_library, tmp_path):
+    """AC9: save / reopen through the real open path keeps the note keyed to
+    its section; it re-projects there, not in the parallel section, not on
+    the plan canvas."""
+    from firepro3d.note_controller import notes_of
+    from firepro3d.section_scene import _ROLE_SOURCE
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, markers, views = open_section_window(2)
+    ms = win.scene
+    n1, n2 = markers[0].name, markers[1].name
+    try:
+        view, sec = views[0], views[0].scene()
+        settle(sec)
+        aim(view, KNEE, 0.25)
+        _place_by_tool(win, view)
+        assert len(notes_of(ms, "section:" + n1)) == 1
+        path = str(tmp_path / "notes.fpd")
+        assert ms.save_to_file(path, backup=False)
+        win._load_project(path)                                  # the real open path
+        (note,) = notes_of(win.scene, "section:" + n1)
+        assert note.attributes["Text"] == "hi"
+        assert not note.isVisible()                              # never on the plan canvas
+        s1 = win.section_manager.open_section(n1).scene()
+        s2 = win.section_manager.open_section(n2).scene()
+        settle(s1)
+        settle(s2)
+        assert [c.data(_ROLE_SOURCE) for c in s1._note_copies.values()] == [note]
+        assert s2._note_copies == {}                             # absent from the parallel section
+    finally:
+        _dispose(win)
+
+
+def test_a_section_note_plots_on_a_sheet_of_that_section(qapp, real_system_library, tmp_path):
+    """AC9 / D4: with the tab closed, the sheet resolver builds the section
+    tab-less (get_or_build_scene) and the note's leader plots on the page."""
+    from PyQt6.QtCore import QRectF
+    from firepro3d.note_controller import notes_of
+    from tests._section_paper_helpers import drawings, export_scene, to_paper
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, markers, views = open_section_window(1)
+    ms = win.scene
+    name = markers[0].name
+    try:
+        view, sec = views[0], views[0].scene()
+        settle(sec)
+        aim(view, KNEE, 0.25)
+        _place_by_tool(win, view)
+        (note,) = notes_of(ms, "section:" + name)
+        win.section_manager.close_section(name)                 # sheets build tab-less (s7.2)
+        scene, _rect = win._view_resolver.resolve("section", name)
+        assert scene is not sec
+        (cp,) = scene._note_copies.values()
+        tip, knee = note.note_tip_scene(), note._note_knee_scene()
+        region = QRectF(tip, knee).normalized().united(cp.note_box_scene())
+        scale = 1.0 / ms.scale_manager.drawing_scale            # plot at the drawing scale
+        pdf = export_scene(tmp_path, scene, scale, knee, "section_note_sheet.pdf")
+        x0, y0 = to_paper(region.topLeft(), knee, scale)
+        x1, y1 = to_paper(region.bottomRight(), knee, scale)
+        pad = 1.0
+        inside = [d for d in drawings(pdf)
+                  if "s" in d["type"]
+                  and d["rect"][0] >= x0 - pad and d["rect"][2] <= x1 + pad
+                  and d["rect"][1] >= y0 - pad and d["rect"][3] <= y1 + pad
+                  and max(d["rect"][2] - d["rect"][0], d["rect"][3] - d["rect"][1]) > 2.0]
+        assert inside, "the note's leader / frame did not plot"
+    finally:
+        _dispose(win)
