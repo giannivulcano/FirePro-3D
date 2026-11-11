@@ -146,6 +146,8 @@ The `DisplayManager` class in `display_manager.py` is a modal `HouseDialog` (hou
 
 The Model tab's Section column was retired in v0.94.0: cut looks live on the Materials tab ([`specs/materials.md`](../specs/materials.md)). The Scale, Font and Line Weight columns were retired 2026-11-03 (DM chrome revision): saved per-category scale / font values are no longer applied (the apply path uses scale 1.0 and the category's default font). The Blocks weight (canvas weight of block linework whose weight resolves to the Blocks fallback; see [`specs/linetypes.md`](../specs/linetypes.md) "LT2" H-e and WM-5) is the **Model blocks weight** picker on the Line Weights tab.
 
+Paper colour is per Paper Space row (As Authored), not a global Color Mode. Contract: [`2026-11-11-paper-as-authored-design.md`](../superpowers/specs/2026-11-11-paper-as-authored-design.md); paper pass: [`specs/paper-space.md`](../specs/paper-space.md).
+
 Changes apply live to the canvas. Cancelling the dialog reverts all changes to their prior state.
 
 ## Connection to other subsystems

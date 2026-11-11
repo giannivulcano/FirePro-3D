@@ -512,7 +512,7 @@ _HAS_FILL = {"Sprinkler", "Water Supply", "Hydraulic Badge", "Wall", "Roof",
 _HAS_SECTION = {"Wall", "Roof", "Floor"}
 
 # Categories where only the line weight is meaningful (D-A31): the Display
-# Manager disables every other cell and its colour-mode / reset loops skip them.
+# Manager disables every other cell and the row carries no As Authored toggle.
 _LW_ONLY = {"Hatch"}
 
 # Rows whose only live cells are the As Authored toggle + Colour (R2): the

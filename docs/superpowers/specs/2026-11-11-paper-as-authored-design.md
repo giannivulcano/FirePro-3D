@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: built  # 0.99.0, feature/paper-as-authored
 last-verified: 2026-11-11
-verified-commit: e7ac8f15
+verified-commit: e2d57467   # paper-as-authored Account (built 0.99.0); prior e7ac8f15 (branch base, design time)
 applies-to:
   - firepro3d/paper_display.py
   - firepro3d/colour_tokens.py
@@ -57,10 +57,14 @@ Rejected: B (keep `PaperColorMode` per row — dead enum value, fails AC7's
 grep); C (separate key->bool store — second store to keep in step).
 
 **D2 — Rows.** Every `_CATEGORY_KEYS` row except Hatch (`_LW_ONLY`) has the
-toggle. A new **"Underlay"** row joins `_CATEGORY_KEYS` in the Drafting group
-(Hatch, Blocks, Underlay) with the toggle and Colour only; its Visible, Fill,
+toggle. The Drafting group lists Hatch, Blocks, Underlay, Construction. A new
+**"Underlay"** row joins `_CATEGORY_KEYS` there with the toggle and Colour only; its Visible, Fill,
 Section, Line Weight and Opacity cells are disabled (R2) — underlay layers
-keep their own weights and visibility.
+keep their own weights and visibility. *(2026-11-11, VC9 fix round, user
+ruling, commit 5b507783: the existing "Construction" row is now shown in the
+Display Manager Drafting group, after Underlay; it was in `_CATEGORY_KEYS` but
+unlisted in `_PS_GROUPS`. It carries the toggle and its other cells like any
+other toggled row.)*
 
 **D3 — Factory (new install / no stored value; G1, G6).** Every row ON.
 Paper row Colour and Section = `token:auto`, Fill = `token:bg`; Underlay
@@ -115,7 +119,7 @@ their owner row, as today.
   that key for every category, and the canvas tints every SVG item at load.
 
 **D7 — Tokens (R1, G5).** `colour_tokens._paper_mode` becomes a boolean
-"painting on paper" check (pass active, or a `paints_on_paper` scene). On
+"painting on paper" check (built as `colour_tokens._on_paper`) (pass active, or a `paints_on_paper` scene). On
 paper: Automatic -> black, Background -> white, **Accent -> the light-theme
 accent always** (R1; an old B&W project with user-picked Accent text on an
 unrowed item now plots it in the accent — accepted exception to G2).
@@ -145,40 +149,40 @@ SVG symbols re-resolve token colour and fill on paper (D6).
 
 ## Acceptance Criteria
 
-- [ ] AC1 Each row except Hatch has the glyph left of Colour; ON greys
+- [x] AC1 Each row except Hatch has the glyph left of Colour; ON greys
       Colour / Fill / Section, OFF makes them live; Underlay has glyph +
       Colour only.
-- [ ] AC2 A real sheet-viewport paint with a row ON plots authored colours
+- [x] AC2 A real sheet-viewport paint with a row ON plots authored colours
       (block op colour, WM3 placement Colour, Construction pen, a token
       re-resolved on paper, `token:blocks` -> Model Blocks colour) and with it
       OFF the row colour — painted pixel colour asserted, RED with the per-row
       branch reverted.
-- [ ] AC3 B&W, Custom and Full Color fixture projects plot pixel-identical to
+- [x] AC3 B&W, Custom and Full Color fixture projects plot pixel-identical to
       the branch base (D4); QSettings with a legacy `paper/color_mode`
       migrates the same way (D5) under isolated settings.
-- [ ] AC4 Underlay row ON -> layer colours, OFF -> row colour (D6).
-- [ ] AC5 "Background" offered in the picker; resolves canvas bg on screen,
+- [x] AC4 Underlay row ON -> layer colours, OFF -> row colour (D6).
+- [x] AC5 "Background" offered in the picker; resolves canvas bg on screen,
       white on paper (D7).
-- [ ] AC6 New project: D3 factory tokens on both tabs, every row ON; a row
+- [x] AC6 New project: D3 factory tokens on both tabs, every row ON; a row
       set OFF in the paper settings opens a new project OFF (G1).
-- [ ] AC7 No `PaperColorMode`, `load/save_paper_color_mode`,
+- [x] AC7 No `PaperColorMode`, `load/save_paper_color_mode`,
       `paper_pass_color_mode` or `color_mode` write remains (grep guard); the
       PDF export of an AC2 sheet matches the screen render.
-- [ ] AC8 SVG symbols (D6 / R6): with the row ON, a token Model fill
+- [x] AC8 SVG symbols (D6 / R6): with the row ON, a token Model fill
       (Background) plots white and a token colour (Automatic) black on paper;
       a hex colour plots its canvas hex; RED with the fill-token half reverted.
-- [ ] AC9 Accent on an unrowed item plots the light-theme accent on paper (D7).
+- [x] AC9 Accent on an unrowed item plots the light-theme accent on paper (D7).
 
 ## Verification Checklist
 
-- [ ] All acceptance criteria met, each guard shown RED with its rule
+- [x] All acceptance criteria met, each guard shown RED with its rule
       reverted (VC3).
-- [ ] The 51 test files coupled to `color_mode` / `PaperColorMode` rewritten
+- [x] The 51 test files coupled to `color_mode` / `PaperColorMode` rewritten
       in the same task (VC5): B&W / Custom -> rows OFF, Full Color -> rows ON.
-- [ ] Full suite green on the final tree (VC6).
-- [ ] Smoke: open a B&W, a Custom and a Full Color project; toggle rows;
+- [ ] Full suite green on the final tree (VC6). *(Not ticked: full suite waived by the user.)*
+- [x] Smoke: open a B&W, a Custom and a Full Color project; toggle rows;
       export PDF; new project shows every row ON with token chips.
-- [ ] Account: `paper-space.md`, `hatch-and-fill.md` (HF1 paper tokens),
+- [x] Account (2026-11-11): `paper-space.md`, `hatch-and-fill.md` (HF1 paper tokens),
       `linetypes.md` LT1-2 / WM3 D3, the 2026-05-12 paper-DM design
       reconciled in place, each linking this doc; propose closing
       `todo_open.md` line "Full Color mode: white-pen Construction geometry"

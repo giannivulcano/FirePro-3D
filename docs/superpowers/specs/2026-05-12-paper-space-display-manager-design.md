@@ -4,6 +4,8 @@
 **Status:** Draft
 **Depends on:** Display Manager (`display_manager.py`), Paper Space (`paper_space.py`)
 
+> **Superseded in part (2026-11-11):** the global Color Mode (D2: Full Color / B&W / Custom), the `paper/color_mode` and `paper_display.color_mode` keys, and every clause below that depends on them are replaced by a per-row **As Authored** toggle; see [2026-11-11-paper-as-authored-design.md](2026-11-11-paper-as-authored-design.md) (D1-D8). The text below is kept as the historical record.
+
 ## 1. Goal
 
 Add two tabs to the Display Manager dialog — "Paper Space" for per-category print display overrides, and "Line Weights" for defining named pen weights — so engineers can control how viewports render on sheets independently of the model-space display.
@@ -55,6 +57,8 @@ The paper-space tab exposes five properties per category:
 Section pattern and section scale inherit from model-space settings. Only section colour is overridable in paper space.
 
 ### D2: Color Mode
+
+> **Superseded 2026-11-11** by the per-row As Authored toggle ([2026-11-11-paper-as-authored-design.md](2026-11-11-paper-as-authored-design.md) D1, D4, D8); the Color Mode dropdown no longer exists.
 
 A dropdown at the top of the Paper Space tab with three states:
 
@@ -140,7 +144,7 @@ Existing tree widget, unchanged. Moved from the dialog's central widget into the
 
 ### 5.3 Paper Space Tab
 
-Color Mode dropdown at top. Below it, a tree widget with 6 columns:
+*(Superseded 2026-11-11: no Color Mode dropdown; an AS AUTH. column sits between VIS and COLOUR, [2026-11-11-paper-as-authored-design.md](2026-11-11-paper-as-authored-design.md) D8.)* Color Mode dropdown at top. Below it, a tree widget with 6 columns:
 
 | Column | Width | Widget |
 |--------|-------|--------|
@@ -197,7 +201,7 @@ paint()
 2. For each item, determine display category via `_category_for_item()` (isinstance checks, O(1))
 3. Save current state to temporary dict: `{item: {color, fill, section_color, pen, opacity}}`
 4. Apply paper-space overrides:
-   - If `FULL_COLOR`: skip colour/fill/section, apply line weight + opacity only
+   - *(Superseded 2026-11-11: the branch is per row on `as_authored`, ON = the old `FULL_COLOR` branch, OFF = the old `BW` / `CUSTOM` branch; D6.)* If `FULL_COLOR`: skip colour/fill/section, apply line weight + opacity only
    - If `BW` or `CUSTOM`: apply all five properties
 5. For SVG items: call `_recolor_svg_bytes()`, cache original renderer
 
@@ -216,6 +220,8 @@ paint()
 
 ### 7.1 QSettings (Global Defaults)
 
+> *Superseded 2026-11-11: `paper/color_mode` is migrated once into per-row `as_authored` and removed (D5); every category gains `paper/categories/{key}/as_authored`.*
+
 ```
 paper/color_mode                         = "bw"
 paper/line_weights                       = [{"name": "...", "width": 0.13}, ...]
@@ -229,6 +235,8 @@ paper/categories/{category_key}/opacity       = 100
 "Set as Default" writes current paper-space tab state here. New projects and projects without `paper_display` settings start with these values.
 
 ### 7.2 Project File (.fpd JSON)
+
+> *Superseded 2026-11-11: `color_mode` is no longer written; a legacy value maps to per-row `as_authored` on load (D4).*
 
 ```json
 {
@@ -257,7 +265,7 @@ Saved via the existing `get_display_settings_for_save()` / `apply_project_displa
 
 ### 7.4 Backward Compatibility
 
-Old projects without a `paper_display` key load factory defaults (B&W mode with standard line weights). No migration needed.
+Old projects without a `paper_display` key load factory defaults (B&W mode with standard line weights). No migration needed. *(Superseded 2026-11-11: a missing `paper_display` loads every row As Authored OFF, the old B&W plot; a new install's factory is every row ON, D3 / D4.)*
 
 ## 8. Acceptance Criteria
 

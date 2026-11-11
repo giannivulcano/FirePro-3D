@@ -1,7 +1,7 @@
 ---
 status: partial          # HF7 BUILT 2026-11-07 (feature/hf7-dxf-solid-hatch, 0.95.0): DXF SOLID + HATCH fills in underlays and Block Editor import (D-A22/D-A23 DXF half) -- build contract superpowers/specs/2026-11-06-hf7-dxf-fills-design.md. Prior: HF4 BUILT 2026-10-20 (merge bb7074b8, feat/hf4-pick-region): Pick-point region finder (region_finder.py) + pick_region mode + hover overlay -- see "HF4 build design". Prior: HF3 BUILT 2026-10-20 (merge 66880197, feat/hf3-filled-region): FilledRegionItem (filled_region.py) + curve_chain.py Select-objects Fill, D-A13 refusals, Explode, H9 closed -- see "HF3 build design". Prior: HF1 BUILT 2026-10-18 (merge 084b43e0, feat/hf1-colour-tokens): colour tokens (token:auto / token:accent), per-paint resolver, theme bus, SAVE_VERSION 11 + .fpdb marker migration, universal picker -- see "HF1 build design". Prior: HF2 BUILT (branch hf2-pattern-renderer): tiled pattern renderer, pattern-tile blocks + Block Editor tile authoring, Hatch patterns folder, blocks-only shipped patterns (D-A28–D-A39). UNBUILT: Filled Regions, Fill Types (+ template set), colour tokens, PDF/DXF fill import (HF1, HF3–HF9). §1–§4 = as-built at 53e1773
-last-verified: 2026-11-11  # WM3 Account: colour_tokens applies-to note (token:blocks owned by linetypes.md) only, rest not re-audited; prior 2026-11-07  # HF7 Account: Import hop row, D-A7/D-A22/D-A23 pointers, underlay-workflow §10.5 ledger row; rest not re-audited; prior 2026-11-06  # Materials Account: D-A17 links materials.md, H10 closed, pattern-load lists, rest not re-audited; prior 2026-10-23  # SB1b Account: D-A39 seeding RETIRED (shipped hatches live in the read-only System tier; pointers only), D-A24 shipped set now in System, default Hatch patterns folder Styles/Hatches; prior 2026-10-22 paper section/plan parity audit: HF1 known gap (1) closed only (section edge/void/mask now colour sources); prior 2026-10-20  # UP2 Account: H7 closed (both context menus open the picker, one deferred_undo_push; verified at ab930f58; nothing else re-audited); prior HF4 Account: D-A3..D-A6 + D-A25 re-stated against the build, §2 Pick-point pointer, "HF4 build design" pointer, applies-to + region_finder.py (verified at bb7074b8; sections 1-4 otherwise not re-audited); prior HF3 Account: Filled Region rules (D-A2/D-A3/D-A5/D-A7/D-A13/D-A26) re-stated against the build, H9 resolved, "HF3 build design" pointer, applies-to + filled_region.py / curve_chain.py (verified at 66880197; sections 1-4 otherwise not re-audited); prior 2026-10-19 UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
-verified-commit: 84286791   # WM3 (ff to main, v0.97.0; pointer only); prior 462c22d0   # HF7 branch head (ff to main, v0.95.0); prior b9ce2e00   # Materials merge on main (v0.94.0); prior 91513a00   # SB1b System library tier (ff merge feat/sb1b-system-library); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior ab930f58   # UP2 Account (feat/up2-fill-picker-routing; H7 row only); prior bb7074b8 HF4 Account (merge feat/hf4-pick-region; D-A3..D-A6/D-A25 + applies-to); prior 66880197 HF3 Account (merge feat/hf3-filled-region; Filled Region rules + H9 + applies-to); prior 902c5c0e UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
+last-verified: 2026-11-11  # paper-as-authored Account: D-A19 / Phase 2 ruling pointers, HF1 Surface + latched-consumer bullets, Known-gaps surface pointer and G8a line reconciled to per-row As Authored; rest not re-audited; prior 2026-11-11  # WM3 Account: colour_tokens applies-to note (token:blocks owned by linetypes.md) only, rest not re-audited; prior 2026-11-07  # HF7 Account: Import hop row, D-A7/D-A22/D-A23 pointers, underlay-workflow §10.5 ledger row; rest not re-audited; prior 2026-11-06  # Materials Account: D-A17 links materials.md, H10 closed, pattern-load lists, rest not re-audited; prior 2026-10-23  # SB1b Account: D-A39 seeding RETIRED (shipped hatches live in the read-only System tier; pointers only), D-A24 shipped set now in System, default Hatch patterns folder Styles/Hatches; prior 2026-10-22 paper section/plan parity audit: HF1 known gap (1) closed only (section edge/void/mask now colour sources); prior 2026-10-20  # UP2 Account: H7 closed (both context menus open the picker, one deferred_undo_push; verified at ab930f58; nothing else re-audited); prior HF4 Account: D-A3..D-A6 + D-A25 re-stated against the build, §2 Pick-point pointer, "HF4 build design" pointer, applies-to + region_finder.py (verified at bb7074b8; sections 1-4 otherwise not re-audited); prior HF3 Account: Filled Region rules (D-A2/D-A3/D-A5/D-A7/D-A13/D-A26) re-stated against the build, H9 resolved, "HF3 build design" pointer, applies-to + filled_region.py / curve_chain.py (verified at 66880197; sections 1-4 otherwise not re-audited); prior 2026-10-19 UP1 Account: shape-fill pointers (adapters, data path, H7/H8, D-A16, applies-to) re-verified at 902c5c0e; prior 2026-10-18 HF1 Account: "HF1 build design" re-stated as SHIPPED (resolve-time unknown-token warning, helper API, picker/amendment list, theme-bus listeners, new invariants, S1-S3 resolved, known gaps); prior HF2 polish Account: D-A11 block-pose exception (RenderOp.pattern_frame, paint_fill orient — rotation + mirror, never scale; block instances only), pickers hide invalid folder patterns (capability_choices valid_entry); prior disk-scan Account: shipped Hatches index.json removed; seeding writes no index (pointer to block-system "Library on disk"); D-A37 flag pointer; prior LT4 Account: §2 tile frame → TileFrame on the shared capability_frame.CapabilityFrameItem base (this spec's home; TileFrameItem / TILE_FRAME_TAG aliases, tag "capability_frame"), tile rows via capability_panel; applies-to + capability_frame.py; prior Weight model design: D-A12 "By block" → By Pattern pointer (WM-8); prior LT3 Account: Folder scan bullet → capability_folder.scan (tile flag) + LT3-9 pointer; prior 2026-10-03 HF2 Account: §1–§4 rewritten to the HF2 code; ledger H1–H6/H11/H12 resolved, H9 partly; prior 2026-10-01 orphan-gate review at 3a95a3f
+verified-commit: e2d57467   # paper-as-authored (0.99.0; HF1 paper-surface text only); prior 84286791   # WM3 (ff to main, v0.97.0; pointer only); prior 462c22d0   # HF7 branch head (ff to main, v0.95.0); prior b9ce2e00   # Materials merge on main (v0.94.0); prior 91513a00   # SB1b System library tier (ff merge feat/sb1b-system-library); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior ab930f58   # UP2 Account (feat/up2-fill-picker-routing; H7 row only); prior bb7074b8 HF4 Account (merge feat/hf4-pick-region; D-A3..D-A6/D-A25 + applies-to); prior 66880197 HF3 Account (merge feat/hf3-filled-region; Filled Region rules + H9 + applies-to); prior 902c5c0e UP1 Account (shape-fill pointers only); prior 084b43e0 HF1 Account (merge feat/hf1-colour-tokens; HF1 section only -- sections 1-4 still as of 6bacede7); prior 6bacede7 HF2 polish Account (merge feat/hf2-polish); prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring; capability frame only); prior 489dcc2 Weight model pointer; prior be7c88a LT3 Account (folder-scan relocation only); prior 53e1773
 applies-to:
   - firepro3d/hatch_patterns.py     # pattern registry: frozen ids, legacy alias, folder seed + scan entry (library_patterns), picker source, project pattern load
   - firepro3d/capability_folder.py  # shared capability-folder scan — the "tile" side (the "repeat" side is owned by linetypes.md LT3)
@@ -331,8 +331,9 @@ until that doc is approved.
 - **D-A18** The house picker gains **Automatic** (ink) and **Accent** for every
   drawn-item colour; Automatic is the new default for 2D geometry and text.
 - **D-A19** Tokens resolve by **drawing surface**: canvas → current UI theme;
-  paper/print/PDF/white previews → light-theme values (Automatic = black); B&W
-  → black. Live theme switch repaints every token item without relaunch.
+  paper/print/PDF/white previews → light-theme values (Automatic = black)
+  *(the old "B&W → black" clause is retired: no paper colour mode exists since
+  2026-11-11, see the *Surface* bullet)*. Live theme switch repaints every token item without relaunch.
 - **D-A20** Load migration: only known defaults (2D stroke `#ffffff`, default
   text ink) → Automatic; explicit colours kept. Forward-only format bump.
 - **D-A21** Import: DXF ACI 7 and PDF pure black → Automatic; other colours literal.
@@ -449,7 +450,8 @@ of the VC9 review are resolved in code and below).
 
 The *what* is D-A18–D-A21 + D-A25's theme bar; Phase 2 rulings (2026-10-17):
 Automatic = theme `ink` on canvas, `#000000` on paper; Accent = theme
-`accent` on canvas, light-theme accent on paper; B&W → black for both.
+`accent` on canvas, light-theme accent on paper (the "B&W → black for both"
+ruling is superseded: [paper-as-authored D7](../superpowers/specs/2026-11-11-paper-as-authored-design.md)).
 Supersedes the mechanics sketch in the concept doc's HD6.
 
 **Goal.** 2D geometry, text and Display Manager colours can say "Automatic" or
@@ -485,23 +487,24 @@ a live theme switch without relaunch.
   wrong on one of them. Every consumer converts its stored string through
   `resolve_colour` at paint. **Latched consumers** (S1 resolved: gridline /
   marker pens, DM SVG tints, fitting symbols) cannot resolve at paint, so on
-  **Full Colour** paper the paper pass re-resolves them on the paper surface
+  paper rows with **As Authored ON** the paper pass re-resolves them on the paper surface
   and `restore_model_display` puts the canvas value back (fittings carry a
   `retinted` flag on their saved entry so only re-tinted symbols are
   re-latched).
 - *Surface.* Paper when `paper_display.paper_pass_active()` is true (the
   `SheetViewport` window — screen, PDF export and print share it) or the
   item's scene carries `paints_on_paper = True` (`PaperScene`, the title-block
-  editor / arrange white preview scenes); otherwise canvas. Paper colour mode
-  B&W → black for both tokens. **Full Colour paper keeps authored colours**
-  (S2 resolved): the paper pass leaves hex colours alone and tokens resolve on
-  the paper surface (Automatic black, Accent the light-theme accent
-  `#2F9E63`). The **Paper-tab category colours apply only in B&W / Custom**
-  (the existing substitution for viewport content); **CUSTOM treats tokens as
-  Full Colour** (Accent stays green). Items with no paper category
-  (`TextItem`) get no upstream substitution, so under a B&W pass they honour
-  it through `paper_display.paper_pass_color_mode()` (read by the resolver);
-  paper-scene items (annotations) read the saved mode.
+  editor / arrange white preview scenes); otherwise canvas
+  (`colour_tokens._on_paper`). **Paper has no global colour mode since
+  2026-11-11** (Full Color / B&W / Custom, `paper_pass_color_mode()` and
+  `PaperColorMode` are deleted): on paper Automatic is black, **Background**
+  (`token:bg`, a third picker chip) is white and Accent is always the
+  light-theme accent (`#2F9E63`); a row with **As Authored ON** leaves hex
+  colours alone, a row with it OFF has the Paper-tab row colours painted over
+  its items. Per-row rules, the legacy `color_mode` map and `token:blocks`:
+  [paper-as-authored design](../superpowers/specs/2026-11-11-paper-as-authored-design.md)
+  D4-D7. Items with no paper category (`TextItem`) get no substitution and
+  only resolve tokens on the paper surface.
 - *Theme bus.* `theme.py` has `theme_bus()`, a singleton QObject whose
   `changed` signal is emitted at the end of `MainWindow._apply_theme`.
   Listeners:
@@ -576,16 +579,17 @@ a live theme switch without relaunch.
   - A Graphic Override fill on 2D geometry is display-only:
     `Geometry2DMixin._fill_value()` reads override-else-own, and `to_dict`
     never saves the override (Clear restores the own fill).
-  - Paper surface rules (Full Colour keeps authored colours; Custom treats
-    tokens as Full Colour; B&W pass reaches uncategorised items) are in the
-    *Surface* bullet above — one home.
+  - Paper surface rules (per-row As Authored; tokens resolve on paper; no
+    global colour mode) are in the *Surface* bullet above — one home.
 - *Known gaps (open, filed in `todo_open.md`).* (1) *(Closed: elevation
   edge lines, opening voids and floor-slab masks are colour sources resolved
   per paint; see `section-view-subsystem.md` §5.1.)* (2) Block-definition
   text prims with a flat
-  `color == ""` are not migrated by `colour_migration`. (3) The Paper-tab
-  Colour column has no UI cue that it is inactive in Full Colour (and the
-  property panel shows the own fill while a Graphic Override is active).
+  `color == ""` are not migrated by `colour_migration`. (3) The property
+  panel shows the own fill while a Graphic Override is active. *(The former
+  "Paper-tab Colour column has no inactive cue in Full Colour" half closed
+  2026-11-11: As Authored ON greys the row's chips; see
+  `2026-11-11-paper-as-authored-design.md` D8.)*
 - *Overlays (R5):* block-instance selection tints use the theme accent per
   paint; `selection_manipulator`'s `#63BE8B` lines are detect-failure
   fallbacks and stay with `# theme-exempt:`.
@@ -598,8 +602,8 @@ the D-A21 HF1 scope above.
 
 **Verification checklist (VC3).**
 - G8a shown view, token line + text, dark and light canvas → sampled pixel =
-  theme ink; G8b `export_pdf` / paper pass → black (Full Colour), accent item
-  `#2F9E63`, B&W black; G8c live `_apply_theme` dark → light flips the pixel,
+  theme ink; G8b `export_pdf` / paper pass → black (As Authored ON), accent item
+  `#2F9E63` *(the former "B&W black" case is retired, paper-as-authored D7)*; G8c live `_apply_theme` dark → light flips the pixel,
   text default colour and Swatch label with no reload.
 - G9 (colour half): v10 project + un-marked `.fpdb` with `#ffffff` stroke,
   `#ffffff` block text, `#000000` paper text, explicit `#ff0000` → first three
