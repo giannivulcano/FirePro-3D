@@ -1,11 +1,12 @@
 ---
 status: partial          # D1–D15 BUILT + merged to main (b9eda69); D9 open-chain amendment BUILT 2026-09-29; P1 batch (D10 → array variants, D16 Flip/Mirror, D17 Scale, D18 polish, DV7 arc fix) BUILT 2026-10-01 on feat/scene-tools-p1-batch; scene-tool polish (D10 0-deg lock, D16 Flip quadrants, D17 Length, new D19 Fillet) BUILT 2026-11-01 (70d08c28); Trim/Extend/Break/Chamfer/Stretch/Merge/Join stay unreachable (D14); §1–§6 are the PRE-build as-built record at c47ab60 except rows marked "P1 batch"
-last-verified: 2026-11-06  # test-cleanup Account: window-shortcut focus pointer only, rest not re-audited; prior 2026-11-02  # scene-tool polish Account: D10 Linear lock, D14 note, D16 Flip, D17 Scale HUD, new D19 Fillet, s1 Fillet row + Existing Code tool_geometry line, applies-to fillet_geometry.py, rest not re-audited; prior 2026-11-01  # transform per-move perf Account: D11 GhostFrame / cached glow amendment only, rest not re-audited; prior 2026-10-31  # floor-opening Account: "Selection / undo" bullet (floor_opening ends on undo via _cancel_modify_tool_for_undo) + new "Floor voids ride their slab" bullet only, rest not re-audited; prior 2026-10-26  # Editor/Build slice 1 Account: Edit + Modify grouping pointer and the ribbon names in D1 / file list only, rest not re-audited; prior 2026-10-25  # SB2b Account: Array Targets bullet only (paste branches, design-area filter, one duplicate refresh), rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-20  # UP2 Account (Hatch row: menu entries "Fill…" / "Fill Pattern…", pointer only; verified at ab930f58); prior HF4 Account (s1 Fill row: pick_region branch + _commit_region tail, pointer only; verified at bb7074b8); prior HF3 Account (s1 Fill row: fill_selected_items / region Explode / _find_tool_target refusals -> hatch-and-fill D-A3 / D-A13; pointer only); prior 2026-10-17 AC4 Account (pointer only: §5.7 Block Editor relations on the copy -> parametric-constraint-system §13 D155-D156; commit_offset(event)); prior 2026-10-15 block-primitive-snap Account (D16 axis step: block primitives' straight edges are axes; arcs never); prior 2026-10-14 CS4b Account (pointers only: bare D in model_view keyPressEvent -> parametric D63; Rotate / Flip / Mirror / Scale commits pass point_map -> parametric D65 / §8); prior reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
-verified-commit: d618c8c9   # test-cleanup, v0.94.2 (pointer only); prior 70d08c28   # merge feat/scene-tool-polish (D10 / D14 / D16 / D17 / D19); prior 63144256   # merge perf/transform-per-move (D11 amendment); prior 1c1e59c6   # floor-opening (pointers only); prior c23c1610   # Editor/Build slice 1 Account (ribbon grouping pointer only); prior ceacaab4   # SB2b Account (Array Targets only); prior 58769fc5   # Editor/Build design (pointer only); prior ab930f58   # feat/up2-fill-picker-routing (Hatch row, pointer only); prior bb7074b8 merge feat/hf4-pick-region (Fill row pick_region branch, pointer only); prior 66880197 merge feat/hf3-filled-region (HF3 Fill row, pointer only); prior 1adf8dae merge feat/ac4-offset-constraints (AC4 pointer); prior 5e4948d6 merge feat/block-primitive-snap; prior f866ff39 CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
+last-verified: 2026-11-11  # elevation-parity Account: D1 / D2 / I1 host-contract + routing amendments, Existing Code Context only, rest not re-audited; prior 2026-11-06  # test-cleanup Account: window-shortcut focus pointer only, rest not re-audited; prior 2026-11-02  # scene-tool polish Account: D10 Linear lock, D14 note, D16 Flip, D17 Scale HUD, new D19 Fillet, s1 Fillet row + Existing Code tool_geometry line, applies-to fillet_geometry.py, rest not re-audited; prior 2026-11-01  # transform per-move perf Account: D11 GhostFrame / cached glow amendment only, rest not re-audited; prior 2026-10-31  # floor-opening Account: "Selection / undo" bullet (floor_opening ends on undo via _cancel_modify_tool_for_undo) + new "Floor voids ride their slab" bullet only, rest not re-audited; prior 2026-10-26  # Editor/Build slice 1 Account: Edit + Modify grouping pointer and the ribbon names in D1 / file list only, rest not re-audited; prior 2026-10-25  # SB2b Account: Array Targets bullet only (paste branches, design-area filter, one duplicate refresh), rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-20  # UP2 Account (Hatch row: menu entries "Fill…" / "Fill Pattern…", pointer only; verified at ab930f58); prior HF4 Account (s1 Fill row: pick_region branch + _commit_region tail, pointer only; verified at bb7074b8); prior HF3 Account (s1 Fill row: fill_selected_items / region Explode / _find_tool_target refusals -> hatch-and-fill D-A3 / D-A13; pointer only); prior 2026-10-17 AC4 Account (pointer only: §5.7 Block Editor relations on the copy -> parametric-constraint-system §13 D155-D156; commit_offset(event)); prior 2026-10-15 block-primitive-snap Account (D16 axis step: block primitives' straight edges are axes; arcs never); prior 2026-10-14 CS4b Account (pointers only: bare D in model_view keyPressEvent -> parametric D63; Rotate / Flip / Mirror / Scale commits pass point_map -> parametric D65 / §8); prior reference geometry Account (§3 / §3.1 / DV14 / Offset note: ReferenceLineItem + _reference_lines retired, DV14 resolved, Join RG16); prior 2026-10-12 block mirror/scale Account: D16.7 / D17.6 block instances supported (pointer to block-system "Instance pose"); D16.1 refusal wording "…2D drafting geometry and blocks…" + Flip refuses a fully defined block at entry + commit (pointer to parametric-constraint-system D45); §1 P1-batch hook note; prior placement batch Account: D11 pointer (place_block uses the ghost; block_instance paste ghost closes DV4's block gap); prior CS1 Account: legacy constraint modes + Align padlock retired; Align moves via translate inside the controller edit seam and pushes undo after the move (redo works — §1.1-7/DV15 resolved); every modify-tool commit routes through ConstraintController.edit; D30 copy pointer; prior 2026-10-01 P1 batch account (Flip/Mirror/Scale replace legacy mirror/scale rows; DV7/DV10/DV11 resolved; D10 → array variants; D4/I1 Cut modal + both context menus; D12 12 icons; badge labels); prior 2026-09-30 Block Editor ribbon tab account; prior 2026-09-30 nested-blocks account; prior 2026-09-29 D9 amendment
+verified-commit: 6dc388ed   # elevation-parity close (0.98.0; sections above only); prior d618c8c9   # test-cleanup, v0.94.2 (pointer only); prior 70d08c28   # merge feat/scene-tool-polish (D10 / D14 / D16 / D17 / D19); prior 63144256   # merge perf/transform-per-move (D11 amendment); prior 1c1e59c6   # floor-opening (pointers only); prior c23c1610   # Editor/Build slice 1 Account (ribbon grouping pointer only); prior ceacaab4   # SB2b Account (Array Targets only); prior 58769fc5   # Editor/Build design (pointer only); prior ab930f58   # feat/up2-fill-picker-routing (Hatch row, pointer only); prior bb7074b8 merge feat/hf4-pick-region (Fill row pick_region branch, pointer only); prior 66880197 merge feat/hf3-filled-region (HF3 Fill row, pointer only); prior 1adf8dae merge feat/ac4-offset-constraints (AC4 pointer); prior 5e4948d6 merge feat/block-primitive-snap; prior f866ff39 CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); pointers only; prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointer only; prior 2a22ba9 feat/cs1-constraint-foundation (CS1 account); prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 44325e5 feat/block-editor-ribbon-tab; prior 345f1b7 feat/nested-blocks; prior 8576f74 feature/offset-chord-translate (D9 amendment); prior ae6ff19 (main), d9d6f20 (branch), c47ab60 (orphan-gate audit)
 applies-to:
   - firepro3d/scene_tools.py
   - firepro3d/tool_geometry.py
   - firepro3d/modify_tools_controller.py
+  - firepro3d/modify_host.py            # ModifyHostMixin: the host contract of the controller (I1; elevation-parity)
   - firepro3d/transform_ghost.py
   - firepro3d/axis_picker.py            # Mirror axis pick (D16)
   - firepro3d/fillet_geometry.py        # Fillet corner / tangent-arc maths (D19)
@@ -530,6 +531,11 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
   `_set_canvas_context`). Array stays live on a wall selection (it copies walls through
   the paste path); Scale / Flip / Mirror / Offset grey on walls. Page mechanism and
   per-kind liveness owned by `ribbon-bar.md` §3.4 and the design spec §1 (Rule A).
+  *Elevation parity (2026-11-11):* the Edit + Modify buttons are also live on **section / elevation**
+  canvases (`MainWindow._GROUP_LIVE_KINDS["edit"]` gains `"section"`), enabling per
+  `can_start(tool, scene.modify_selection())` -- the host's editable subset (I1), not the raw selection.
+  Delete keeps the raw selection. What a section's tools act on, and why: `section-view-subsystem.md`
+  s17 (Rule A).
 - **D2 Shortcuts.** Window-level, active-scene-routed, not firing while a text
   field / the HUD has focus: **Shift+C** Copy · **Shift+X** Cut · **Shift+V**
   Paste · **Shift+D** Duplicate · **Shift+M** Move · **Shift+R** Rotate ·
@@ -538,6 +544,15 @@ ribbon page / contextual model → `ribbon-bar.md` §3.4 (Block Editor tab) / §
   moves **Shift+A → Shift+L**. Tooltips show the Shift binding.
   *P1 batch:* **Shift+F** Flip · **Shift+I** Mirror · **Shift+S** Scale join
   the same window table (`main.py` `_TOOL_KEYS`).
+  *Elevation parity (2026-11-11) -- "refuse vs route", ruled: **route on section tabs, refuse on the
+  3D tab, Paper unchanged.** `MainWindow._active_scene()` answers the current tab's `SectionScene` for a
+  Section / Elevation tab, so the table (and Ctrl+C / X / V / D) starts the tool on the section scene,
+  never the hidden plan. `_start_modify_tool` refuses, in order: a text field / the HUD with focus
+  (silent); a Paper tab (silent `return`, unchanged -- the silent refusal is a filed follow-up); the 3D
+  tab, with the footer reason `VIEW_3D_EDIT_REFUSED_HINT` ("Modify and clipboard tools work in 2D views,
+  not in 3D") through `footer.set_instruction`, because the 3D tab's active scene is also the hidden
+  plan. The same routing sends the window Ctrl+A to the section view's single binding. Absorbs the
+  `todo_open.md` G3 review S-2 "refuse vs route" line.*
 - **D3 Select-first.** Every tool except Offset requires a selection; with none
   → status "Select items first", no mode change. After commit → Select with the
   affected items selected (moved/rotated: the originals; paste/duplicate: the
@@ -870,6 +885,47 @@ gates passed 2026-09-25: ghost = **B** (original dimmed to 35 %, HALO defaults
   `_SCHEMA_FOR_MODE` / `_APPLIER_FOR_MODE`) point at thin scene shells that
   forward to the controller (the slice-10/11 idiom). The as-built
   move/paste/offset/rotate handlers **relocate** out of `model_space.py`.
+- **`firepro3d/modify_host.py` -- `ModifyHostMixin` (elevation parity, 2026-11-11): the controller's
+  host contract.** The controller stays one class, composed per host (`_init_modify_host()` sets
+  `self._modify_ctl` and every modify transient); the *host* side of the contract moved out of
+  `Model_Space` into the mixin, which `Model_Space` (plan, detail, Block Editor, schematic) and
+  `SectionScene` both mix in (`section-view-subsystem.md` s17.2 owns the section side). The mixin owns:
+  - the signals `instructionChanged` / `modeChanged`; the class defaults `mode`, `view_available`,
+    `_last_scene_pos`; the snap / ALIGN result placeholders; the null preview items;
+  - the modify slice of the dispatch tables, which `Model_Space` splats into its own:
+    `_MODIFY_PRESS_DISPATCH`, `_MODIFY_MOVE_DISPATCH`, `_MODIFY_PREVIEW_DISPATCH`,
+    `_MODIFY_SCHEMA_FOR_MODE`, `_MODIFY_APPLIER_FOR_MODE`, `_MODIFY_INITIAL_STEPS`,
+    `_MODIFY_KEEPS_SELECTION`, `_MODIFY_CAPTURE_MODES`, `_MODIFY_MODES`;
+  - the thin shells the dispatch rows name (each forwards to the controller), the generic Move commit
+    (`move_items`), the clipboard read (`clipboard_payload`, `clipboard_data`) and the typed-input
+    surface (`begin_dynamic_input` ... `_preview_from_resolved`, `get_effective_position` default,
+    `_show_status`, `_snap_view`);
+  - the `set_mode` refusal gates `_view_refused` / `_modify_mode_refused`, moved verbatim, and a
+    generic `set_mode` for hosts without Model_Space's pipeline (it enters Select, the modify modes and
+    the host's `_HOST_EXTRA_MODES`; `Model_Space.set_mode` overrides it) plus generic
+    `modify_mouse_press` / `modify_mouse_move` / `modify_key_press`;
+  - `paint_modify_overlays(painter, view, scene)`, the one painter of the move / paste ghost, rotate ray,
+    mirror axis and flip crosshair (`Model_View.drawForeground` and `SectionView.drawForeground` call it).
+
+  **Host hooks** (each has a default reproducing plan behaviour; a host overrides):
+  `modify_selection()` -- the items the tools act on (default: the whole selection; `SectionScene`: its
+  editable subset, R3); `modify_empty_hint()` -- the refusal text when nothing is editable (default
+  "Select items first"; the controller's `_refusal_hint` asks the host); `paste_refusal(items)` -- why
+  nothing on the clipboard can land here (default None; `begin_paste` asks before arming Paste);
+  `_hud_scale_manager()` -- the `ScaleManager` the typed-input HUD formats and converts with (default:
+  the host's `scale_manager`; `SectionScene` returns the project's never-calibrated mm wrapper);
+  `_HOST_TOOLS` -- the controller tools the host offers (mixin default: copy, cut, paste, duplicate, move,
+  rotate, array, flip, mirror, scale; `Model_Space` offers every `ModifyToolsController._TOOL_MODE` tool,
+  adding Offset and Fillet, which need the plan 2D-geometry lists; the controller's `start` / `can_start`
+  refuse a tool outside it with `TOOL_NOT_HOSTED`); `_HOST_EXTRA_MODES` -- modes the host runs itself
+  (`SectionScene`: `note`).
+
+  **Required host methods** (`REQUIRED_HOST_METHODS`; `_init_modify_host` raises `TypeError` naming any
+  that is missing): `push_undo_state`, `_clipboard_item_dicts`, `paste_items`, `_paste_accepts`,
+  `_add_from_dict`, `_bulk_delete`, `select_items`. `push_undo_state` and the others are deliberately
+  not given mixin defaults: scene items duck-type `push_undo_state` with `hasattr`, so a raising
+  default would turn their check into a crash. A host also sets `scene_role` and `constraint_ctl`
+  before calling `_init_modify_host`.
 - **Ribbon builders** — `build_edit_group(page, scene_getter)` and
   `build_modify_group(page, scene_getter)` (one shared implementation; the
   existing `_build_contextual_edit_group` becomes a caller). Every callback
@@ -888,7 +944,9 @@ gates passed 2026-09-25: ghost = **B** (original dimmed to 35 %, HALO defaults
 - **Window shortcuts** — one table `{key: tool}` in `main.py` registered as
   window `QShortcut`s (D2). The handler **refuses** when the focus widget is a
   `QLineEdit` / `QTextEdit` / `QPlainTextEdit` / the HUD, or when the current
-  central tab is a Paper tab (so a hidden plan scene is never driven). An editor
+  central tab is a Paper tab (so a hidden plan scene is never driven); on the 3D tab it refuses
+  with a footer message (D2, elevation parity); on a Section / Elevation tab it routes to that tab's
+  `SectionScene` through `_active_scene()`. An editor
   open or close hands focus to the canvas first (`block-system.md` Decision 8),
   so a closed tab cannot leave the Name field refusing the keys. Align
   re-bound to Shift+L; Ctrl+M branch deleted; Ctrl+X added; Ctrl+D fixed.
@@ -1021,6 +1079,8 @@ Where the build refined the design above (each reviewed; guards in `tests/test_m
 
 ## Existing Code Context
 
+- `firepro3d/modify_host.py` -- `ModifyHostMixin` + `paint_modify_overlays` (I1): the host contract
+  `Model_Space` and `SectionScene` mount; mechanics under I1, not restated here.
 - `firepro3d/modify_tools_controller.py` — `ModifyToolsController`
   (`scene._modify_ctl`, owns no state): Copy/Cut/Paste/Duplicate/Move/Rotate/
   Offset/Array (Linear / 2D / Polar)/Flip/Mirror/Scale press/move/preview/

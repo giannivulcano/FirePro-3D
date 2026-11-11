@@ -153,6 +153,7 @@ Changes apply live to the canvas. Cancelling the dialog reverts all changes to t
 - **Entities** -- each entity stores `_display_overrides` and category is inferred from class type
 - **Level Manager** -- sets `_is_section_cut` flag during visibility passes
 - **Scene I/O** -- saves/loads per-instance overrides and project-level category settings
+- **Section / elevation views** -- Hide is one global flag, `_display_overrides["visible"]`: `Model_Space._hide_items`, `_show_items`, `_show_all_hidden` and `_hide_all_of_type` emit `Model_Space.hiddenChanged`, and every live section scene re-runs its hidden pass on it with no rebuild (and again after every rebuild), so a Hide in plan, the Model Browser or any section reaches plan and every section. Mechanism: [`section-view-subsystem.md`](../specs/section-view-subsystem.md) s17.6
 - **3D View** -- reads display colours for mesh materials
 - **Underlays** -- underlays are *not* categories and do not participate in the
   three-tier cascade; their display state (per-layer colour/weight, per-view

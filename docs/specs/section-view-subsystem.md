@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-10-20/21 on feature/section-views (merged to main 9666d69a); designed 2026-10-20
-last-verified: 2026-11-06  # Materials Account: s5 Wall and Floor rows link materials.md, rest not re-audited; prior 2026-11-05  # section piping Account: s4.2 pipe note, s5 Pipe row + pipe rules, s13 pipe edge case, R2 superseded, applies-to only, rest not re-audited; prior 2026-11-04  # SB4d Account: s5 depth-walk + annotation draw-order pointer, s6 glyphs / panel / persistence (heads are System blocks, upright label), s3.3 / s7.3 DM-row notes only, rest not re-audited; prior 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
-verified-commit: b9ce2e00   # Materials merge on main (v0.94.0); prior 539eda40   # section piping on main (v0.91.0); prior 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle; prior 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
+last-verified: 2026-11-11  # elevation-parity Account: s3.2, s5 gridline / datum rows, s6 fields, s8 records + label migration, s14 out-of-scope wording, s16.3 snap + Esc + footer bullets, s16.4, new s17 (routing, modify host, shared undo, selection look / readout, snap, Hide pass, Notes, context menu, ends); rest not re-audited; prior 2026-11-06  # Materials Account: s5 Wall and Floor rows link materials.md, rest not re-audited; prior 2026-11-05  # section piping Account: s4.2 pipe note, s5 Pipe row + pipe rules, s13 pipe edge case, R2 superseded, applies-to only, rest not re-audited; prior 2026-11-04  # SB4d Account: s5 depth-walk + annotation draw-order pointer, s6 glyphs / panel / persistence (heads are System blocks, upright label), s3.3 / s7.3 DM-row notes only, rest not re-audited; prior 2026-11-03  # SB4c Account: s5 projection table gridline / level datum rows, s5.0 paper-row sentence + selection-plumbing bullet, D6 dated note only, rest not re-audited; prior 2026-10-31  # floor-opening Account: s5 Floor slab row + "Slab with floor voids" refinement only, rest not re-audited; prior 2026-10-24  # wall polish Account: s5.0 selection-never-plots pointer + known limit (mitered quad follows plan visibility) only; prior 2026-10-22  # gridline-hosted blocks Account: new s16, s3.2 / s7.1 / s14 pointers; prior 2026-10-22 paper section/plan parity Account: new s5.0 paper output only; prior 2026-10-21 Account: s6 glyphs/grips (D6r), s9 ALIGN/Ctrl + tab open, s8 push-after convention
+verified-commit: 6dc388ed   # elevation-parity close (0.98.0; sections above only); prior b9ce2e00   # Materials merge on main (v0.94.0); prior 539eda40   # section piping on main (v0.91.0); prior 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle; prior 8d95a864   # SB4c merge on main (v0.83.0); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 9666d69a   # merge ff to main (smoke fix round a0bdc8dd + closes + 0.58.0)
 applies-to:
   - firepro3d/section_scene.py      # git mv of elevation_scene.py (build)
   - firepro3d/section_manager.py    # git mv of elevation_manager.py (build)
@@ -10,6 +10,7 @@ applies-to:
   - firepro3d/elevation_view.py     # SectionView widget (file keeps the elevation_ name)
   - firepro3d/hosted_blocks.py      # gridline-hosted blocks: pure frame math (s16)
   - firepro3d/block_drop.py         # block drag payload decode + refusal, shared plan / section (s16)
+  - firepro3d/modify_host.py        # ModifyHostMixin: the host contract SectionScene mounts (s17; owned by scene-tools.md I1)
 source-tasks: [todo_open.md 952 section view subsystem, 872 angled gridlines, 600 sheet plot edge/void colours, 767 flat 2D geometry (closed stale), 560 _live_scenes accessor]
 related: view-relationships.md (s4 taxonomy, s6 markers), paper-space.md (s6.2 paper render), display-manager spec (rows/columns)
 ---
@@ -56,8 +57,10 @@ and the existing elevation tests re-bind by name.
 Unchanged from today: each section scene materializes its own `QGraphicsScene` from the data model
 (view-relationships s5.3 pattern 2), rebuilt on a 100 ms debounce from `Model_Space.sceneModified`
 and directly when its marker's geometry changes. Selection reads back to the source item through
-`_ROLE_SOURCE`; no geometry editing in the section view, except the in-plane drag and Delete of a
-gridline-hosted block copy (s16.4).
+`_ROLE_SOURCE`. **Delete is not restricted** -- it removes any selected source in one undo step
+(elevation-parity R2; s16.4). **Geometry edits are**: walls, pipes, sprinklers, slabs and roofs stay
+read-only projections (`view-relationships.md` s3.1). What a section edits is its **write-back copies**
+-- gridline-hosted block copies and section Notes -- plus gridline / level-datum ends (s17).
 
 ### 3.3 Constraints
 
@@ -69,7 +72,8 @@ gridline-hosted block copy (s16.4).
   all line-only (`grid-system.md` 10.1).
 - No `SAVE_VERSION` bump: the project file gains a `sections` key, absence seeds cardinals (D4).
 - No `_STATE_VERSION` bump: no dock or toolbar changes (S4 -- the 2026-04 "5 -> 6" item is dropped).
-- No new `Model_Space` signals beyond the existing `openViewRequested(view_type, name)`.
+- No new `Model_Space` signals beyond the existing `openViewRequested(view_type, name)` *(at the
+  2026-10-20 build; elevation parity later added `Model_Space.hiddenChanged`, s17.6)*.
 - Cardinal view identity strings stay `"elevation"` + direction everywhere (s7.2) so saved sheets,
   the project browser and the existing tests need no migration.
 
@@ -146,8 +150,8 @@ elevation and break acceptance (d). **Cut** adds the section columns only.
 | Sprinkler / node | never cut | today's glyph |
 | Floor slab | chord x thickness rect, the slab's material look (with floor voids: one rect per material span, below) | today's mask + fill |
 | Roof | **not cut-rendered in v1** (follow-up: mesh / plane intersection); a crossing roof shows as today's projected rect | today's rect, fixed Z |
-| Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`; label-keyed z-overrides as today; its two bubbles are the plan gridline's System block (`GridlineBubble` children of `ElevGridlineItem`, SB4c; per-end visibility, trim and hit shape: [`system-blocks.md`](system-blocks.md) 8c, [`grid-system.md`](grid-system.md) 8.2); parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
-| Level datum | horizontal across `[h_A, h_B]` (replaces the cardinal-gated `_datum_extent`); the head at the left end is the `Level` System block (`LevelDatumHead`, SB4c), and `SectionScene.drawForeground` draws the line from `ElevDatumItem.line_start_h()` (the head outline) to `_h_max`; `ElevDatumItem.shape()` is the head outline, so a press on the head selects the datum. Block contract: [`system-blocks.md`](system-blocks.md) 8c | -- |
+| Gridline (872, D7a) | crossing of the infinite gridline with the cut line; drawn vertical at that h when it lies in `[h_A, h_B]`; z-extent from this section's `gridline_z_overrides` record (gridline-uid-keyed, s6; none = the auto extent); its two bubbles are the plan gridline's System block (`GridlineBubble` children of `ElevGridlineItem`, SB4c; per-end visibility, trim and hit shape: [`system-blocks.md`](system-blocks.md) 8c, [`grid-system.md`](grid-system.md) 8.2); parallel or outside -> hidden. Replaces `_is_cardinal_for_elevation` | -- |
+| Level datum | horizontal across `[h_A, h_B]` by default (replaces the cardinal-gated `_datum_extent`), or across this section's `datum_ends` record for the level (level-name-keyed, s6); the head at the left end is the `Level` System block (`LevelDatumHead`, SB4c), and `SectionScene.drawForeground` draws the line from `ElevDatumItem.line_start_h()` (the head outline) to `ElevDatumItem.line_end_h()` (the right grip, so a dragged right end draws where it was dragged); `ElevDatumItem.shape()` is the head outline, so a press on the head selects the datum. Block contract: [`system-blocks.md`](system-blocks.md) 8c | -- |
 
 **Draw order of the annotations (SB4d).** The gridline and level-datum items draw in the annotation
 band's grid sub-band and a hosted-block copy (`_HostedBlockCopy`) in its tag sub-band, so they sit
@@ -229,7 +233,17 @@ and masks. On screen they resolve to the theme; in a sheet viewport to black / w
 
 `SectionMarker(QGraphicsItem)` in `section_marker.py`. Fields: `name`, `cut_a`, `cut_b`,
 `look_sign`, `depth`, `cardinal` (`"north" | "south" | "east" | "west" | None`), `auto_extent`
-(cardinals only), `gridline_z_overrides` (moved here from the scene so they persist).
+(cardinals only), `gridline_z_overrides` (moved here from the scene so they persist) and
+`datum_ends` (elevation-parity R12 / D7). The two **end records** are section-scene mm, per
+section, and survive rebuilds, model edits and tab switches:
+
+| Record | Key | Value | Absent = |
+|---|---|---|---|
+| `gridline_z_overrides` | the plan gridline's `uid` (a label key only in a pre-elevation-parity file; migrated on load, s8) | `{"v_top", "v_bot"}` | the auto extent (level range plus `ELEV_GRIDLINE_END_PAD_MM`) |
+| `datum_ends` | the level **name** | `{"left", "right"}`: the datum line's head end (`p1`) and far end (`p2`) | the crop box `[h_min, h_max]` |
+
+Both are deep-copied by `copy_gridline_overrides` / `copy_datum_ends` (a malformed record raises, and
+the loader skips the marker, s13). `SectionMarker.to_dict` / `from_dict` carry both.
 `cut_a`, `cut_b`, `depth` are **plan-scene units** (mm at ppm 1; the `DetailMarker.crop_rect`
 convention) -- G1 review ruling 2026-10-20, recorded as plan reconciliation 2026-10-20 (ratified at
 plan approval): s4.1's "world mm" is the derived basis, converted at `SectionScene` with
@@ -335,11 +349,24 @@ which would leave a sheet blank after reload -- acceptance a). `resolve_level_co
 ## 8. Persistence and undo
 
 **Project file (D4).** `scene_io` payload gains `"sections": [marker.to_dict() ...]` with keys
-`name, cut_a, cut_b, look_sign, depth, cardinal, auto_extent, gridline_z_overrides` (+ `mark` for a
+`name, cut_a, cut_b, look_sign, depth, cardinal, auto_extent, gridline_z_overrides, datum_ends` (+ `mark` for a
 placed section, always written, SB4d; a record without it adopts the name token on load,
 `element-parameters.md` Marks). Load:
 `payload.get("sections")` -> `from_list` when present, then `seed_cardinals()` always (an old file
 or one missing a cardinal gets it re-seeded). No `SAVE_VERSION` bump.
+
+**Label migration (R12 / D7).** `SectionManager.from_list` runs `_migrate_gridline_overrides` per
+marker after `scene_io` has loaded the gridlines: a key that is a loaded gridline's `uid` stays; a
+label key maps to the `uid` of the ONE loaded gridline carrying that label (a `uid` key for the same
+gridline wins); an **ambiguous** (duplicated) or **unknown** label is dropped with a `log.info` line.
+The pass is idempotent (a re-saved record is all `uid` keys). Undo snapshots are taken after the
+migration, so `restore_from_list` copies records verbatim and never re-migrates. `datum_ends` has
+no migration (absent in an old file = auto extent).
+
+**End records follow their level / gridline.** `LevelManager.rename_level` calls
+`SectionManager.rename_level_ends` (every marker's `datum_ends` re-keyed) and
+`LevelManager.remove_levels` calls `drop_level_ends` (deleted levels' entries dropped); both run for
+the user's action only, inside that action's one undo step, never on load or undo restore.
 
 **Undo (acceptance e).** `Model_Space._capture_network` snapshots no markers today (detail markers
 included). It gains a `"sections"` entry (`to_list()`); restore diffs by name -- update survivors'
@@ -414,8 +441,8 @@ undo elsewhere, the pipe OD source, marker level-visibility path.
 ## 14. Out of Scope (v1) -- filed as follow-ups at Account
 
 Roof cut-render (mesh / plane); cut vs projection line-weight DM columns (D2b); detail-marker undo;
-jogged / stepped sections; break lines; in-view dimensions; geometry editing in the section view
-(beyond the hosted-block drag / Delete of s16.4); vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module names.
+jogged / stepped sections; break lines; in-view dimensions; geometry editing of model items in the section view
+(what a section edits is its write-back copies and ends, s3.2 / s17); vertical crop handles. SB4c / SB4d / HF5 lines are re-worded to the new module names.
 
 ## 15. Design-decision ledger
 
@@ -498,31 +525,49 @@ refused: no-drop cursor on a drag, nothing on a click, footer status `HOSTED_REF
   pose algebra as `Model_Space.flip_place_block`); click places via `click_place_block` and stays armed;
   Esc ends it. A rebuild re-arms the ghost with its rotation, mirror and last point. Leaving the tab
   cancels the armed placement (`MainWindow._on_tab_changed`).
-- **Esc routing:** `MainWindow._on_escape` ends a SectionView's armed placement
-  (`cancel_place_block`) before the `_active_scene()` path, because `_active_scene()` answers the plan
-  scene for section tabs. `SectionView.keyPressEvent` handles Esc / Space / arrows when it has focus.
-- **Footer and panel:** `SectionScene.modeChanged = pyqtSignal(str)` emits `"place_block"` on arm and
-  `"select"` on cancel. `MainWindow._on_section_scene_built` connects it to `_update_mode_label` (the
-  PLACE BLOCK badge; text from `_MODE_INSTRUCTIONS["place_block"]`) and `_on_mode_changed_template`
-  (the plan's property-panel clear).
-- **Snap:** `snap_section_point` snaps X to gridline verticals and Y to level datums, each axis
-  independently within the shared OSNAP aperture (so a point near both lands on the crossing). It does
-  not use `SnapEngine.find`.
+- **Esc routing:** `MainWindow._active_scene()` now answers the current tab's `SectionScene` for a
+  Section / Elevation tab (s17.1), so `MainWindow._on_escape` reaches `_section_escape`: it ends an armed
+  placement (`cancel_place_block`), else ends a running modify tool, then clears the section's
+  selection -- never the plan scene. `SectionView.keyPressEvent` handles Esc / Space / arrows when it
+  has focus.
+- **Footer and panel:** the `modeChanged` signal is the host mixin's (`ModifyHostMixin`, scene-tools
+  I1); `SectionScene` emits `"place_block"` on arm and `"select"` on cancel, and the modify tools emit
+  their own modes through it. `MainWindow._on_section_scene_built` connects it to `_update_mode_label`
+  (the PLACE BLOCK badge; text from `_MODE_INSTRUCTIONS["place_block"]`), `_on_mode_changed_template`
+  (the plan's property-panel clear) and `_sync_mode_buttons` (the Editor buttons lit for the running
+  tool).
+- **Snap:** the section's own `SnapEngine` (s17.5): `snap_point` runs `SnapEngine.find` over the
+  section scene; the per-axis `snap_section_point` is retired. A drop, a placement click and the
+  ghost all go through `snap_point`, so a point near a gridline vertical and a level datum lands on
+  their crossing the way plan snap lands on a gridline intersection.
 - **Commit:** `Model_Space.place_block_instance(..., host=...)` + `push_undo_state()`, then rebuild and
   select the new copy.
 
 ### 16.4 Selecting, dragging, deleting
 
-- A copy picks through `_ROLE_SOURCE`; `entitySelected` carries the model block to the Properties panel
-  (rows: block-system).
+- A copy picks through `_ROLE_SOURCE`; the section's selection drives the Properties panel through
+  `MainWindow._on_section_selection_changed` (the panel shows the model sources of the selection, each
+  once, via `SectionScene._sources_of`; rows: block-system). Panel edits on model items stay allowed (R7).
+- **Write-back copies (R1, AC3).** `_HostedBlockCopy` is section-editable (`SECTION_EDITABLE`, s17.2).
+  Beyond the in-plane drag below it implements `manip_rotate` (about the view normal),
+  `manip_reflect` (across an in-plane axis) and `manip_scale_about` (about an in-plane base point);
+  each transforms the copy, then `SectionScene._write_hosted_pose` writes the **model** block:
+  the copy's h / v move `along_mm` / `elevation_mm`, and its rotation / mirror / scale become the
+  model's `_pose_rot` / `_pose_mirrored` / `_pose_scale` -- rotation negated and mirror toggled when
+  this section sees the host from its far side (`facing_of(basis, gl) != host["facing"]`), scale
+  times pixels-per-mm (copies are built at `scale / ppm`). Host gridline, offset and facing are
+  kept. Copy / Duplicate / Array / Paste create model blocks through
+  `SectionScene._place_hosted_record` (s17.2: same host gridline, the shifted point sets along /
+  elevation), so the new block shows in every parallel view.
 - **In-plane drag:** `_HostedBlockCopy.translate` -> `SectionScene._move_hosted_source` maps (dh, dv)
   to `along_mm` (by `h_sign`) and `elevation_mm`; host and offset are untouched, so a locked host
   gridline still lets the block move. One undo step per gesture (the manipulator release hook flushes it;
   a `QTimer` is the fallback for a bare translate).
-- **Delete:** `MainWindow`'s Delete handler routes a `SectionView` tab to
-  `SectionScene._delete_elev_selected` (it must not fall through to `_active_scene()`, the plan scene).
-  Hosted copies go to `Model_Space.delete_items` by explicit list (a plan-hidden block cannot be
-  `setSelected`), in one undo step; the plan selection is saved and restored around it.
+- **Delete (R2):** `MainWindow`'s Delete handler routes a Section / Elevation tab to
+  `SectionScene._delete_elev_selected` (s17.1 -- never the plan's 3D-pick / constraint paths). It
+  removes **any** selected source -- model proxies as well as write-back copies -- in ONE undo step.
+  Hosted and Note copies go to `Model_Space.delete_items` by explicit list (a plan-hidden block cannot be
+  `setSelected`); the plan selection is saved and restored around it.
 
 ### 16.5 Edge cases
 
@@ -538,3 +583,192 @@ the host gridline is skipped without building; the rest are rebuilt and tested v
 `_hosted_copies`; a tab-less scene that does not show the block is dropped again. The first hit opens
 its tab and selects the copy. None -> footer status "No section shows this block (its gridline *label*
 isn't parallel to any view)." and the method returns False.
+
+## 17. Editing parity with plan (elevation-parity, 2026-11)
+
+Ratified source: `docs/superpowers/specs/2026-11-09-elevation-parity-design.md` (rulings R1-R16, D1-D8).
+A section or elevation tab works the way plan does, scoped to what a section may edit (s3.2): the modify
+tools and clipboard, snap, Hide, the context menu, the selection look, the footer readout, Properties,
+section-owned Notes and persisted datum / gridline ends. Rule A: the host contract is owned by
+[`scene-tools.md`](scene-tools.md) I1, the engine seams by [`snapping-engine.md`](snapping-engine.md),
+the Note rule by [`text-annotation-system.md`](text-annotation-system.md); this section owns how
+`SectionScene` mounts them.
+
+### 17.1 Routing (`main.py`)
+
+- `MainWindow._active_scene()` answers the current tab's `SectionScene` for a Section / Elevation tab
+  (`_active_section_scene()`); `_active_view()` answers the `SectionView` itself, so the one window
+  Ctrl+A shortcut calls `SectionView._select_all_items` (the view-level Ctrl+A shortcut is removed:
+  two live window shortcuts made the key ambiguous, AC15). F3 reaches `SectionScene.toggle_snap`
+  through the same routing. Shift+letter and Ctrl+C / X / V / D therefore start on the section scene,
+  never the hidden plan (AC1); the 3D-tab and Paper refusals are owned by scene-tools D2.
+- `_GROUP_LIVE_KINDS`: `"section"` joins `edit` and `annotate` (Note is that group's only gated
+  button); it is **not** in `inspect` or `constrain` -- a section has no constraints (U4).
+- Ribbon / shortcut draw modes on a section run `_SECTION_RIBBON_MODES` (`select`, `note`) only; any other
+  mode (plan draw tools, Align) is refused with `_NOT_IN_VIEW_TIP` through `MainWindow._set_active_mode`
+  and its button is left un-lit. The ALIGN pill / F11 are held off on a section (`_toggle_active_align`:
+  a section has the SnapEngine only, R15).
+- A user selection on a section tab makes **Editor** current, as in plan (`_on_selection_jump`, U3).
+- Esc, Delete and block placement on a section tab are the folded `_section_escape` /
+  `_delete_elev_selected` / `begin_place_block` branches (s16.3, s16.4). Leaving the tab ends an armed
+  placement and a running modify tool (`MainWindow._on_tab_changed`).
+- Right-click Hide on an empty canvas never maps `None` (s17.6, s17.8).
+
+### 17.2 Modify host: `SectionScene` mounts the plan's controller
+
+`SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene)` sets `scene_role = "section"` (the
+constraint controller exists but stays disabled for any role but plan / block editor) and calls
+`_init_modify_host()`, which composes one `ModifyToolsController` (`_modify_ctl`) -- the plan's class,
+not a copy. The mixin supplies the contract (modes, dispatch rows, `_HOST_TOOLS`, signals, typed
+input); `SectionScene` overrides only:
+
+| Hook | Section behaviour |
+|---|---|
+| `modify_selection()` | The **editable subset** of the selection: items with `SECTION_EDITABLE` (`is_section_editable`: `_HostedBlockCopy`, `_SectionNoteCopy`). Gridlines, datums and every projected model proxy are read-only here (R1). |
+| `modify_empty_hint()` | `SECTION_EDIT_SKIPPED` ("N items skipped (edit in plan)") when something is selected but nothing is editable; the plain "Select items first" otherwise. A select-first tool then refuses with that text and no mode change (R3). |
+| `_capture_modify_selection(mode)` | After the mixin's capture, a select-first tool entered over a mixed selection says `SECTION_EDIT_SKIPPED` for the read-only items it leaves alone (they stay selected and unchanged). |
+| `push_undo_state()` | One step on the shared plan stack (s17.3). |
+| `_clipboard_item_dicts` / `_paste_accepts` / `paste_items` / `_add_from_dict` / `_bulk_delete` | Section clipboard (below). |
+| `paste_refusal(items)` | Why nothing on the clipboard can land here (footer text; below). |
+| `set_mode` | The mixin's, plus the Note tool's rules (a tool switch commits an inline edit; leaving Note drops a half-made note). `_HOST_EXTRA_MODES = {"note"}`: the generic `set_mode` enters it with the same gates. |
+| `_hud_scale_manager()` | The typed-input HUD (Tab; `PlacementInputCoordinator`, modify schemas only -- a section has no draw tools) formats and converts with the project's live `ScaleManager` wrapped by `_SectionHudScale`: never calibrated (`is_calibrated = False`), section-scene units are mm. |
+| `_halo_mode_ok()` | HALO hover runs only in Select (plan parity). |
+
+`_HOST_TOOLS` is the mixin default: copy, cut, paste, duplicate, move, rotate, array, flip, mirror,
+scale. Offset and Fillet (plan 2D-geometry lists) are not hosted here; `ModifyToolsController.start`
+refuses them with `TOOL_NOT_HOSTED` ("Not available in this view") and `can_start` returns False.
+
+**Write-back copies (R1).** A section scene is rebuilt from the model (`rebuild()` clears and
+re-projects), so whatever it edits is a copy of a model record, never a section-only item:
+`_HostedBlockCopy` writes the model block (s16.4); `_SectionNoteCopy` (s17.7) shares its model Note's
+`note` dict and forwards pose / attribute writes to the model Note.
+
+**Rebuild held while a tool runs.** The debounced rebuild (`_rebuild_when_idle`) is held while a modify
+mode is live (`_rebuild_held`), because `clear()` would delete the copies the tool holds; it runs when
+`modeChanged` reports the tool ended (`_run_held_rebuild`). A direct `rebuild()` ends the running tool
+first.
+
+**Clipboard (R4, R5).** The payload carries `scene_role = "section"`.
+- Copy / Cut serialise `_HostedBlockCopy.to_dict()` (pose in THIS section's frame, plus `section_host`:
+  the host gridline uid and offset; no plan `host` key, so a plan paste can never place it) and a Note
+  copy's model record.
+- `_paste_accepts` takes only a hosted-block record (`section_host`) or a section's Note
+  (`note_allowed`); plan records are refused.
+- A hosted record is created by `_place_hosted_record` on its own host gridline at the pasted point
+  (the point sets along / elevation; the record's offset is kept), facing this view -- refused when
+  the view does not show that gridline (`shows_host_gridline`, the s16.3 placement rule applied to one
+  gridline).
+- `paste_refusal` returns `NOTE_INTO_SECTION_REFUSED` (only plan / detail Notes), else
+  `SECTION_PASTE_PLAN_ITEMS` (nothing the section accepts), else `SECTION_PASTE_NO_HOST` (every
+  accepted record's gridline is not shown). A partly fitting clipboard pastes what fits and the commit
+  reports the rest skipped. The plan side refuses a clipboard of hosted blocks only with
+  `HOSTED_PASTE_IN_PLAN` (`Model_Space.paste_refusal`).
+- Cut deletes the model records behind the editable copies through `Model_Space._bulk_delete`, one undo
+  step pushed by the caller.
+
+### 17.3 Shared undo stack (R13, AC11)
+
+A section owns no undo stack. Every section edit pushes onto the plan `Model_Space` stack, and Ctrl+Z /
+Ctrl+Y / the header buttons on a section tab (`MainWindow._dispatch_undo` through `_active_scene()`)
+step that same stack through `SectionScene.undo` / `redo` / `can_undo` / `can_redo`. A tool commit pushes
+through `push_undo_state`. A write that is not a tool commit (a hosted drag, a Note copy write, a datum /
+gridline end edit) marks ONE pending step with `_mark_section_edit`; the manipulator release hook
+(`_commit_elev_grip`), a tool commit's own push (which folds the pending step in) or a zero-delay timer
+(`_flush_hosted_push`, the fallback for a bare translate) records it once, skipping when a push since
+the mark already recorded the edit. Undo is refused while the section manipulator drags, flushes a
+pending step first, and ends a running modify tool (`_ready_for_shared_undo`).
+
+### 17.4 Selection look, readout, Properties (R6, R7, R14)
+
+- Selected projected proxies draw no Qt dashed selection box: `_ColourSrcMixin.paint` strips
+  `State_Selected`, so the `SelectionManipulator` frame is the one boundary (AC12). The elevation
+  gridline and level datum likewise strip it and draw their own heavier, lighter-tinted line while
+  selected (`shows_selection`), never on a sheet. Contract owned by `selection-mode.md` s14.
+- The HALO "<Type> - i of N" readout is `SectionScene._emit_halo_readout` on `instructionChanged`
+  (the mixin's signal), connected to `footer.set_instruction` in `MainWindow._on_section_scene_built`;
+  *Type* is the model source (`section_source_of`), so a pipe proxy reads "Pipe". `SectionScene.cursorMoved`
+  is **not** retired: `TextEditController` emits it (the `H: ... Z: ...` readout) during a Note
+  drag-select, and the section footer's live coordinate comes from `SectionView.cursorMoved`.
+- Properties: `selectionChanged` -> `MainWindow._on_section_selection_changed` ->
+  `update_property_manager`, which maps the selection to de-duplicated model sources
+  (`SectionScene._sources_of`; a source without `get_properties`, e.g. a datum's `Level`, yields no
+  panel). Panel edits on model items stay allowed (R7).
+- **The selection survives a rebuild (U1):** `rebuild()` records the model uids of the selected editable
+  copies (`_editable_selection_uids`) and reselects their new copies (`_reselect_editable`, one
+  `selectionChanged`). Read-only proxies are not restored.
+
+### 17.5 Snap (R15)
+
+`SectionScene` owns one `SnapEngine` (the `_snap_engine` property copies the plan engine's per-type
+toggles, `SNAP_TYPE_TOGGLES`, in on every read, so the footer osnap bar and Settings govern both). F3 /
+the footer SNAP pill toggle **this scene only** (`toggle_snap`, `snapToggled`); `get_effective_position`
+runs the engine while a grip drag or a tool mode is live (never in plain Select nor a
+`raw_cursor_mode`); `snap_point` runs it on demand (placement, drop). There is no ALIGN and no grid
+fallback in a section. `SectionView.drawForeground` paints `scene._snap_result` with the plan's
+`paint_snap_indicator`. Targets: the proxies (rect proxies opt in with `SNAP_AS_RECT`), hosted-block
+copies (`_HostedBlockCopy` is in `ANNOT_Z_SNAPPABLE_CLASSES`), and the elevation gridlines and level
+datums, which reach the engine through the `snap_line_items()` line-target hook (`_snap_lines`, refilled
+each build), not the snappable-class list. A datum snaps along its drawn segment (`snap_segment()`, head
+edge to far end). The engine seams are owned by `snapping-engine.md`.
+
+### 17.6 Hide (R8, R9)
+
+Hide is one global flag, `_display_overrides["visible"]` on the model source (display owner:
+`architecture/display-system.md`). `Model_Space._hide_items` / `_show_items` / `_show_all_hidden` /
+`_hide_all_of_type` emit `Model_Space.hiddenChanged` (they still emit no `sceneModified`);
+`SectionManager.reapply_hidden` is connected to it and re-runs `_apply_hidden_pass` on every live
+section scene (open tabs and tab-less sheet scenes), with **no rebuild**. `rebuild()` also runs the pass
+last, so hidden sources stay hidden through rebuilds and save / reopen (the flag rides the existing
+`displayable_item` save).
+
+`_apply_hidden_pass` hides each item whose source is hidden (`_source_hidden`: the source, an opening's
+wall, or a sprinkler node's sprinkler) and re-shows only what the pass itself hid (`_hidden_by_pass`);
+a hidden item is deselected first. The source of an item is, in order: its `_ROLE_SOURCE`; its
+`_ROLE_HIDE_SOURCE` (a decoration piece -- opening frame / sill / mid line, slab mask -- that follows its
+source's Hide without becoming a pick, menu or Properties target); for an `ElevGridlineItem`, its plan
+`_gridline`. A pipe's label carries the pipe as `_ROLE_SOURCE`, so every piece of a pipe goes together.
+A datum stands for its Level, which no Hide takes.
+
+Section Hide calls the plan's `_hide_items` on the de-duplicated sources (`_hide_section_items`;
+items without a source are skipped and `None` is never touched); Hide All (`<type>`) is global
+(`_hide_all_of_source_type`); Show All Hidden is `_show_all_elev_hidden` (R9: plus the Model Browser's
+per-item Show; no reveal mode).
+
+### 17.7 Section Notes (R11)
+
+A section Note is the plan's Note (`NoteController`, `TextEditController`, composed unchanged by
+`SectionScene`) owned by the section's view key: `SectionScene.active_view_key` =
+`"section:" + marker.view_name`, read live so a rename re-keys it. The model Note lives in the plan
+`_block_instances` with `note["view"]` = that key, its pose in the section's 2D frame, and is hidden on
+the plan canvas (`setVisible(False)`).
+- `rebuild()` projects each as a `_SectionNoteCopy` (`_project_section_notes`, `notes_of`);
+  `SECTION_EDITABLE`, so every modify tool, Copy / Cut / Paste and Delete act on it.
+- `note_allowed(rec)` accepts a section's note record only (a `section:` view); `note_tool_allowed()` is
+  always True, so the Note button is live on every section and elevation tab. Plan and detail Notes
+  refuse a paste into a section (`NOTE_INTO_SECTION_REFUSED`); a section's Note refuses a paste into
+  plan (`NOTE_SECTION_PASTE_REFUSED`). `NOTE_OFF_HINT` names sections among the views that hold Notes.
+- `SectionManager.rename_section` re-keys and `delete_section` removes the section's Notes
+  (`note_controller.rekey_notes` / `remove_notes`) inside the caller's undo step; `restore_from_list`
+  passes `notes=False` (an undo restore has already restored the blocks as they were).
+- Sheets render a section through `get_or_build_scene`, so its Notes plot with no new path.
+
+### 17.8 Context menu (R10)
+
+`SectionScene.contextMenuEvent` builds plan's shared `build_entity_context_menu`
+(`_build_section_context_menu`) with plan's callbacks: Edit Block (a hosted block or Note copy;
+`blockEditRequested`), Copy, Cut (the section's controller), Hide, Hide All (`<type>`) -- the type is the
+proxy's model source type (`hide_type_name`), offered only for a hideable source -- Show All Hidden,
+Delete, Deselect All, Properties (the target's model source), **Fit All** (`SectionView.fit_to_screen`)
+and **Refresh** (`rebuild`). A right-click on an unselected target selects it alone; a right-click on
+empty canvas acts on the selection (never on `None`); a right-click inside a live Note editor shows the
+native text menu. Isolate exists in neither plan nor section (filed).
+
+### 17.9 Datum and gridline ends (R12, AC10)
+
+`_commit_elev_grip` (the manipulator commit hook) calls each selected `ElevGridlineItem` /
+`ElevDatumItem`'s `_commit_grip_override`, which writes this marker's end record (s6) only when the
+item moved since its build (`_built_line`) and the record changed; a changed record joins the gesture's
+ONE undo step on the plan stack (s17.3). `rebuild()` / `_project_gridlines` / `_project_level_datums`
+apply the records; no record = the auto extent. The right grip draws where it was dragged
+(`line_end_h()`, s5). Label migration and level rename / delete cascades: s8. The 3D half (model
+extents, the 2D / 3D tag) stays on the slice 2 line in `todo_open.md`.
