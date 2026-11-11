@@ -232,6 +232,17 @@ class ModifyHostMixin:
     # Modes that capture the selection into _selected_items on entry.
     _MODIFY_CAPTURE_MODES = ("move", "duplicate", "rotate", "scale", "array")
 
+    # Typed-input defaults for a non-Model host (Model_Space's own, larger
+    # tables shadow these): the modify slices above.
+    _plc = None                 # PlacementInputCoordinator, when composed
+    _draw_dim_hint = None       # cleared by the coordinator on publish
+    # Characters that open the HUD by being typed.  Only these engage: a
+    # letter belongs to whatever shortcut owns it.
+    ENGAGE_CHARS = "0123456789.-"
+    _SCHEMA_FOR_MODE = _MODIFY_SCHEMA_FOR_MODE
+    _APPLIER_FOR_MODE = _MODIFY_APPLIER_FOR_MODE
+    _PREVIEW_DISPATCH = _MODIFY_PREVIEW_DISPATCH
+
     # ── set_mode gates + entry capture (moved from Model_Space.set_mode) ─
     def _view_refused(self, mode) -> bool:
         """Empty canvas (view-3d.md I5): no view to author in.
@@ -354,6 +365,11 @@ class ModifyHostMixin:
             return
         if self._view_refused(mode) or self._modify_mode_refused(mode):
             return
+        plc = self._plc
+        if plc is not None:
+            # The HUD never outlives its mode (Model_Space.set_mode parity:
+            # closed before self.mode changes).
+            plc.clear()
         self.mode = mode
         self._snap_result = None            # clear stale snap marker
         self._move_handle_session = None    # S2: a mode change ends the session
@@ -367,6 +383,11 @@ class ModifyHostMixin:
         instr = self._MODIFY_INITIAL_STEPS.get(mode, "")
         if instr:
             self.instructionChanged.emit(instr)
+        if (plc is not None and mode in plc._PLACEMENT_VARIANTS
+                and mode != "scale"):
+            # Array re-applies its sticky <-/-> variant and says so
+            # (Model_Space.set_mode parity; Scale's cycle opens later).
+            plc._apply_current_variant()
         if mode == "select":
             # Plan's Select entry text (Model_Space.set_mode parity, OPEN-8).
             self.instructionChanged.emit(self._SELECT_INSTRUCTION)
@@ -390,6 +411,9 @@ class ModifyHostMixin:
         scene_pos = event.scenePos()
         snapped = self.get_effective_position(scene_pos)
         getattr(self, name)(event, scene_pos, snapped, None, None, None)
+        # A press arms or commits the anchor: reconcile the HUD now
+        # (Model_Space.mousePressEvent parity).
+        self._sync_dynamic_input()
         event.accept()
         return True
 
@@ -403,11 +427,15 @@ class ModifyHostMixin:
         name = self._MODIFY_MOVE_DISPATCH.get(self.mode)
         if name is None:
             return False
+        if self.is_input_mode():
+            return True             # the cursor is inert while typing (S1)
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
         snapped = self.get_effective_position(scene_pos)
         self.clear_placement_state()
         getattr(self, name)(event, snapped)
+        # After the handler, so it reads the point that handler published.
+        self._sync_dynamic_input()
         for v in self.views():
             v.viewport().update()
         return True
@@ -432,6 +460,37 @@ class ModifyHostMixin:
             self._cancel_mode()
             event.accept()
             return True
+        return self._modify_hud_key(event)
+
+    def _modify_hud_key(self, event) -> bool:
+        """Typed-input keys while a modify tool runs (Model_Space
+        .keyPressEvent parity): <-/-> cycle the Array / Scale variant; a
+        digit, '.' or '-' opens the HUD seeded with it. False on a host
+        without a coordinator.
+
+        Returns:
+            True when the key was consumed.
+        """
+        if self._plc is None:
+            return False
+        from .dynamic_input import effective_modifiers
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            if event.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                                    | Qt.KeyboardModifier.ShiftModifier
+                                    | Qt.KeyboardModifier.AltModifier
+                                    | Qt.KeyboardModifier.MetaModifier):
+                return False
+            if self.cycle_placement_variant(
+                    -1 if event.key() == Qt.Key.Key_Left else +1):
+                event.accept()
+                return True
+            return False
+        if (event.text() and event.text() in self.ENGAGE_CHARS
+                and effective_modifiers(event) == Qt.KeyboardModifier.NoModifier
+                and not self.is_input_mode()
+                and self.begin_dynamic_input(seed=event.text())):
+            event.accept()
+            return True
         return False
 
     # ── Host hooks with defaults (Model_Space overrides several) ─────────
@@ -444,18 +503,114 @@ class ModifyHostMixin:
         """Snap hook: the point a press / move resolves to. Default: raw."""
         return QPointF(scene_pos)
 
+    # -- Typed input: the Dynamic Input HUD (elevation parity C-9) ---------
+    # A host that composes a PlacementInputCoordinator as ``self._plc`` gets
+    # the HUD; without one every member below is the no-HUD default. The
+    # shells were moved from model_space.py (``Shell -> PlacementInput
+    # Coordinator.<name>``); Model_Space keeps its own ``is_input_mode``
+    # (it adds the selection readouts), ``_visible_view`` and
+    # ``_align_track_schema`` (ALIGN), which override these.
+
     def is_input_mode(self) -> bool:
-        """Typed-input hook: True while a Dynamic Input field has focus."""
-        return False
+        """True while a Dynamic Input field has the keyboard."""
+        plc = self._plc
+        return plc is not None and plc.is_input_mode()
+
+    @property
+    def dynamic_input(self):
+        """The live ``DynamicInputHud`` (owned by the coordinator), or None."""
+        plc = self._plc
+        return plc.dynamic_input if plc is not None else None
+
+    @dynamic_input.setter
+    def dynamic_input(self, v):
+        if self._plc is not None:
+            self._plc.dynamic_input = v
 
     def publish_placement_state(self, anchor, point) -> None:
-        """Typed-input hook: seed the HUD (no HUD -> no-op)."""
+        """Shell -> PlacementInputCoordinator.publish_placement_state."""
+        if self._plc is not None:
+            self._plc.publish_placement_state(anchor, point)
 
     def clear_placement_state(self) -> None:
-        """Typed-input hook: drop the published seed (no HUD -> no-op)."""
+        """Shell -> PlacementInputCoordinator.clear_placement_state."""
+        if self._plc is not None:
+            self._plc.clear_placement_state()
 
-    def get_resolved_point(self):
-        """Typed-input hook: the HUD's resolved point (no HUD -> None)."""
+    def get_resolved_point(self) -> "QPointF | None":
+        """Shell -> PlacementInputCoordinator.get_resolved_point."""
+        return self._plc.get_resolved_point() if self._plc is not None else None
+
+    def active_schema(self):
+        """Shell -> PlacementInputCoordinator.active_schema."""
+        return self._plc.active_schema() if self._plc is not None else None
+
+    def get_placement_anchor(self) -> "QPointF | None":
+        """Shell -> PlacementInputCoordinator.get_placement_anchor."""
+        return self._plc.get_placement_anchor() if self._plc is not None else None
+
+    def begin_dynamic_input(self, seed: str = "") -> bool:
+        """Shell -> PlacementInputCoordinator.begin_dynamic_input."""
+        return (self._plc.begin_dynamic_input(seed)
+                if self._plc is not None else False)
+
+    def _sync_dynamic_input(self) -> None:
+        """Shell -> PlacementInputCoordinator._sync_dynamic_input."""
+        if self._plc is not None:
+            self._plc._sync_dynamic_input()
+
+    def end_dynamic_input(self) -> None:
+        """Shell -> PlacementInputCoordinator.end_dynamic_input."""
+        if self._plc is not None:
+            self._plc.end_dynamic_input()
+
+    def cycle_placement_variant(self, direction: int) -> bool:
+        """Shell -> PlacementInputCoordinator.cycle_placement_variant."""
+        return (self._plc.cycle_placement_variant(direction)
+                if self._plc is not None else False)
+
+    def _apply_current_variant(self) -> None:
+        """Shell -> PlacementInputCoordinator._apply_current_variant."""
+        if self._plc is not None:
+            self._plc._apply_current_variant()
+
+    def _align_track_schema(self):
+        """No on-path ALIGN swap on a host without ALIGN (Model_Space
+        overrides with its own)."""
+        return None
+
+    def _hud_scale_manager(self):
+        """The ScaleManager the HUD formats and converts with: the host's
+        own ``scale_manager`` (SectionScene overrides: its units are mm)."""
+        return getattr(self, "scale_manager", None)
+
+    # Moved verbatim from model_space.py (``_preview_from_resolved``).
+    def _preview_from_resolved(self, resolved) -> None:
+        """Redraw the current mode's placement preview from ``resolved``.
+
+        ``resolved`` is a ``QPointF``.  Placement helpers (line/rect/circle/
+        polyline) use it directly as the second point; the two transform
+        helpers (move, gridline replicate) derive their scalar — offset or
+        spacing — from it internally, keeping that derivation in one place so
+        the mouse path and any future typed path stay identical.  A no-op when
+        the mode has no preview helper.
+        """
+        name = self._PREVIEW_DISPATCH.get(self.mode)
+        if name is not None:
+            getattr(self, name)(resolved)
+
+    def _transform_preview_point(self, resolved, anchor):
+        """The point a typed modify transform's preview lands on: Move /
+        Paste / Duplicate land the base anchor at ``anchor + offset``
+        (moved from ``Model_Space._transform_preview_point``, which keeps
+        its arc branches and defers here).
+
+        Returns:
+            The ``QPointF``, or None when the mode has no point preview.
+        """
+        if self.mode in ("move", "paste", "duplicate"):
+            offset = resolved["offset"]
+            return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
         return None
 
     # ── Moved verbatim from model_space.py:902-913 ───────────────────────

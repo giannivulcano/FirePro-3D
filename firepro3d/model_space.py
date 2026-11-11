@@ -719,16 +719,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if ctl is not None:
             ctl._cleanup_dxf_worker()
 
-    @property
-    def dynamic_input(self):
-        """Back-compat view of the Dynamic-Input HUD (owned by the placement-input
-        coordinator, slice 7). Read/written by model_view + the HUD test suite."""
-        return self._plc.dynamic_input
-
-    @dynamic_input.setter
-    def dynamic_input(self, v):
-        self._plc.dynamic_input = v
-
     # --- place_import transient state: forwarded so in-file references resolve (C1 bridge) ---
     @property
     def _place_import_params(self):
@@ -4671,10 +4661,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         return QPointF(anchor.x() + dist * math.cos(snapped),
                        anchor.y() + dist * math.sin(snapped))
 
-    def get_placement_anchor(self) -> "QPointF | None":
-        """Shell → PlacementInputCoordinator.get_placement_anchor."""
-        return self._plc.get_placement_anchor()
-
     def _mode_placement_anchor(self) -> "QPointF | None":
         """Shell → PlacementInputCoordinator._mode_placement_anchor."""
         return self._plc._mode_placement_anchor()
@@ -4805,18 +4791,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Shell → PlacementInputCoordinator._at_placement_step_zero."""
         return self._plc._at_placement_step_zero()
 
-    def _apply_current_variant(self) -> None:
-        """Shell → PlacementInputCoordinator._apply_current_variant."""
-        return self._plc._apply_current_variant()
-
-    def cycle_placement_variant(self, direction: int) -> bool:
-        """Shell → PlacementInputCoordinator.cycle_placement_variant."""
-        return self._plc.cycle_placement_variant(direction)
-
-    def active_schema(self):
-        """Shell → PlacementInputCoordinator.active_schema."""
-        return self._plc.active_schema()
-
     def _rectangle_schema_for_step(self):
         """Shell → PlacementInputCoordinator._rectangle_schema_for_step."""
         return self._plc._rectangle_schema_for_step()
@@ -4837,18 +4811,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Shell → PlacementInputCoordinator._floor_schema_for_primitive."""
         return self._plc._floor_schema_for_primitive()
 
-    def get_resolved_point(self) -> "QPointF | None":
-        """Shell → PlacementInputCoordinator.get_resolved_point."""
-        return self._plc.get_resolved_point()
-
-    def clear_placement_state(self) -> None:
-        """Shell → PlacementInputCoordinator.clear_placement_state."""
-        return self._plc.clear_placement_state()
-
-    def publish_placement_state(self, anchor, point) -> None:
-        """Shell → PlacementInputCoordinator.publish_placement_state."""
-        return self._plc.publish_placement_state(anchor, point)
-
     # ─────────────────────────────────────────────────────────────────────────
     # Dynamic input (on-canvas HUD)
     # ─────────────────────────────────────────────────────────────────────────
@@ -4861,10 +4823,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # placement being read out", while ``dynamic_input.is_engaged()`` — i.e.
     # ``is_input_mode()`` — means "the keyboard is in a field".  Everything
     # that makes the mouse inert keys off the latter, never the former.
-
-    # Characters that open the HUD by being typed.  Only these engage: a
-    # letter belongs to whatever shortcut owns it.
-    ENGAGE_CHARS = "0123456789.-"
 
     def is_input_mode(self) -> bool:
         """Placement HUD engaged OR a selection-readout edit is open.
@@ -4921,20 +4879,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if (self.mode == "draw_arc" and self._draw_arc_step == 2
                 and self._arc_variant == _ARC_VARIANT_ENDPOINTS):
             return self._geom_ctl._arc_ep_center_for_radius(resolved["radius"])
-        if self.mode in ("move", "paste", "duplicate"):
-            offset = resolved["offset"]
-            return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
         if self.mode == "draw_arc" and self._draw_arc_step == 2:
             return self._arc_end_point_for_span(resolved["span_deg"])
-        return None
-
-    def _sync_dynamic_input(self) -> None:
-        """Shell → PlacementInputCoordinator._sync_dynamic_input."""
-        return self._plc._sync_dynamic_input()
-
-    def begin_dynamic_input(self, seed: str = "") -> bool:
-        """Shell → PlacementInputCoordinator.begin_dynamic_input."""
-        return self._plc.begin_dynamic_input(seed)
+        # move / paste / duplicate: the mixin's (one home).
+        return super()._transform_preview_point(resolved, anchor)
 
     def _visible_view(self):
         """Shell → PlacementInputCoordinator._visible_view."""
@@ -4986,10 +4934,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     def _arm_track_direction(self, hud, schema) -> None:
         """Shell → PlacementInputCoordinator._arm_track_direction."""
         return self._plc._arm_track_direction(hud, schema)
-
-    def end_dynamic_input(self) -> None:
-        """Shell → PlacementInputCoordinator.end_dynamic_input."""
-        return self._plc.end_dynamic_input()
 
     def _on_dynamic_input_cancelled(self) -> None:
         """Shell → PlacementInputCoordinator._on_dynamic_input_cancelled."""
@@ -5663,20 +5607,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "floor":           "_preview_from_floor",
         "floor_opening":   "_preview_from_floor",
     }
-
-    def _preview_from_resolved(self, resolved) -> None:
-        """Redraw the current mode's placement preview from ``resolved``.
-
-        ``resolved`` is a ``QPointF``.  Placement helpers (line/rect/circle/
-        polyline) use it directly as the second point; the two transform
-        helpers (move, gridline replicate) derive their scalar — offset or
-        spacing — from it internally, keeping that derivation in one place so
-        the mouse path and any future typed path stay identical.  A no-op when
-        the mode has no preview helper.
-        """
-        name = self._PREVIEW_DISPATCH.get(self.mode)
-        if name is not None:
-            getattr(self, name)(resolved)
 
     # ── Per-mode move handlers ──────────────────────────────────────────
 

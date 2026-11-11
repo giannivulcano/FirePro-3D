@@ -409,3 +409,48 @@ def test_a_host_enters_only_its_declared_extra_modes(host_view):
     assert host.mode == "note" and seen == ["note"]
     host.set_mode(None)
     assert host.mode is None
+
+
+# -- C-9a: the HUD shells live on the mixin (elevation parity C-9) -----------
+_HUD_MOVED = ("dynamic_input", "active_schema", "get_placement_anchor",
+              "get_resolved_point", "clear_placement_state",
+              "publish_placement_state", "ENGAGE_CHARS",
+              "begin_dynamic_input", "_sync_dynamic_input",
+              "end_dynamic_input", "cycle_placement_variant",
+              "_apply_current_variant", "_preview_from_resolved")
+
+
+@pytest.mark.parametrize("name", _HUD_MOVED)
+def test_hud_member_has_one_home(name):
+    """Each HUD shell is defined once, on the mixin, and Model_Space reaches
+    it by inheritance (no shadow copy).
+    RED when: the shell is left on Model_Space."""
+    assert name in vars(ModifyHostMixin)
+    assert name not in vars(Model_Space)
+
+
+def test_typed_input_tables_default_to_the_modify_slices():
+    """A non-Model host serves the modify slices; Model_Space's own (larger)
+    tables still shadow them."""
+    assert ModifyHostMixin._SCHEMA_FOR_MODE is ModifyHostMixin._MODIFY_SCHEMA_FOR_MODE
+    assert ModifyHostMixin._APPLIER_FOR_MODE is ModifyHostMixin._MODIFY_APPLIER_FOR_MODE
+    assert ModifyHostMixin._PREVIEW_DISPATCH is ModifyHostMixin._MODIFY_PREVIEW_DISPATCH
+    assert "draw_line" in Model_Space._APPLIER_FOR_MODE
+    assert "draw_line" not in ModifyHostMixin._APPLIER_FOR_MODE
+
+
+def test_a_host_without_a_coordinator_has_no_hud(host_view):
+    """No PlacementInputCoordinator -> no HUD: a digit during Move neither
+    engages nor is consumed as one, the tool stays live.
+    RED when: ``active_schema`` drops its ``_plc is None`` guard
+    (AttributeError on None; integrator R-C9a-02: ``_modify_hud_key``'s own
+    guard is redundant with each shell's)."""
+    view, host = host_view
+    _line(host)
+    assert host._modify_ctl.start("move") is True
+    click(view, QPointF(0, 0))
+    QTest.keyClick(view, Qt.Key.Key_5)
+    assert host.dynamic_input is None
+    assert host.is_input_mode() is False
+    assert host.active_schema() is None and host.get_placement_anchor() is None
+    assert host.mode == "move"
