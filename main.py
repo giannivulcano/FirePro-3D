@@ -49,7 +49,7 @@ from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.blocks_browser import BlocksBrowser
 from firepro3d.constants import (DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM,
-                                 MODEL_WEIGHT_FACTOR)
+                                 MODEL_WEIGHT_FACTOR, VIEW_3D_EDIT_REFUSED_HINT)
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
@@ -643,8 +643,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Footer interactions → active scene / dialogs.
         self.footer.snap_pill.clicked.connect(
             lambda: self._active_scene().toggle_snap())
-        self.footer.align_pill.clicked.connect(
-            lambda: self._active_scene().set_align_enabled())
+        self.footer.align_pill.clicked.connect(self._toggle_active_align)
         self.footer.halo_pill.clicked.connect(self._toggle_halo)
         self.footer.thin_pill.clicked.connect(self._toggle_thin_lines)
         self.footer.snapSettingsRequested.connect(
@@ -711,8 +710,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._f3_shortcut.activated.connect(lambda: self._active_scene().toggle_snap())
         # F11 global ALIGN toggle — mirrors F3 / SNAP pattern.
         self._f11_shortcut = QShortcut(QKeySequence("F11"), self)
-        self._f11_shortcut.activated.connect(
-            lambda: self._active_scene().set_align_enabled())
+        self._f11_shortcut.activated.connect(self._toggle_active_align)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
         # Edit shortcuts route through the ACTIVE scene/view so they operate on a
@@ -737,7 +735,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 lambda t=_tool: self._start_modify_tool(t))
         # Align moved off Shift+A (now Array) to Shift+L (D2).
         QShortcut(QKeySequence("Shift+L"), self).activated.connect(
-            lambda: self._active_scene().set_mode("align"))
+            lambda: self._set_active_mode("align"))
 
         # Restore settings
         self._splash_progress(95, "Restoring settings...")
@@ -1212,9 +1210,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._last_tab_widget = self.central_tabs.widget(index)
         if prev is not None and prev is not self._last_tab_widget:
             try:
-                cancel = getattr(prev.scene(), "cancel_place_block", None)
-                if cancel is not None:
-                    cancel()
+                from firepro3d.section_scene import SectionScene
+                psc = prev.scene()
+                if isinstance(psc, SectionScene):
+                    psc.cancel_place_block()
+                    # ...and a modify tool running there ends too (D1): its
+                    # ghost / base point belong to the tab being left.
+                    if getattr(psc, "mode", None) not in (None, "select"):
+                        psc.set_mode("select")
             except (RuntimeError, AttributeError, TypeError):
                 pass                       # tab widget already deleted / not a view
         # A selection-readout edit (selection-mode §15) latches its HUD to the
@@ -1509,11 +1512,35 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.section_manager.open_section(name)        # wiring: sceneBuilt / viewOpened
 
     def _on_section_scene_built(self, scene):
-        """Once per SectionScene: route its selection to the property panel."""
+        """Once per SectionScene: property panel, footer line and mode feedback."""
+        # The selection drives the panel (D8); entitySelected is the context
+        # menu's single-target "Properties" entry.
+        scene.selectionChanged.connect(self._on_section_selection_changed)
         scene.entitySelected.connect(self.prop_manager.show_properties)
-        # Armed block placement: PLACE BLOCK badge + the plan's panel clear.
+        # A Note editor in this section asks for the panel: show the model note
+        # its copy stands for (elevation-parity D4; panel rows edit the model).
+        from firepro3d.section_scene import section_source_of   # one source map (S2)
+        scene.requestPropertyUpdate.connect(
+            lambda it: self.prop_manager.show_properties(
+                section_source_of(it) if it is not None else None))
+        # HALO "<Type> - i of N" readout and tool hints -> the footer (D8).
+        scene.instructionChanged.connect(self.footer.set_instruction)
+        # Mode feedback: the footer badge + the plan's panel clear (armed block
+        # placement, modify tools) and the Editor buttons lit for the running
+        # tool (D1; _sync_mode_buttons gates them by canvas kind).
         scene.modeChanged.connect(self._update_mode_label)
         scene.modeChanged.connect(self._on_mode_changed_template)
+        scene.modeChanged.connect(self._sync_mode_buttons)
+        # The footer SNAP pill follows the section's own engine (D3, area D).
+        scene.snapToggled.connect(self._update_snap_indicator)
+
+    def _on_section_selection_changed(self) -> None:
+        """A SectionScene's selection changed: refresh the Properties panel
+        when it is the current tab's scene (D8). A tab-less sheet scene, or a
+        background tab whose rebuild drops its selection, leaves the panel."""
+        if self.sender() is not self._active_section_scene():
+            return
+        self.update_property_manager()
 
     def _on_section_view_opened(self, view):
         """Once per SectionView: show the cursor H/Z in the footer."""
@@ -1650,7 +1677,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         def _mode_btn(group, label, icon, mode_name, large=True):
             """Create a checkable draw-mode button."""
-            cb = lambda: self._active_scene().set_mode(mode_name)
+            cb = lambda: self._set_active_mode(mode_name)
             if large:
                 btn = group.add_large_button(label, icon, cb, checkable=True)
             else:
@@ -2782,7 +2809,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         elif mode in self._GEOMETRY_DRAW_MODES:
             self.prop_manager.show_properties(sc._get_geometry_template())
         elif mode == "note":
-            self.prop_manager.show_properties(sc._note_ctl.template)
+            # A section arms its own Note tool (elevation-parity D4): show the
+            # sender scene's template, the one that tool places with.
+            ctl = getattr(sender, "_note_ctl", None) or sc._note_ctl
+            self.prop_manager.show_properties(ctl.template)
         else:
             # Exiting a template mode — clear stale template properties
             self.prop_manager.show_properties(None)
@@ -2980,15 +3010,13 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         if self._block_activation_refusal(block_id) is not None:
             return
-        # A Section tab places gridline-hosted blocks in the section itself
-        # (hosted-blocks G16) instead of arming the plan scene.
-        from firepro3d.elevation_view import SectionView
-        cur = self.central_tabs.currentWidget()
-        if isinstance(cur, SectionView) and hasattr(cur.scene(), "begin_place_block"):
-            cur.scene().begin_place_block(block_id)
-            QTimer.singleShot(0, cur.setFocus)
-            return
         scene = self._active_scene()
+        # A Section tab places gridline-hosted blocks in the section itself
+        # (hosted-blocks G16) through its own armed placement.
+        if scene is self._active_section_scene():
+            scene.begin_place_block(block_id)
+            QTimer.singleShot(0, self.central_tabs.currentWidget().setFocus)
+            return
         scene.set_mode("place_block", template=block_id)
         # Keyboard focus follows the placement onto the canvas, so Space /
         # Shift+Space (rotate) and Esc reach the scene before the first click
@@ -3296,12 +3324,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         ctl = scene._modify_ctl
         can_explode = kind in self._EDITOR_KINDS and any(
             isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
+        # A section's tools act on its editable subset only (R3): the tool
+        # buttons follow the host's modify_selection() (ModifyHostMixin hook;
+        # the raw selection on every other host). Delete keeps the raw
+        # selection (R2).
+        hook = getattr(scene, "modify_selection", None)
+        editable = list(hook()) if hook is not None else selected
         for label, b in buttons.items():
             if sip.isdeleted(b):
                 continue
             tool = self._TOOL_OF_LABEL.get(label)
             if tool is not None:
-                b.setEnabled(ctl.can_start(tool, selected))
+                b.setEnabled(ctl.can_start(tool, editable))
             elif label == "Delete":
                 # needs a selection and a canvas (the empty canvas
                 # refuses at the _delete_if_not_editing chokepoint)
@@ -4132,17 +4166,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             w.paper_scene.clearSelection()
             self.update_paper_property_manager()
             return
-        # Section tab: Esc ends its armed block placement (_active_scene()
-        # answers the plan scene here, so the plan path never sees it).
-        from firepro3d.elevation_view import SectionView
-        if isinstance(w, SectionView) and \
-                getattr(w.scene(), "_place_block_id", None) is not None:
-            w.scene().cancel_place_block()
-            w.viewport().update()
-            return
         # Route to the active scene so Escape cancels placement in a Block
-        # Editor tab (its own scene), not the plan scene.
+        # Editor tab or a Section tab (their own scenes), not the plan scene.
         sc = self._active_scene()
+        if sc is self._active_section_scene():
+            self._section_escape(sc, w)
+            return
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
         if sc.mode == "pipe" and sc.cancel_pipe_placement():
             return
@@ -4157,28 +4186,35 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             ctl.clear_selected()
         self.view_3d.cancel_interaction()
 
+    def _section_escape(self, sc, view) -> None:
+        """Esc on a Section / Elevation tab (elevation-parity D1): end an armed
+        block placement; else end the running tool and drop the section's
+        selection, as plan's Esc does -- never touching the plan scene."""
+        if getattr(sc, "_place_block_id", None) is not None:
+            sc.cancel_place_block()
+            view.viewport().update()
+            return
+        if getattr(sc, "mode", None) not in (None, "select"):
+            sc.set_mode("select")
+        sc.clearSelection()
+        view.viewport().update()
+
     def _delete_if_not_editing(self):
         """Delete selected items unless a text item is being edited."""
         if not self.scene.view_available:
             self.footer.set_instruction(NO_VIEW_HINT)
             return
-        # A Section / Elevation tab deletes ITS selection (hosted-blocks D10);
-        # _active_scene() answers the plan scene for these tabs, so never
-        # fall through to it.
-        from firepro3d.elevation_view import SectionView
-        cur = self.central_tabs.currentWidget()
-        if isinstance(cur, SectionView) and hasattr(cur.scene(), "_delete_elev_selected"):
-            esc = cur.scene()
-            efocus = esc.focusItem()
-            if isinstance(efocus, QGraphicsTextItem) and efocus.hasFocus():
-                return  # let the text editor handle Delete
-            if esc.selectedItems():
-                esc._delete_elev_selected()
-            return
         sc = self._active_scene()
         focus = sc.focusItem()
         if isinstance(focus, QGraphicsTextItem) and focus.hasFocus():
             return  # let the text editor handle Delete
+        # A Section / Elevation tab deletes ITS selection's sources in one undo
+        # step (hosted-blocks D10, elevation-parity R2) -- never the plan's
+        # 3D-pick / constraint paths below.
+        if sc is self._active_section_scene():
+            if sc.selectedItems():
+                sc._delete_elev_selected()
+            return
         # The 3D-only pick is deleted only from the 3D tab itself (I7) — a
         # stale pick must never hijack Delete in a plan.
         if sc is self.scene and self.central_tabs.currentWidget() is self.view_3d \
@@ -4585,13 +4621,24 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             fr.sync()
 
     def _active_scene(self):
-        """The scene the ribbon tools/property panel act on: the current tab's
-        editor scene for a Block Editor tab, else the plan scene."""
+        """The scene the window shortcuts, ribbon tools and property panel act
+        on: the current tab's editor scene for a Block Editor tab, its
+        SectionScene for a Section / Elevation tab (elevation-parity D1),
+        else the plan scene (plan, detail, paper and 3D tabs)."""
         from firepro3d.block_editor import BlockEditorWidget
         w = self.central_tabs.currentWidget()
         if isinstance(w, BlockEditorWidget):
             return w.editor_scene
+        sec = self._active_section_scene()
+        if sec is not None:
+            return sec
         return self.scene
+
+    def _active_section_scene(self):
+        """The current tab's SectionScene (a Section / Elevation tab), else None."""
+        from firepro3d.elevation_view import SectionView
+        w = self.central_tabs.currentWidget()
+        return w.scene() if isinstance(w, SectionView) else None
 
     def _mode_signal_scene(self):
         """The scene whose ``modeChanged`` is being handled, else the active one.
@@ -4606,8 +4653,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     def _start_modify_tool(self, tool: str) -> None:
         """Route a Modify/Edit tool to the active scene (scene-tools.md D2/D3).
 
-        Refused while a text field / the HUD has focus, and on a Paper tab (the
-        active scene there would be the hidden plan).
+        Refused while a text field / the HUD has focus, on a Paper tab, and on
+        the 3D tab with a footer reason (R16 / AC14) -- the active scene on
+        both would be the hidden plan.
 
         Args:
             tool: Tool name understood by ``ModifyToolsController.start``.
@@ -4618,11 +4666,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
             return
+        if self.central_tabs.currentWidget() is getattr(self, "view_3d", None):
+            self.footer.set_instruction(VIEW_3D_EDIT_REFUSED_HINT)
+            return
         # The empty-canvas refusal (I5) lives in ModifyToolsController.start.
         self._active_scene()._modify_ctl.start(tool)
 
     def _text_edit_scenes(self) -> list:
-        """The plan scene + every open Block Editor's editor_scene.
+        """The plan scene + every open Block Editor's editor_scene + every live section scene (a Note editor, elevation-parity D4).
 
         Shared list for every app-level inline-text-edit concern (committing,
         or checking whether a session is live) — spec text-annotation-system
@@ -4636,7 +4687,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         mgr = getattr(self, "block_editor_manager", None)
         if mgr is None:
             return [self.scene]
-        return [self.scene] + [w.editor_scene for w in mgr.open_editors()]
+        secs = getattr(self, "section_manager", None)
+        sections = list(secs.open_scenes) if secs is not None else []   # Note editors (D4)
+        return ([self.scene] + [w.editor_scene for w in mgr.open_editors()]
+                + sections)
 
     def _commit_text_edits(self) -> None:
         """End any live inline text edit — plan scene + every Block Editor scene.
@@ -4710,9 +4764,20 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         sc = self._active_scene()
         try:
             self._update_snap_indicator(sc._snap_enabled)
-            self._update_guides_indicator(sc.get_align_enabled())
+            get_align = getattr(sc, "get_align_enabled", None)
+            self._update_guides_indicator(bool(get_align()) if get_align else False)
         except Exception:
             pass
+
+    def _toggle_active_align(self, *args) -> None:
+        """F11 / ALIGN pill: toggle ALIGN on the active scene. A Section scene
+        has no ALIGN (its snap is the SnapEngine only, R15), so the pill is
+        held off there."""
+        fn = getattr(self._active_scene(), "set_align_enabled", None)
+        if fn is None:
+            self.footer.set_align_on(False)
+            return
+        fn()
 
     # ── Block Editor ribbon tab (permanent base tab) ────────────────────────
     def _active_editor_widget(self):
@@ -4745,11 +4810,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         return "plan"
 
     def _active_view(self):
-        """The Model_View for the active tab: the editor's view for a Block
-        Editor tab, else the plan view."""
+        """The view the window Ctrl+A acts on: the editor's view for a Block
+        Editor tab, the SectionView itself for a Section / Elevation tab
+        (AC15), else the plan view."""
+        from firepro3d.elevation_view import SectionView
         w = self._active_editor_widget()
         if w is not None:
             return w.view
+        cur = self.central_tabs.currentWidget()
+        if isinstance(cur, SectionView):
+            return cur
         return self.view
 
     # The off tooltip of the editor-only Build / Editor groups on a plan or
@@ -4768,12 +4838,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     _GROUP_LIVE_KINDS = {
         "definition": _EDITOR_KINDS,
         "geometry": _EDITOR_KINDS,
-        "edit": frozenset({"plan", "detail", "block", "schematic"}),
+        # elevation-parity D1: a section edits its own editable subset (R1).
+        "edit": frozenset({"plan", "detail", "block", "schematic", "section"}),
         # Slice 2: plan + detail too (design s1 note (d), s2).
         "constrain": frozenset({"plan", "detail", "block", "schematic"}),
+        # Not on a section: it has no constraints (elevation-parity U4).
         "inspect": frozenset({"plan", "detail", "block", "schematic"}),
-        # Note: view-owned, so plan + detail only (text-leader-annotations D11).
-        "annotate": frozenset({"plan", "detail"}),
+        # Note: view-owned (text-leader-annotations D11) -- plan, detail and
+        # section views (elevation-parity D4). Note is the group's only gated
+        # button, so a section gets Note only.
+        "annotate": frozenset({"plan", "detail", "section"}),
         # Build's Note: it saves as a text with a leader (notes design N26).
         "schematic_note": frozenset({"schematic"}),
     }
@@ -4783,6 +4857,27 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                       "Rotate": "rotate", "Scale": "scale", "Flip": "flip",
                       "Mirror": "mirror", "Offset": "offset", "Array": "array",
                       "Fillet": "fillet"}
+    # Ribbon / shortcut draw modes a Section tab runs (elevation-parity D1,
+    # D4): Note only -- everything else is drawn in plan.
+    _SECTION_RIBBON_MODES = frozenset({"select", "note"})
+
+    def _set_active_mode(self, mode: str) -> None:
+        """Enter a ribbon / shortcut draw *mode* on the active scene.
+
+        On a Section tab only ``_SECTION_RIBBON_MODES`` run; any other mode is
+        refused with the footer reason and its button left un-lit, so it never
+        arms the hidden plan scene (D1).
+
+        Args:
+            mode: The scene mode the button / shortcut enters.
+        """
+        sc = self._active_scene()
+        if (sc is self._active_section_scene()
+                and mode not in self._SECTION_RIBBON_MODES):
+            self.footer.set_instruction(self._NOT_IN_VIEW_TIP)
+            self._sync_mode_buttons(getattr(sc, "mode", None))
+            return
+        sc.set_mode(mode)
 
     def _init_build_tab(self, _I):
         """Build Tab 6: **Build** -- Block, Definition, 2D Geometry (design §1).
@@ -5317,7 +5412,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         makes Editor current; clearing it restores the remembered tab only
         if Editor is still current (B3 pattern). A placement's auto-select
         (``Model_Space._auto_selected``) and a selection change mid-placement
-        never jump; paper / 3D / section never jump."""
+        never jump; paper / 3D never jump. A section jumps like plan
+        (elevation-parity U3)."""
         sc = self.sender()
         if sc is None or sc is not self._active_scene():
             return
@@ -5758,11 +5854,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         try:
             sc = self._active_scene()
             # Don't override template properties during placement modes
-            if sc.mode in ("pipe", "sprinkler", "wall",
-                           "floor", "roof", "roof_rect",
-                           "set_scale", "design_area", "note"):
+            if getattr(sc, "mode", None) in ("pipe", "sprinkler", "wall",
+                                             "floor", "roof", "roof_rect",
+                                             "set_scale", "design_area", "note"):
                 return
-            items = sc.selectedItems()
+            # A section's selection is proxies / copies: the panel shows the
+            # model sources they stand for, each once (elevation-parity D8 /
+            # R6); panel edits land on those model items (R7).
+            # (no get_properties = no panel, e.g. a datum's Level). A source
+            # already taken out of the model scene (a Delete in flight: the
+            # plan's selection signals fire before the section rebuilds) has
+            # no scale manager to format with, so it is left out too.
+            sources_of = getattr(sc, "_sources_of", None)
+            items = (sc.selectedItems() if sources_of is None
+                     else [s for s in sources_of(sc.selectedItems())
+                           if hasattr(s, "get_properties")
+                           and not (hasattr(s, "scene") and s.scene() is None)])
         except RuntimeError:
             return
         if items:

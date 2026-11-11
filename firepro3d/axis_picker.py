@@ -30,7 +30,7 @@ from .block_instance import BlockInstance
 from .geometry_2d import (LineItem, PolylineItem, RectangleItem,
                           RegularPolygonItem, _degenerate_axis)
 from .gridline import GridlineItem
-from .snap_engine import _is_underlay_group
+from .snap_engine import _is_underlay_group, _line_targets
 from .underlay_snap_index import UnderlaySnapIndex
 from .wall import WallSegment
 
@@ -62,7 +62,10 @@ def _is_axis_source(item) -> bool:
     Underlay groups and their children are excluded here: underlay segments
     come only from :func:`_underlay_segments` (straight-tagged records).
     """
-    return isinstance(item, (_STRAIGHT_2D, GridlineItem, WallSegment))
+    # A section's elevation gridline / level datum opts in (elevation
+    # parity D2): ``AXIS_SOURCE = True`` on the class.
+    return (isinstance(item, (_STRAIGHT_2D, GridlineItem, WallSegment))
+            or getattr(item, "AXIS_SOURCE", False) is True)
 
 
 def _record_spans(g: dict, lx1: float, ly1: float, lx2: float,
@@ -149,7 +152,7 @@ def pick_axis(scene, cursor: QPointF, tol: float, exclude=None) -> "AxisPick | N
     """Nearest visible straight segment within *tol* of *cursor*, or None.
 
     Args:
-        scene: The model scene (``Model_Space``) to search.
+        scene: The model scene (``Model_Space``) or a section scene to search.
         cursor: The raw cursor in scene coordinates.
         tol: Pick radius in scene units (callers convert the snap aperture
             from the ACTIVE view's scale — never ``views()[0]``).
@@ -164,7 +167,9 @@ def pick_axis(scene, cursor: QPointF, tol: float, exclude=None) -> "AxisPick | N
     engine = getattr(scene, "_snap_engine", None) or SnapEngine()
     skip = {id(it) for it in (exclude or ())}
     rect = QRectF(cursor.x() - tol, cursor.y() - tol, 2.0 * tol, 2.0 * tol)
-    gl_items = [gl for gl in getattr(scene, "_gridlines", []) if gl.isVisible()]
+    # Long lines whose bounding rects miss them: the plan's gridlines plus a
+    # section's elevation gridlines / level datums (snap_engine._line_targets).
+    gl_items = [gl for gl in _line_targets(scene) if gl.isVisible()]
     ctx = _SnapCtx(cursor=cursor, scale=1.0, aperture_px=0.0,
                    priority_band_px=0.0)
     best: "AxisPick | None" = None

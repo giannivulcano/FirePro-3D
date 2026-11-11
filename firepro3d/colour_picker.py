@@ -20,7 +20,7 @@ from PyQt6.QtGui import (QColor, QPainter, QPen, QLinearGradient, QBrush,
                          QRegularExpressionValidator, QDoubleValidator)
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QLineEdit, QGridLayout, QDialog, QDialogButtonBox,
-                             QPushButton, QToolButton, QMenu)
+                             QToolButton, QMenu)
 
 from .colour_tokens import is_token, resolve_colour, token_label
 from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG
@@ -389,16 +389,9 @@ class ColourPickerDialog(HouseDialog):
         self._ok_btn.setToolTip("Apply the selected colour")
         self._footer_box.button(QDialogButtonBox.StandardButton.Cancel).setToolTip(
             "Close without changing the colour")
-        # Return/Enter must commit. Two HouseDialog seams defeat that today:
-        # (1) set_footer_buttons calls setDefault(True) while the footer is still
-        # unparented, so QDialog never records OK as its main default (and a
-        # repeat setDefault(True) is a no-op) → on show Qt promotes the first
-        # autoDefault button in the focus chain instead; (2) the frameless
-        # title-bar dots are autoDefault QPushButtons that take initial focus.
-        for pb in self._titlebar.findChildren(QPushButton):
-            pb.setAutoDefault(False)
-        self._ok_btn.setDefault(False)
-        self._ok_btn.setDefault(True)            # now parented → registers with QDialog
+        # Initial focus on OK (not Hex): _sync_widgets never overwrites a focused
+        # Hex field, and a click on the non-focusable hue bar would leave it stale.
+        self._ok_btn.setFocus()
         self._result_value = None
         self._sync_widgets()
 

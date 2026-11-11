@@ -60,4 +60,4 @@ def test_datum_spans_crop_box(qapp, section_scene_for):
     datums = [it for it in sec.items() if isinstance(it, ElevDatumItem)]
     assert datums
     d = datums[0]
-    assert (d._h_min, d._h_max) == pytest.approx((sec.basis.h_min, sec.basis.h_max))
+    assert (d.line().p1().x(), d.line_end_h()) == pytest.approx((sec.basis.h_min, sec.basis.h_max))

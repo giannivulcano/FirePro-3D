@@ -123,7 +123,9 @@ class ModifyToolsController:
         state and the click can't drift (editor-build design §1, B2).
         """
         if tool in self._SELECT_FIRST and not sel:
-            return "Select items first"
+            # The host says why nothing is editable (SectionScene: the
+            # skipped read-only count, design D2 / R3).
+            return self._scene.modify_empty_hint()
         # DD4: 2D drafting geometry and block instances carry manip_reflect /
         # manip_scale_about (text, pipes, walls, gridlines... don't).
         capable = {"flip": self._reflectable, "mirror": self._reflectable,
@@ -160,6 +162,8 @@ class ModifyToolsController:
         s = self._scene
         if not getattr(s, "view_available", True):
             return False
+        if tool not in getattr(s, "_HOST_TOOLS", ()):
+            return False                 # the host offers no such tool
         sel = list(items)
         if tool == "paste":
             payload = s.clipboard_payload()
@@ -185,7 +189,10 @@ class ModifyToolsController:
             from .model_space import NO_VIEW_HINT
             s.instructionChanged.emit(NO_VIEW_HINT)
             return False
-        sel = list(s.selectedItems())
+        if tool not in getattr(s, "_HOST_TOOLS", ()):
+            s._show_status(self.TOOL_NOT_HOSTED, 3000)
+            return False
+        sel = list(s.modify_selection())   # the host's editable subset (D2)
         hint = self._refusal_hint(tool, sel)
         if hint is not None:
             # DD4 / review I3: one refusal home, shared with can_start.
@@ -277,6 +284,7 @@ class ModifyToolsController:
     # ── Copy / Cut (D4) ─────────────────────────────────────────────────────
 
     CLIPBOARD_UNAVAILABLE = "Clipboard unavailable — nothing copied"
+    TOOL_NOT_HOSTED = "Not available in this view"
 
     def write_clipboard(self, items, base: QPointF):
         """Write *items* + *base* to the system clipboard (I1 payload).
@@ -367,6 +375,13 @@ class ModifyToolsController:
         if s.scene_role == "block_editor" and not types <= (set(s._GEOM_TYPE_REGISTRY)
                                                             | {"block_instance"}):
             s._show_status("Plan elements can't be pasted into the Block Editor", 4000)
+            return False
+        # R4 / R5 (elevation parity D2): the host says why nothing on the
+        # clipboard can land here (a section without the block's host
+        # gridline, plan items in a section, hosted blocks in plan).
+        why = s.paste_refusal(payload["items"])
+        if why is not None:
+            s._show_status(why, 4000)
             return False
         s.set_mode("paste")
         s._paste_payload = payload
@@ -682,7 +697,9 @@ class ModifyToolsController:
         # DS1: the Length/Factor variant is per run, not session-sticky — every
         # mode change (so every Scale entry) restarts on Length.
         s._scale_variant = "length"
-        s._plc._variant_index["scale"] = 0
+        plc = getattr(s, "_plc", None)
+        if plc is not None:      # the typed-input HUD lives on Model_Space only
+            plc._variant_index["scale"] = 0
         if new_mode not in ("offset", "offset_side"):
             s._offset_source = None
             s._offset_dist = 0.0
@@ -820,7 +837,8 @@ class ModifyToolsController:
         view = s._snap_view()
         # Built regardless of the snap toggles (items are at rest until the
         # commit); _move_handle_snap gates its use per frame.
-        if s.mode not in ("move", "duplicate") or view is None:
+        if (s.mode not in ("move", "duplicate") or view is None
+                or s._snap_engine is None):    # a host without snap (no engine)
             return
         moving = list(s._selected_items or s.selectedItems())
         moving += [it.node for it in moving

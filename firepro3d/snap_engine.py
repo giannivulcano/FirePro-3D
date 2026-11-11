@@ -547,6 +547,55 @@ def _is_generic_path(item: QGraphicsItem) -> bool:
                CircleItem, RegularPolygonItem))
 
 
+def _line_targets(scene: QGraphicsScene) -> list:
+    """Long-line snap targets ``find()`` phases 2-4 take directly, because
+    their bounding rects miss their lines so the cursor rect query cannot:
+    the plan's ``_gridlines`` (bubble-only shape) plus whatever the scene's
+    optional ``snap_line_items()`` hook returns (a section's elevation
+    gridlines and level datums -- elevation parity D3).
+
+    Args:
+        scene: Any scene; one with neither attribute yields [].
+
+    Returns:
+        The candidate line items (visibility / exclude / filter are applied
+        by the caller).
+    """
+    items = list(getattr(scene, "_gridlines", None) or ())
+    hook = getattr(scene, "snap_line_items", None)
+    if callable(hook):
+        items.extend(hook())
+    return items
+
+
+def _snaps_as_rect(item: QGraphicsItem) -> bool:
+    """True for a rectangle snap target: a ``RectangleItem``, or a plain
+    ``QGraphicsRectItem`` that opts in with a truthy ``SNAP_AS_RECT`` (a
+    section's read-only wall / slab / roof / void proxy -- elevation parity
+    D3). Corners, edge midpoints, centre, edge feet and edge segments."""
+    return isinstance(item, RectangleItem) or (
+        isinstance(item, QGraphicsRectItem)
+        and bool(getattr(item, "SNAP_AS_RECT", False)))
+
+
+def raw_cursor_mode(mode, pick_base_pos) -> bool:
+    """True when a host's tool *mode* takes the RAW cursor: no cursor SNAP and
+    no ALIGN (snapping-engine s3, no contextual snap-by-tool). Move / Duplicate
+    after the base point is picked (only the selection's own handles snap,
+    S2), and the axis / corner / constraint picks (Flip, Mirror, Fillet,
+    ``constrain_*``). Shared by ``Model_Space`` and ``SectionScene``
+    (elevation parity D3).
+
+    Args:
+        mode: The host's ``mode`` string (or None).
+        pick_base_pos: The host's picked base point, or None before the pick.
+    """
+    if mode in ("move", "duplicate") and pick_base_pos is not None:
+        return True
+    return mode in ("flip", "mirror", "fillet") or (
+        isinstance(mode, str) and mode.startswith("constrain_"))
+
+
 def is_snap_target(item: QGraphicsItem, *, skip_pipes: bool) -> bool:
     """The one snap-target eligibility rule (snapping-engine DD6).
 
@@ -819,6 +868,14 @@ class _SnapCtx:
 # SnapEngine
 # ─────────────────────────────────────────────────────────────────────────────
 
+# SnapEngine's per-type toggle attributes (the footer osnap bar / Settings
+# write them on the plan engine; a SectionScene engine copies them, D3).
+SNAP_TYPE_TOGGLES: tuple[str, ...] = (
+    "snap_endpoint", "snap_midpoint", "snap_intersection", "snap_center",
+    "snap_quadrant", "snap_nearest", "snap_perpendicular", "snap_tangent",
+)
+
+
 class SnapEngine:
     """
     Nearest SNAP resolver for a QGraphicsScene.
@@ -989,8 +1046,9 @@ class SnapEngine:
                 if not self._real_at(ctx, p):
                     ctx.check(kind, p, None, name)
 
-        # Phase 2 — Gridline-to-gridline intersections
-        gl_items = [gl for gl in getattr(scene, "_gridlines", [])
+        # Phase 2 — Gridline-to-gridline intersections (every long-line
+        # target: plan gridlines + a section's elevation gridlines / datums)
+        gl_items = [gl for gl in _line_targets(scene)
                      if gl.isVisible() and (exclude is None or gl is not exclude)
                      and (item_filter is None or item_filter(gl))]
         if self.snap_intersection:
@@ -1575,7 +1633,7 @@ class SnapEngine:
             for j in range(len(verts) - 1):
                 yield ("seg", (item.mapToScene(verts[j]),
                                item.mapToScene(verts[j + 1]), src, key))
-        elif isinstance(item, RectangleItem):
+        elif _snaps_as_rect(item):
             r = item.rect()
             corners = [
                 item.mapToScene(QPointF(r.left(),  r.top())),
@@ -1774,8 +1832,8 @@ class SnapEngine:
         elif isinstance(item, BlockInstance):
             pts.extend(self._block_snaps(item))
 
-        # ── RectangleItem ─────────────────────────────────────────────────
-        elif isinstance(item, RectangleItem):
+        # ── RectangleItem (+ SNAP_AS_RECT opt-ins: section rect proxies) ──
+        elif _snaps_as_rect(item):
             r = item.rect()
             corners = [
                 QPointF(r.left(),  r.top()),
@@ -1944,10 +2002,16 @@ class SnapEngine:
     def _line_snaps(
         self, item: QGraphicsLineItem,
     ) -> list[tuple[str, QPointF, str | None]]:
-        """Endpoint + midpoint snaps for a QGraphicsLineItem."""
+        """Endpoint + midpoint snaps for a QGraphicsLineItem: the ends of its
+        ``line()``, or of the item's ``snap_segment()`` when it draws a
+        different segment (a section level datum's line starts at its head's
+        edge, elevation-parity OPEN-2 ruling). Intersection / nearest /
+        perpendicular keep using ``line()``."""
         line = item.line()
-        p1  = item.mapToScene(line.p1())
-        p2  = item.mapToScene(line.p2())
+        seg = getattr(item, "snap_segment", None)
+        a, b = seg() if callable(seg) else (line.p1(), line.p2())
+        p1  = item.mapToScene(a)
+        p2  = item.mapToScene(b)
         pts: list[tuple[str, QPointF, str | None]] = []
         if self.snap_endpoint:
             pts.append(("endpoint", p1, None))
@@ -2226,8 +2290,8 @@ class SnapEngine:
                         if foot is not None:
                             pts.append(("nearest", foot))
 
-        # ── RectangleItem — project onto each of the 4 edges ─────────────
-        elif isinstance(item, RectangleItem):
+        # ── RectangleItem (+ SNAP_AS_RECT opt-ins) — project onto each edge ─
+        elif _snaps_as_rect(item):
             r = item.rect()
             corners = [
                 item.mapToScene(QPointF(r.left(),  r.top())),

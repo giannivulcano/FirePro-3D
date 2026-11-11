@@ -34,7 +34,8 @@ from .geometry_2d import (
 )
 from .filled_region import FilledRegionItem
 from .text_item import TextItem, TextAnnotationData, editing_text_item
-from .snap_engine import ALIGN_SNAP_TYPES, SnapEngine, OsnapResult, axis_snap_name
+from .snap_engine import (ALIGN_SNAP_TYPES, SnapEngine, OsnapResult, axis_snap_name,
+                          raw_cursor_mode)
 from .sketch_model import AXIS_DIRS
 from .handle_snap import HandleSnapResult
 from .display_manager import apply_category_defaults
@@ -51,7 +52,7 @@ from .constants import (TOKEN_AUTO, Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       MIN_FLOOR_THICKNESS_MM, ARRAY_DEFAULT_MEMORY, FLOOR_SKETCH_MODES,
+                       MIN_FLOOR_THICKNESS_MM, FLOOR_SKETCH_MODES,
                        FILLET_DEFAULT_RADIUS_MM)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
@@ -81,6 +82,7 @@ from .placement_input_coordinator import PlacementInputCoordinator
 from .geometry_drawing_controller import GeometryDrawingController, close_hit
 from .wall_placement_controller import WallPlacementController
 from .modify_tools_controller import ModifyToolsController, flip_refusal_targets
+from .modify_host import ModifyHostMixin
 from .feature_placement_controller import FeaturePlacementController
 from .text_edit_controller import TextEditController
 from .note_controller import NoteController
@@ -104,8 +106,16 @@ NO_VIEW_HINT = "Open a view from the Project Browser"
 
 # Status hint shown when the Note tool is refused: a Note is owned by one plan or
 # detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
-NOTE_OFF_HINT = "Notes can be placed on plan, detail and schematic views"
+NOTE_OFF_HINT = "Notes can be placed on plan, detail, section and schematic views"
 NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
+NOTE_SECTION_PASTE_REFUSED = "A section's notes can only be pasted in a section"
+NOTE_INTO_SECTION_REFUSED = "Plan and detail notes can't be pasted in a section"
+
+
+def _note_paste_refusal(rec: dict) -> str:
+    """The footer reason a plan-side paste gives for refusing Note record *rec*."""
+    view = str(((rec.get("note") or {}).get("view")) or "")
+    return NOTE_SECTION_PASTE_REFUSED if view.startswith("section:") else NOTE_PASTE_REFUSED
 
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
@@ -185,7 +195,7 @@ def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
     return out
 
 
-class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
+class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 12  # 12: old schematics turn Printed once (schematic_scene.migrate_old_schematics); 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
     UNDO_MAX = 50
@@ -199,10 +209,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
-    modeChanged = pyqtSignal(str)      # emits mode name for status bar instructions
     instructionDisplay = pyqtSignal(str)  # instructionChanged + " (Reference)" cue (RG8)
-    instructionChanged = pyqtSignal(str)  # emits step-by-step instruction text
     sceneModified = pyqtSignal()          # emitted on every push_undo_state
+    hiddenChanged = pyqtSignal()          # a Hide / Show changed _display_overrides["visible"]
+                                          # (elevation-parity D5; no undo, no sceneModified)
     levelsRestored = pyqtSignal()         # undo / redo replaced the level list (SB2b M15)
     radiationConfirm = pyqtSignal()       # Enter pressed during radiation selection
     radiationCancel = pyqtSignal()        # Escape pressed during radiation selection
@@ -241,9 +251,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._plc = PlacementInputCoordinator(self)   # placement-input concern (slice 7)
         self._geom_ctl = GeometryDrawingController(self)  # 2D-geometry drawing concern (slice 8)
         self._wall_ctl = WallPlacementController(self)  # wall-placement concern (slice 10)
-        self._modify_ctl = ModifyToolsController(self)  # modify-tool concern (scene-tools.md I1)
-        self._copy_is_cut = False   # set by ModifyToolsController.start(): Cut vs Copy
-        self._paste_payload = None  # armed clipboard payload while in "paste" (D5)
+        self._init_modify_host()   # _modify_ctl + modify transients (modify_host.py)
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         self._note_ctl = NoteController(self)           # Note placement + edit overlay (D13)
@@ -269,10 +277,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self.view_available = True   # False while the canvas shows no view (view-3d.md I5)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.pipe_start_node = None   # Node: pipe mode chain start
-        self.pick_base_pos = None     # QPointF: move / paste / duplicate base
         self.node_end_pos = None
         self._pipe_node_was_new = False
-        self._selected_items = None
         # HALO hover + rubber-band state (U5) — scene-owned; view drives via
         # halo_update (A6). Extracted to HaloSelectionMixin (Leg B): inits
         # _halo_candidates/_halo_index/_halo_pick_pos/halo_enabled/
@@ -455,10 +461,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_count: int = 1
         self._replicate_spacing: float = 0.0
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
-        self._move_ghost: list = []          # list[QPainterPath] in scene coords
-        self._move_ghost_base: list = []      # base paths captured at first click
-        self._ghost_dimmed: list = []         # [(item, prior opacity)] dimmed originals (D11)
-        self._move_handle_session = None      # S2 HandleSnapSession (Move tool)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -516,14 +518,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
         self._gridline_drag_original_pos = None # perpendicular position at drag start
-        # Offset (scene-tools.md D9) — behaviour in ModifyToolsController; the
-        # ghost is the candidate item's trace in _move_ghost.
-        self._offset_source = None              # armed source item
-        self._offset_dist: float = 0.0          # offset magnitude (mm)
-        self._offset_side: float = 1.0          # +1 outward / left normal, -1 otherwise
-        self._offset_typed: bool = False        # distance locked by the HUD
-        self._offset_sticky = None              # last committed distance (D9 step 5)
-        self._offset_sticky_locked: bool = False  # sticky distance was typed
         # Trim / Extend / Merge state (Sprint Y)
         self._trim_edge = None              # cutting edge item for trim
         self._trim_edge_highlight = None    # highlight overlay
@@ -535,47 +529,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._align_reference = None
         self._align_highlight = None
         self._align_ghost = None
-        # Interactive transforms (Rotate, Scale, Mirror)
-        # Rotate (scene-tools.md D8; behaviour in ModifyToolsController):
-        # pivot, start-ray heading (Y-up deg) and the painted pivot->cursor ray.
-        self._rotate_pivot: "QPointF | None" = None
-        self._rotate_start_deg: "float | None" = None
-        self._rotate_ray = None
-        # Array (scene-tools.md D10 + P1 DD5; behaviour in
-        # ModifyToolsController). Transient — cleared by
-        # ModifyToolsController.clear() on leaving "array": base point
-        # (Polar: centre), unit direction, cursor spacing (mm).
-        self._array_base: "QPointF | None" = None
-        self._array_dir: "QPointF | None" = None
-        self._array_spacing: float = 0.0
-        self._array_row_spacing: float = 0.0     # 2D: signed row pitch (mm)
-        self._array_total: "float | None" = None      # Polar: swept fill (deg)
-        self._array_start_deg: "float | None" = None  # Polar: start-ray heading
-        # Session-sticky per canvas tab (never cleared by clear()): the ←/→
-        # variant and the last typed non-cursor HUD fields per variant.
-        self._array_variant: str = "linear"
-        # Typed Angle lock (Y-up CCW+ degrees) — None = the cursor aims;
-        # dropped when Array ends or restarts (DS2.2).
-        self._array_angle_locked: "float | None" = None
-        self._array_memory: dict = {v: dict(f) for v, f
-                                    in ARRAY_DEFAULT_MEMORY.items()}
-        # Scale (P1 DD4; behaviour in ModifyToolsController): base point and
-        # reference point (|ref - base| = 1x); both None outside the tool.
-        self._scale_base: "QPointF | None" = None
-        self._scale_ref: "QPointF | None" = None
-        # DS1: which field the post-reference Scale HUD types — "length"
-        # (default; reset on every set_mode by ModifyToolsController.clear) or
-        # "factor" (←/→). Per run, never session-sticky.
-        self._scale_variant: str = "length"
-        # Flip / Mirror (P1 batch DD2-DD4; behaviour in ModifyToolsController):
-        # the hovered axis_picker.AxisPick painted by Model_View, or None.
-        self._mirror_axis = None
-        # Flip (DS3): bbox centre of the reflectable selection (set at entry,
-        # None outside Flip), the two toggles, and the last quadrant ("UL" ..).
-        self._flip_center = None
-        self._flip_lr = False
-        self._flip_ud = False
-        self._flip_quad = None
         # Break / Break at Point
         self._break_target = None
         self._break_highlight = None
@@ -766,16 +719,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if ctl is not None:
             ctl._cleanup_dxf_worker()
 
-    @property
-    def dynamic_input(self):
-        """Back-compat view of the Dynamic-Input HUD (owned by the placement-input
-        coordinator, slice 7). Read/written by model_view + the HUD test suite."""
-        return self._plc.dynamic_input
-
-    @dynamic_input.setter
-    def dynamic_input(self, v):
-        self._plc.dynamic_input = v
-
     # --- place_import transient state: forwarded so in-file references resolve (C1 bridge) ---
     @property
     def _place_import_params(self):
@@ -898,19 +841,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     # -------------------------------------------------------------------------
     # SCENE MANAGEMENT
-
-    def _show_status(self, message: str, timeout: int = 5000):
-        """Show a message on the main window's status bar.
-
-        The first registered view is the hidden startup ``Model_View`` (its
-        ``window()`` is itself, with no status bar), so the first view whose
-        window has one wins.
-        """
-        for view in self.views():
-            window = view.window()
-            if window is not None and hasattr(window, 'statusBar'):
-                window.statusBar().showMessage(message, timeout)
-                return
 
     def draw_origin(self):
         """Draw a small white cross at the origin — constant screen size, non-selectable."""
@@ -1182,9 +1112,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def set_mode(self, mode, template=None):
         self._text_edit_ctl.commit()     # a tool switch ends any inline edit
-        if not self.view_available and mode not in (None, "select"):
-            # Empty canvas (view-3d.md I5): no view to author in.
-            self.instructionChanged.emit(NO_VIEW_HINT)
+        if self._view_refused(mode):
             return
         if not self.authoring_allowed(mode):
             # containment C1: loose-geometry/text/dimension authoring is refused
@@ -1200,18 +1128,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             # Editor or plan, editor-build design s2); refused at the shared
             # entry every ribbon/shortcut path hits.
             return
-        if (mode in ("move", "rotate", "scale")
-                and self.constraint_ctl.refuse_grounded(self.selectedItems())):
-            # D17 (CS3): fully defined geometry is never transformed; refused
-            # at the same shared entry (the commits re-check, move_items /
-            # commit_rotate / commit_scale / commit_reflect).
-            return
-        if (mode == "flip" and self.constraint_ctl.refuse_grounded(
-                flip_refusal_targets(self.selectedItems()))):
-            # D45 as refined 2026-10-12 (design DD8): Flip refuses only a
-            # fully defined BLOCK instance -- its mirror / rotation live
-            # outside the solver; grounded primitives flip and re-solve.
-            # commit_reflect re-checks.
+        if self._modify_mode_refused(mode):
             return
         if mode == "place_block" and isinstance(template, str):
             from .capabilities import pick_refusal
@@ -1306,9 +1223,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         self._gridline_drag_original_pos = None
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
-        if mode not in ("select", "stretch", "move", "rotate", "scale",
-                        "copy_base", "duplicate", "array", "flip", "mirror",
-                        "radiation_emitter", "radiation_receiver"):
+        if mode not in self._KEEPS_SELECTION_MODES:
             self.clearSelection()
         self.preview_node.hide()
         self.pipe_target_marker.hide()
@@ -1532,9 +1447,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 self._section_preview = None
 
         # Capture current selection when entering move/rotate/scale mode from ribbon
-        if (mode in ("move", "duplicate", "rotate", "scale", "array")
-                and not self._selected_items):
-            self._selected_items = list(self.selectedItems())
+        self._capture_modify_selection(mode)
 
         # Clear OSNAP snap trace whenever mode changes
         self._snap_result = None
@@ -1543,7 +1456,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         # Emit initial step instruction for this mode
         _initial_steps = {
-            "select":         "Select items to edit  ·  Space = cycle similar",
+            **self._MODIFY_INITIAL_STEPS,
+            "select":         self._SELECT_INSTRUCTION,
             "pipe":           "Pick start node",
             "sprinkler":      "Click a node or pipe to place sprinkler",
             "draw_line":      "Pick first point",
@@ -1556,13 +1470,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "text":           "Pick first corner",
             "note":           "Pick arrow tip",
             "set_scale":      "Pick first calibration point",
-            "move":           "Pick base point",
-            "copy_base":      "Pick base point",
-            "duplicate":      "Pick base point",
             "offset":         "Pick object to offset",
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
-            "paste":          "Click to place pasted items",
             "draw_gridline":  "Pick start point",
             "trim":           "Select cutting edge",
             "trim_pick":      "Click segment to trim (right-click to cancel)",
@@ -1570,12 +1480,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             "extend_pick":    "Click near endpoint to extend (right-click to cancel)",
             "merge_points":   "Click first endpoint",
             "align": "Click reference edge",
-            "rotate":          "Pick pivot point",
-            "array":           "Pick base point",
-            "scale":           "Pick base point",
-            "flip":            ModifyToolsController.FLIP_HINT,
-            "mirror":          "Pick mirror axis",
-            "break":           "Select object to break",
+            "break":          "Select object to break",
             "break_at_point":  "Select object to split",
             "fillet":          self._modify_ctl.FILLET_HINT,
             "chamfer":         "Click first object",
@@ -4396,24 +4301,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Return best-fit cursor position: one picker (SNAP + ALIGN ranked
         together in a single ``find()``, underlay geometry included), else the
         grid fallback."""
-        # S2, handles only (user decision 2026-09-25): once the Move base point
-        # is set, the destination gets NO cursor / ALIGN / grid snap — the raw
-        # cursor. Only the selection's own handles (the base point included)
-        # snap, via _move_handle_snap. The base click itself (pick_base_pos
-        # still None) snaps normally below: it is user-chosen geometry.
-        if self.mode in ("move", "duplicate") and self.pick_base_pos is not None:
-            self._snap_result = None
-            self._align_result = None
-            self._align_track_ray = None
-            return QPointF(scene_pos)
-        # Flip / Mirror (P1 DD4): the axis step picks an existing straight
-        # segment through axis_picker, so cursor SNAP and ALIGN are off — no
-        # snap glyph (snapping-engine §3: no contextual snap-by-tool). The
-        # constraint pick modes (D21 markers, raw cursor) likewise (CS4 smoke).
-        # Fillet hit-tests corners / lines on the raw cursor itself (DS4.2;
-        # smoke 2026-11-01: a snap glyph there disagreed with the aim).
-        if self.mode in ("flip", "mirror", "fillet") or (
-                isinstance(self.mode, str) and self.mode.startswith("constrain_")):
+        # Raw cursor (snap_engine.raw_cursor_mode, snapping-engine §3): Move /
+        # Duplicate once the base point is set (S2, handles only — user
+        # decision 2026-09-25; the base click itself snaps below), and the
+        # Flip / Mirror axis pick (P1 DD4), constraint picks (CS4 smoke) and
+        # Fillet's corner / line hit-test (DS4.2) — no snap glyph.
+        if raw_cursor_mode(self.mode, self.pick_base_pos):
             self._snap_result = None
             self._align_result = None
             self._align_track_ray = None
@@ -4768,10 +4661,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         return QPointF(anchor.x() + dist * math.cos(snapped),
                        anchor.y() + dist * math.sin(snapped))
 
-    def get_placement_anchor(self) -> "QPointF | None":
-        """Shell → PlacementInputCoordinator.get_placement_anchor."""
-        return self._plc.get_placement_anchor()
-
     def _mode_placement_anchor(self) -> "QPointF | None":
         """Shell → PlacementInputCoordinator._mode_placement_anchor."""
         return self._plc._mode_placement_anchor()
@@ -4824,6 +4713,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # Mode → schema key.  Transform modes map here too; their appliers
     # differ but the HUD contract is identical.
     _SCHEMA_FOR_MODE = {
+        **ModifyHostMixin._MODIFY_SCHEMA_FOR_MODE,
         "draw_line": "line",
         "draw_gridline": "line",
         "polyline": "line",
@@ -4842,17 +4732,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # polygon is also intentionally absent — active_schema special-cases it
         # per step (sizing → ``polygon``, rotate → ``rotation``).
         "draw_circle": "circle",
-        "move": "displacement",
-        "paste": "displacement",
-        "duplicate": "displacement",
-        "rotate": "rotate_by",
-        # scale keeps this row for the forward-declaration tables, but
-        # active_schema overrides it after the reference point (DS1:
-        # scale_length / scale_factor by ``_scale_variant``).
-        "scale": "scale_factor",
-        # array is intentionally absent — active_schema follows its ←/→
-        # variant (array_linear / array_grid / array_polar, P1 DD5) like
-        # draw_rectangle; _APPLIER_FOR_MODE keeps the one router.
         "offset_side": "offset_distance",
         "fillet": "fillet_radius",
         "gridline_offset": "distance",
@@ -4865,6 +4744,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # landed would open a HUD whose Enter has nowhere to go.  Entries land
     # alongside their appliers, and the two tables converge.
     _APPLIER_FOR_MODE = {
+        **ModifyHostMixin._MODIFY_APPLIER_FOR_MODE,
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
         "polyline": "_commit_polyline_at",
@@ -4887,12 +4767,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "polygon": "_apply_polygon_dynamic_input",
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
-        "move": "_apply_move_displacement",
-        "paste": "_apply_paste_displacement",
-        "duplicate": "_apply_move_displacement",
-        "rotate": "_apply_rotate_by",
-        "scale": "_apply_scale_factor",
-        "array": "_apply_array_dynamic_input",
         "offset_side": "_apply_offset_distance",
         "fillet": "_apply_fillet_radius",
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
@@ -4917,18 +4791,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Shell → PlacementInputCoordinator._at_placement_step_zero."""
         return self._plc._at_placement_step_zero()
 
-    def _apply_current_variant(self) -> None:
-        """Shell → PlacementInputCoordinator._apply_current_variant."""
-        return self._plc._apply_current_variant()
-
-    def cycle_placement_variant(self, direction: int) -> bool:
-        """Shell → PlacementInputCoordinator.cycle_placement_variant."""
-        return self._plc.cycle_placement_variant(direction)
-
-    def active_schema(self):
-        """Shell → PlacementInputCoordinator.active_schema."""
-        return self._plc.active_schema()
-
     def _rectangle_schema_for_step(self):
         """Shell → PlacementInputCoordinator._rectangle_schema_for_step."""
         return self._plc._rectangle_schema_for_step()
@@ -4949,18 +4811,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         """Shell → PlacementInputCoordinator._floor_schema_for_primitive."""
         return self._plc._floor_schema_for_primitive()
 
-    def get_resolved_point(self) -> "QPointF | None":
-        """Shell → PlacementInputCoordinator.get_resolved_point."""
-        return self._plc.get_resolved_point()
-
-    def clear_placement_state(self) -> None:
-        """Shell → PlacementInputCoordinator.clear_placement_state."""
-        return self._plc.clear_placement_state()
-
-    def publish_placement_state(self, anchor, point) -> None:
-        """Shell → PlacementInputCoordinator.publish_placement_state."""
-        return self._plc.publish_placement_state(anchor, point)
-
     # ─────────────────────────────────────────────────────────────────────────
     # Dynamic input (on-canvas HUD)
     # ─────────────────────────────────────────────────────────────────────────
@@ -4973,10 +4823,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # placement being read out", while ``dynamic_input.is_engaged()`` — i.e.
     # ``is_input_mode()`` — means "the keyboard is in a field".  Everything
     # that makes the mouse inert keys off the latter, never the former.
-
-    # Characters that open the HUD by being typed.  Only these engage: a
-    # letter belongs to whatever shortcut owns it.
-    ENGAGE_CHARS = "0123456789.-"
 
     def is_input_mode(self) -> bool:
         """Placement HUD engaged OR a selection-readout edit is open.
@@ -5033,47 +4879,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         if (self.mode == "draw_arc" and self._draw_arc_step == 2
                 and self._arc_variant == _ARC_VARIANT_ENDPOINTS):
             return self._geom_ctl._arc_ep_center_for_radius(resolved["radius"])
-        if self.mode in ("move", "paste", "duplicate"):
-            offset = resolved["offset"]
-            return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
         if self.mode == "draw_arc" and self._draw_arc_step == 2:
             return self._arc_end_point_for_span(resolved["span_deg"])
-        return None
-
-    def _sync_dynamic_input(self) -> None:
-        """Shell → PlacementInputCoordinator._sync_dynamic_input."""
-        return self._plc._sync_dynamic_input()
-
-    def begin_dynamic_input(self, seed: str = "") -> bool:
-        """Shell → PlacementInputCoordinator.begin_dynamic_input."""
-        return self._plc.begin_dynamic_input(seed)
+        # move / paste / duplicate: the mixin's (one home).
+        return super()._transform_preview_point(resolved, anchor)
 
     def _visible_view(self):
         """Shell → PlacementInputCoordinator._visible_view."""
         return self._plc._visible_view()
-
-    def _snap_view(self):
-        """The view whose zoom (``transform().m11()``) drives snap/scale reads.
-
-        Prefers the on-screen plan view (:meth:`_visible_view`); falls back to
-        the LAST-attached view so headless tests (which attach a view without
-        ``show()``) still resolve a real transform. ``views()[0]`` is
-        deliberately *not* the fallback: in the running app that is the
-        vestigial, never-shown ``MainWindow.view`` frozen at ``m11 == 1.0`` —
-        reading it made every zoom-dependent tolerance (snap aperture,
-        design-area pick, ALIGN band, …) collapse to a fixed *scene*
-        distance regardless of zoom.
-        """
-        v = self._visible_view()
-        if v is not None:
-            return v
-        views = self.views()
-        return views[-1] if views else None
-
-    def _active_view_scale(self) -> float:
-        """Current on-screen zoom (px per scene-unit) from the active plan view."""
-        v = self._snap_view()
-        return v.transform().m11() if v is not None else 1.0
 
     def _pipe_reference_pipe(self):
         """The coplanar pipe anchoring the relative 45° frame for typed input.
@@ -5121,10 +4934,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     def _arm_track_direction(self, hud, schema) -> None:
         """Shell → PlacementInputCoordinator._arm_track_direction."""
         return self._plc._arm_track_direction(hud, schema)
-
-    def end_dynamic_input(self) -> None:
-        """Shell → PlacementInputCoordinator.end_dynamic_input."""
-        return self._plc.end_dynamic_input()
 
     def _on_dynamic_input_cancelled(self) -> None:
         """Shell → PlacementInputCoordinator._on_dynamic_input_cancelled."""
@@ -5583,13 +5392,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             QPointF(line.x1(), line.y1()), QPointF(line.x2(), line.y2()), snapped
         )
 
-    def update_preview_node(self, pos: QPointF):
-        self.preview_node.setPos(pos)
-        if getattr(self, "_suppress_preview_node", False):
-            self.preview_node.hide()
-        else:
-            self.preview_node.show()
-
     # -------------------------------------------------------------------------
     # MOUSE EVENTS
 
@@ -5733,7 +5535,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     # ── Dispatch table: mode string → move-handler method name ─────────
     _MOVE_DISPATCH = {
-        "pick_region":              "_move_pick_region",
+        **ModifyHostMixin._MODIFY_MOVE_DISPATCH,
+        "pick_region":             "_move_pick_region",
         "pipe":                     "_move_pipe",
         "set_scale":                "_move_set_scale",
         "design_area":              "_move_design_area",
@@ -5751,19 +5554,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
-        "move":                     "_move_paste_move",
         "sprinkler":                "_move_preview_node",
-        "paste":                    "_move_paste_move",
-        "copy_base":                "_move_preview_node",
-        "duplicate":                "_move_paste_move",
         "water_supply":             "_move_preview_node",
-        "rotate":                   "_move_rotate",
-        "scale":                    "_move_scale",
         "fillet":                   "_move_fillet",
-        "array":                    "_move_array",
-        "flip":                     "_move_reflect",
-        "mirror":                   "_move_reflect",
-        "stretch":                  "_move_stretch",
+        "stretch":                 "_move_stretch",
         "wall":                     "_move_wall_router",
         "floor":                    "_move_floor_router",
         "floor_opening":            "_move_floor_router",
@@ -5798,6 +5592,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # the cursor; the Dynamic Input field-commit path calls it with the point a
     # typed value resolves to.  One preview code path, no divergence.
     _PREVIEW_DISPATCH = {
+        **ModifyHostMixin._MODIFY_PREVIEW_DISPATCH,
         "draw_line":       "_preview_from_line",
         "draw_gridline":   "_preview_from_line",
         "polyline":        "_preview_from_polyline",
@@ -5805,9 +5600,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "draw_circle":     "_preview_from_circle",
         "draw_ellipse":    "_preview_from_ellipse",
         "polygon":         "_preview_from_polygon",
-        "move":            "_preview_from_move",
-        "paste":           "_preview_from_move",
-        "duplicate":       "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
         "draw_arc":        "_preview_from_arc",
@@ -5815,20 +5607,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "floor":           "_preview_from_floor",
         "floor_opening":   "_preview_from_floor",
     }
-
-    def _preview_from_resolved(self, resolved) -> None:
-        """Redraw the current mode's placement preview from ``resolved``.
-
-        ``resolved`` is a ``QPointF``.  Placement helpers (line/rect/circle/
-        polyline) use it directly as the second point; the two transform
-        helpers (move, gridline replicate) derive their scalar — offset or
-        spacing — from it internally, keeping that derivation in one place so
-        the mouse path and any future typed path stay identical.  A no-op when
-        the mode has no preview helper.
-        """
-        name = self._PREVIEW_DISPATCH.get(self.mode)
-        if name is not None:
-            getattr(self, name)(resolved)
 
     # ── Per-mode move handlers ──────────────────────────────────────────
 
@@ -5953,25 +5731,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_offset_side(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
         return self._modify_ctl.move_offset_side(*args, **kwargs)
-
-    def _move_preview_node(self, event, snapped):
-        self.update_preview_node(snapped)
-        self.preview_pipe.hide()
-
-    def _preview_from_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._preview_from_move(*args, **kwargs)
-
-    def _move_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._move_paste_move(*args, **kwargs)
-
-    def _move_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
-        return self._modify_ctl.move_rotate(*args, **kwargs)
-
-    def _move_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
-        return self._modify_ctl.move_array(*args, **kwargs)
-
-    def _move_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.move_reflect(*args, **kwargs)
 
     def _move_stretch(self, event, snapped):
         if self._stretch_base is None:
@@ -6389,6 +6148,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     # Select with the item selected (so its manipulator frame shows) — instead of
     # continuously re-arming. Scope = 2D geometry + Architecture; pipe/sprinkler/
     # gridline stay continuous (network/array building). See `_end_placement`.
+    _HOST_TOOLS = frozenset(ModifyToolsController._TOOL_MODE)   # every controller tool
+    # Modes that keep the selection on entry: the modify ones + Stretch / radiation picks.
+    _KEEPS_SELECTION_MODES = ModifyHostMixin._MODIFY_KEEPS_SELECTION | {
+        "stretch", "radiation_emitter", "radiation_receiver"}
     _SINGLE_PLACEMENT_MODES = frozenset({
         "draw_line", "draw_rectangle", "draw_circle", "draw_ellipse", "draw_arc",
         "polygon", "draw_spline", "polyline",
@@ -6407,7 +6170,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
     })
 
     _PRESS_DISPATCH = {
-        "pick_region":              "_press_pick_region",
+        **ModifyHostMixin._MODIFY_PRESS_DISPATCH,
+        "pick_region":             "_press_pick_region",
         None:                       "_press_select_item",
         "select":                   "_press_select_item",
         "sprinkler":                "_press_sprinkler",
@@ -6421,19 +6185,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         "design_area":              "_press_design_area",
         "room":                     "_press_room",
         "room_manual":              "_press_room_manual",
-        "paste":                    "_press_paste_move",
-        "copy_base":                "_press_copy_base",
-        "duplicate":                "_press_paste_move",
-        "move":                     "_press_paste_move",
         "place_import":             "_press_place_import",
         "offset":                   "_press_offset",
         "offset_side":              "_press_offset_side",
-        "rotate":                   "_press_rotate",
-        "array":                    "_press_array",
-        "scale":                    "_press_scale",
-        "flip":                     "_press_reflect",
-        "mirror":                   "_press_reflect",
-        "break":                    "_press_break",
+        "break":                   "_press_break",
         "break_at_point":           "_press_break_at_point",
         "fillet":                   "_press_fillet",
         "chamfer":                  "_press_chamfer",
@@ -6786,12 +6541,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         inst.note["view"] = self.active_view_key
         inst.level = self.active_level
 
-    def note_allowed(self) -> bool:
+    def note_allowed(self, rec: "dict | None" = None) -> bool:
         """Whether this canvas can hold a Note block: a plan scene showing a plan
-        or detail view (design D11). The paste gates ask this: a Note record is
-        view-owned, so it never lands in a schematic."""
-        return (self.scene_role == "plan"
-                and self.active_view_key.partition(":")[0] in ("plan", "detail"))
+        or detail view (design D11). The paste gates pass the record: a Note
+        is view-owned, so it never lands in a schematic, and a section's Note
+        stays in sections (elevation-parity D4; ``SectionScene.note_allowed``)."""
+        if not (self.scene_role == "plan"
+                and self.active_view_key.partition(":")[0] in ("plan", "detail")):
+            return False
+        view = str((((rec or {}).get("note")) or {}).get("view") or "")
+        return not view.startswith("section:")
 
     def note_tool_allowed(self) -> bool:
         """Whether the Note tool runs here: wherever a Note block can live, plus
@@ -7293,27 +7052,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             pts.append(snapped)
             self._room_manual_active._rebuild()
 
-    def _press_copy_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D4)
-        return self._modify_ctl.press_copy_base(*args, **kwargs)
-
-    def _press_paste_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._press_paste_move(*args, **kwargs)
-
-    def begin_move_from(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl.begin_move_from(*args, **kwargs)
-
-    def _begin_move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._begin_move_handle_snap(*args, **kwargs)
-
-    def _move_handle_snap(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._move_handle_snap(*args, **kwargs)
-
-    def _apply_move_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._apply_move_displacement(*args, **kwargs)
-
-    def _apply_paste_displacement(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D5)
-        return self._modify_ctl._apply_paste_displacement(*args, **kwargs)
-
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._underlay_ctl._commit_place_import(snapped)
 
@@ -7326,34 +7064,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
     def _apply_offset_distance(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D9)
         return self._modify_ctl.apply_offset_distance(*args, **kwargs)
-
-    # ── Interactive Rotate (D8) ───────────────────────────────────────
-    def _press_rotate(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
-        return self._modify_ctl.press_rotate(*args, **kwargs)
-
-    def _apply_rotate_by(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D8)
-        return self._modify_ctl.apply_rotate_by(*args, **kwargs)
-
-    # ── Array (D10 + P1 DD5) ──────────────────────────────────────────
-    def _press_array(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md D10)
-        return self._modify_ctl.press_array(*args, **kwargs)
-
-    def _apply_array_dynamic_input(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD5 router)
-        return self._modify_ctl.apply_array(*args, **kwargs)
-
-    # ── Scale (P1 DD4) ────────────────────────────────────────────────
-    def _press_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.press_scale(*args, **kwargs)
-
-    def _move_scale(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.move_scale(*args, **kwargs)
-
-    def _apply_scale_factor(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.apply_scale_factor(*args, **kwargs)
-
-    # ── Flip / Mirror (P1 DD4) ────────────────────────────────────────
-    def _press_reflect(self, *args, **kwargs):  # shell → ModifyToolsController (P1 DD4)
-        return self._modify_ctl.press_reflect(*args, **kwargs)
 
     # ── Break (2-point) ──────────────────────────────────────────────
     def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8886,6 +8596,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     item.symbol.setVisible(False)
             else:
                 item.setVisible(False)
+        self.hiddenChanged.emit()          # sections re-run their hidden pass (D5)
 
     def _show_items(self, items):
         """Show the given items via display overrides."""
@@ -8898,8 +8609,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             elif isinstance(getattr(item, "host", None), dict) and item.host:
                 pass   # gridline-hosted: never shown in plan (hosted-blocks D11);
                        # a floor void's host is its slab -- shown normally (A8)
+            elif (isinstance(getattr(item, "note", None), dict)
+                  and item.note.get("view") != self.active_view_key):
+                pass   # a Note owned by another view (a section's, D4) stays off this canvas
             else:
                 item.setVisible(True)
+        self.hiddenChanged.emit()
 
     def _show_all_hidden(self):
         """Restore visibility for all manually hidden items."""
@@ -8921,6 +8636,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # don't remain visible after being un-hidden.
         if hasattr(self, "_level_manager"):
             self._level_manager.apply_to_scene(self)
+        self.hiddenChanged.emit()
 
     def _hide_all_of_type(self, item_type):
         """Hide all scene items that are instances of *item_type*."""
@@ -8929,6 +8645,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                 if hasattr(item, "_display_overrides"):
                     item._display_overrides["visible"] = False
                 item.setVisible(False)
+        self.hiddenChanged.emit()
 
     def _move_selection_to_level(self, target_level: str):
         """Move all selected items to the target level, updating elevations."""
@@ -9163,15 +8880,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         # Same gate as the placement flips above: no modifier (KeypadModifier
         # masked), not in input mode, auto-repeat accepted but ignored.
         # <-/-> toggle the left-right reflection, up/down the top-bottom one.
-        if (self.mode == "flip" and not self.is_input_mode()
-                and (event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier)
-                == Qt.KeyboardModifier.NoModifier
-                and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right,
-                                    Qt.Key.Key_Up, Qt.Key.Key_Down)):
-            if not event.isAutoRepeat():
-                self._modify_ctl.toggle_flip(
-                    "lr" if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right) else "ud")
-            event.accept()
+        if self._modify_flip_arrow_key(event):       # Flip arrows (D16 / DS3.2)
             return
         # (Esc mid-manipulator-drag is handled at the top of this method.)
         # Radiation selection flow — intercept Enter/Escape first
@@ -9214,9 +8923,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     self._escape_ladder() or self.constraint_ctl.clear_selected()):
                 event.accept()
                 return
-            if self.mode and self.mode not in (None, "select"):
-                self._show_status("Mode cancelled", 2000)
-            self.set_mode(None)
+            self._cancel_mode()
         elif event.key() == Qt.Key.Key_Delete:
             if self.mode == "draw_spline" and self._spline_points:
                 self._pop_draw_spline_vertex()
@@ -9255,20 +8962,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             if self.mode == "offset_side":
                 self._modify_ctl.commit_offset()
                 return
-            # Flip / Mirror: Enter commits on the hovered axis like a click
-            # (P1 DD4); no axis -> commit_reflect's refusal hint.
-            if self.mode in ("flip", "mirror"):
-                self._modify_ctl.commit_reflect()
+            if self._modify_enter_commit():         # Flip / Mirror / Array
                 return
             # Fillet: Enter commits the hovered corner like a click (DS4).
             if self.mode == "fillet":
                 self._modify_ctl.commit_fillet()
-                return
-            # Array: Enter commits at the cursor's aim with the remembered
-            # counts, like a click (D10 / DD5); a refused aim posts
-            # commit_array's reason. The typed path is the HUD.
-            if self.mode == "array":
-                self._modify_ctl.commit_array()
                 return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
@@ -9429,8 +9127,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
             defn = self.get_block_definition(d.get("block_id"))
             if defn is None or place_refusal(defn) is not None:
                 return None
-            if d.get("note") and not self.note_allowed():
-                self._show_status(NOTE_PASTE_REFUSED)
+            if d.get("note") and not self.note_allowed(d):
+                self._show_status(_note_paste_refusal(d))
                 return None
             p = d.get("pos", [0.0, 0.0])
             inst = self.place_block_instance(
@@ -9551,14 +9249,33 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
 
         Returns:
             True for 2D geometry / text, node, block-instance, gridline,
-            wall, room, floor-slab, roof and design-area records.
+            wall, room, floor-slab, roof and design-area records. False for
+            a section's hosted-block record (``section_host``, elevation
+            parity R5).
         """
+        if obj.get("section_host"):
+            return False        # a section's hosted copy: sections only (R5)
         obj_type = obj.get("type", "")
         return (obj_type in self._GEOM_TYPE_REGISTRY
                 or obj_type in ("node", "block_instance", "wall", "room",
                                 "floor_slab", "roof", "design_area")
                 # Gridline: to_dict() emits no "type" key.
                 or (not obj_type and "origin" in obj and "angle" in obj))
+
+    def paste_refusal(self, items) -> "str | None":
+        """ModifyHostMixin hook (elevation parity R5): a clipboard holding
+        only section-hosted blocks has nothing this canvas can place.
+
+        Args:
+            items: The clipboard payload's records.
+
+        Returns:
+            The footer reason, or None.
+        """
+        from .constants import HOSTED_PASTE_IN_PLAN
+        if items and all(d.get("section_host") for d in items):
+            return HOSTED_PASTE_IN_PLAN
+        return None
 
     def paste_items(self, offset, data=None, constraints=None, rotation_deg=None):
         """Add clipboard records translated by *offset*.
@@ -9694,10 +9411,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
                     # became a pattern / linetype / end type / schematic since the copy
                     pattern_skipped += 1
                     skip_reason = _why
-                elif obj.get("note") and not self.note_allowed():
-                    # a Note belongs to one plan / detail view (D9 / D11): refuse here
+                elif obj.get("note") and not self.note_allowed(obj):
+                    # a Note belongs to one plan / detail view (D9 / D11), a
+                    # section's Note to sections (elevation-parity D4): refuse here
                     pattern_skipped += 1
-                    skip_reason = NOTE_PASTE_REFUSED
+                    skip_reason = _note_paste_refusal(obj)
                 elif _d is not None:
                     from .block_instance import BlockInstance
                     inst = self.place_block_instance(
@@ -9831,90 +9549,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, QGraphicsScene):
         from .marks import request_duplicate_refresh
         request_duplicate_refresh(self)      # SB2b M10: duplicate state is derived; re-run after a bulk add
         return new_items
-
-    def _shape_paths_for_move(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._shape_paths_for_move(*args, **kwargs)
-
-    def _clipboard_ghost_paths(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._clipboard_ghost_paths(*args, **kwargs)
-
-    def _build_move_ghost_base(self, *args, **kwargs):  # shell → ModifyToolsController (scene-tools.md I1)
-        return self._modify_ctl._build_move_ghost_base(*args, **kwargs)
-
-    def move_items(self, offset):
-        """Translate the selection by *offset* (the Move tool commit).
-
-        Returns:
-            False when D17 refused it (a fully defined item -- nothing moved,
-            the caller pushes no undo step); None with an empty selection;
-            True otherwise.
-        """
-        if not self._selected_items:
-            return
-        # Resolve any Sprinkler items to their parent Node
-        resolved = []
-        seen = set()
-        for item in self._selected_items:
-            if isinstance(item, Sprinkler) and item.node is not None:
-                item = item.node
-            if getattr(item, "MANIP_ANCHORED", False):
-                continue                   # anchored overlay (tile frame)
-            if id(item) not in seen:
-                seen.add(id(item))
-                resolved.append(item)
-        resolved = drop_carried_voids(resolved)   # a slab carries its voids (floor-opening A2)
-        if self.constraint_ctl.refuse_grounded(resolved):     # D17 (CS3)
-            self._selected_items = None
-            return False
-        # §8: the moved set's handles become drag goals; the controller
-        # re-solves on exit (before the caller's undo push).
-        with self.constraint_ctl.edit(resolved):
-            for item in resolved:
-                if isinstance(item, Node):
-                    item.moveBy(offset.x(), offset.y())
-                    item.setSelected(True)
-                    item.fitting.update()
-                elif hasattr(item, "translate"):
-                    item.translate(offset.x(), offset.y())
-                    item.setSelected(True)
-                elif hasattr(item, "manip_translate"):   # Text (D7)
-                    item.manip_translate(offset.x(), offset.y())
-                    item.setSelected(True)
-        self._selected_items = None   # clear after use
-        return True
-
-    def clipboard_payload(self):
-        """The versioned FirePro3D clipboard payload (scene-tools.md I1).
-
-        Returns:
-            ``{"fp3d_clipboard", "base", "scene_role", "items",
-            "constraints"}`` (``constraints`` = the copied set's internal
-            constraint records; absent on an older payload), or None when
-            the clipboard is empty, not JSON, or lacks the current
-            ``CLIPBOARD_FORMAT_VERSION`` key (foreign).
-        """
-        from .constants import CLIPBOARD_FORMAT_VERSION
-        text = QApplication.clipboard().text()
-        if not text:
-            return None
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError:
-            return None
-        if (not isinstance(payload, dict)
-                or payload.get("fp3d_clipboard") != CLIPBOARD_FORMAT_VERSION
-                or not isinstance(payload.get("items"), list)):
-            return None
-        return payload
-
-    def clipboard_data(self):
-        """The clipboard payload's item records, or None.
-
-        Only the versioned payload is ever read from the OS clipboard (I1);
-        internal copy paths pass records to ``paste_items(data=...)``.
-        """
-        payload = self.clipboard_payload()
-        return payload["items"] if payload is not None else None
 
     # -------------------------------------------------------------------------
     # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)

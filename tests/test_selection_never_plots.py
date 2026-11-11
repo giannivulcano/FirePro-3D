@@ -289,20 +289,27 @@ def section_sheet(qapp, paper_env, section_scene_for):
 
 
 def test_section_items_selection_never_plots(section_sheet):
-    """_ColourSrcMixin paints its own dashed selection outline (and Qt's
-    default one on the super() branch); neither may plot (D11, L42)."""
+    """No section selection plots (D11, L42), and a projected proxy
+    (``_ColourSrcMixin``) paints NO selection outline at all -- the
+    manipulator frame is the one boundary (elevation parity D8 / AC12)."""
+    from firepro3d.section_scene import _ColourSrcMixin
     sec = section_sheet.sec
     sel = [i for i in sec.items()
            if i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
            and i.isVisible()]
     assert sel, "the section scene has no selectable item"
+    proxies = [i for i in sel if isinstance(i, _ColourSrcMixin)]
+    assert proxies, "the section scene has no projected proxy"
     for it in sel:
         it.setSelected(False)
     canvas_off = _digest(_render(sec, section_sheet.crop, 600, 600, 0xFF101010))
     paper_off = _digest(_paper(section_sheet.paper))
+    for it in proxies:
+        it.setSelected(True)
+    sec._live_manip().setVisible(False)       # isolate the proxies' own paint from the frame
+    assert _digest(_render(sec, section_sheet.crop, 600, 600, 0xFF101010)) \
+        == canvas_off, "a selected proxy paints its own selection outline"
     for it in sel:
         it.setSelected(True)
-    assert _digest(_render(sec, section_sheet.crop, 600, 600, 0xFF101010)) \
-        != canvas_off, "selection no longer shows on the section canvas"
     assert _digest(_paper(section_sheet.paper)) == paper_off, \
         "section selection highlight plots on paper"

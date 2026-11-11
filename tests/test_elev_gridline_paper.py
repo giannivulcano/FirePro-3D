@@ -29,7 +29,7 @@ def _elev_scene(section_scene_for):
     ms, sec = section_scene_for("north")
     gl = GridlineItem(QPointF(2500.0, -3000.0), QPointF(2500.0, 3000.0), label="1")
     ms._gridlines.append(gl); ms.addItem(gl)
-    sec._gridline_z_overrides["1"] = {"v_top": -1500.0, "v_bot": 500.0}   # 2 m: fits 1:50
+    sec._gridline_z_overrides[gl._uid] = {"v_top": -1500.0, "v_bot": 500.0}   # 2 m: fits 1:50 (D7: uid key)
     sec.rebuild()
     (eg,) = [i for i in sec.items() if isinstance(i, ElevGridlineItem)]
     assert eg.line().y1() == pytest.approx(-1500.0)          # override survived rebuild

@@ -33,15 +33,18 @@ from PyQt6.QtCore import QSettings
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM,
                         Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG,
-                        RISER_SYMBOL_SIZE_MM)
+                        RISER_SYMBOL_SIZE_MM, SECTION_EDIT_SKIPPED,
+                        SECTION_PASTE_NO_HOST, SECTION_PASTE_PLAN_ITEMS)
 from . import theme as th
-from .paper_display import paper_pass_active, shows_selection
+from .paper_display import shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from . import materials
 from .displayable_item import draw_section_type
 from .halo_selection import HaloSelectionMixin
+from .modify_host import ModifyHostMixin
+from .modify_tools_controller import ModifyToolsController
 from .bound_label import BoundLabelItem, OutlinedLabel
 from .cad_math import CAD_Math
 from .section_marker import SectionBasis, ZONE_CUT, ZONE_BEHIND, ZONE_HIDDEN
@@ -59,9 +62,58 @@ _ROLE_SOURCE = Qt.ItemDataRole.UserRole
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
+# Hide-only source of a decoration piece (opening frame / sill / mid line, slab
+# mask): it follows its source's Hide (elevation-parity D5) without becoming a
+# pick, menu or Properties target the way a _ROLE_SOURCE item is.
+_ROLE_HIDE_SOURCE = Qt.ItemDataRole.UserRole + 2
+
+
+def _hidden_flag(obj) -> bool:
+    """True when *obj* carries the user's Hide (``_display_overrides``)."""
+    return (getattr(obj, "_display_overrides", None) or {}).get("visible") is False
+
+
+def _source_hidden(src) -> bool:
+    """Whether a section item standing for *src* must be hidden (D5, R8): the
+    source is hidden, an opening's wall is hidden, or a sprinkler node's
+    sprinkler is hidden."""
+    if _hidden_flag(src):
+        return True
+    wall = getattr(src, "_wall", None)                     # WallOpening
+    if wall is not None and _hidden_flag(wall):
+        return True
+    has_spr = getattr(src, "has_sprinkler", None)          # Node
+    return bool(callable(has_spr) and has_spr() and _hidden_flag(src.sprinkler))
+
 # Footer status when a section placement finds no host gridline (hosted-blocks G9).
 HOSTED_REFUSAL = ("Can't place here — a block in a section needs a "
                   "gridline parallel to the cut inside the view's depth.")
+
+
+def is_section_editable(item) -> bool:
+    """True for a section item the section's modify tools act on: a
+    write-back copy of a model record (gridline-hosted block, section
+    Note) carrying ``SECTION_EDITABLE = True`` (elevation parity D2 / R1).
+    Projected model proxies, gridlines and datums are read-only here."""
+    return getattr(item, "SECTION_EDITABLE", False) is True
+
+
+class _SectionHudScale:
+    """The project ScaleManager as a section's Dynamic Input HUD sees it.
+
+    Section-scene units ARE millimetres, so the HUD's scene<->mm conversion
+    must be the identity even on a calibrated (px) project; formatting and
+    parsing (display unit, precision, bare-number unit) stay the project's.
+    Everything but ``is_calibrated`` is forwarded.
+    """
+
+    is_calibrated = False
+
+    def __init__(self, sm):
+        self._sm = sm
+
+    def __getattr__(self, name):
+        return getattr(self._sm, name)
 
 # Depth walk (_assign_depth_z_values): farthest item first from _DEPTH_Z_START
 # in _DEPTH_Z_STEP steps, clamped at constants.Z_DEPTH_CEIL so projected model
@@ -131,8 +183,11 @@ class _ColourSrcMixin:
         raise NotImplementedError
 
     def paint(self, painter, option, widget=None):
-        if paper_pass_active():     # selection never plots (wall polish D11, L42)
-            option.state &= ~QStyle.StateFlag.State_Selected
+        # Plan parity (elevation parity D8 / R14 / AC12): the manipulator
+        # frame is the one selection boundary, so the item draws no selection
+        # outline of its own -- on canvas or paper (selection never plots,
+        # wall polish D11, L42). HALO hover is the view's overlay, not this.
+        option.state &= ~QStyle.StateFlag.State_Selected
         if (self._pen_src is None and self._brush_src is None
                 and self._paper_pen_width is None and not self._always_draw_shape):
             super().paint(painter, option, widget)
@@ -141,15 +196,6 @@ class _ColourSrcMixin:
         painter.setPen(pen)
         painter.setBrush(brush)
         self._draw_shape(painter)
-        if option.state & QStyle.StateFlag.State_Selected:
-            fg = option.palette.windowText().color()
-            bg = QColor(Qt.GlobalColor.black if fg.red() > 127
-                        else Qt.GlobalColor.white)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            for col, style in ((bg, Qt.PenStyle.SolidLine),
-                               (fg, Qt.PenStyle.DashLine)):
-                painter.setPen(QPen(col, 0, style))
-                painter.drawRect(self.boundingRect())
 
 
 class _SrcRect(_ColourSrcMixin, QGraphicsRectItem):
@@ -205,6 +251,7 @@ class _ElevProxyRect(_ElevReadOnlyProxyMixin, _SrcRect):
     """Read-only rect proxy (walls, opening voids, floor slabs, roofs)."""
 
     HALO_AREA = True  # HALO: solid projection — cursor inside = direct hit
+    SNAP_AS_RECT = True  # snap_engine._snaps_as_rect: the rectangle snap set (D3)
 
 
 class _ElevProxyLine(_ElevReadOnlyProxyMixin, _SrcLine):
@@ -294,7 +341,8 @@ class _ElevEndOnSymbol(_ElevPipeSymbol):
 class _ElevPipeLabel(BoundLabelItem):
     """A pipe's label in a section (R-8): the plan's block, host = the model
     pipe, top-level so it draws in the annotation band. Built per rebuild; the
-    line proxy owns it for the paper pass and Hide."""
+    line proxy owns it for the paper pass. Its ``_ROLE_SOURCE`` is the pipe,
+    so a Hide takes every piece of the pipe together (elevation-parity D5)."""
 
 
 class _HostedBlockCopy(BlockInstance):
@@ -304,12 +352,149 @@ class _HostedBlockCopy(BlockInstance):
     :meth:`translate` (D10) and the section rebuilds from it.
     """
 
+    SECTION_EDITABLE = True     # the section modify tools act on it (D2 / R3)
+
     def translate(self, dx: float, dy: float) -> None:
         sc = self.scene()
         move = getattr(sc, "_move_hosted_source", None) if sc is not None else None
         if move is not None:
             move(self, dx, dy)
         super().translate(dx, dy)          # live feedback until the rebuild
+
+    # Rotate / Flip-Mirror / Scale act in the section plane (about the view
+    # normal, across an in-plane axis): the copy turns like any block, then
+    # its section writes the new in-plane pose to the MODEL block (design D2,
+    # probe C-1) -- the copy alone would be lost at the next rebuild.
+
+    def _write_back(self, old_xy) -> None:
+        """Hand this copy's new pose to its section (no-op off a section)."""
+        sc = self.scene()
+        fn = getattr(sc, "_write_hosted_pose", None) if sc is not None else None
+        if fn is not None:
+            fn(self, old_xy)
+
+    def manip_rotate(self, angle_deg: float, pivot) -> None:
+        """Rotate about the view normal, then write the model block."""
+        old = self.block_pos()
+        super().manip_rotate(angle_deg, pivot)
+        self._write_back(old)
+
+    def manip_reflect(self, p1, p2) -> None:
+        """Mirror across an in-plane axis, then write the model block."""
+        old = self.block_pos()
+        super().manip_reflect(p1, p2)
+        self._write_back(old)
+
+    def manip_scale_about(self, base, factor: float) -> None:
+        """Scale about an in-plane base point, then write the model block."""
+        old = self.block_pos()
+        super().manip_scale_about(base, factor)
+        self._write_back(old)
+
+    def to_dict(self) -> dict:
+        """The copy's record -- pose in THIS section's frame (what a paste
+        ghost shows) -- plus ``section_host``: the model block's host
+        gridline uid and offset. No plan ``host`` key, so a plan paste can
+        never place it (``Model_Space._paste_accepts``, R5)."""
+        d = super().to_dict()
+        host = getattr(self.data(_ROLE_SOURCE), "host", None)
+        if host:
+            d["section_host"] = {"gridline": host.get("gridline"),
+                                 "offset_mm": float(host.get("offset_mm", 0.0))}
+        return d
+
+
+class _SectionNoteCopy(BlockInstance):
+    """Section copy of a Note owned by this section (elevation-parity D4).
+
+    ``_ROLE_SOURCE`` names the model Note in the plan ``_block_instances``
+    (``note["view"] == "section:<name>"``, pose in this section's 2D frame,
+    so the copy's pose equals the model's). The copy shares the model's
+    ``note`` dict, so leader / box / style writes land on the model; pose and
+    attribute writes are forwarded to the model and the copy re-reads it.
+    Each pose write marks one pending section undo step
+    (``SectionScene._mark_section_edit``), except on a copy the Note tool
+    just placed (``_fresh``): the editor's commit pushes place + type as one.
+    """
+
+    _fresh = False
+    SECTION_EDITABLE = True     # the section modify tools act on it (D2 / R3)
+
+    def _source(self):
+        return self.data(_ROLE_SOURCE)
+
+    def _pull(self) -> None:
+        """Re-read the model note's pose, attributes and note dict."""
+        src = self._source()
+        if src is None:
+            return
+        self.prepareGeometryChange()
+        self._pose_x, self._pose_y = src._pose_x, src._pose_y
+        self._pose_rot, self._pose_mirrored = src._pose_rot, src._pose_mirrored
+        self._pose_scale = src._pose_scale
+        self.attributes = src.attributes
+        self.note = src.note
+        BlockInstance.note_changed(self)
+
+    def _wrote(self) -> None:
+        """Mark one pending section undo step for a pose write."""
+        if self._fresh:
+            return
+        sc = self.scene()
+        mark = getattr(sc, "_mark_section_edit", None) if sc is not None else None
+        if mark is not None:
+            mark()
+
+    def _forward(self, name: str, *args, mark: bool = True) -> None:
+        """Apply BlockInstance.<name>(*args) to the model note, re-read it."""
+        src = self._source()
+        if src is None:                          # not wired yet (construction)
+            getattr(BlockInstance, name)(self, *args)
+            return
+        getattr(src, name)(*args)
+        self._pull()
+        if mark:
+            self._wrote()
+
+    def translate(self, dx: float, dy: float) -> None:
+        self._forward("translate", dx, dy, mark=bool(dx or dy))
+
+    def set_block_pos(self, x: float, y: float) -> None:
+        self._forward("set_block_pos", x, y)
+
+    def set_block_rotation(self, deg: float) -> None:
+        self._forward("set_block_rotation", deg)
+
+    def set_block_mirrored(self, mirrored: bool) -> None:
+        self._forward("set_block_mirrored", mirrored)
+
+    def set_block_scale(self, scale: float) -> None:
+        self._forward("set_block_scale", scale)
+
+    def manip_rotate(self, angle_deg: float, pivot) -> None:
+        self._forward("manip_rotate", angle_deg, pivot)
+
+    def manip_reflect(self, p1, p2) -> None:
+        self._forward("manip_reflect", p1, p2)
+
+    def manip_scale_about(self, base, factor: float) -> None:
+        self._forward("manip_scale_about", base, factor)
+
+    def set_attributes(self, values: dict) -> None:
+        # The Note editor's write: its own commit pushes the step (no mark).
+        self._forward("set_attributes", values, mark=False)
+
+    def note_changed(self) -> None:
+        BlockInstance.note_changed(self)
+        src = self._source()
+        if src is not None:
+            src.note_changed()
+
+    def apply_grip(self, index: int, pos) -> None:
+        # Measured in THIS frame (the section's annotative k); the note dict is
+        # shared, so the box / knee / tip write lands on the model.
+        BlockInstance.apply_grip(self, index, pos)
+        self._wrote()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -334,6 +519,8 @@ class ElevGridlineItem(QGraphicsLineItem):
     bubbles resolve nothing and paint nothing.
     """
 
+    AXIS_SOURCE = True     # a Mirror axis in its section (axis_picker, elevation parity D2)
+
     def __init__(self, h_pos: float, v_top: float, v_bot: float,
                  label: str, color: QColor, pen_w: float,
                  opacity: float = 1.0, color_src: str | None = None,
@@ -344,7 +531,7 @@ class ElevGridlineItem(QGraphicsLineItem):
         # resolution, kept for readers, the selection ring and the no-source case.
         self._grid_src = color_src
         self._h = h_pos
-        self._label = label  # gridline label used as override key
+        self._label = label  # gridline label (display; the D7 record keys by the plan uid)
         self._gridline = gridline  # the plan GridlineItem: the bubbles' data host
 
         # Line pen — suppress default; drawn manually in paint()
@@ -542,19 +729,31 @@ class ElevGridlineItem(QGraphicsLineItem):
         self._update_bubble_positions()
         self.update()
 
-    def _commit_grip_override(self):
-        """Write current Z-extent back to the scene's override dict.
+    def _commit_grip_override(self) -> bool:
+        """Write the current Z-extent into this section's end record, keyed by
+        the plan gridline's ``uid`` (elevation-parity D7).
 
-        Called after a grip drag completes so the scene can persist the
-        user-adjusted top/bottom extents for this gridline.
+        Called by ``SectionScene._commit_elev_grip`` after a manipulator
+        gesture.
+
+        Returns:
+            True when the record changed (the caller pushes one undo step);
+            False for a detached item (no plan gridline, so no uid) or an
+            unchanged extent.
         """
         scene = self.scene()
-        if scene and hasattr(scene, "_gridline_z_overrides"):
-            line = self.line()
-            scene._gridline_z_overrides[self._label] = {
-                "v_top": line.p1().y(),
-                "v_bot": line.p2().y(),
-            }
+        if self._gridline is None or scene is None \
+                or not hasattr(scene, "_gridline_z_overrides"):
+            return False
+        line = self.line()
+        if line == getattr(self, "_built_line", None):
+            return False      # not moved in this gesture (OPEN-7)
+        rec = {"v_top": line.p1().y(), "v_bot": line.p2().y()}
+        uid = self._gridline._uid
+        if scene._gridline_z_overrides.get(uid) == rec:
+            return False
+        scene._gridline_z_overrides[uid] = rec
+        return True
 
 
 class LevelDatumHead(OutlinedLabel):
@@ -590,9 +789,12 @@ class ElevDatumItem(QGraphicsLineItem):
     mutate it in place, so the head re-paints with no rebuild) and owns one
     ``LevelDatumHead`` (``head``) whose block origin sits on the line at
     ``_bx``. The dash-dot line is painted by ``SectionScene.drawForeground``
-    from ``line_start_h()`` (the head's outline) to ``_h_max``, so it stays
-    visible when the head scrolls off-screen (SB4c D3 / AC4).
+    from ``line_start_h()`` (the head's outline) to ``line_end_h()`` (the
+    right grip), so it stays visible when the head scrolls off-screen (SB4c
+    D3 / AC4) and follows a right-grip drag (elevation-parity D7).
     """
+
+    AXIS_SOURCE = True     # a Mirror axis in its section (axis_picker, elevation parity D2)
 
     def __init__(self, v_pos: float, h_min: float, h_max: float, level,
                  datum_color: QColor, pen_w: float, *, opacity: float = 1.0,
@@ -604,8 +806,6 @@ class ElevDatumItem(QGraphicsLineItem):
         self._scale_manager_ref = scale_manager
         self._color_src = color_src   # stored colour string, resolved per paint (HF1)
         self._v = v_pos
-        self._h_min = h_min
-        self._h_max = h_max
         self._datum_color = datum_color
         self._pen_w = pen_w
         self._paper_render = False    # paper pass (SB4c D4): set / cleared by enter / exit_paper_pass
@@ -632,17 +832,32 @@ class ElevDatumItem(QGraphicsLineItem):
         return (self._datum_color if self._color_src is None
                 else resolve_colour(self._color_src, item=self))
 
+    def line_end_h(self) -> float:
+        """Scene h of the line's far end: the right grip (``line().p2()``),
+        which ``apply_grip(1)`` and ``manip_translate`` move and a D7 record
+        restores -- what ``drawForeground`` draws to."""
+        return self.line().p2().x()
+
     def line_start_h(self) -> float:
         """Scene h where the datum line starts: where the ray from the head
-        origin toward the line's far end (``_h_max``, the h ``drawForeground``
-        draws to) leaves the head's block outline -- derived, as
+        origin toward the line's far end (``line_end_h()``, the h
+        ``drawForeground`` draws to) leaves the head's block outline -- derived, as
         ``ElevGridlineItem`` derives its bubbles' rays from p1 -> p2; (+1, 0)
         whenever the head sits left of the far end. No trim when the head is
         hidden or draws nothing. Screen and paper alike: during a paper pass
         the head's k is 1 / S, so the outline is the printed one."""
-        ux = 1.0 if self._h_max >= self._bx else -1.0
+        ux = 1.0 if self.line_end_h() >= self._bx else -1.0
         t = self.head.trim_distance(ux, 0.0) if self.head.isVisible() else 0.0
         return self._bx + ux * t
+
+    def snap_segment(self) -> "tuple[QPointF, QPointF]":
+        """The DRAWN segment's ends, item coordinates: from the head's edge
+        (``line_start_h``, where ``drawForeground`` starts the line) to the
+        far end -- the endpoint / midpoint snaps ``SnapEngine._line_snaps``
+        offers (OPEN-2 ruling 2026-11-10: snap to the drawn line); the far end
+        is ``line_end_h()``, the one home shared with paint and HALO trace."""
+        return (QPointF(self.line_start_h(), self._v),
+                QPointF(self.line_end_h(), self._v))
 
     def refresh_head(self) -> None:
         """Re-shape the head (block mapping, drawing scale, units, paper hooks)
@@ -676,14 +891,15 @@ class ElevDatumItem(QGraphicsLineItem):
 
     def halo_trace_path(self, scene_scale=None) -> QPainterPath:
         """Composite HALO trace mirroring what is drawn: the line from the
-        head's outline to ``_h_max`` (``drawForeground``) plus the head
-        outline -- never the raw ``line()`` from ``h_min`` inside the head
+        head's outline to ``line_end_h()`` (``drawForeground``) plus the head
+        outline -- never the raw ``line()`` from its left end inside the head
         (``ElevGridlineItem`` parity). ``scene_scale`` is unused."""
         path = QPainterPath()
         h_start = self.line_start_h()
-        if self._h_max > h_start:
+        h_end = self.line_end_h()
+        if h_end > h_start:
             path.moveTo(QPointF(h_start, self._v))
-            path.lineTo(QPointF(self._h_max, self._v))
+            path.lineTo(QPointF(h_end, self._v))
         path.addPath(self.shape())
         return path
 
@@ -761,8 +977,8 @@ class ElevDatumItem(QGraphicsLineItem):
 
         V is pinned to ``self._v`` (a vertical shift would author the datum's
         level elevation), so ``dy`` is dropped; ``dx`` shifts both endpoints,
-        moving the horizontal draw-extent, and carries the head (session-only,
-        not persisted -- parity).
+        moving the horizontal draw-extent, and carries the head; the scene's
+        commit hook records the new ends (elevation-parity D7).
         """
         line = self.line()
         self.prepareGeometryChange()
@@ -770,13 +986,64 @@ class ElevDatumItem(QGraphicsLineItem):
         self._move_head(self._bx + dx)
         self.update()
 
+    def _commit_grip_override(self) -> bool:
+        """Write the current H-extent into this section's ``datum_ends`` record,
+        keyed by the level name (elevation-parity D7): ``left`` = the head end
+        (``line().p1()``), ``right`` = the far end (``line().p2()``).
 
-class SectionScene(HaloSelectionMixin, QGraphicsScene):
+        Returns:
+            True when the record changed (the caller pushes one undo step);
+            False when the item is not in a section scene, was not moved since
+            its projection, or the extent is unchanged.
+        """
+        scene = self.scene()
+        marker = getattr(scene, "marker", None) if scene is not None else None
+        if marker is None or self._level is None:
+            return False
+        line = self.line()
+        if line == getattr(self, "_built_line", None):
+            return False      # not moved in this gesture: no record, no step (OPEN-7)
+        rec = {"left": line.p1().x(), "right": line.p2().x()}
+        name = self._level.name
+        if marker.datum_ends.get(name) == rec:
+            return False
+        marker.datum_ends[name] = rec
+        return True
+
+
+def section_source_of(item):
+    """The model object a section item stands for (D8 readout + Properties).
+
+    A projected proxy, hosted-block copy or Note copy carries it in
+    ``_ROLE_SOURCE``; an elevation gridline stands for its plan
+    ``GridlineItem``; a level datum for its ``Level``.
+
+    Args:
+        item: A QGraphicsItem of a SectionScene.
+
+    Returns:
+        The model object, or None (ghost, decoration, unsourced item).
+    """
+    src = QGraphicsItem.data(item, _ROLE_SOURCE)
+    if src is not None:
+        return src
+    if isinstance(item, ElevGridlineItem):
+        return item._gridline
+    if isinstance(item, ElevDatumItem):
+        return item._level
+    return None
+
+
+class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
-    entitySelected = pyqtSignal(object)   # picked legacy entity
+    entitySelected = pyqtSignal(object)   # context-menu "Properties" target (one source)
+    requestPropertyUpdate = pyqtSignal(object)   # the Note editor asks for the panel (D4)
+    # The Note tool is a host mode beyond Select / modify: the mixin's generic
+    # set_mode enters it (T6 _HOST_EXTRA_MODES, integrator S4).
+    _HOST_EXTRA_MODES = frozenset({"note"})
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
-    modeChanged = pyqtSignal(str)         # "place_block" / "select" (footer badge)
+    snapToggled = pyqtSignal(bool)        # toggle_snap() ran (footer SNAP pill; D3)
 
     # Drafting-tile paper scale during a paper-viewport render (hatch D-A30;
     # set/cleared by paper_display on the viewport's source scene). Declared so
@@ -843,17 +1110,40 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._zones: dict[int, str] = {}
         self._cut_items: list = []
         self._hosted_copies: dict = {}      # id(model block) -> section copy
+        self._note_copies: dict = {}        # id(model note) -> section copy (D4)
         self._hosted_push_pending = False   # one undo step per drag (D10)
+        self._edit_mark_state = None        # undo top when that step was marked
         self._place_block_id = None         # armed placement (hosted-blocks G16)
         self._place_ghost = None
         self._place_ghost_pt = None         # last ghost point (survives a rebuild)
         self._place_rot = 0.0
         self._place_mirrored = False
         self._show_datums = True
+        # Notes (D4): the plan's Note tool and inline editor, composed here
+        # unchanged; the section answers their host attributes below.
+        from .note_controller import NoteController
+        from .text_edit_controller import TextEditController
+        self._texts: list = []              # a section holds no Text items of its own
+        self._editing_item = None           # set by TextItem.begin_edit
+        self._text_edit_ctl = TextEditController(self)
+        self._note_ctl = NoteController(self)
+        # Elevation gridlines + level datums of the current build: the snap
+        # engine's line targets (snap_line_items; elevation parity D3).
+        self._snap_lines: list = []
+        # Cursor snap (D3): the plan's SnapEngine, one per section scene; F3
+        # toggles this scene only. Model_Space's attribute names, so the shared
+        # manipulator / grip / handle-snap paths read them unchanged.
+        from .snap_engine import SnapEngine
+        # Read through the ``_snap_engine`` property, which syncs the plan's
+        # per-type toggles on every read (integrator OPEN-1).
+        self._snap_engine_obj = SnapEngine()
+        self._snap_result = None          # the marker SectionView paints
+        self._snap_enabled = True
 
-        # Per-view Z-extent overrides keyed by gridline label live on the
-        # marker (see the ``_gridline_z_overrides`` property) so they persist.
-        # Keyed by gridline label → {"v_top": float, "v_bot": float}
+        # Per-section end records live on the marker so they persist and ride
+        # undo (elevation-parity D7): ``gridline_z_overrides`` (gridline uid ->
+        # {"v_top", "v_bot"}, see the ``_gridline_z_overrides`` property) and
+        # ``datum_ends`` (level name -> {"left", "right"}).
 
         # Grip-drag state (mirrors Model_Space pattern). KEPT after the legacy
         # _find_grip_hit path was retired: the manipulator's live-apply
@@ -866,6 +1156,22 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         # HALO preselection + scene-drawn rubber-band state (mixin).
         self._init_halo_state()
 
+        # Modify host (elevation parity D2): the plan's ModifyToolsController
+        # and its transients via ModifyHostMixin. scene_role is set BEFORE the
+        # constraint controller: any role but plan / block_editor leaves it
+        # disabled (a missing role would read as "plan" and enable it).
+        from .constraint_controller import ConstraintController
+        self.scene_role = "section"
+        self.constraint_ctl = ConstraintController(self)
+        self._init_modify_host()
+        # Typed input (C-9): the plan's Dynamic Input HUD coordinator; the
+        # modify schemas only (the section has no draw tools).
+        from .placement_input_coordinator import PlacementInputCoordinator
+        self._plc = PlacementInputCoordinator(self)
+        self._modify_skipped = 0        # read-only items the last tool left out (R3)
+        self._rebuild_held = False      # a debounced rebuild waiting for a tool to end
+        self.modeChanged.connect(self._run_held_rebuild)
+
         # Theme (re-applied by rebuild(), so a live theme switch follows)
         self._apply_theme_colours()
         self._datum_color = QColor("#4488cc")
@@ -877,14 +1183,16 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._rebuild_timer = QTimer(self)
         self._rebuild_timer.setSingleShot(True)
         self._rebuild_timer.setInterval(100)
-        self._rebuild_timer.timeout.connect(self.rebuild)
+        self._rebuild_timer.timeout.connect(self._rebuild_when_idle)
         self._ms.sceneModified.connect(self._schedule_rebuild)
-        self.selectionChanged.connect(self._on_selection_changed)
+        # The selection reaches the Properties panel through MainWindow
+        # (selectionChanged -> _sources_of(selectedItems()), elevation-parity D8).
 
         # Selection manipulator — sole grip owner (retires _find_grip_hit).
         # Mirrors Model_Space._create_manipulator with an elevation commit hook
-        # (no undo — elevation has none) and an exclude that keeps datum bubble
-        # decoration out of the wrap so only the top-level item is framed.
+        # (records the ends, one plan-stack undo step: D7) and an exclude that
+        # keeps datum bubble decoration out of the wrap so only the top-level
+        # item is framed.
         self._manipulator = None
         self._create_manipulator()
 
@@ -916,12 +1224,19 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return isinstance(item, BoundLabelItem)
 
     def _commit_elev_grip(self, mode):
-        """Manipulator commit hook (no undo). Persist each selected gridline's
-        adjusted Z-extent into ``_gridline_z_overrides``; datum edits are
-        session-only (parity)."""
+        """Manipulator commit hook (elevation-parity D7 / AC11). Record each
+        selected gridline's Z-extent and each selected level datum's H-extent
+        on the section marker; a changed record joins the gesture's ONE undo
+        step on the plan stack -- the same push a hosted drag pending in this
+        gesture takes (``_flush_hosted_push``)."""
+        changed = False
         for it in self.selectedItems():
-            if isinstance(it, ElevGridlineItem):
-                it._commit_grip_override()
+            if isinstance(it, (ElevGridlineItem, ElevDatumItem)):
+                changed = it._commit_grip_override() or changed
+        if changed:
+            # One pending step through the shared mark (the push-aware flush
+            # skips a pending flag set without a mark: integrator S6 / PI-08).
+            self._mark_section_edit()
         # The manipulator's release hook closes a hosted drag: one undo step
         # now (the timer in _move_hosted_source is the fallback for a bare
         # translate with no gesture).
@@ -941,30 +1256,50 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return item
 
     def _emit_halo_readout(self):
-        """Emit the HALO stack readout (§3.3) on ``cursorMoved``.
+        """Emit the HALO stack readout (selection-mode §3.3) on
+        ``instructionChanged`` -- the footer line, as
+        ``Model_Space._emit_halo_readout`` (elevation-parity D8).
 
-        Defined now to avoid a latent AttributeError from the mixin's
-        ``halo_update``; the elevation view's HALO wiring lands in the next
-        task. Format mirrors Model_Space: ``"<Type> — <i> of <N>"``."""
+        Format ``"<Type> — <i> of <N>"`` plus ``"  (<name>)"`` when the shown
+        object has a name; *Type* is the model source the item stands for
+        (``section_source_of``), so a pipe proxy reads ``Pipe``. An empty
+        string (no candidate) clears the line.
+        """
         item = self.halo_item()
         if item is None:
+            self.instructionChanged.emit("")
             return
+        src = section_source_of(item)
+        shown = src if src is not None else item
         n = len(self._halo_candidates)
-        self.cursorMoved.emit(f"{type(item).__name__} — {self._halo_index + 1} of {n}")
+        readout = f"{type(shown).__name__} — {self._halo_index + 1} of {n}"
+        name = getattr(shown, "name", None)
+        if isinstance(name, str) and name:
+            readout += f"  ({name})"
+        self.instructionChanged.emit(readout)
 
     # ── Selection sync ───────────────────────────────────────────────────
 
-    def _on_selection_changed(self):
-        """When items are selected (click or rubber-band), emit source entity."""
-        selected = self.selectedItems()
-        if selected:
-            # Emit the last selected item's source entity
-            for item in reversed(selected):
-                source = item.data(_ROLE_SOURCE)
-                if source is not None:
-                    self.entitySelected.emit(source)
-                    return
-        self.entitySelected.emit(None)
+    def _sources_of(self, items) -> list:
+        """The model objects *items* stand for (``section_source_of``), each
+        once, in order; items with no source and None entries are left out
+        (elevation-parity D8 / R6; S2: the one de-dup of a section
+        selection -- Properties, Hide, the context menu).
+
+        Args:
+            items: Section items (None entries skipped).
+
+        Returns:
+            De-duplicated model sources.
+        """
+        out, seen = [], set()
+        for it in items:
+            src = section_source_of(it) if it is not None else None
+            if src is None or id(src) in seen:
+                continue
+            seen.add(id(src))
+            out.append(src)
+        return out
 
     # ── Mouse handling ────────────────────────────────────────────────────
     # The legacy grip path (_find_grip_hit + _grip_dragging lifecycle) was
@@ -973,6 +1308,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # manipulator's live-apply GripHandle borrows them during a drag.
 
     def mousePressEvent(self, event):
+        # A live Note editor owns presses inside its box; an outside press
+        # commits and falls through (text-annotation-system, Inline edit).
+        if self._text_edit_ctl.handle_press(event):
+            return
+        if (event.button() == Qt.MouseButton.LeftButton
+                and getattr(self, "mode", None) == "note"):
+            self._note_ctl.tool_click(event.scenePos())     # tip, elbow, box edge (D4)
+            event.accept()
+            return
+        # A running modify tool owns the left press (ModifyHostMixin, D2).
+        if self.modify_mouse_press(event):
+            return
         if event.button() == Qt.MouseButton.RightButton:
             # Don't pass right-click to base — it deselects items.
             # contextMenuEvent handles right-click menus separately.
@@ -1017,59 +1364,335 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        # A running modify tool: ghost, handle snap, readout (D2).
+        if self.modify_mouse_move(event):
+            return
+        if self._text_edit_ctl.handle_move(event):
+            return
+        if getattr(self, "mode", None) == "note":
+            self._note_ctl.tool_move(event.scenePos())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def keyPressEvent(self, event):
+        # A running modify tool: flip arrows, Enter commit, Esc (D2).
+        if self.modify_key_press(event):
+            return
+        super().keyPressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._text_edit_ctl.handle_release(event):
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        # Double-click on a Note copy opens its editor (D13 via D4).
+        if self._text_edit_ctl.handle_double_click(event):
+            return
+        super().mouseDoubleClickEvent(event)
+
     def contextMenuEvent(self, event):
-        """Show right-click context menu for elevation view entities."""
-        from .entity_context_menu import build_entity_context_menu
-
-        # Find entity under cursor
-        target = None
-        for item in self.items(event.scenePos()):
-            source = item.data(_ROLE_SOURCE)
-            if source is not None:
-                target = item
-                break
-            if isinstance(item, (ElevDatumItem, ElevGridlineItem)):
-                target = item
-                break
-
+        """Right-click menu (D6, R10): plan's shared builder with plan's
+        callbacks, each acting on the model source of the right-clicked item.
+        An empty-canvas right-click acts on the selection (never on None)."""
+        if self._text_edit_ctl.handle_context_menu(event):
+            return                       # the native text menu inside a live editor
+        target = self._context_target(event.scenePos())
         if target is not None and not target.isSelected():
             self.clearSelection()
             target.setSelected(True)
+        self._build_section_context_menu(target).exec(event.screenPos())
+        event.accept()
 
+    def _context_target(self, pos):
+        """The section item a right-click at *pos* is about, or None: the
+        topmost item with a model source (or a datum / elevation gridline),
+        else the HALO-nearest candidate in the aperture (a line-only block is
+        not "inside" its shape -- plan's ``_nested_block_near`` precedent)."""
+        for item in self.items(pos):
+            it = self._halo_resolve(item)
+            if not (it.flags() & it.GraphicsItemFlag.ItemIsSelectable):
+                continue    # a pipe label: a Hide source (T31), never a menu target
+            if (section_source_of(it) is not None
+                    or isinstance(it, (ElevDatumItem, ElevGridlineItem))):
+                return it
+        from . import halo_selection
+        for v in sorted(self.views(), key=lambda v: not v.isVisible())[:1]:
+            a = halo_selection.HALO_APERTURE_PX / max(v.transform().m11(), 1e-9)
+            ranked = self.halo_candidates_at(pos, a, v.viewportTransform())
+            if ranked and section_source_of(ranked[0]) is not None:
+                return ranked[0]
+        return None
+
+    def _build_section_context_menu(self, target):
+        """Build (no exec) the section right-click menu -- split out so tests
+        can read the production wiring (plan's ``_build_entity_context_menu``
+        precedent).
+
+        Args:
+            target: The right-clicked section item, or None (empty canvas).
+
+        Returns:
+            The populated ``QMenu``.
+        """
+        from .entity_context_menu import build_entity_context_menu
         selected = self.selectedItems()
-        source_entity = target.data(_ROLE_SOURCE) if target else None
-
-        menu = build_entity_context_menu(
+        picked = [i for i in [target] + selected if i is not None]
+        # Empty canvas: no target, no source (S5: never map None).
+        src = section_source_of(target) if target is not None else None
+        # A datum stands for its Level (T12), which no Hide can take (S2).
+        hideable = src is not None and hasattr(src, "_display_overrides")
+        is_block = isinstance(target, (_HostedBlockCopy, _SectionNoteCopy))
+        views = sorted(self.views(), key=lambda v: not v.isVisible())
+        return build_entity_context_menu(
             selected,
             target,
             scene=self._ms,
-            on_hide=lambda: self._hide_elev_items(
-                [target] + [i for i in selected if i is not target]
-            ),
-            on_show_all=lambda: self._show_all_elev_hidden(),
-            on_delete=lambda: self._delete_elev_selected(),
-            on_properties=lambda: (
-                self.entitySelected.emit(source_entity) if source_entity else None
-            ),
-            on_refresh=lambda: self.rebuild(),
+            on_copy=lambda: self._modify_ctl.start("copy"),
+            on_cut=lambda: self._modify_ctl.start("cut"),
+            on_hide=lambda: self._hide_section_items(picked),
+            on_hide_all_type=(
+                (lambda _checked=False, t=type(src): self._hide_all_of_source_type(t))
+                if hideable else None),
+            hide_type_name=type(src).__name__ if hideable else None,
+            on_show_all=self._show_all_elev_hidden,
+            on_delete=self._delete_elev_selected,
+            on_properties=(
+                (lambda _checked=False, s=src: self._ms.requestPropertyUpdate.emit(s))
+                if src is not None else None),
+            on_edit_block=(
+                (lambda _checked=False, bid=src.block_id:
+                 self._ms.blockEditRequested.emit(bid))
+                if is_block and src is not None else None),
+            on_fit=views[0].fit_to_screen if views else None,
+            on_refresh=self.rebuild,
         )
-        menu.exec(event.screenPos())
 
-    def _hide_elev_items(self, items):
-        """Hide elevation items and their source entities."""
-        for item in items:
-            source = item.data(_ROLE_SOURCE) if item else None
-            if source is not None and hasattr(source, "_display_overrides"):
-                source._display_overrides["visible"] = False
-            item.setVisible(False)
-            lab = getattr(item, "pipe_label", None)
-            if lab is not None:
-                lab.setVisible(False)
+    def _hide_all_of_source_type(self, item_type) -> None:
+        """Hide All (<type>) from a section: the plan's global Hide All of the
+        model type (R10), then this section's pass."""
+        self._ms._hide_all_of_type(item_type)
+        self._apply_hidden_pass()
+
+    def _hide_section_items(self, items) -> None:
+        """Section Hide (D5, R8): the plan's Hide on the de-duplicated model
+        sources of *items* -- one global flag, so they leave plan and every
+        section and stay hidden through rebuilds and save / reopen. Items
+        with no source (datums) are skipped; None is never touched."""
+        sources = [s for s in self._sources_of(items)   # the one de-dup (S2)
+                   if hasattr(s, "_display_overrides")]     # a datum's Level is not hideable
+        if sources:
+            self._ms._hide_items(sources)        # hiddenChanged -> every section's pass
+        self._apply_hidden_pass()                # also a scene no manager tracks
 
     def _show_all_elev_hidden(self):
-        """Restore all hidden source entities and rebuild."""
+        """Section "Show All Hidden" (R9): the plan's Show All, then this
+        section's pass re-shows what it hid. No rebuild."""
         self._ms._show_all_hidden()
+        self._apply_hidden_pass()
+
+    # -- Modify host (elevation parity D2; ModifyHostMixin hooks) ----------
+
+    #: Modes whose entry reports the read-only items a tool leaves out (R3):
+    #: the modes of the select-first tools.
+    _SKIP_REPORT_MODES = frozenset(
+        ModifyToolsController._TOOL_MODE[t]
+        for t in ModifyToolsController._SELECT_FIRST)
+
+    def modify_selection(self) -> list:
+        """ModifyHostMixin hook: the editable subset of the selection
+        (``is_section_editable``: hosted-block and Note copies). Records how
+        many read-only items it left out, for the R3 footer.
+
+        Returns:
+            The editable selected items, in selection order.
+        """
+        sel = list(self.selectedItems())
+        editable = [it for it in sel if is_section_editable(it)]
+        self._modify_skipped = len(sel) - len(editable)
+        return editable
+
+    def modify_empty_hint(self) -> str:
+        """ModifyHostMixin hook: the R3 refusal when nothing selected is
+        editable here (or the plain select-first hint with no selection)."""
+        n = len(self.selectedItems())
+        return (SECTION_EDIT_SKIPPED.format(n=n) if n
+                else super().modify_empty_hint())
+
+    def _capture_modify_selection(self, mode) -> None:
+        """The mixin's entry capture, then the R3 footer: a select-first tool
+        entered over a mixed selection says how many items it leaves alone
+        (they stay selected and unchanged)."""
+        super()._capture_modify_selection(mode)
+        if mode in self._SKIP_REPORT_MODES:
+            # The mixin captures only when nothing is held, so a bare
+            # set_mode over a changed selection would report the previous
+            # tool's count: recount against the selection as it is now.
+            self.modify_selection()
+        if mode in self._SKIP_REPORT_MODES and self._modify_skipped:
+            self._show_status(SECTION_EDIT_SKIPPED.format(n=self._modify_skipped))
+
+    def push_undo_state(self) -> None:
+        """One step on the shared plan stack (R13 / AC11). A pending deferred
+        section step (a copy write marked for the drag / write-back flush) is
+        folded into this push, so a tool commit is one step, never two."""
+        self._hosted_push_pending = False
+        self._ms.push_undo_state()
+
+    def _halo_mode_ok(self) -> bool:
+        """HaloSelectionMixin hook: HALO hover runs only in Select (plan
+        parity, ``Model_Space._halo_mode_ok``); a running tool owns the
+        cursor."""
+        return getattr(self, "mode", None) in (None, "select")
+
+    def _hud_scale_manager(self):
+        """ModifyHostMixin hook (C-9): the project's units, never calibrated
+        -- section-scene units are mm."""
+        # The model's live ScaleManager (a project open replaces it), ``_sm``
+        # the fallback (R-C9b-01).
+        return _SectionHudScale(getattr(self._ms, "scale_manager", None) or self._sm)
+
+    def _rebuild_when_idle(self) -> None:
+        """The debounced rebuild (``_rebuild_timer``), held while a modify
+        tool runs: the tool holds the copies it acts on (``_selected_items``)
+        and ``rebuild()``'s ``clear()`` would delete them under it. The held
+        rebuild runs when the tool ends (``_run_held_rebuild``)."""
+        if getattr(self, "mode", None) in self._MODIFY_MODES:
+            self._rebuild_held = True
+            return
         self.rebuild()
+
+    def _run_held_rebuild(self, mode) -> None:
+        """``modeChanged`` slot: a tool ended, so schedule the rebuild it held."""
+        if self._rebuild_held and mode not in self._MODIFY_MODES:
+            self._rebuild_held = False
+            self._schedule_rebuild()
+
+    # Required clipboard hooks (ModifyHostMixin REQUIRED_HOST_METHODS): a
+    # section copies, pastes and cuts only its write-back copies (D2).
+
+    def _clipboard_item_dicts(self, items) -> list:
+        """Clipboard records of the editable *items*: a hosted copy's
+        ``to_dict`` (with ``section_host``), a Note copy's model record
+        (area E, ``_note_clipboard_record``); read-only proxies give none."""
+        out = []
+        for it in items:
+            if isinstance(it, _HostedBlockCopy):
+                if it.data(_ROLE_SOURCE) is not None:
+                    out.append(it.to_dict())
+            elif is_section_editable(it):        # a section Note copy (E-9)
+                out.append(self._note_clipboard_record(it))
+        return out
+
+    def _paste_accepts(self, obj: dict) -> bool:
+        """The section's paste allow-list (R5): a hosted-block record
+        (``section_host``) or a section's Note (area E's ``note_allowed``).
+        Plan records (walls, pipes, plain blocks, plan / detail Notes) are
+        refused -- they are edited in plan."""
+        if obj.get("type") != "block_instance":
+            return False
+        if obj.get("section_host"):
+            return True
+        return bool(obj.get("note")) and self.note_allowed(obj)
+
+    def paste_items(self, offset, data=None, constraints=None, rotation_deg=None) -> list:
+        """Create the accepted records here, shifted by *offset*.
+
+        A hosted block lands on its own host gridline at the shifted point
+        (R4); a section Note joins this section (E-13). Records this view
+        cannot take are skipped -- the caller counts them (R5). The caller
+        pushes the undo step.
+
+        Args:
+            offset: Section-scene displacement (mm).
+            data: Records; defaults to the clipboard payload's items.
+            constraints: Unused (section copies carry no constraints).
+            rotation_deg: Unused (Polar Array turns the copies itself).
+
+        Returns:
+            The new section copies.
+        """
+        if data is None:
+            payload = self.clipboard_payload()
+            data = payload["items"] if payload else []
+        new = []
+        for obj in data:
+            if not self._paste_accepts(obj):
+                continue
+            if obj.get("section_host"):
+                cp = self._place_hosted_record(obj, offset)
+            else:
+                cp = self._paste_note_record(obj, offset)
+            if cp is not None:
+                new.append(cp)
+        return new
+
+    def _add_from_dict(self, d: dict):
+        """Mirror's copy path: the same record -> a new model record here,
+        unshifted (the tool then reflects the returned copy)."""
+        if not self._paste_accepts(d):
+            return None
+        if d.get("section_host"):
+            return self._place_hosted_record(d, QPointF(0.0, 0.0))
+        return self._paste_note_record(d, QPointF(0.0, 0.0))
+
+    def _bulk_delete(self, selected, selected_set):
+        """Cut: delete the model records behind the editable copies in
+        *selected* (no undo push: the caller pushes one step) and take
+        those copies out of this scene now.
+
+        Returns:
+            The plan ``_bulk_delete`` result ``(names, n_hosted)``.
+        """
+        srcs, gone = [], []
+        for it in selected:
+            if not is_section_editable(it):
+                continue
+            src = it.data(_ROLE_SOURCE)
+            if src is not None and src in self._ms._block_instances:
+                srcs.append(src)
+            gone.append(it)
+        for it in gone:
+            top = it.parentItem() or it          # a laterally clipped copy's clip rect
+            if top.scene() is self:
+                self.removeItem(top)
+        self._hosted_copies = {k: c for k, c in self._hosted_copies.items()
+                               if all(c is not g for g in gone)}
+        return self._ms._bulk_delete(srcs, set(srcs))
+
+    # ── Hide (elevation-parity D5) ──────────────────────────────────────
+
+    # (The source map is the module function ``section_source_of`` and the
+    # de-dup is ``_sources_of``; no second copy lives here.)
+
+    def _apply_hidden_pass(self) -> None:
+        """Hide every item whose model source carries the user's Hide and
+        re-show the ones this pass hid whose source is visible again (D5, R8).
+
+        No rebuild: runs at the end of :meth:`rebuild` and, through
+        ``SectionManager``, on ``Model_Space.hiddenChanged``. A hidden item is
+        deselected first (edge case "hidden source whose proxy is the current
+        selection"). Items hidden for any other reason are never re-shown."""
+        for it in self.items():
+            src = it.data(_ROLE_SOURCE)
+            if src is None:
+                src = it.data(_ROLE_HIDE_SOURCE)
+            if src is None and isinstance(it, ElevGridlineItem):
+                src = it._gridline
+            if src is None:
+                continue
+            by_pass = getattr(it, "_hidden_by_pass", False)
+            if _source_hidden(src):
+                if not by_pass:
+                    if it.isSelected():
+                        it.setSelected(False)
+                    it.setVisible(False)
+                    it._hidden_by_pass = True
+            elif by_pass:
+                it.setVisible(True)
+                it._hidden_by_pass = False
 
     def _move_hosted_source(self, copy, dx: float, dy: float) -> None:
         """A drag on a hosted copy moves its model block in its plane only:
@@ -1085,23 +1708,125 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         host["along_mm"] = float(host["along_mm"]) + dx * hb.h_sign(self._basis, gl)
         host["elevation_mm"] = float(host["elevation_mm"]) - dy
         self._ms._sync_hosted_blocks(gl)
-        if not self._hosted_push_pending:
-            self._hosted_push_pending = True
-            QTimer.singleShot(0, self._flush_hosted_push)
+        self._mark_section_edit()
+
+    def _mark_section_edit(self) -> None:
+        """Mark one pending section undo step (a hosted drag, a write-back,
+        a Note copy write, a datum / gridline end edit): the manipulator
+        release (``_commit_elev_grip``), a tool commit's own
+        ``push_undo_state`` (which folds it in) or the deferred flush
+        records it once (D10, AC11). The undo top at the mark lets the flush
+        skip when a push since already recorded the edit."""
+        if self._hosted_push_pending:
+            return
+        self._hosted_push_pending = True
+        self._edit_mark_state = self._undo_top_state()
+        QTimer.singleShot(0, self._flush_hosted_push)
+
+    def _undo_top_state(self):
+        """The plan undo stack's current state object (its identity marks a push)."""
+        stack = getattr(self._ms, "_undo_stack", None) or []
+        pos = getattr(self._ms, "_undo_pos", -1)
+        return stack[pos] if 0 <= pos < len(stack) else None
 
     def _flush_hosted_push(self) -> None:
-        """Push the one undo step for a hosted drag (no-op when none pending)."""
+        """Push the one pending section step, unless a push since the mark
+        already recorded the edit (a modify-tool or Note-editor commit): one
+        step per edit either way. No-op when none is pending."""
         if not self._hosted_push_pending:
             return
         self._hosted_push_pending = False
+        mark, self._edit_mark_state = self._edit_mark_state, None
+        if self._undo_top_state() is not mark:
+            return
         self._ms.push_undo_state()
+
+    def _write_hosted_pose(self, copy, old_xy) -> None:
+        """Write hosted *copy*'s new in-plane pose to its model block
+        (elevation parity D2; probe C-1 -- the inverse of
+        ``hosted_blocks.section_pose``).
+
+        The copy's h / v move ``along_mm`` (by the section's h direction) /
+        ``elevation_mm`` (gridline, offset and facing are kept); its
+        rotation / mirror / scale become the model's ``_pose_rot`` /
+        ``_pose_mirrored`` / ``_pose_scale`` -- rotation negated and mirror
+        toggled when this section sees the host from its far side (D4),
+        scale times pixels-per-mm (copies are built at ``scale / ppm``).
+        Marks one pending section undo step.
+
+        Args:
+            copy: The ``_HostedBlockCopy`` a tool just transformed.
+            old_xy: Its ``block_pos()`` before the transform.
+        """
+        from . import hosted_blocks as hb
+        src = copy.data(_ROLE_SOURCE)
+        host = getattr(src, "host", None)
+        gl = self._ms.gridline_by_uid(host.get("gridline")) if host else None
+        if gl is None:
+            return
+        back = hb.facing_of(self._basis, gl) != int(host.get("facing", 1))
+        x, y = copy.block_pos()
+        host["along_mm"] = (float(host["along_mm"])
+                            + (x - old_xy[0]) * hb.h_sign(self._basis, gl))
+        host["elevation_mm"] = -y
+        rot = copy.block_rotation()
+        src.set_block_rotation(-rot if back else rot)
+        src.set_block_mirrored(copy.block_mirrored() != back)
+        src.set_block_scale(copy.block_scale() * self._ppm())
+        self._ms._sync_hosted_blocks(gl)
+        self._mark_section_edit()
+
+    # ── Shared project undo stack (elevation-parity R13 / D1) ────────────
+    # A section owns no stack: every section edit pushes onto the plan
+    # Model_Space's, and Ctrl+Z / Ctrl+Y / the header buttons on a section tab
+    # (MainWindow._dispatch_undo -> _active_scene()) step that same stack.
+
+    def _ready_for_shared_undo(self) -> bool:
+        """End section-side state a restore would orphan; False = refuse.
+
+        Refused while the section manipulator drags (the restore rebuilds the
+        items under the gesture -- plan's ``_manip_drag_blocks_undo``). A
+        hosted drag's deferred step is pushed first, so the undo reverts the
+        drag. A running modify tool ends (plan's
+        ``_cancel_modify_tool_for_undo``; ``_modify_ctl`` is area C's host).
+
+        Returns:
+            True when the shared stack may be stepped now.
+        """
+        m = self._live_manip()
+        if m is not None and m.is_dragging():
+            return False
+        self._flush_hosted_push()
+        ctl = getattr(self, "_modify_ctl", None)
+        if ctl is not None and getattr(self, "mode", None) in ctl.CANCEL_ON_UNDO_MODES:
+            self.set_mode(None)
+        return True
+
+    def undo(self) -> None:
+        """Step the shared plan stack back (see ``_ready_for_shared_undo``)."""
+        if self._ready_for_shared_undo():
+            self._ms.undo()
+
+    def redo(self) -> None:
+        """Step the shared plan stack forward (see ``_ready_for_shared_undo``)."""
+        if self._ready_for_shared_undo():
+            self._ms.redo()
+
+    def can_undo(self) -> bool:
+        """The shared plan stack's undo state (header rail)."""
+        return self._ms.can_undo()
+
+    def can_redo(self) -> bool:
+        """The shared plan stack's redo state (header rail)."""
+        return self._ms.can_redo()
 
     def _delete_elev_selected(self):
         """Delete source entities for selected elevation items."""
+        copies = (_HostedBlockCopy, _SectionNoteCopy)   # plan-hidden model blocks (D11, D4)
         hosted = [it.data(_ROLE_SOURCE) for it in self.selectedItems()
-                  if isinstance(it, _HostedBlockCopy)]
+                  if isinstance(it, copies)]
         others = [it for it in self.selectedItems()
-                  if not isinstance(it, _HostedBlockCopy)]
+                  if not isinstance(it, copies)]
         # Only the section's selection is deleted: a stale plan selection must
         # not ride along into delete_items / delete_selected_items.
         plan_sel = list(self._ms.selectedItems())
@@ -1135,6 +1860,134 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     @property
     def _gridline_z_overrides(self) -> dict:
         return self._marker.gridline_z_overrides
+
+    @property
+    def active_view_key(self) -> str:
+        """The view key this section owns Notes under (D4): ``section:`` +
+        the marker's view name (a cardinal's direction, a placed section's
+        name), read live so a rename re-keys the scene with its marker."""
+        return f"section:{self._marker.view_name}"
+
+    # ── Notes (elevation-parity D4) ─────────────────────────────────────
+
+    @property
+    def _block_registry_owner(self):
+        """The project scene that owns block definitions (system Note block,
+        leader ends) -- the paper scene's precedent (paper_space.py:2907)."""
+        return self._ms
+
+    def note_allowed(self, rec: "dict | None" = None) -> bool:
+        """Whether a Note can live here: a section always holds its own; a
+        pasted record only when it is a section's note (D4 / R5)."""
+        if rec is None:
+            return True
+        view = str(((rec.get("note") or {}).get("view")) or "")
+        return view.startswith("section:")
+
+    def note_tool_allowed(self) -> bool:
+        """The Note tool runs on every section and elevation tab (D4)."""
+        return True
+
+    def note_instance_live(self, inst) -> bool:
+        """``note_controller._note_live`` for this scene: *inst* is one of
+        this section's Note copies whose model note still exists."""
+        return (isinstance(inst, _SectionNoteCopy) and inst.scene() is self
+                and inst.data(_ROLE_SOURCE) in getattr(self._ms, "_block_instances", ()))
+
+    def place_block_instance(self, block_id: str, pos, **kwargs):
+        """The Note tool's placement (``NoteController._place_note``): the
+        model Note goes to the plan store, keyed to this section and hidden on
+        the plan canvas; returns its section copy. Only Notes place here.
+
+        Returns:
+            The ``_SectionNoteCopy``, or None (no note record / refused).
+        """
+        if not kwargs.get("note"):
+            return None
+        src = self._ms.place_block_instance(block_id, pos, **kwargs)
+        if src is None:
+            return None
+        src.note["view"] = self.active_view_key
+        src.setVisible(False)                    # view-owned: never on the plan canvas
+        cp = self._add_note_copy(src)
+        cp._fresh = True                         # the editor commit pushes place + type (D13)
+        return cp
+
+    def remove_block_instance(self, inst) -> None:
+        """Remove a Note copy and its model note (empty-text commit, a
+        discarded new note). No undo push: the caller's step carries it."""
+        src = inst.data(_ROLE_SOURCE) if isinstance(inst, _SectionNoteCopy) else None
+        if inst.scene() is self:
+            self.removeItem(inst)
+        if src is not None:
+            self._note_copies.pop(id(src), None)
+            self._ms.remove_block_instance(src)
+
+    def _end_placement_switch(self, item=None) -> None:
+        """After the Note tool placed *item*: back to Select with it selected
+        (``Model_Space._end_placement_switch`` for a section's one placement)."""
+        self.set_mode(None)
+        self.clearSelection()
+        if item is not None and item.scene() is self:
+            item.setSelected(True)
+
+    def _format_cursor_readout(self, pt) -> str:
+        """``H / Z`` readout of scene point *pt* (the editor's drag readout)."""
+        sm = getattr(self._ms, "scale_manager", None) or self._sm
+        fmt = getattr(sm, "format_length", None)
+        h, z = pt.x(), -pt.y()
+        if fmt is None:
+            return f"H: {h:.0f} mm  Z: {z:.0f} mm"
+        return f"H: {fmt(h)}  Z: {fmt(z)}"
+
+    def commit_text_edit(self):
+        """End a live Note edit on this scene (idempotent; main's
+        ``_commit_text_edits`` and the editor's own Esc / Ctrl+Enter)."""
+        return self._text_edit_ctl.commit()
+
+    def _note_clipboard_record(self, copy) -> dict:
+        """The clipboard record of Note copy *copy*: its model note's record
+        (``note["view"] == "section:<name>"``, pose in this frame). Area C's
+        section ``_clipboard_item_dicts`` serialises a ``_SectionNoteCopy``
+        through this."""
+        src = copy.data(_ROLE_SOURCE)
+        return (src if src is not None else copy).to_dict()
+
+    def _paste_note_record(self, obj: dict, offset):
+        """Paste Note record *obj* here, shifted rigidly by *offset* (D4, R5,
+        D7: the tip moves with it). Only a section's note is accepted; it joins
+        THIS section. Area C's section ``paste_items`` calls this for a
+        ``block_instance`` record carrying a ``note``; the caller pushes the
+        undo step.
+
+        Returns:
+            The new, selected ``_SectionNoteCopy``; None after the refusal status.
+        """
+        from .model_space import NOTE_INTO_SECTION_REFUSED
+        if not self.note_allowed(obj):
+            self._show_status(NOTE_INTO_SECTION_REFUSED)
+            return None
+        p = obj.get("pos", [0.0, 0.0])
+        src = self._ms.place_block_instance(
+            obj["block_id"], (p[0] + offset.x(), p[1] + offset.y()),
+            **BlockInstance.place_kwargs(obj))
+        if src is None:
+            return None
+        src.attributes = dict(obj.get("attributes", {}))
+        src.note["view"] = self.active_view_key        # the copy joins this section
+        src.shift_note_leader(offset.x(), offset.y())  # a copy is rigid (D7)
+        src.setVisible(False)                          # never on the plan canvas
+        cp = self._add_note_copy(src)
+        cp.setSelected(True)
+        return cp
+
+    def set_mode(self, mode, template=None):
+        """The host mixin's ``set_mode`` plus the Note tool's rule: leaving
+        the tool drops a half-made note (``Model_Space.set_mode`` 1340)."""
+        self._text_edit_ctl.commit()     # a tool switch ends any inline edit (Step 0, OPEN-4)
+        if mode != "note":
+            self._note_ctl.cancel_tool()
+        return super().set_mode(mode, template)
 
     @property
     def show_datums(self) -> bool:
@@ -1184,10 +2037,12 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             self.modeChanged.emit("select")
 
     def _drop_place_state(self) -> None:
-        """Clear the armed id and remove the ghost, emitting nothing."""
+        """Clear the armed id, the placement's snap marker and the ghost,
+        emitting nothing."""
         g, self._place_ghost = self._place_ghost, None
         self._place_block_id = None
         self._place_ghost_pt = None
+        self._snap_result = None
         if g is not None and g.scene() is self:
             self.removeItem(g)
 
@@ -1232,30 +2087,111 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         return self.place_hosted_block(bid, scene_pt, rotation=self._place_rot,
                                        mirrored=self._place_mirrored)
 
-    def _snap_tol_scene(self, view) -> float:
-        """The shared OSNAP aperture in section-scene mm at *view*'s zoom."""
-        from .snap_engine import SNAP_TOLERANCE_PX, px_to_scene
-        return px_to_scene(float(SNAP_TOLERANCE_PX), view.transform().m11())
+    # ── Snap (elevation parity D3: the plan SnapEngine) ──────────────────
 
-    def snap_section_point(self, pt, view=None):
-        """Snap *pt* to level datums (Y), gridline verticals (X) and their
-        crossings within the shared OSNAP aperture (G15).
+    def snap_line_items(self) -> list:
+        """``SnapEngine`` hook: this build's elevation gridlines and level
+        datums, taken by ``find()`` phases 2-4 like the plan's ``_gridlines``
+        (``snap_engine._line_targets``). A datum's bounding rect is its head
+        and a gridline's hit shape is trimmed at its bubbles, so the cursor
+        rect query alone would miss the datum x gridline crossing (D3 step-1
+        probe)."""
+        return list(self._snap_lines)
 
-        SnapEngine.find was probed and cannot serve here: a datum line offers
-        only endpoint/midpoint and a gridline only a perpendicular "nearest",
-        never the datum x gridline crossing. Each axis snaps independently, so
-        a point near both lands on the crossing."""
-        if view is None:
-            return pt
-        tol = self._snap_tol_scene(view)
-        hs = [it.mapToScene(it.line().p1()).x() for it in self.items()
-              if isinstance(it, ElevGridlineItem)]
-        vs = [it.mapToScene(it.line().p1()).y() for it in self.items()
-              if isinstance(it, ElevDatumItem)]
-        x = min(hs, key=lambda h: abs(h - pt.x()), default=None)
-        y = min(vs, key=lambda v: abs(v - pt.y()), default=None)
-        return QPointF(x if x is not None and abs(x - pt.x()) <= tol else pt.x(),
-                       y if y is not None and abs(y - pt.y()) <= tol else pt.y())
+    def toggle_snap(self, enabled: bool | None = None) -> None:
+        """Toggle or set THIS section's SNAP (F3 / the footer SNAP pill through
+        ``MainWindow._active_scene()``); the plan scene's state is untouched
+        (AC13). Mirrors ``Model_Space.toggle_snap``.
+
+        Args:
+            enabled: None flips; a bool sets.
+        """
+        if enabled is None:
+            self._snap_enabled = not self._snap_enabled
+        else:
+            self._snap_enabled = bool(enabled)
+        self._snap_engine.enabled = self._snap_enabled
+        self._snap_result = None
+        for v in self.views():
+            v.viewport().update()
+        self.snapToggled.emit(self._snap_enabled)
+
+    @property
+    def _snap_engine(self):
+        """This section's ``SnapEngine`` with the plan engine's per-type
+        toggles copied in on EVERY read (integrator OPEN-1): the manipulator,
+        grip and Move handle-snap paths (``manip_handle.py:582``,
+        ``selection_manipulator.py:916/1460/1476``,
+        ``modify_tools_controller.py:831``) read ``scene._snap_engine`` and call
+        the engine directly, never ``snap_point``. None before ``__init__``
+        built it."""
+        eng = getattr(self, "_snap_engine_obj", None)
+        if eng is not None:
+            self._sync_snap_type_toggles()
+        return eng
+
+    def _sync_snap_type_toggles(self) -> None:
+        """Adopt the plan engine's per-type toggles (the footer osnap bar and
+        Settings write the plan engine only), so a section snaps to the same
+        kinds as plan."""
+        from .snap_engine import SNAP_TYPE_TOGGLES
+        src = getattr(self._ms, "_snap_engine", None)
+        if src is None:
+            return
+        for attr in SNAP_TYPE_TOGGLES:
+            setattr(self._snap_engine_obj, attr, getattr(src, attr))
+
+    def snap_point(self, scene_pos) -> QPointF:
+        """Snap *scene_pos* through this section's engine NOW (hosted-block
+        placement, a Blocks-browser drag): F3 respected, the placement ghost
+        (or the dragged grip item) excluded; the result is ``_snap_result``,
+        the marker ``SectionView.drawForeground`` paints. Replaces the retired
+        per-axis section snapper.
+
+        Args:
+            scene_pos: Cursor, section-scene coordinates.
+
+        Returns:
+            The snapped point, or a copy of *scene_pos* (no view, snap off,
+            nothing in the aperture).
+        """
+        from .handle_snap import HandleSnapResult
+        view = self._snap_view()
+        if not self._snap_enabled or view is None:
+            self._snap_result = None
+            return QPointF(scene_pos)
+        held = self._snap_result      # (the toggles sync on the _snap_engine read below)
+        if isinstance(held, HandleSnapResult):
+            held = None     # a handle's marker, not a cursor snap (Model_Space parity)
+        res = self._snap_engine.find(
+            QPointF(scene_pos), self, view.transform(),
+            exclude=self._grip_item if self._grip_dragging else self._place_ghost,
+            held=held)
+        self._snap_result = res
+        return QPointF(res.point) if res is not None else QPointF(scene_pos)
+
+    def get_effective_position(self, scene_pos) -> QPointF:
+        """The section's cursor-snap authority — ``Model_Space``'s name and
+        contract, so ``GripHandle._cursor_point`` and the section modify host
+        (area C) reach it: the engine runs while a grip drag or a tool mode is
+        live, never in plain select mode nor in a raw-cursor mode
+        (``snap_engine.raw_cursor_mode``). No ALIGN and no grid fallback in a
+        section.
+
+        Args:
+            scene_pos: Cursor, section-scene coordinates.
+
+        Returns:
+            The snapped point, or a copy of *scene_pos* (and no marker).
+        """
+        from .snap_engine import raw_cursor_mode
+        mode = getattr(self, "mode", None)          # ModifyHostMixin (area B); None before it
+        live = ((self._grip_dragging or mode not in (None, "select"))
+                and not raw_cursor_mode(mode, getattr(self, "pick_base_pos", None)))
+        if not live:
+            self._snap_result = None
+            return QPointF(scene_pos)
+        return self.snap_point(scene_pos)
 
     def place_hosted_block(self, block_id: str, scene_pt, rotation: float = 0.0,
                            mirrored: bool = False):
@@ -1357,11 +2293,21 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
     def rebuild(self):
         """Clear and re-project all entities from the model."""
+        keep = self._editable_selection_uids()   # re-selected after the rebuild
+        if getattr(self, "mode", None) in self._MODIFY_MODES:
+            # clear() would delete the copies a running tool holds: end it
+            # (the debounced path holds instead -- _rebuild_when_idle).
+            self.set_mode(None)
+        if self._note_ctl.overlay is not None:
+            self._text_edit_ctl.commit()       # clear() would delete a live editor
+        self._note_ctl.drop_previews()         # clear() deletes the Note tool's previews
         self._apply_theme_colours()
-        self._marker.auto_fit(self._ms)           # geometry re-seeded (s4.3); basis below reads it
+        self._marker.auto_fit(self._ms)          # geometry re-seeded (s4.3); basis below reads it
         self._refresh_basis()
         self._zones = {}
         self._cut_items = []
+        self._snap_lines = []               # re-filled by the gridline / datum projections
+        self._snap_result = None            # its source items die in clear()
         self._place_ghost = None            # clear() deletes it; re-armed below
         self.clear()
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
@@ -1377,7 +2323,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         self._project_gridlines()
         self._render_cut_items()
         self._project_geometry_2d()
+        self._project_section_notes()              # this section's Notes (D4)
         self._assign_depth_z_values()
+        self._reselect_editable(keep)
+        self._apply_hidden_pass()                  # hidden sources stay hidden (D5)
         if self._place_block_id is not None:        # placement survives a rebuild
             bid, rot, gpt = self._place_block_id, self._place_rot, self._place_ghost_pt
             mir = self._place_mirrored
@@ -1390,6 +2339,26 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                     self._place_ghost_pt = gpt
                     self._place_ghost.set_block_pos(*gpt)
 
+    def _editable_selection_uids(self) -> set:
+        """Model ``_uid`` of each selected editable copy's source (the key
+        that survives a rebuild and an undo restore)."""
+        uids = {getattr(it.data(_ROLE_SOURCE), "_uid", None)
+                for it in self.selectedItems() if is_section_editable(it)}
+        uids.discard(None)
+        return uids
+
+    def _reselect_editable(self, uids) -> None:
+        """Select the rebuilt copies whose model record's uid is in *uids*
+        (one ``selectionChanged``, selection-mode 5.9)."""
+        if not uids:
+            return
+        pool = (list(self._hosted_copies.values())
+                + list(getattr(self, "_note_copies", {}).values()))
+        again = [cp for cp in pool
+                 if getattr(cp.data(_ROLE_SOURCE), "_uid", None) in uids]
+        if again:
+            self.select_items(again)
+
     def _project_hosted_blocks(self):
         """Copies of gridline-hosted model blocks whose host is parallel to
         this cut (hosted-blocks D8): depth-cropped, depth-ordered, laterally
@@ -1397,48 +2366,170 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
         Visibility never follows the model block (always hidden in plan, D11).
         """
-        from . import hosted_blocks as hb
         self._hosted_copies = {}
+        for src in list(getattr(self._ms, "_block_instances", [])):
+            self._add_hosted_copy(src)
+
+    def _add_hosted_copy(self, src, interim: bool = False):
+        """Add (and return) the section copy of hosted model block *src*.
+
+        Args:
+            src: A model ``BlockInstance``; one without a valid host, whose
+                host is not parallel to this cut, or outside the depth /
+                lateral crop gets no copy.
+            interim: True for a copy added between rebuilds (a paste,
+                Duplicate, Array, Mirror): it goes straight to the tag band;
+                the next rebuild depth-sorts it with the rest (SB4d D5).
+
+        Returns:
+            The ``_HostedBlockCopy``, or None.
+        """
+        from . import hosted_blocks as hb
         ms, b, ppm = self._ms, self._basis, self._ppm()
-        for src in list(getattr(ms, "_block_instances", [])):
-            host = getattr(src, "host", None)
-            if not host or not hb.valid_host(host):
-                continue
-            gl = ms.gridline_by_uid(host.get("gridline"))
-            if gl is None or not hb.is_parallel(b, gl):
-                continue
-            pose = hb.section_pose(b, gl, host, src.block_rotation(),
-                                   src.block_mirrored(), ppm)
-            if pose is None:
-                continue
-            h, v, _d, mirrored, rot = pose
-            rec = src.to_dict()
-            rec.pop("host", None)                # the copy is not itself hosted
-            cp = _HostedBlockCopy.from_dict(rec, ms.get_block_definition)
-            cp.set_block_pos(h, v)
-            cp.set_block_rotation(rot)
-            cp.set_block_mirrored(mirrored)
-            cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
-            cp.setData(_ROLE_SOURCE, src)
-            # Measure in the scene: an annotative copy sizes from its scene's
-            # drawing scale, so its unparented bounds are the authored size.
-            self.addItem(cp)
-            br = cp.mapRectToScene(cp.boundingRect())
-            top = cp
-            if br.left() < b.h_min or br.right() > b.h_max:
-                if self._clip_h(br.left(), br.right()) is None:
-                    self.removeItem(cp)
-                    continue
-                clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
-                                                b.h_max - b.h_min, br.height() + 2.0))
-                clip.setPen(QPen(Qt.PenStyle.NoPen))
-                clip.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
-                self.addItem(clip)
-                cp.setParentItem(clip)
-                top = clip
+        host = getattr(src, "host", None)
+        if not host or not hb.valid_host(host):
+            return None
+        gl = ms.gridline_by_uid(host.get("gridline"))
+        if gl is None or not hb.is_parallel(b, gl):
+            return None
+        pose = hb.section_pose(b, gl, host, src.block_rotation(),
+                               src.block_mirrored(), ppm)
+        if pose is None:
+            return None
+        h, v, _d, mirrored, rot = pose
+        rec = src.to_dict()
+        rec.pop("host", None)                # the copy is not itself hosted
+        cp = _HostedBlockCopy.from_dict(rec, ms.get_block_definition)
+        cp.set_block_pos(h, v)
+        cp.set_block_rotation(rot)
+        cp.set_block_mirrored(mirrored)
+        cp.set_block_scale(src.block_scale() / ppm)   # section scene is mm
+        cp.setData(_ROLE_SOURCE, src)
+        # Measure in the scene: an annotative copy sizes from its scene's
+        # drawing scale, so its unparented bounds are the authored size.
+        self.addItem(cp)
+        br = cp.mapRectToScene(cp.boundingRect())
+        top = cp
+        if br.left() < b.h_min or br.right() > b.h_max:
+            if self._clip_h(br.left(), br.right()) is None:
+                self.removeItem(cp)
+                return None
+            clip = QGraphicsRectItem(QRectF(b.h_min, br.top() - 1.0,
+                                            b.h_max - b.h_min, br.height() + 2.0))
+            clip.setPen(QPen(Qt.PenStyle.NoPen))
+            clip.setFlag(QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape, True)
+            self.addItem(clip)
+            cp.setParentItem(clip)
+            top = clip
+        if interim:
+            top.setZValue(Z_ANNOT_TAG)       # the next rebuild re-sorts the band
+        else:
             wx, wy = hb.world_point(gl, host, ppm)
             self._hosted_depth.append((b.sort_key(wx, wy), top))   # tag band, not the depth walk (D5)
-            self._hosted_copies[id(src)] = cp
+        self._hosted_copies[id(src)] = cp
+        return cp
+
+    def get_block_definition(self, block_id):
+        """The project's block definition (the paste ghost builds block
+        records through the host's resolver, ``_clipboard_ghost_paths``)."""
+        return self._ms.get_block_definition(block_id)
+
+    def shows_host_gridline(self, gl) -> bool:
+        """True when this view can host on *gl*: parallel to the cut and
+        inside the view depth -- the placement rule (G8,
+        ``hosted_blocks.choose_host``) applied to *gl* alone (R4)."""
+        from . import hosted_blocks as hb
+        return (self._basis is not None
+                and hb.choose_host(self._basis, [gl], self._ppm()) is gl)
+
+    def _place_hosted_record(self, obj: dict, offset):
+        """Create a model block from hosted record *obj* (a copy's
+        ``to_dict``) at its section point shifted by *offset*, on the same
+        host gridline (R4: the point sets along / elevation; the record's
+        offset is kept), facing this view with the record's in-plane pose,
+        and add its section copy. No undo push (the caller pushes).
+
+        Returns:
+            The new ``_HostedBlockCopy``, or None when this view does not
+            show the host gridline (R4), the definition is missing or
+            refuses placement, or the point is outside this view's crop.
+        """
+        from . import hosted_blocks as hb
+        from .capabilities import place_refusal
+        sh = obj.get("section_host") or {}
+        gl = self._ms.gridline_by_uid(sh.get("gridline"))
+        if gl is None or not self.shows_host_gridline(gl):
+            return None
+        defn = self._ms.get_block_definition(obj.get("block_id"))
+        if defn is None or place_refusal(defn) is not None:
+            return None
+        p = obj.get("pos", [0.0, 0.0])
+        h, v = float(p[0]) + offset.x(), float(p[1]) + offset.y()
+        ppm = self._ppm()
+        host = hb.host_at(self._basis, gl, h, -v, ppm)
+        host["offset_mm"] = float(sh.get("offset_mm", 0.0))
+        scale = BlockInstance.place_kwargs(obj)["scale"] * ppm
+        inst = self._ms.place_block_instance(
+            obj["block_id"], (0.0, 0.0),
+            **{**BlockInstance.place_kwargs(obj), "host": host, "note": None,
+               "scale": scale})
+        if inst is None:
+            return None
+        inst.attributes = dict(obj.get("attributes", {}))
+        cp = self._add_hosted_copy(inst, interim=True)
+        if cp is None:                       # outside this view's depth / crop
+            self._ms.remove_block_instance(inst)
+        return cp
+
+    def _shows_record_host(self, obj: dict) -> bool:
+        """True when this view shows hosted record *obj*'s host gridline."""
+        gl = self._ms.gridline_by_uid((obj.get("section_host") or {}).get("gridline"))
+        return gl is not None and self.shows_host_gridline(gl)
+
+    def paste_refusal(self, items) -> "str | None":
+        """ModifyHostMixin hook (R4 / R5): why nothing on the clipboard can
+        be pasted in this section, else None. A partly fitting clipboard
+        pastes what fits (the commit reports the rest skipped).
+
+        Args:
+            items: The clipboard payload's records.
+
+        Returns:
+            Plan / detail Notes only -> area E's ``NOTE_INTO_SECTION_REFUSED``;
+            other plan items only -> ``SECTION_PASTE_PLAN_ITEMS``; hosted
+            blocks whose gridline this view does not show ->
+            ``SECTION_PASTE_NO_HOST``.
+        """
+        accepted = [d for d in items if self._paste_accepts(d)]
+        if not accepted:
+            if items and all(d.get("note") for d in items):
+                from .model_space import NOTE_INTO_SECTION_REFUSED
+                return NOTE_INTO_SECTION_REFUSED
+            return SECTION_PASTE_PLAN_ITEMS
+        if all(d.get("section_host") and not self._shows_record_host(d)
+               for d in accepted):
+            return SECTION_PASTE_NO_HOST
+        return None
+
+    def _project_section_notes(self) -> None:
+        """Copies of the Notes this section owns (D4): plan-store instances
+        keyed ``note["view"] == active_view_key``, already in this frame."""
+        from .note_controller import notes_of
+        self._note_copies = {}
+        for src in notes_of(self._ms, self.active_view_key):
+            self._add_note_copy(src)
+
+    def _add_note_copy(self, src) -> "_SectionNoteCopy":
+        """Add (and return) the section copy of model Note *src*."""
+        from .constants import Z_NOTE
+        cp = _SectionNoteCopy.from_dict(src.to_dict(), self._ms.get_block_definition)
+        cp.setData(_ROLE_SOURCE, src)
+        cp._pull()                                 # share the model's note / attributes
+        cp.setZValue(Z_NOTE)
+        cp.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.addItem(cp)
+        self._note_copies[id(src)] = cp
+        return cp
 
     def _register_depth_item(self, depth: float, *items):
         """Register scene items at a given depth for unified Z assignment."""
@@ -1465,7 +2556,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Foreground (datum lines) ─────────────────────────────────────────
 
     def drawForeground(self, painter, rect):
-        """Draw datum lines from the head's outline across the crop box (basis h_min..h_max).
+        """Draw datum lines from the head's outline to each datum's right end (``line_end_h``).
 
         Drawn in foreground so lines remain visible even when the head
         has scrolled out of the viewport.
@@ -1478,7 +2569,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 continue
             v = item._v
             h_start = item.line_start_h()
-            h_end = item._h_max
+            h_end = item.line_end_h()          # the right grip (D7), not the build-time crop edge
             if h_end <= h_start:
                 continue
 
@@ -1717,6 +2808,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
 
                 for it in items_to_add[1:]:          # the void is NoPen
                     it._paper_cat = op.display_category
+                    it.setData(_ROLE_HIDE_SOURCE, op)    # follows the opening's Hide (D5)
                 for item in items_to_add:
                     self.addItem(item)
                 self._register_depth_item(depth, *items_to_add)
@@ -1865,6 +2957,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         ln = line.line()
         mid, angle = CAD_Math.readable_line_pose(ln.p1(), ln.p2())
         lab = _ElevPipeLabel(pipe, child=False)
+        lab.setData(_ROLE_SOURCE, pipe)          # Hide takes the label with the pipe (D5)
         self.addItem(lab)
         lab.set_anchor(mid)
         lab.setRotation(angle)
@@ -1990,6 +3083,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             mask.setPen(QPen(Qt.PenStyle.NoPen))
             mask.set_colour_src(brush=TOKEN_BG)       # canvas bg on canvas, white on paper
             mask.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
+            mask.setData(_ROLE_HIDE_SOURCE, slab)    # a hidden slab's mask must not occlude (D5)
 
             # Visible slab rect with styled fill
             rect = _ElevProxyRect(h_min, v_top, width, height)
@@ -2271,9 +3365,10 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
             v_top = -z_max - ELEV_GRIDLINE_END_PAD_MM
             v_bot = -z_min + ELEV_GRIDLINE_END_PAD_MM
 
-            # Apply per-view override if the user has grip-dragged this gridline
-            if label_text in self._gridline_z_overrides:
-                ov = self._gridline_z_overrides[label_text]
+            # This section's end record for this gridline (D7: keyed by uid;
+            # no record = the auto extent above).
+            ov = self._gridline_z_overrides.get(gl._uid)
+            if ov is not None:
                 v_top = ov.get("v_top", v_top)
                 v_bot = ov.get("v_bot", v_bot)
 
@@ -2282,6 +3377,8 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
                 grid_color, ELEV_GRIDLINE_PEN_W_MM, opacity,
                 color_src=grid_src, gridline=gl)
             self.addItem(item)
+            self._snap_lines.append(item)
+            item._built_line = QLineF(item.line())   # untouched = no record (OPEN-7)
 
     # ── Construction geometry ────────────────────────────────────────────
 
@@ -2295,7 +3392,7 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
     # ── Level datums ─────────────────────────────────────────────────────
 
     def _datum_extent(self) -> tuple[float, float]:
-        """H range of the datum lines = the crop box (s5)."""
+        """Auto H range of a datum line = the crop box (s5); a D7 record overrides it."""
         return self._basis.h_min, self._basis.h_max
 
     def _gridline_crossing_h(self, p, q):
@@ -2341,13 +3438,18 @@ class SectionScene(HaloSelectionMixin, QGraphicsScene):
         # annotative._drawing_scale rule).
         sm = getattr(self._ms, "scale_manager", None) or self._sm
 
+        ends = self._marker.datum_ends
         for lvl in self._lm.levels:
-            item = ElevDatumItem(-lvl.elevation, h_min, h_max, lvl, datum_color,
+            rec = ends.get(lvl.name)          # D7: this section's end record; none = auto
+            left, right = (h_min, h_max) if rec is None else (rec["left"], rec["right"])
+            item = ElevDatumItem(-lvl.elevation, left, right, lvl, datum_color,
                                  datum_pen_w, opacity=opacity, color_src=datum_src,
                                  scale_manager=sm)
             self.addItem(item)
             item.refresh_head()       # the head resolves its block only once in a scene
+            self._snap_lines.append(item)
+            item._built_line = QLineF(item.line())   # untouched = no record (OPEN-7)
 
     # ── Selection ────────────────────────────────────────────────────────
-    # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable
-    # flags, routed through _on_selection_changed() which emits entitySelected.
+    # Selection is handled by Qt's built-in ItemIsSelectable flags + the HALO
+    # press / scene-drawn band; MainWindow maps it through _sources_of().

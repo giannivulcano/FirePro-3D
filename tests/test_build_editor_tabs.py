@@ -251,7 +251,7 @@ def test_selection_on_a_paper_canvas_never_jumps(mw, qapp):
         qapp.processEvents()
 
 
-@pytest.mark.parametrize("kind", ["paper", "3d", "section"])
+@pytest.mark.parametrize("kind", ["paper", "3d"])    # a section jumps (U3)
 def test_selection_on_a_non_edit_canvas_never_jumps(mw, qapp, kind):
     """M7: the kind gate holds on every canvas where Editor is not live."""
     undo = _open_canvas(mw, qapp, kind)
@@ -301,7 +301,7 @@ def test_leaving_a_block_after_a_selection_jump_restores_the_original_tab(mw, qa
     assert tb.currentIndex() == 2, "left the block stuck on Editor"
 
 
-@pytest.mark.parametrize("kind", ["paper", "3d", "section"])
+@pytest.mark.parametrize("kind", ["paper", "3d"])    # a section keeps Editor (U3)
 def test_plan_selection_then_leaving_for_a_non_edit_canvas_restores_the_tab(mw, qapp, kind):
     mw.central_tabs.setCurrentIndex(_plan_index(mw))
     tb = mw.ribbon._tab_bar
@@ -339,6 +339,28 @@ def test_plan_selection_then_a_detail_tab_keeps_editor(mw, qapp):
         assert tb.currentIndex() == mw._editor_page_index, "plan -> detail dropped Editor"
     finally:
         mw.detail_manager.close_detail("I1 Detail")
+        _remove(mw, *items)
+        mw.central_tabs.setCurrentIndex(_plan_index(mw))
+        qapp.processEvents()
+
+
+def test_plan_selection_then_a_section_tab_keeps_editor(mw, qapp):
+    """Elevation parity U3: a section is an edit-live canvas, so a plan
+    selection jump survives entering it (as plan -> detail)."""
+    mw.central_tabs.setCurrentIndex(_plan_index(mw))
+    tb = mw.ribbon._tab_bar
+    tb.setCurrentIndex(2)
+    items = _plan_wall(mw)
+    undo = lambda: None
+    try:
+        items[0].setSelected(True)
+        qapp.processEvents()
+        assert tb.currentIndex() == mw._editor_page_index
+        undo = _open_canvas(mw, qapp, "section")
+        assert mw._canvas_kind == "section"
+        assert tb.currentIndex() == mw._editor_page_index, "plan -> section dropped Editor"
+    finally:
+        undo()
         _remove(mw, *items)
         mw.central_tabs.setCurrentIndex(_plan_index(mw))
         qapp.processEvents()
@@ -417,7 +439,9 @@ OFF = {
                    "section": NIV, "paper": NIV, "3d": NIV},
     "2D Geometry": {"plan": NO_EDITOR_TIP, "detail": NO_EDITOR_TIP,
                     "section": NIV, "paper": NIV, "3d": NIV},
-    "Edit": {"section": NIV, "paper": NIV, "3d": NIV},
+    # elevation-parity D1: Edit is live on a section canvas; Inspect stays
+    # off there (U4, plan approval 2026-11-10).
+    "Edit": {"paper": NIV, "3d": NIV},
     "Constrain": {"section": NIV, "paper": NIV, "3d": NIV},
     "Inspect": {"section": NIV, "paper": NIV, "3d": NIV},
 }
@@ -438,6 +462,9 @@ EDIT_ON = {
               "Flip", "Mirror", "Offset", "Array", "Fillet"},
     "schematic": {"Copy", "Cut", "Duplicate", "Delete", "Move", "Rotate",
                   "Scale", "Flip", "Mirror", "Offset", "Array", "Fillet"},
+    # Nothing selected on the north elevation: every select-first tool is off,
+    # and Offset / Fillet are not section tools (R3; T6 _HOST_TOOLS).
+    "section": set(),
 }
 
 

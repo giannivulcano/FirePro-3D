@@ -69,6 +69,10 @@ class _WinDot(QPushButton):
     def __init__(self, kind: str, slot, theme, parent=None):
         super().__init__(parent)
         self.setFixedSize(20, 20)
+        # Chrome, not a form control: never the dialog's default button and
+        # never initial focus, so Return reaches the real primary button.
+        self.setAutoDefault(False)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setIconSize(QSize(18, 18))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         # Reset padding/min-size: the app/dialog QSS `QPushButton { padding:5px..;

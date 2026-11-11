@@ -117,6 +117,11 @@ class ThemedMessageDialog(HouseDialog):
         cancel_btn.clicked.connect(self.reject)
         self.set_footer_buttons(primary=(ok_label, self.accept), cancel=False,
                                 extra_left=cancel_btn, danger=danger)
+        if danger:
+            # A destructive confirm must not fire on a stray Return: the safe
+            # (dismissive) button is the default instead of the danger primary.
+            for b in self._footer.findChildren(QPushButton):
+                b.setDefault(b is cancel_btn)
 
     # ── N-button choice footer ────────────────────────────────────────────────
 

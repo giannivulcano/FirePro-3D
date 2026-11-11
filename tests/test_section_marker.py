@@ -9,15 +9,25 @@ from firepro3d.section_marker import (SectionMarker, building_bbox, cardinal_cut
 def test_to_dict_round_trip_all_fields():
     m = SectionMarker("Section 7", QPointF(100.0, 200.0), QPointF(900.0, 650.0),
                       look_sign=-1, depth=3200.0)
-    m.gridline_z_overrides["A"] = {"v_top": -5000.0, "v_bot": 500.0}
+    m.gridline_z_overrides["uid-a"] = {"v_top": -5000.0, "v_bot": 500.0}
+    m.datum_ends["Level 1"] = {"left": -3000.0, "right": 4500.0}   # elevation-parity D7
     m._mark = "7"                                   # SB4d D3: "mark" key on a placed section
     d = m.to_dict()
     assert d == {"name": "Section 7", "cut_a": [100.0, 200.0], "cut_b": [900.0, 650.0],
                  "look_sign": -1, "depth": 3200.0, "cardinal": None,
                  "auto_extent": False, "mark": "7",
-                 "gridline_z_overrides": {"A": {"v_top": -5000.0, "v_bot": 500.0}}}
+                 "gridline_z_overrides": {"uid-a": {"v_top": -5000.0, "v_bot": 500.0}},
+                 "datum_ends": {"Level 1": {"left": -3000.0, "right": 4500.0}}}
     m2 = SectionMarker.from_dict(d)
     assert m2.to_dict() == d
+    # The record is a copy: editing the dict (an undo snapshot) never reaches the marker.
+    d["datum_ends"]["Level 1"]["right"] = 0.0
+    d["gridline_z_overrides"]["uid-a"]["v_bot"] = 0.0
+    assert m2.datum_ends["Level 1"]["right"] == 4500.0
+    assert m2.gridline_z_overrides["uid-a"]["v_bot"] == 500.0
+    # A pre-D7 record (no "datum_ends" key) loads with no datum record = auto extents.
+    del d["datum_ends"]
+    assert SectionMarker.from_dict(d).datum_ends == {}
     # A blank Mark is still written (only a key-less pre-SB4d record adopts the
     # name token on load, Q20), so a blank round-trips blank (M7).
     m._mark = ""
@@ -366,3 +376,29 @@ def test_grip_ends_never_cross_and_bad_indices_are_no_ops(qapp):
     for idx in (SectionMarker.GRIP_FLIP, 9, -1):
         m.apply_grip(idx, QPointF(123.0, 456.0))
     assert (m.cut_a, m.cut_b, m.depth, m.look_sign) == (QPointF(0.0, 0.0), QPointF(6000.0, 0.0), 3000.0, 1)
+
+
+def test_restore_copies_both_end_records(qapp):
+    """Undo restore (spec s8) writes the snapshot's datum_ends and gridline
+    overrides onto the surviving marker as copies (elevation-parity D7)."""
+    from PyQt6.QtWidgets import QTabWidget
+    from firepro3d.model_space import Model_Space
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.scale_manager import ScaleManager
+    from firepro3d.section_manager import SectionManager
+    ms = Model_Space()
+    lm = LevelManager(); ms._level_manager = lm
+    sm = ScaleManager(); ms.scale_manager = sm
+    mgr = SectionManager(ms, lm, sm, QTabWidget())
+    ms._section_manager = mgr
+    s = mgr.place_section(QPointF(0.0, 0.0), QPointF(5000.0, 0.0))
+    snap = [m.to_dict() for m in mgr.markers.values()]
+    rec = next(d for d in snap if d["name"] == s.name)
+    rec["datum_ends"] = {"Level 2": {"left": -100.0, "right": 900.0}}
+    rec["gridline_z_overrides"] = {"uid-b": {"v_top": -800.0, "v_bot": 300.0}}
+    mgr.restore_from_list(snap)
+    assert mgr.markers[s.name] is s                                   # survivor, updated in place
+    assert s.datum_ends == {"Level 2": {"left": -100.0, "right": 900.0}}
+    assert s.gridline_z_overrides == {"uid-b": {"v_top": -800.0, "v_bot": 300.0}}
+    rec["datum_ends"]["Level 2"]["right"] = 0.0                       # the snapshot stays its own
+    assert s.datum_ends["Level 2"]["right"] == 900.0

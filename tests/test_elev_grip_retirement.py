@@ -7,7 +7,7 @@ Locks the invariants Leg B must preserve:
 * ``SectionView`` carries no ``paintEvent`` grip-loop override (resolves to
   ``QGraphicsView``'s).
 * A gridline endpoint grip driven through the MANIPULATOR lifecycle commits the
-  SAME ``_gridline_z_overrides`` entry as the legacy ``apply_grip`` + commit path
+  SAME uid-keyed ``_gridline_z_overrides`` entry as the legacy ``apply_grip`` + commit path
   (byte-parity), and the ``commit_hook`` fires.
 
 Drives the manipulator's handle ``on_press``/``on_drag``/``on_release``
@@ -29,7 +29,11 @@ from firepro3d.section_scene import ElevGridlineItem
 
 
 def _add_gridline(scene, label="A", h=100.0, v_top=-50.0, v_bot=50.0):
-    g = ElevGridlineItem(h, v_top, v_bot, label, QColor("#888"), 1.0)
+    """An elevation gridline over a real plan gridline: its end record is keyed
+    by the plan gridline's uid (elevation-parity D7)."""
+    from firepro3d.gridline import GridlineItem
+    plan = GridlineItem(QPointF(0.0, -1000.0), QPointF(0.0, 1000.0), label=label)
+    g = ElevGridlineItem(h, v_top, v_bot, label, QColor("#888"), 1.0, gridline=plan)
     scene.addItem(g)
     return g
 
@@ -92,7 +96,8 @@ def test_gridline_grip_byte_parity_via_manipulator(qapp, section_scene_for):
     m._finish(QPointF(100.0, 80.0), Qt.KeyboardModifier.NoModifier)
 
     # OBSERVABLE ground truth: the persisted override dict.
-    ov = elev._gridline_z_overrides["A"]
+    ov = elev._gridline_z_overrides[g._gridline._uid]
+    assert "A" not in elev._gridline_z_overrides                   # never label-keyed (D7)
     assert ov == {"v_top": -50.0, "v_bot": 80.0}
     # commit_hook fired exactly once, in grip mode.
     assert fired == ["grip"]

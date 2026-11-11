@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtWidgets import QGraphicsView
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
-from PyQt6.QtGui import QPainter, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QEvent, QPoint, QPointF, QRectF, pyqtSignal
+from PyQt6.QtGui import QPainter, QKeyEvent, QKeySequence
 
 from . import theme as th
 
@@ -66,11 +66,9 @@ class SectionView(QGraphicsView):
         self._rb_active = False
         self._rb_end = None
 
-        # Ctrl+A — select all (excluding gridlines and datums)
-        QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
-            self._select_all_items)
-
     # ── Select All (filter annotations) ──────────────────────────────────
+    # Reached by the ONE window Ctrl+A through MainWindow._active_view (AC15);
+    # a view-level shortcut here made the key ambiguous, so neither fired.
 
     def _select_all_items(self):
         from .section_scene import ElevGridlineItem, ElevDatumItem
@@ -112,7 +110,8 @@ class SectionView(QGraphicsView):
             return
         try:
             sc = self.scene()
-            pt = sc.snap_section_point(self.mapToScene(event.position().toPoint()), self)
+            pt = sc.snap_point(self.mapToScene(event.position().toPoint()))
+            self.viewport().update()                # the snap marker follows the drag (D3)
             if sc.can_host_at(pt):
                 event.acceptProposedAction()
             else:
@@ -122,6 +121,10 @@ class SectionView(QGraphicsView):
 
     def dragLeaveEvent(self, event):
         self._block_drop = None
+        sc = self.scene()
+        if sc is not None and getattr(sc, "_snap_result", None) is not None:
+            sc._snap_result = None                  # no marker once the drag leaves
+            self.viewport().update()
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
@@ -132,11 +135,13 @@ class SectionView(QGraphicsView):
         try:
             from .blocks_browser import ensure_block_loaded
             sc = self.scene()
-            pt = sc.snap_section_point(self.mapToScene(event.position().toPoint()), self)
+            pt = sc.snap_point(self.mapToScene(event.position().toPoint()))
             block_id = ensure_block_loaded(sc._ms, st["payload"]["id"],
                                            st["payload"].get("path"), st["name"],
                                            None, self)
             if block_id is None or sc.place_hosted_block(block_id, pt) is None:
+                sc._snap_result = None              # refused: drop the drag's marker
+                self.viewport().update()
                 event.ignore()
                 return
             event.acceptProposedAction()
@@ -152,6 +157,19 @@ class SectionView(QGraphicsView):
     # ── Pan (middle mouse) ───────────────────────────────────────────────
 
     def mousePressEvent(self, event):
+        sc = self.scene()
+        hud = getattr(sc, "dynamic_input", None) if sc is not None else None
+        if hud is not None and sc.is_input_mode():
+            # A HUD field has the keyboard (C-9, Model_View parity): the
+            # press commits nothing and the field gets its focus back;
+            # middle-button panning still works.
+            if event.button() == Qt.MouseButton.MiddleButton:
+                self._panning = True
+                self._pan_start = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            hud.restore_focus()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.pos()
@@ -161,8 +179,7 @@ class SectionView(QGraphicsView):
         if (event.button() == Qt.MouseButton.LeftButton and sc is not None
                 and getattr(sc, "_place_block_id", None) is not None):
             try:
-                pt = sc.snap_section_point(
-                    self.mapToScene(event.position().toPoint()), self)
+                pt = sc.snap_point(self.mapToScene(event.position().toPoint()))
                 sc.click_place_block(pt)
             except Exception:
                 _log.exception("Section block placement click failed")
@@ -201,7 +218,7 @@ class SectionView(QGraphicsView):
         sc = self.scene()
         if sc is not None and getattr(sc, "_place_block_id", None) is not None:
             try:
-                sc.move_place_ghost(sc.snap_section_point(scene_pos, self))
+                sc.move_place_ghost(sc.snap_point(scene_pos))
             except Exception:
                 _log.exception("Section block placement move failed")
             self.viewport().update()
@@ -217,6 +234,21 @@ class SectionView(QGraphicsView):
             self._rb_end = event.pos()
             self.viewport().update()
             return
+        # Cursor snap (D3; Model_Space runs get_effective_position on every
+        # move): a live grip drag / tool mode snaps and leaves the marker in
+        # _snap_result, plain select mode clears a stale one. A manipulator
+        # drag snaps through its own handle path, so it is skipped here.
+        if (sc is not None and hasattr(sc, "get_effective_position")
+                and getattr(sc, "mode", None)
+                not in getattr(sc, "_MODIFY_MODES", ())):
+            # A running modify tool resolves the cursor in the scene's own
+            # dispatch (ModifyHostMixin.modify_mouse_move): one engine call.
+            manip = sc._live_manip() if hasattr(sc, "_live_manip") else None
+            if manip is None or not manip.is_dragging():
+                had = sc._snap_result is not None
+                sc.get_effective_position(scene_pos)
+                if had or sc._snap_result is not None:
+                    self.viewport().update()
         # HALO hover update (scene-agnostic engine on the mixin).
         if sc is not None and hasattr(sc, "halo_update"):
             from . import halo_selection
@@ -267,6 +299,13 @@ class SectionView(QGraphicsView):
         scene = self.scene()
         if scene is None:
             return
+        # Snap trace + marker: the plan's one painter (Model_View parity, D3).
+        from .snap_engine import paint_snap_indicator
+        paint_snap_indicator(painter, self, getattr(scene, "_snap_result", None))
+        # Modify-tool overlays (move / paste ghost, rotate ray, mirror axis,
+        # flip crosshair): the plan's one painter (elevation parity D2).
+        from .modify_host import paint_modify_overlays
+        paint_modify_overlays(painter, self, scene)
         from .halo import paint_halo_highlight, paint_rubber_band
         theme = th.detect()
         # HALO hover highlight (gated on suppression like the plan view).
@@ -293,12 +332,51 @@ class SectionView(QGraphicsView):
 
     # ── Keyboard ─────────────────────────────────────────────────────────
 
+    def event(self, ev) -> bool:
+        """While a Note editor is live in this section, accept EVERY
+        ShortcutOverride but Ctrl+S, so typed keys reach the editor instead of
+        a window shortcut (``Model_View.event`` precedent; elevation-parity D4)."""
+        from .text_item import editing_text_item
+        if (ev.type() == QEvent.Type.ShortcutOverride
+                and isinstance(ev, QKeyEvent)
+                and editing_text_item(self.scene()) is not None
+                and not ev.matches(QKeySequence.StandardKey.Save)):
+            ev.accept()
+            return True
+        return super().event(ev)
+
+    def focusNextPrevChild(self, next_child: bool) -> bool:
+        """Keep Tab on the canvas (Model_View parity): Tab engages the
+        typed-input HUD, and the HUD's own Tab cycles its fields.
+
+        Returns:
+            False always ("focus was not moved").
+        """
+        return False
+
     def keyPressEvent(self, event):
+        from .text_item import editing_text_item
+        if editing_text_item(self.scene()) is not None:
+            super().keyPressEvent(event)      # the editor owns the key (F, Space, Esc too)
+            return
         if event.key() == Qt.Key.Key_F:
             self.fit_to_screen()
             event.accept()
             return
         sc = self.scene()
+        if (sc is not None and getattr(sc, "mode", None)
+                in getattr(sc, "_MODIFY_MODES", ())):
+            # A running modify tool owns the keys (flip arrows, Enter commit,
+            # Esc) through the scene's ModifyHostMixin.modify_key_press -- not
+            # the select-mode HALO cycle / escape ladder below (D2).
+            if (event.key() == Qt.Key.Key_Tab
+                    and hasattr(sc, "begin_dynamic_input")
+                    and sc.begin_dynamic_input()):
+                # Tab engages the typed-input HUD (C-9, Model_View parity).
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            return
         # Armed block placement owns Space (rotate; Shift = reverse) and Esc.
         if sc is not None and getattr(sc, "_place_block_id", None) is not None:
             if event.key() == Qt.Key.Key_Space and not event.isAutoRepeat():

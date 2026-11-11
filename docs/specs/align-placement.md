@@ -1,7 +1,7 @@
 ---
 status: partial
-last-verified: 2026-10-29  # Gridline Auto Constrain Account: s8.2 retired-readout pointer only, rest not re-audited; prior 2026-10-25  # L988 Account: sec 5.8 wall/floor field-commit ghost only, rest not re-audited; prior 2026-10-15  # block-primitive-snap Account: place_block joins _ALIGN_PLACEMENT_MODES (crosshair stays off), block primitives feed ALIGN (pointer to snapping-engine §5 note 12); prior 2026-10-01 scene-tools P1 Account: FieldKind.FACTOR + scale_factor, array_linear Angle + array_grid/array_polar, per-mode transform seeds, source-less ALIGN identity, origin priority -1, Flip/Mirror raw-cursor exception; prior 2026-09-30 nested-blocks account: `rotation` schema no longer serves place_block; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-26
-verified-commit: d3813e9d   # Gridline Auto Constrain Account; prior 6ebbb2ca   # L988 wall/floor field-commit ghost; prior 5e4948d6   # merge feat/block-primitive-snap; prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 345f1b7   # feat/nested-blocks (account); prior d34aeb0 batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
+last-verified: 2026-11-11  # elevation-parity Account: s5.4 host ScaleManager bullet only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s8.2 retired-readout pointer only, rest not re-audited; prior 2026-10-25  # L988 Account: sec 5.8 wall/floor field-commit ghost only, rest not re-audited; prior 2026-10-15  # block-primitive-snap Account: place_block joins _ALIGN_PLACEMENT_MODES (crosshair stays off), block primitives feed ALIGN (pointer to snapping-engine §5 note 12); prior 2026-10-01 scene-tools P1 Account: FieldKind.FACTOR + scale_factor, array_linear Angle + array_grid/array_polar, per-mode transform seeds, source-less ALIGN identity, origin priority -1, Flip/Mirror raw-cursor exception; prior 2026-09-30 nested-blocks account: `rotation` schema no longer serves place_block; prior 2026-09-28 batch A dead-code sweep; prior 2026-09-26
+verified-commit: 6dc388ed   # elevation-parity close (0.98.0; s5.4 only); prior d3813e9d   # Gridline Auto Constrain Account; prior 6ebbb2ca   # L988 wall/floor field-commit ghost; prior 5e4948d6   # merge feat/block-primitive-snap; prior c8ff4f4 feat/scene-tools-p1-batch (account); prior 345f1b7   # feat/nested-blocks (account); prior d34aeb0 batch A dead-code sweep; prior 4c96f69   # 2026-09-26 design grill: §6.1 ALIGN subordinate to SNAP (ratified; marker/pill build pending); prior 17b4371   # smoke round B: Move destination step bypasses the picker (handles only); prior e044d4d   # smoke round A: anchor direction from any primitive (§2.3), ALIGN point glyphs (§4); prior 892cf76
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -470,6 +470,14 @@ Schemas work in **scene units**; `DimensionEdit` stores **millimetres**:
   are a unitless decimal ratio, never rounded; format/parse are
   `ScaleManager.format_factor` / `parse_factor` (thin `dynamic_input` shells) — the
   convention is owned by [units-and-formatting.md §3](units-and-formatting.md).
+- **Which `ScaleManager` (elevation parity, 2026-11-11).** `PlacementInputCoordinator` builds the
+  HUD with the **host's** `_hud_scale_manager()` (a `ModifyHostMixin` hook, `scene-tools.md` I1;
+  default: the host's `scale_manager`), not a hard-wired scene attribute. A `SectionScene` hosts the
+  HUD for the modify tools only (Tab engages it; a section has no draw tools, ALIGN or `track`
+  schema) and returns the project's live `ScaleManager` wrapped so that `is_calibrated` is always
+  False: section-scene units ARE millimetres, so the DIMENSION scene<->mm conversion is the identity
+  even on a calibrated project, while formatting and parsing (display unit, precision, bare-number
+  unit) stay the project's. Section-side mounting: `section-view-subsystem.md` s17.2.
 
 ### 5.5 Interaction with SNAP / ALIGN
 

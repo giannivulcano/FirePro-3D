@@ -106,8 +106,11 @@ ELEV_Z_SNAPPABLE_CLASSES = frozenset({
 # Classes that were snap targets below z 150 before SB4d lifted them into the
 # annotation band (D5); exempt only while their z is inside the band, so a
 # preview ghost parked at the literal overlay z (200) stays excluded.
+# ``_HostedBlockCopy`` (a section's copy of a gridline-hosted block, drawn in
+# the tag band) is a BlockInstance the exact-name rule would miss (elevation
+# parity D3 / R15); its placement ghost sits at z 1000, outside the band.
 ANNOT_Z_SNAPPABLE_CLASSES = frozenset({
-    "TextItem", "BlockInstance",
+    "TextItem", "BlockInstance", "_HostedBlockCopy",
 })
 
 # The riser pass-through symbol's QGraphicsItem.data(0) tag: never a snap
@@ -642,6 +645,23 @@ DISPLAY_PRECISION_MAX = 5
 DEFAULT_PRESSURE_PRECISION = 1     # psi
 DEFAULT_FLOW_PRECISION = 0         # gpm
 DEFAULT_VELOCITY_PRECISION = 1     # ft/s
+
+# Footer reason when a modify / clipboard shortcut is pressed on the 3D tab
+# (elevation-parity R16 / AC14): its active scene would be the hidden plan.
+VIEW_3D_EDIT_REFUSED_HINT = "Modify and clipboard tools work in 2D views, not in 3D"
+
+# -- Elevation parity: the section modify host (design D2, rulings R3-R5) ----
+# R3: a section's modify tools act only on its write-back copies; read-only
+# model proxies in the selection are skipped (or refuse the tool) with this.
+SECTION_EDIT_SKIPPED = "{n} items skipped (edit in plan)"
+# R4: a hosted block pastes on its own host gridline -- refused in a view
+# that does not show that gridline.
+SECTION_PASTE_NO_HOST = ("Can't paste here - this view does not show the "
+                         "block's host gridline")
+# R5: cross-type pastes refuse (plan items in a section, hosted blocks in plan).
+SECTION_PASTE_PLAN_ITEMS = "Plan items can't be pasted in a section - edit them in plan"
+HOSTED_PASTE_IN_PLAN = ("Gridline-hosted blocks can only be pasted in a "
+                        "section or elevation view")
 
 # -- Sheet-linked document (docs/superpowers/specs/2026-11-09-sheet-linked-document-design.md)
 PDF_PT_PER_MM = 72.0 / 25.4          # PDF user-space points per paper mm

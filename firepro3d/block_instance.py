@@ -178,7 +178,7 @@ class BlockInstance(QGraphicsObject):
         self._snap_prims_cache = None  # (ops list, full pose, stand-ins) — see snap_primitives
         self._nested_handles_cache = None  # (ops, mirrored, scale, table) — sketch_adapters._nested_table
         self._area_cache = None        # (ops list, full pose, area path) — see halo_area_path
-        self._shape_cache = None       # (ops list, (pose, hit width), shape) — see shape
+        self._shape_cache = None       # (ops list, (pose, hit width), (band, area)) — see _hit_parts
         self._mask_cache = None    # (definition ops, pose key, scene mask) -- opaque_mask
         self._cover_cache = None   # (masks tuple, union) -- _cover_above
         self._ink_ops_cache = None  # (ops list, distinct stroke rows) -- _ink_reach_px
@@ -1305,20 +1305,23 @@ class BlockInstance(QGraphicsObject):
             c = self._area_cache = (ops, key, area)
         return QPainterPath(c[2])
 
-    def shape(self) -> QPainterPath:
-        """Hit shape like loose primitives: the strokes fattened to ~10 px
-        plus the :meth:`halo_area_path` areas -- an empty interior is no hit
-        (click, crossing band). An orphan / empty block keeps its placeholder
-        path. Memoised on (compiled ops, full pose, hit width); returns a
-        copy (callers may mutate it)."""
+    def _hit_parts(self):
+        """``(band, area)``: the strokes fattened to ~10 px and the
+        :meth:`halo_area_path` areas, or ``None`` for an orphan / empty block.
+
+        Kept as two paths -- never one boolean union: ``QPainterPath.united``
+        on a detailed block's band (tens of thousands of elements) runs for
+        minutes even against a single text-box rect, which froze HALO hover
+        (26307 Section 1, 2026-11-11). Memoised on (compiled ops, full pose,
+        hit width)."""
         ops = self.render_ops()
         if not ops:
-            return QPainterPath(self._posed_path(ops))
+            return None
         w = scene_hit_width(self, 10.0, 6.0)
         key = (self._pose_key(), round(w, 6), self.opaque_active())
         c = self._shape_cache
         if c is not None and c[0] is ops and c[1] == key:
-            return QPainterPath(c[2])
+            return c[2]
         strokes = QPainterPath()
         pose = self.pose_transform()
         for op in ops:
@@ -1326,12 +1329,70 @@ class BlockInstance(QGraphicsObject):
                 strokes.addPath(pose.map(op.path))
         st = QPainterPathStroker()
         st.setWidth(w)
-        path = st.createStroke(strokes)
-        area = self.halo_area_path()
+        parts = (st.createStroke(strokes), self.halo_area_path())
+        self._shape_cache = (ops, key, parts)
+        return parts
+
+    def shape(self) -> QPainterPath:
+        """Hit shape like loose primitives: the strokes fattened to ~10 px
+        plus the :meth:`halo_area_path` areas -- an empty interior is no hit
+        (click, crossing band). An orphan / empty block keeps its placeholder
+        path. Returns a copy (callers may mutate it).
+
+        The parts are composed with ``addPath``, not a boolean union (see
+        :meth:`_hit_parts`), so this path is NOT the exact union: where a
+        stroke crosses an area its winding can cancel the area's (a mirrored
+        pose flips one orientation) and that overlap reads as a hole. Qt's
+        hit tests never read it -- they go through :meth:`collidesWithPath`
+        / :meth:`contains`, which test each part and are exact; a new caller
+        that needs the hit region must use those, not ``shape()``."""
+        parts = self._hit_parts()
+        if parts is None:
+            return QPainterPath(self._posed_path(self.render_ops()))
+        band, area = parts
+        path = QPainterPath(band)
         if not area.isEmpty():
-            path = path.united(area)
-        self._shape_cache = (ops, key, path)
-        return QPainterPath(path)
+            path.addPath(area)
+        return path
+
+    def contains(self, point) -> bool:
+        """Point hit on :meth:`shape`'s union, part by part (no union built)."""
+        parts = self._hit_parts()
+        if parts is None or self.isClipped():
+            return super().contains(point)
+        return any(p.contains(point) for p in parts if not p.isEmpty())
+
+    def collidesWithPath(self, path, mode=Qt.ItemSelectionMode.IntersectsItemShape):
+        """Qt's shape hit test (``items(..., IntersectsItemShape |
+        ContainsItemShape)``: HALO aperture, click, crossing / window band) on
+        :meth:`shape`'s union without building it: a union intersects *path*
+        iff a part does, and lies inside it iff every part does. Bounding-rect
+        modes, clipped items and empty blocks keep Qt's default."""
+        shape_modes = (Qt.ItemSelectionMode.IntersectsItemShape,
+                       Qt.ItemSelectionMode.ContainsItemShape)
+        parts = None if (mode not in shape_modes or self.isClipped()) \
+            else self._hit_parts()
+        if parts is None:
+            return super().collidesWithPath(path, mode)
+        if path.isEmpty():
+            return False
+        # Qt's own pre-filter (QGraphicsItem::collidesWithPath): the rects
+        # must strictly intersect, a zero width / height padded first as
+        # Qt's _q_adjustRect does.
+        a, b = self.boundingRect(), path.controlPointRect()
+        for r in (a, b):
+            if not r.width():
+                r.adjust(-0.00001, 0.0, 0.00001, 0.0)
+            if not r.height():
+                r.adjust(0.0, -0.00001, 0.0, 0.00001)
+        if not a.intersects(b):
+            return False
+        live = [p for p in parts if not p.isEmpty()]
+        if not live:
+            return False
+        if mode == Qt.ItemSelectionMode.IntersectsItemShape:
+            return any(path.intersects(p) for p in live)
+        return all(path.contains(p) for p in live)
 
     # ── Paint ────────────────────────────────────────────────────────────
     def paint(self, painter, option, widget=None):

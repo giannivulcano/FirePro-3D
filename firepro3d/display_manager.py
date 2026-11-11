@@ -1379,13 +1379,7 @@ class DisplayManager(HouseDialog):
         left_lay.addWidget(self._reset_btn)
         left_lay.addWidget(self._default_btn)
         self.set_body(self._tabs, margin=(0, 0, 0, 0))
-        ok = self.set_footer_buttons(primary=("OK", self.accept), extra_left=left)["primary"]
-        # HouseDialog.set_footer_buttons calls setDefault(True) before the footer
-        # is parented to the dialog, so QDialog never registers OK as its main
-        # default and the first focusable autoDefault button (a header dot, an
-        # instance-row reset) takes Enter. Re-register now it is in the dialog.
-        ok.setDefault(False)
-        ok.setDefault(True)
+        self.set_footer_buttons(primary=("OK", self.accept), extra_left=left)
         self._tabs.currentChanged.connect(self._sync_tab_buttons)
         self._sync_tab_buttons()
 

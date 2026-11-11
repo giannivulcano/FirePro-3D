@@ -69,6 +69,16 @@ def notes_of(scene, view_key: str) -> list:
             if (getattr(i, "note", None) or {}).get("view") == view_key]
 
 
+def _note_live(scene, inst) -> bool:
+    """Whether *inst* is still a live Note of *scene*. A section answers for
+    its copies (``note_instance_live``, elevation-parity D4); a plan, detail
+    or schematic scene checks its own block store."""
+    hook = getattr(scene, "note_instance_live", None)
+    if hook is not None:
+        return hook(inst)
+    return inst in scene._block_instances
+
+
 def rekey_notes(scene, old: str, new: str) -> None:
     """Move every note owned by view *old* to view *new* (a view rename, D10)."""
     for inst in notes_of(scene, old):
@@ -218,6 +228,11 @@ class NoteController:
                 self._scene.removeItem(it)
         self._tool_line = self._tool_box = None
 
+    def drop_previews(self) -> None:
+        """The scene is clearing (a section rebuild): forget the preview items
+        it deletes; the clicks so far are kept and the next move redraws them."""
+        self._tool_line = self._tool_box = None
+
     def tool_click(self, pt: QPointF) -> None:
         """One click: the tip, the elbow, then the box edge, which places (N20)."""
         if len(self._tool_pts) == 2:
@@ -296,7 +311,7 @@ class NoteController:
         if not ensure_end_available(self.template.leader["end"], s, outside_history=True):
             s._show_status("The leader End could not be loaded")
             return
-        if s.scene_role == "plan":
+        if s.scene_role in ("plan", "section"):          # a section owns Notes too (D4)
             self._place_note(tip, knee, click, self._one_line_mm(prim))
         else:
             self._place_text(tip, knee, click, prim)
@@ -417,7 +432,7 @@ class NoteController:
         self._host = self._overlay = None
         if item.scene() is s:
             s.removeItem(item)
-        if inst is None or sip.isdeleted(inst) or inst not in s._block_instances:
+        if inst is None or sip.isdeleted(inst) or not _note_live(s, inst):
             return "gone"
         if inst.note.get("view") == s.active_view_key:
             inst.setVisible(True)
@@ -456,7 +471,7 @@ class NoteController:
         item.clearFocus()
         if item.scene() is s:
             s.removeItem(item)
-        if inst is None or sip.isdeleted(inst) or inst not in s._block_instances:
+        if inst is None or sip.isdeleted(inst) or not _note_live(s, inst):
             return
         if was_new and delete_new:
             s.remove_block_instance(inst)
@@ -467,7 +482,7 @@ class NoteController:
         """Double-click on a note opens its editor (D13). True = consumed."""
         s = self._scene
         for it in s.items(scene_pos):
-            if getattr(it, "note", None) and it.isVisible() and it in s._block_instances:
+            if getattr(it, "note", None) and it.isVisible() and _note_live(s, it):
                 m = s._live_manip()
                 if m is not None and m.isVisible() and m.handles_at(scene_pos):
                     return False          # a manipulator handle owns the click

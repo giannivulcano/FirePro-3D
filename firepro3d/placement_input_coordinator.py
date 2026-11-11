@@ -255,7 +255,9 @@ class PlacementInputCoordinator:
         schema = self.active_schema()
 
         from .dynamic_input import DynamicInputHud
-        hud = DynamicInputHud(schema, self._scene.scale_manager, view.viewport())
+        # The host says which ScaleManager the HUD converts with (a section's
+        # units are mm, never calibrated px -- elevation parity C-9).
+        hud = DynamicInputHud(schema, self._scene._hud_scale_manager(), view.viewport())
         hud.committed.connect(self._on_dynamic_input_committed)
         hud.cancelled.connect(self._on_dynamic_input_cancelled)
         hud.fieldCommitted.connect(self._on_dynamic_input_field_committed)

@@ -11,6 +11,7 @@ keep the ``"elevation"`` identity (spec s7.2); placed sections are
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING
 
@@ -20,12 +21,15 @@ from PyQt6.QtWidgets import QTabWidget
 from .section_scene import SectionScene
 from .elevation_view import SectionView
 from .section_marker import (SectionMarker, CARDINALS, building_bbox,
-                             CROP_MARGIN, FALLBACK_HALF, MIN_CUT_LEN, DEFAULT_DEPTH)
+                             CROP_MARGIN, FALLBACK_HALF, MIN_CUT_LEN, DEFAULT_DEPTH,
+                             copy_datum_ends, copy_gridline_overrides)
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
     from .level_manager import LevelManager
     from .scale_manager import ScaleManager
+
+log = logging.getLogger(__name__)
 
 
 def _valid_record(d) -> bool:
@@ -83,6 +87,9 @@ class SectionManager(QObject):
         self.markers: dict[str, SectionMarker] = {}          # key: view_name
         self._views: dict[str, tuple[SectionScene, SectionView | None]] = {}
         self._counter = 0
+        # A Hide / Show anywhere (plan, Model Browser, a section) reaches every
+        # live section scene without a rebuild (elevation-parity D5).
+        model_space.hiddenChanged.connect(self.reapply_hidden)
 
     # -- keys -------------------------------------------------------------------------
     @staticmethod
@@ -143,7 +150,15 @@ class SectionManager(QObject):
         self.sectionsChanged.emit()
         return m
 
-    def delete_section(self, name: str) -> None:
+    def delete_section(self, name: str, *, notes: bool = True) -> None:
+        """Remove a placed section (and, by default, the Notes it owns).
+
+        Args:
+            name: The section's name.
+            notes: Also remove its Notes (elevation-parity D4) inside the
+                caller's undo step. ``restore_from_list`` passes False: an undo
+                restore has already restored the blocks as they were.
+        """
         key = self._key(name)
         m = self.markers.get(key)
         if m is None:
@@ -152,19 +167,34 @@ class SectionManager(QObject):
             raise ValueError("cardinal sections are permanent (D5b)")
         self.close_section(key)
         self.markers.pop(key)
+        if notes:
+            from .note_controller import remove_notes
+            remove_notes(self._ms, f"section:{m.view_name}")
         if m.scene() is self._ms:
             self._ms.removeItem(m)
         self.sectionsChanged.emit()
 
-    def rename_section(self, old: str, new: str) -> None:
+    def rename_section(self, old: str, new: str, *, notes: bool = True) -> None:
+        """Rename a placed section; its Notes follow by default (D4).
+
+        Args:
+            old: The current name.
+            new: The new name (refused: empty, unchanged, a cardinal, taken).
+            notes: Re-key its Notes inside the caller's undo step;
+                ``restore_from_list`` passes False (see ``delete_section``).
+        """
         key = self._key(old)
         m = self.markers.get(key)
         if (m is None or m.cardinal or not new or new == old
                 or new.lower() in CARDINALS or self._key(new) in self.markers):
             return
+        old_view = f"section:{m.view_name}"
         self.markers.pop(key)
         m.name = new
         self.markers[new] = m
+        if notes:
+            from .note_controller import rekey_notes
+            rekey_notes(self._ms, old_view, f"section:{m.view_name}")
         if key in self._views:
             scene, view = self._views.pop(key)
             self._views[new] = (scene, view)
@@ -280,6 +310,15 @@ class SectionManager(QObject):
         for scene, _v in self._views.values():
             scene.rebuild()
 
+    def reapply_hidden(self) -> None:
+        """Re-run every live section scene's hidden pass (D5, R8): open tabs
+        and tab-less sheet scenes alike. No rebuild."""
+        for scene, _v in list(self._views.values()):
+            try:
+                scene._apply_hidden_pass()
+            except RuntimeError:          # a scene deleted under a queued signal
+                pass
+
     def focus_hosted(self, inst) -> bool:
         """Focus a view that shows gridline-hosted block *inst* and select its
         copy there (hosted-blocks G18). The model block is plan-hidden (D11),
@@ -370,6 +409,7 @@ class SectionManager(QObject):
             if m is None or m.view_name in self.markers:
                 continue
             self._adopt(m)
+            self._migrate_gridline_overrides(m)     # D7: gridlines are loaded first (scene_io)
         self._recount()
         self.sectionsChanged.emit()
 
@@ -384,6 +424,33 @@ class SectionManager(QObject):
             return m
         except (TypeError, ValueError, KeyError, IndexError):
             return None
+
+    def _migrate_gridline_overrides(self, m: SectionMarker) -> None:
+        """Project load: re-key *m*'s ``gridline_z_overrides`` from gridline
+        label to gridline ``uid`` (elevation-parity D7).
+
+        A key that is a loaded gridline's uid stays. A label key maps to the
+        uid of the ONE loaded gridline with that label (a uid key for the same
+        gridline wins). A duplicated label (ambiguous) or a label no gridline
+        carries (unknown) is dropped with a log line. Idempotent: a re-saved
+        record is all uid keys, so a re-load keeps it as is. Runs in
+        ``from_list``, which ``scene_io`` calls after the gridlines load; undo
+        snapshots are taken after it, so ``restore_from_list`` copies records
+        verbatim and never re-runs a migration.
+        """
+        grids = list(getattr(self._ms, "_gridlines", []))
+        uids = {g._uid for g in grids}
+        out = {k: v for k, v in m.gridline_z_overrides.items() if k in uids}
+        for key, rec in m.gridline_z_overrides.items():
+            if key in uids:
+                continue
+            hits = [g for g in grids if getattr(g, "_label_text", "") == key]
+            if len(hits) == 1:
+                out.setdefault(hits[0]._uid, rec)
+            else:
+                log.info("Section %r: dropped gridline end override %r (%s label)",
+                         m.name, key, "ambiguous" if hits else "unknown")
+        m.gridline_z_overrides = out
 
     def _recount(self) -> None:
         """Name counter = the highest ``Section N`` suffix present (0 when none)."""
@@ -413,11 +480,11 @@ class SectionManager(QObject):
                 continue
             for old in unwanted:
                 if _same_cut(self.markers[old], d):
-                    self.rename_section(old, d["name"])
+                    self.rename_section(old, d["name"], notes=False)   # blocks already restored
                     unwanted.remove(old)
                     break
         for key in unwanted:
-            self.delete_section(key)
+            self.delete_section(key, notes=False)                  # blocks already restored
         for key, d in want.items():
             m = self.markers.get(key)
             if m is None:
@@ -429,9 +496,29 @@ class SectionManager(QObject):
             if m.look_sign != d["look_sign"]:
                 m.flip()
             m._auto_extent = bool(d.get("auto_extent", False)) if m.cardinal else False
-            m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+            m.gridline_z_overrides = copy_gridline_overrides(d.get("gridline_z_overrides", {}))
+            m.datum_ends = copy_datum_ends(d.get("datum_ends", {}))
             if not m.cardinal:
                 m._mark = d.get("mark", "")      # an undo snapshot carries its Mark (sparse = "")
                 m.refresh_heads()
         self._recount()
         self.sectionsChanged.emit()
+
+    # -- per-section datum ends follow the level (elevation-parity D7) ------------------
+    def rename_level_ends(self, old: str, new: str) -> None:
+        """A level rename re-keys every marker's ``datum_ends``. Called by
+        ``LevelManager.rename_level`` (the user's rename only: load and undo
+        restore copy records verbatim, so no cascade re-runs), before the
+        Level Manager pushes the rename's one undo step."""
+        for m in self.markers.values():
+            if old in m.datum_ends:
+                m.datum_ends[new] = m.datum_ends.pop(old)
+
+    def drop_level_ends(self, names) -> None:
+        """A level delete drops each deleted level's ``datum_ends`` entry from
+        every marker. Called by ``LevelManager.remove_levels`` (the user's
+        delete only), inside the delete's one undo step."""
+        doomed = set(names)
+        for m in self.markers.values():
+            for n in doomed & set(m.datum_ends):
+                del m.datum_ends[n]

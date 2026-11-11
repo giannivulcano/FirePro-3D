@@ -4,6 +4,7 @@
 
 - `firepro3d/model_space.py` -- Central scene class (`Model_Space`)
 - `firepro3d/scene_tools.py` -- Geometry editing tools (composed collaborator `SceneTools`)
+- `firepro3d/modify_host.py` -- Modify-tool host contract (`ModifyHostMixin`), shared by `Model_Space` and `SectionScene`
 - `firepro3d/scene_io.py` -- Save/load mixin
 - `firepro3d/model_view.py` -- 2D QGraphicsView with snapping and zoom
 - `main.py` (project root) -- Entry point, QMainWindow with ribbon UI
@@ -12,7 +13,7 @@
 ## Model_Space: the central hub
 
 `Model_Space` is the core of the application: a `QGraphicsScene` plus two
-state-sharing mixins (`HaloSelectionMixin`, `SceneIOMixin`) and a growing set of
+state-sharing mixins (`HaloSelectionMixin`, `SceneIOMixin`, `ModifyHostMixin` -- the last, in `firepro3d/modify_host.py`, is the modify-tool host contract `SectionScene` mounts too; see [`scene-tools.md`](../specs/scene-tools.md) I1) and a growing set of
 **composed domain controllers** (geometry tools, pipe network, sprinkler
 workflow, placement input, 2D-geometry drawing, wall/feature placement, modify
 tools, text editing, underlays). The exact composition, the decomposition

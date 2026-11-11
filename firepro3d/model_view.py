@@ -537,50 +537,10 @@ class Model_View(QGraphicsView):
             paint_ghost(painter, gpaths, th.detect())
             painter.restore()
 
-        # ── 8a. Mirror axis (P1 DD3): infinite accent dash-dot axis +
-        # HALO glow on the single source segment; the reflected ghost (8)
-        # paints on top of it.
-        axis = getattr(scene, "_mirror_axis", None)
-        if axis is not None:
-            from .transform_ghost import paint_axis
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            paint_axis(painter, axis.p1, axis.p2,
-                       self.mapToScene(self.viewport().rect()).boundingRect(),
-                       th.detect())
-            painter.restore()
-
-        # ── 8b. Flip crosshair (DS3.3): dash-dot lines through the selection
-        # centre, active axes in accent; the reflected ghost (8) paints on top.
-        fc = getattr(scene, "_flip_center", None)
-        if fc is not None and getattr(scene, "mode", None) == "flip":
-            from .transform_ghost import paint_flip_crosshair
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            paint_flip_crosshair(painter, fc, scene._flip_lr, scene._flip_ud,
-                                 self.mapToScene(self.viewport().rect()).boundingRect(),
-                                 th.detect())
-            painter.restore()
-
-        # ── 8. Move/paste ghost (D11: HALO glow + 1 px accent trace) ──
-        mghost = getattr(scene, "_move_ghost", None)
-        if mghost:
-            from .transform_ghost import paint_ghost
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            paint_ghost(painter, mghost, th.detect())
-            painter.restore()
-        else:
-            from .transform_ghost import release_glow_cache
-            release_glow_cache(self.viewport())
-        # Rotate (D8): the thin pivot->cursor ray, in the ghost trace pen.
-        ray = getattr(scene, "_rotate_ray", None)
-        if ray:
-            from .transform_ghost import paint_ray
-            painter.save()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            paint_ray(painter, ray[0], ray[1], th.detect())
-            painter.restore()
+        # ── 8a / 8b / 8 + Rotate ray: the modify-tool overlays, one painter
+        # shared by every modify host's view (modify_host.py).
+        from . import modify_host
+        modify_host.paint_modify_overlays(painter, self, scene)
 
         # ── 9. Crosshair cursor (viewport coords; accent read live) ───────────
         # Only while inserting geometry (placement modes) — never in select mode.

@@ -118,7 +118,6 @@ class HouseDialog(FramelessShellMixin, QDialog):
             label, slot = primary
             btn = QPushButton(label, self._footer)
             btn.setProperty("variant", "danger" if danger else "primary")
-            btn.setDefault(True)
             btn.clicked.connect(slot)
             out["primary"] = btn
             fl.addWidget(btn)
@@ -136,6 +135,10 @@ class HouseDialog(FramelessShellMixin, QDialog):
             fl.addWidget(cbtn)
 
         self._root.addWidget(self._footer)
+        # setDefault only registers with QDialog once the button is parented
+        # into this dialog, so it must follow addWidget (not precede it).
+        if "primary" in out:
+            out["primary"].setDefault(True)
         self.adjustSize()
         return out
 

@@ -366,7 +366,7 @@ def test_ac7_elevation_bubble_prints_at_the_plan_blocks_authored_mm(
     gl = GridlineItem(QPointF(2500.0, -3000.0), QPointF(2500.0, 3000.0), label="1")
     ms._gridlines.append(gl)
     ms.addItem(gl)
-    sec._gridline_z_overrides["1"] = {"v_top": -1500.0, "v_bot": 500.0}
+    sec._gridline_z_overrides[gl._uid] = {"v_top": -1500.0, "v_bot": 500.0}
     sec.rebuild()
     (eg,) = [i for i in sec.items() if isinstance(i, ElevGridlineItem)]
     top = eg.bubble1                                          # plan Bubble 1 -> elevation top (D2)
@@ -497,7 +497,7 @@ def test_halo_trace_is_the_trimmed_line_plus_the_head_outline(qapp, section_scen
     p0 = trace.elementAt(0)
     assert (p0.x, p0.y) == pytest.approx((dt._bx + SQ_TRIM * k, dt._v), abs=0.02 * k)
     p1 = trace.elementAt(1)
-    assert (p1.x, p1.y) == pytest.approx((dt._h_max, dt._v))
+    assert (p1.x, p1.y) == pytest.approx((dt.line_end_h(), dt._v))
     outline = dt.head.mapToParent(dt.head.outline_path()).boundingRect()
     assert trace.boundingRect().united(outline) == trace.boundingRect()   # outline is in the trace
     assert trace.boundingRect().left() == pytest.approx(outline.left())

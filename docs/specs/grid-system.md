@@ -1,7 +1,7 @@
 ---
 status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20; grips migrated to manipulator-owned GripHandles + _PullTabGrip removed (U3, §4.3/§5.2/§5.7) 2026-09-10
-last-verified: 2026-11-05  # pipe polish Account: s7.2 Y up-positive paragraph (flip_y pointer) only, rest not re-audited; prior 2026-11-04  # SB4d Account: s10.1 view-marker rows paragraph only, rest not re-audited; prior 2026-11-03  # SB4c Account: s3.5, s4.2 (OutlinedLabel + retired line), s8.2 / s8.3 / s8.5 (elevation bubbles + datum head -> system-blocks.md 8c), s10.1 (new Level Datum row rule) / s10.2 re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s3.5, s4.1, s4.2 (rewritten: GridlineBubble), s4.3 lock, s4.4 tag_block, s6.4, s7 Mark/Tag rows, s10.1 / s10.2, s11, s14, s17.6 / s17.7 re-audited against 7b6e90fc; prior 2026-10-30  # per-view datum design Account: s8.3 pointer to view-relationships s7.5 only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
-verified-commit: ff2b8636   # pipe polish merge on main (v0.90.0; flip_y pointer only); prior 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle (s10.1 only); prior 8d95a864   # SB4c merge on main (v0.83.0); prior 7b6e90fc   # SB4b merge on main; prior 53594a64   # per-view datum design (docs only, s8.3); prior d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
+last-verified: 2026-11-11  # elevation-parity Account: s8.3 / s8.4 (uid-keyed gridline_z_overrides + label migration) only, rest not re-audited; prior 2026-11-05  # pipe polish Account: s7.2 Y up-positive paragraph (flip_y pointer) only, rest not re-audited; prior 2026-11-04  # SB4d Account: s10.1 view-marker rows paragraph only, rest not re-audited; prior 2026-11-03  # SB4c Account: s3.5, s4.2 (OutlinedLabel + retired line), s8.2 / s8.3 / s8.5 (elevation bubbles + datum head -> system-blocks.md 8c), s10.1 (new Level Datum row rule) / s10.2 re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s3.5, s4.1, s4.2 (rewritten: GridlineBubble), s4.3 lock, s4.4 tag_block, s6.4, s7 Mark/Tag rows, s10.1 / s10.2, s11, s14, s17.6 / s17.7 re-audited against 7b6e90fc; prior 2026-10-30  # per-view datum design Account: s8.3 pointer to view-relationships s7.5 only, rest not re-audited; prior 2026-10-29  # Gridline Auto Constrain Account: s1, s4.1 lock row, s5.4 / s5.5 rewritten (readouts retired -> auto spacing dims), s7.1, s11.7 / s11.14 notes, s12 / s13 / s14 / s15 / s17.5 rows only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: s18 plan-constraint pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: §6.1 / §6.3 / §6.4 letter sequence + duplicate routing only, rest not re-audited; prior 2026-10-23  # SB1c Account: bubble paper label height = fixed constant (s4/s10.2 wording only; rest not re-audited); prior 2026-10-22  # gridline-hosted blocks Account: new s18 (uid, follow-host hook, grip 0, delete/Cut cascade), s4.4 uid key, s5.2 / s17.6 pointers; prior paper section/plan parity Account: §8.5 + §10.2 elevation gridline/datum paper rows only; prior 2026-10-02  # CS1 Account: Align padlock / AlignmentConstraint lock retired (parametric-constraint-system.md §2); Align-as-target mechanism + locked-skip status re-derived from scene_tools._execute_align; prior 2026-09-26
+verified-commit: 6dc388ed   # elevation-parity close (0.98.0; s8.3 / s8.4 only); prior ff2b8636   # pipe polish merge on main (v0.90.0; flip_y pointer only); prior 5185b8cc   # SB4d merge on main (v0.86.0) + seed restyle (s10.1 only); prior 8d95a864   # SB4c merge on main (v0.83.0); prior 7b6e90fc   # SB4b merge on main; prior 53594a64   # per-view datum design (docs only, s8.3); prior d3813e9d   # Gridline Auto Constrain Account; prior db16090a   # Editor/Build slice 2 Account (pointer only); prior ceacaab4   # SB2b Account (§6 only); prior 245088ad   # SB1c annotative sizing; prior d44b0e11   # gridline-hosted blocks (ff merge, 0.60.0); prior dbd2e1a3 paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 2a22ba9   # CS1 constraint foundation (feat/cs1-constraint-foundation); prior e96b6ae 2026-09-26 headless cleanup: theming bullet -> manipulator tokens; prior fd4d05f
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -297,18 +297,18 @@ For a qualifying gridline, the `ElevGridlineItem` is drawn as a vertical line in
 
 ### 8.3 Per-View Z-Extent Overrides
 
-> **Ratified target (2026-10-30, not built):** per-view 2D/3D datum extents in every view kind, which re-key this label-keyed record by `uid` and add a model vertical extent, are owned by `view-relationships.md` §7.5 (Rule A). The as-built behaviour below stands until slice 2 lands.
+> **Ratified target (2026-10-30, not built beyond the section record below):** per-view 2D/3D datum extents in every view kind, which add a model vertical extent and the 2D/3D toggle, are owned by `view-relationships.md` §7.5 (Rule A). The record described here is its 2D-in-sections half, built by elevation parity (2026-11-11); the section-side contract (fields, migration, level cascades, undo) is owned by `section-view-subsystem.md` s6 / s8 / s17.9.
 
-Each section / elevation view stores (on its `SectionMarker`, so it persists) a dict mapping gridline labels to Z-extent overrides:
+Each section / elevation view stores (on its `SectionMarker`, so it persists) a dict mapping **gridline `uid`** to Z-extent overrides:
 
 ```python
-_gridline_z_overrides: dict[str, dict]  # label → {"v_top": float, "v_bot": float}
+gridline_z_overrides: dict[str, dict]  # gridline uid → {"v_top": float, "v_bot": float}  (section-scene mm)
 ```
 
-- Override set via grip drag on `ElevGridlineItem` top/bottom grips in the elevation view.
+- Override set via grip drag on `ElevGridlineItem` top/bottom grips in the elevation view; a changed record is one undo step on the shared plan stack.
 - If no override exists, defaults to full building height (recalculated on each rebuild).
 - Overrides are **per-view** — adjusting a gridline's extent in the North elevation does not affect the South or East elevations.
-- Overrides stay **label-keyed** (the plan gridline's label), unchanged by SB4c; the bubbles move with the extent ends (`_update_bubble_positions`).
+- Overrides are keyed by the plan gridline's **`uid`** (they were label-keyed before elevation parity; the `uid` does not change when a label is edited). **Label migration on load:** a label key maps to the `uid` of the ONE loaded gridline carrying that label; an **ambiguous** (duplicated) or **unknown** label is dropped with a `log.info` line; a key that already is a loaded gridline's `uid` stays; the pass is idempotent. The bubbles move with the extent ends (`_update_bubble_positions`).
 
 ### 8.4 Elevation Override Serialization
 
@@ -318,11 +318,13 @@ Stored in the elevation view's `to_dict()`:
 {
     "direction": "north",
     "gridline_z_overrides": {
-        "A": {"v_top": -500.0, "v_bot": 12000.0},
-        "C": {"v_top": 0.0, "v_bot": 6000.0}
+        "<gridline uid>": {"v_top": -500.0, "v_bot": 12000.0},
+        "<gridline uid>": {"v_top": 0.0, "v_bot": 6000.0}
     }
 }
 ```
+
+The section's full record (`SectionMarker.to_dict`) also carries `datum_ends` (level name → `{"left", "right"}`); the file contract is `section-view-subsystem.md` s8.
 
 ### 8.5 Level Datums
 
