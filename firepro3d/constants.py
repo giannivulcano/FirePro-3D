@@ -469,6 +469,13 @@ FILL_TYPE_SOLID_BLACK = "Solid Black"
 IMPORTED_SOLID_TYPE = "Imported Solid"   # Fill Type of imported solid regions (D-A22)
 MATERIAL_NONE_ID = "material-none"      # the permanent None material (materials.md)
 MATERIAL_NONE_NAME = "None"
+# Project phasing (project-phasing.md; PH1). Status ids are stable, names renamable (D-PH19).
+PHASE_NEW = "new"
+PHASE_EXISTING = "existing"
+PHASE_DEMOLITION = "demolition"
+PHASE_EXISTING_COLOUR = "#808080"        # D-PH10 factory: Existing grey lines
+PHASE_EXISTING_FILL = "#D3D3D3"          # D-PH10 factory: Existing light-grey fill
+PHASE_DEMOLITION_LINETYPE = "Demolition"  # D-PH10 / D-PH20: LT7 System > Linetypes entry
 FILL_TYPE_CUSTOM_LABEL = "(Custom)"           # region panel: no type, own fill (R2)
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 

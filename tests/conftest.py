@@ -185,6 +185,17 @@ def _reset_fill_types():
 
 
 @pytest.fixture(autouse=True)
+def _reset_phase_registry():
+    """PH1: the project phase registry is module global -- no leaks between tests."""
+    from firepro3d import phase_registry as _pr
+    _pr._TABLE = None
+    _pr._UNKNOWN_LOGGED.clear()
+    yield
+    _pr._TABLE = None
+    _pr._UNKNOWN_LOGGED.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_current_stroke_style():
     """Reset the WM1 current Linetype/Weight store (stroke_style module
     global, linetypes.md WM-10) so one test's current can't leak."""
