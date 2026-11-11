@@ -52,6 +52,10 @@ Z_ANNOT_MARKER   = 10_300   # detail + section / elevation markers (+ their head
 Z_DEPTH_CEIL     = Z_ANNOT_TEXT - 1.0   # SectionScene depth walk clamp (Q17)
 Z_NOTE           = Z_ANNOT_TEXT   # a view-owned Note: the band's text sub-band
 Z_PREVIEW        = 20_000   # ephemeral array/tool preview overlay, lifted above the band
+# SB4e node badge, authored paper mm (x the annotative factor k): today's
+# 838.2 mm centre offset and 762 mm stack step at the default drawing scale 1:100.
+HYD_BADGE_OFFSET_MM = 8.382
+HYD_BADGE_STACK_STEP_MM = 7.62
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):
 # z = elevation_mm * Z_ELEV_SCALE + category offset

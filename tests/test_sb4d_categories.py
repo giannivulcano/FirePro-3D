@@ -18,7 +18,7 @@ def test_registries(qapp):
         assert [(k, s.tier, s.kind) for k, s in ep.PARAMS[cat].items()] == [
             ("Mark", 1, "text"), ("Number", 4, "text"), ("Sheet", 4, "text")]
     assert sb.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level",
-                                        "Elevation", "Section", "Detail", "View Title")
+                                        "Elevation", "Section", "Detail", "View Title", "Hydraulic Node")
     assert (sb.LABEL_FIELD["Elevation"], sb.LABEL_FIELD["Section"], sb.LABEL_FIELD["Detail"]) == (
         "Direction", "Mark", "Mark")
     assert {"Elevation", "Section", "Detail"} <= sb.PAINT_WHEN_BLANK

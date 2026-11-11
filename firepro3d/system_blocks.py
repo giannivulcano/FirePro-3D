@@ -11,7 +11,7 @@ from __future__ import annotations
 # Project Settings > Annotation row each).
 ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe", "Gridline", "Level",
                                           "Elevation", "Section", "Detail",
-                                          "View Title")
+                                          "View Title", "Hydraulic Node")
 
 # category -> the host field whose empty raw value means "nothing to show"
 # (SB3 F1, ratified): an unresolved tag draws the orphan placeholder only
@@ -19,7 +19,7 @@ ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe", "Gridline", "Level",
 LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter", "Gridline": "Mark",
                                "Level": "Level.Name", "Elevation": "Direction",
                                "Section": "Mark", "Detail": "Mark",
-                               "View Title": "Scale"}
+                               "View Title": "Scale", "Hydraulic Node": "NodeNumber"}
 
 # Categories whose static geometry still draws when every host-bound field
 # is blank (SB4b D3, user ruling 2026-11-02: an unlabelled gridline keeps its
@@ -40,6 +40,7 @@ SYSTEM_DEFAULTS: dict[str, str] = {
     "Section": "system-tags-sectionhead",
     "Detail": "system-tags-detailcallout",
     "View Title": "system-tags-viewtitle",      # SB4f
+    "Hydraulic Node": "system-tags-hydraulicnode",      # SB4e
 }
 
 # The shipped Note block (design 2026-11-04-text-leader-annotations D8). Kept out of

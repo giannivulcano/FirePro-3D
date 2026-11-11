@@ -9,7 +9,7 @@ from tests._sb4e_helpers import dispose, solve, tree_scene
 
 
 @pytest.fixture
-def tree(qapp):
+def tree(qapp, real_system_library):    # the shipped System tier holds the seed
     ms, sec, tabs, nodes = tree_scene()
     yield ms, nodes
     dispose(ms, sec, tabs)
@@ -38,5 +38,20 @@ def test_g10_node_keys_equal_the_solver_result(tree):
 def test_g10_category_is_offered_to_the_block_editor():
     opts, _cur, _warn = ep.category_choice("")
     assert "Hydraulic Node" in opts
+
+
+def test_ac2_seed_resolves_as_the_hydraulic_node_default(tree):
+    from firepro3d.annotative import is_annotative
+    from firepro3d.system_blocks import ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK, SYSTEM_DEFAULTS
+    ms, _nodes = tree
+    assert "Hydraulic Node" in ANNOTATION_CATEGORIES
+    assert LABEL_FIELD["Hydraulic Node"] == "NodeNumber"
+    assert "Hydraulic Node" not in PAINT_WHEN_BLANK
+    assert SYSTEM_DEFAULTS["Hydraulic Node"] == "system-tags-hydraulicnode"
+    d = ms.annotation_block("Hydraulic Node", None)
+    assert d is not None and d.id == "system-tags-hydraulicnode"
+    assert d.host_category == "Hydraulic Node" and is_annotative(d)
+    assert [a.get("host_key") for a in d.effective_attributes()
+            if a.get("source") == "host"] == ["NodeNumber"]
     assert set(ep.PARAMS["Hydraulic Node"]) == {
         "NodeNumber", "RequiredPressure", "Pressure", "Flow", "TotalFlow"}
