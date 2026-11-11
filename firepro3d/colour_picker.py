@@ -27,7 +27,8 @@ from .constants import TOKEN_ACCENT, TOKEN_AUTO
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .house_dialog import HouseDialog
 from .theme import M, detect
-from .ui_kit import Stepper, paint_no_fill
+from .stroke_style import AS_AUTHORED, AS_AUTHORED_LABEL
+from .ui_kit import Stepper, paint_as_authored, paint_no_fill
 
 NO_FILL = ""
 
@@ -61,7 +62,7 @@ def push_recent(hex_color: str) -> None:
     """Record a committed colour: MRU-first, case-insensitive dedupe, cap 10.
     No Fill ("") and colour tokens are never recorded (a token is theme-relative,
     not a colour to remember)."""
-    if not hex_color or is_token(hex_color):
+    if not hex_color or is_token(hex_color) or hex_color == AS_AUTHORED:
         return
     h = hex_color.upper()
     lst = [c for c in load_recents() if c.upper() != h]
@@ -186,6 +187,8 @@ class _PreviewChip(QWidget):
         for v, rr in ((self._new, half), (self._cur, half.translated(r.width() / 2, 0))):
             if v == NO_FILL:
                 paint_no_fill(p, rr, 0)
+            elif v == AS_AUTHORED:
+                paint_as_authored(p, rr, 0)
             else:
                 p.fillRect(rr, resolve_colour(v))
         p.setPen(QPen(QColor((self._t or detect()).line_strong), 1)); p.setBrush(Qt.BrushStyle.NoBrush)
@@ -226,6 +229,9 @@ class _PaletteChip(QWidget):
             return
         if self.value == NO_FILL:
             paint_no_fill(p, r, rad)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+        elif self.value == AS_AUTHORED:
+            paint_as_authored(p, r, rad)
             p.setBrush(Qt.BrushStyle.NoBrush)
         else:
             p.setBrush(resolve_colour(self.value))
@@ -313,12 +319,18 @@ class ColourPickerDialog(HouseDialog):
 
     def __init__(self, parent=None, *, initial="#000000", context="",
                  theme=None, mode="colour", layer=None, registry=None,
-                 exclude=()):
+                 exclude=(), as_authored=False):
         """``mode``: ``"colour"`` (today's dialog), ``"fill"`` (adds Opacity;
         No Fill = background off) or ``"pattern"`` (adds the Pattern row,
-        Opacity and Scale; No Fill hidden). ``layer`` seeds the Fill block."""
+        Opacity and Scale; No Fill hidden). ``layer`` seeds the Fill block.
+        ``as_authored`` (WM3 S1, default off) adds an "As Authored" chip to
+        the Theme row; picking it makes ``result_value()`` the
+        ``stroke_style.AS_AUTHORED`` sentinel -- only the paper "Blocks"
+        Colour chip asks for it."""
         super().__init__(parent, title="Colour", icon=None, theme=theme)
         self.setFixedWidth(M.COLOUR_DLG_W)
+        self._offer_as_authored = bool(as_authored)
+        self._as_authored = self._offer_as_authored and initial == AS_AUTHORED
         self._token = initial if is_token(initial) else None
         self._syncing = False
         self._chips: list[_PaletteChip] = []
@@ -349,7 +361,8 @@ class ColourPickerDialog(HouseDialog):
         self._hue = _HueBar(theme=self._theme); self._hue.changed.connect(self._on_hue)
         top.addWidget(self._sv); top.addWidget(self._hue)
         side = QVBoxLayout(); side.setSpacing(6); side.setContentsMargins(0, 0, 0, 0)
-        self._preview = _PreviewChip(self._token or start, theme=self._theme); side.addWidget(self._preview)
+        self._preview = _PreviewChip(AS_AUTHORED if self._as_authored else (self._token or start),
+                                     theme=self._theme); side.addWidget(self._preview)
         grid = QGridLayout(); grid.setHorizontalSpacing(6); grid.setVerticalSpacing(6)
         self._hex = QLineEdit()
         self._hex.setFixedHeight(M.PROP_FIELD_H)
@@ -427,12 +440,15 @@ class ColourPickerDialog(HouseDialog):
         lay.addSpacing(4)
         row = QHBoxLayout(); row.setSpacing(M.COLOUR_CHIP_GAP); row.setContentsMargins(0, 0, 0, 0)
         chips = []
-        for value in (TOKEN_AUTO, TOKEN_ACCENT):
-            c = _PaletteChip(value, token_label(value), theme=self._theme)
+        entries = [(TOKEN_AUTO, token_label(TOKEN_AUTO)), (TOKEN_ACCENT, token_label(TOKEN_ACCENT))]
+        if self._offer_as_authored:
+            entries.append((AS_AUTHORED, AS_AUTHORED_LABEL))
+        for value, label in entries:
+            c = _PaletteChip(value, label, theme=self._theme)
             c.picked.connect(self._on_chip)
             c.committed.connect(self._on_chip_commit)
             row.addWidget(c)
-            row.addWidget(QLabel(token_label(value)))
+            row.addWidget(QLabel(label))
             row.addSpacing(M.COLOUR_COL_GAP)
             chips.append(c)
         row.addStretch(1)
@@ -529,6 +545,8 @@ class ColourPickerDialog(HouseDialog):
 
     # ── state ──────────────────────────────────────────────────────────────
     def current_value(self) -> str:
+        if self._as_authored:
+            return AS_AUTHORED
         if self._token:
             return self._token
         return NO_FILL if self._no_fill else self._color.name().upper()
@@ -539,6 +557,7 @@ class ColourPickerDialog(HouseDialog):
         return self._result_value
 
     def _set_colour(self, qc: QColor, *, keep_hue=False):
+        self._as_authored = False
         self._token = None
         self._no_fill = False
         self._color = QColor(qc)
@@ -547,6 +566,7 @@ class ColourPickerDialog(HouseDialog):
         self._sync_widgets()
 
     def _set_no_fill(self):
+        self._as_authored = False
         self._token = None
         self._no_fill = True
         self._sync_widgets()
@@ -560,8 +580,10 @@ class ColourPickerDialog(HouseDialog):
             self._hue.set_hue(self._h)
             self._preview.set_new(v)
             if not self._hex.hasFocus() or self._no_fill:
-                self._hex.setText("" if (self._no_fill or self._token) else v)
+                self._hex.setText(
+                    "" if (self._no_fill or self._token or self._as_authored) else v)
             self._hex.setPlaceholderText(
+                AS_AUTHORED_LABEL if self._as_authored else
                 "None" if self._no_fill else (token_label(self._token) or ""))
             for st, val in ((self._r, c.red()), (self._g, c.green()), (self._b, c.blue())):
                 st.setValue(val)
@@ -605,6 +627,13 @@ class ColourPickerDialog(HouseDialog):
             self._set_colour(QColor(self._r.value(), self._g.value(), self._b.value()))
 
     def _on_chip(self, value):
+        if value == AS_AUTHORED:
+            self._as_authored = True
+            self._token = None
+            self._no_fill = False
+            self._sync_widgets()
+            return
+        self._as_authored = False
         if is_token(value):
             self._token = value
             self._no_fill = False
@@ -644,13 +673,16 @@ class ColourPickerDialog(HouseDialog):
         super().reject()
 
 
-def pick_colour(initial, parent=None, context=""):
+def pick_colour(initial, parent=None, context="", as_authored=False):
     """Open the house picker. Returns None (cancelled), NO_FILL (""), a colour
     token or a lower-case "#rrggbb" — the same convention
     QColor.name() gave every caller, so stored data / no-op comparisons keep
     their existing form. (The dialog DISPLAYS upper-case hex; only the
-    returned value is lower-cased.)"""
-    dlg = ColourPickerDialog(parent, initial=initial or "", context=context)
+    returned value is lower-cased.) ``as_authored=True`` (the paper "Blocks"
+    Colour chip only, WM3 S1) also offers an "As Authored" chip, returned as
+    ``stroke_style.AS_AUTHORED``."""
+    dlg = ColourPickerDialog(parent, initial=initial or "", context=context,
+                             as_authored=as_authored)
     try:
         code = dlg.exec()
         v = dlg.result_value() if code == QDialog.DialogCode.Accepted else None

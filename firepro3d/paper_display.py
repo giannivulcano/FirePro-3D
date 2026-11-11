@@ -873,6 +873,27 @@ def _paper_qcolor(value, item=None):
     return resolve_colour(value, item=item)
 
 
+def paper_blocks_authored(value) -> bool:
+    """True when a paper "Blocks" category colour is the As Authored sentinel
+    (WM3 S1): no paper colour override -- blocks keep their authored and
+    placement colours. Only the Blocks row's Colour chip can hold it."""
+    from .stroke_style import AS_AUTHORED       # circular at import time
+    return value == AS_AUTHORED
+
+
+def paper_blocks_token_colour(value, bw: bool, item=None):
+    """QColor a ``token:blocks`` (By Category placement Colour) plots in on
+    paper, from the paper "Blocks" category colour *value*. A real colour is
+    that colour; As Authored plots the Model "Blocks" colour resolved on the
+    paper surface (factory Automatic = black), except under B&W (*bw*), where
+    it stays black like every other B&W colour (WM3 S1)."""
+    from PyQt6.QtGui import QColor
+    from .constants import TOKEN_AUTO, TOKEN_BLOCKS
+    if paper_blocks_authored(value):
+        return QColor("#000000") if bw else _paper_qcolor(model_blocks_colour(), item)
+    return _paper_qcolor(TOKEN_AUTO if value == TOKEN_BLOCKS else value, item)
+
+
 def _apply_generic(item, cat, color_mode, lw_mm, paper_scale: float = 1.0):
     """Apply paper overrides to a generic item (Wall, Door / Window / Opening, Room, Floor, Roof).
 
@@ -969,7 +990,8 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale, blocks_hook=False):
     Every stroke op plots non-cosmetic at the "Blocks" weight in true paper mm
     (divided by ``paper_scale``, the §9.9.1 pattern of ``_apply_pipe``); B&W /
     Custom force the category colour onto stroke + text ops, Full Color keeps
-    the authored colours. Compiled op pens are never mutated (flyweight: one
+    the authored colours (so does Custom when the "Blocks" colour is As
+    Authored, WM3 S1; B&W is always black). Compiled op pens are never mutated (flyweight: one
     compile is shared by every instance) -- ``BlockInstance.paint`` reads these
     two hooks instead. Fill / pattern ops stay under the hatch rules.
     *blocks_hook* (WM3 D3): True only from the "Blocks" category branch --
@@ -981,10 +1003,17 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale, blocks_hook=False):
         inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
-    inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
-                             if color_mode != PaperColorMode.FULL_COLOR else None)
-    if blocks_hook:
-        inst._paper_blocks_colour = _paper_qcolor(cat["color"], inst)   # WM3 D3: By Category on paper
+    bw = color_mode == PaperColorMode.BW
+    if color_mode == PaperColorMode.FULL_COLOR:
+        inst._paper_pen_color = None
+    elif paper_blocks_authored(cat["color"]):
+        # WM3 S1: As Authored keeps authored + placement colours on Custom
+        # sheets; B&W stays all black.
+        inst._paper_pen_color = QColor("#000000") if bw else None
+    else:
+        inst._paper_pen_color = _paper_qcolor(cat["color"], inst)
+    if blocks_hook:      # WM3 D3 / S1: By Category on paper
+        inst._paper_blocks_colour = paper_blocks_token_colour(cat["color"], bw, inst)
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
 

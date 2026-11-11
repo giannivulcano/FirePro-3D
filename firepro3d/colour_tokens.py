@@ -66,6 +66,9 @@ def picked_colour(value) -> str | None:
 def swatch_label(value) -> str:
     """The label a ``ui_kit.Swatch`` shows for a stored colour: "None" for
     ``""``, the token label, else the upper-case hex."""
+    from .stroke_style import AS_AUTHORED, AS_AUTHORED_LABEL   # circular at import time
+    if value == AS_AUTHORED:        # the paper "Blocks" colour sentinel (WM3 S1)
+        return AS_AUTHORED_LABEL
     return "None" if not value else (token_label(value) or str(value).upper())
 
 
@@ -101,8 +104,10 @@ def _paper_mode(item):
 def _blocks_colour(item) -> QColor:
     """``token:blocks`` -- a By Category placement Colour (WM3 D3): the
     Model "Blocks" colour on the canvas; on paper (every colour mode) the
-    paper "Blocks" category colour, cached on the instance for the pass by
-    ``paper_display._apply_block``, else read from the categories."""
+    paper "Blocks" category colour (or, when that is As Authored and the mode
+    is not B&W, the Model "Blocks" colour -- WM3 S1), cached on the instance
+    for the pass by ``paper_display._apply_block``, else read from the
+    categories."""
     if _paper_mode(item) is None:                # canvas: the Model "Blocks" colour
         v = _pd.model_blocks_colour()
         return resolve_colour(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item=item)
@@ -110,7 +115,8 @@ def _blocks_colour(item) -> QColor:
     if c is not None:
         return QColor(c)
     v = _pd.load_paper_categories()["Blocks"]["color"]
-    return _pd._paper_qcolor(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item)
+    return _pd.paper_blocks_token_colour(
+        v, _paper_mode(item) is _pd.PaperColorMode.BW, item)
 
 
 def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
