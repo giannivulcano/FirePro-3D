@@ -276,7 +276,9 @@ def test_picker_always_has_theme_row(qapp):
     from firepro3d import colour_picker as cp
     dlg = cp.ColourPickerDialog(initial="#ff0000")
     try:
-        assert [c.value for c in dlg._theme_row_chips] == [TOKEN_AUTO, TOKEN_ACCENT]
+        from firepro3d.constants import TOKEN_BG
+        # paper-as-authored D7: the Theme row gains a Background chip
+        assert [c.value for c in dlg._theme_row_chips] == [TOKEN_AUTO, TOKEN_ACCENT, TOKEN_BG]
     finally:
         _dispose(dlg)
 

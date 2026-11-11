@@ -120,7 +120,43 @@ class EyeToggle(QAbstractButton):
         r = QRectF(0, 0, M.EYE_GLYPH_PX, M.EYE_GLYPH_PX)
         r.moveCenter(QRectF(self.rect()).center())
         on = self.isChecked()
-        paint_eye(p, r, on, eye_color(_detect(), on))
+        self._paint_glyph(p, r, on, eye_color(_detect(), on))
+
+    def _paint_glyph(self, p, r, on, color):
+        """The glyph painter (overridden by AsAuthoredToggle)."""
+        paint_eye(p, r, on, color)
+
+
+def paint_as_authored(p: QPainter, r: QRectF, on: bool, color: QColor) -> None:
+    """Paint the As Authored glyph into *r* (paper-as-authored D8, glyph A):
+    a palette outline with a thumb hole and three paint dots -- filled when
+    *on*, hollow plus a diagonal slash when off. ``AsAuthoredToggle`` calls it."""
+    p.setPen(round_pen(color))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cx, cy = r.center().x(), r.center().y()
+    p.drawEllipse(r.adjusted(1, 2, -1, -2))
+    p.drawEllipse(QPointF(cx + 3.2, cy + 2.4), 2.0, 2.0)
+    for dx, dy in ((-4.0, -1.0), (-0.5, -3.2), (3.2, -2.2)):
+        if on:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(color)
+        else:
+            p.setPen(round_pen(color, 1.0))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawEllipse(QPointF(cx + dx, cy + dy), 1.5, 1.5)
+    if not on:
+        p.setPen(round_pen(color, 1.4))
+        p.drawLine(QPointF(r.left() + 1, r.bottom() - 1),
+                   QPointF(r.right() - 1, r.top() + 1))
+
+
+class AsAuthoredToggle(EyeToggle):
+    """The Paper Space As Authored toggle (paper-as-authored D8): the
+    visibility eye's twin (same size, colours, disabled opacity and theme
+    re-latch) painting the palette glyph. The caller sets the tooltip."""
+
+    def _paint_glyph(self, p, r, on, color):
+        paint_as_authored(p, r, on, color)
 
 
 class SortHeader(QHeaderView):

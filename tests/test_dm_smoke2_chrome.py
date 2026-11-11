@@ -182,9 +182,9 @@ def test_tables_sit_flush_under_the_divider_and_to_the_page_edges(mw):
         _flush(dlg, dlg._lw_table, to_bottom=False)    # +/-/Blocks-weight row below
         dlg._tabs.setCurrentIndex(1)
         QApplication.processEvents()
-        tl = _flush(dlg, dlg._ps_tree, below_divider=False)   # colour-mode row sits above it
-        div = dlg._tabs._divider
-        assert tl.y() > div.mapTo(dlg._tabs, QPoint(0, div.height())).y()
+        # paper-as-authored D8: the Color Mode row is gone, so the Paper table
+        # sits flush under the divider like the others (was: a row above it)
+        _flush(dlg, dlg._ps_tree)
     finally:
         dispose_dm(dlg)
 

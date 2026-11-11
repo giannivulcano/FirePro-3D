@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QPushButton, QToolButton, QMenu)
 
 from .colour_tokens import is_token, resolve_colour, token_label
-from .constants import TOKEN_ACCENT, TOKEN_AUTO
+from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .house_dialog import HouseDialog
 from .theme import M, detect
@@ -420,14 +420,15 @@ class ColourPickerDialog(HouseDialog):
         return chips
 
     def _add_token_row(self, lay):
-        """Overline **Theme** row: Automatic + Accent chips, each drawn in its
-        current-canvas colour with a caption (D-A18, ui-design-system D6)."""
+        """Overline **Theme** row: Automatic, Accent and Background chips, each
+        drawn in its current-canvas colour with a caption (D-A18,
+        ui-design-system D6; Background: paper-as-authored D7)."""
         lay.addSpacing(M.COLOUR_SEC_GAP)
         lay.addWidget(_section_label("Theme"))
         lay.addSpacing(4)
         row = QHBoxLayout(); row.setSpacing(M.COLOUR_CHIP_GAP); row.setContentsMargins(0, 0, 0, 0)
         chips = []
-        for value in (TOKEN_AUTO, TOKEN_ACCENT):
+        for value in (TOKEN_AUTO, TOKEN_ACCENT, TOKEN_BG):
             c = _PaletteChip(value, token_label(value), theme=self._theme)
             c.picked.connect(self._on_chip)
             c.committed.connect(self._on_chip_commit)

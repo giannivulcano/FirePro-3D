@@ -229,7 +229,9 @@ def test_tab_colour_pickers_show_theme_and_no_fill(qapp, model_space, picker_spy
     finally:
         d.close()
     assert len(picker_spy) == 1
-    assert picker_spy[0]["theme"] == [TOKEN_AUTO, TOKEN_ACCENT]
+    from firepro3d.constants import TOKEN_BG
+    # paper-as-authored D7: the Theme row gains a Background chip
+    assert picker_spy[0]["theme"] == [TOKEN_AUTO, TOKEN_ACCENT, TOKEN_BG]
     assert picker_spy[0]["standard"][-1] == "", "No Fill chip ends the Standard row"
 
 

@@ -13,7 +13,6 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from enum import Enum
 
 from PyQt6.QtCore import QSettings
 
@@ -491,37 +490,6 @@ def _parse_weight_list(raw) -> list[LineWeightDef] | None:
     except TypeError:                      # raw not iterable
         return None
     return out or None
-
-
-# ---------------------------------------------------------------------------
-# Color mode
-# ---------------------------------------------------------------------------
-
-class PaperColorMode(Enum):
-    """Paper-space color rendering mode."""
-    FULL_COLOR = "full_color"
-    BW = "bw"
-    CUSTOM = "custom"
-
-
-def load_paper_color_mode(settings: QSettings | None = None) -> PaperColorMode:
-    """Load paper color mode from QSettings, defaulting to B&W."""
-    if settings is None:
-        settings = QSettings("GV", "FirePro3D")
-    raw = settings.value("paper/color_mode")
-    try:
-        return PaperColorMode(raw)
-    except (ValueError, KeyError):
-        return PaperColorMode.BW
-
-
-def save_paper_color_mode(mode: PaperColorMode,
-                          settings: QSettings | None = None):
-    """Persist paper color mode to QSettings."""
-    if settings is None:
-        settings = QSettings("GV", "FirePro3D")
-    settings.setValue("paper/color_mode", mode.value)
-    settings.sync()
 
 
 # ---------------------------------------------------------------------------

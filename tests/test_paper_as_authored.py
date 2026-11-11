@@ -339,3 +339,47 @@ def test_ac8_pixels_token_colour_plots_black(qapp):
     assert "#000000" in names          # Automatic stroke -> black on paper
     assert "#123456" in names          # hex fill keeps its canvas value
     assert "#ffffff" not in names
+
+
+# -- G1 review fixes (F1, F3, F4) ---------------------------------------------------
+
+def test_underlay_off_token_layer_paints_row_colour_and_src_restored(qapp):
+    """F1: a token layer colour would ignore the row colour at paint; the pass
+    drops it while the Underlay row is OFF and restores it afterwards."""
+    from tests.test_underlay_display import _paper_scene_setup
+    _set_row("Underlay", on=False)
+    scene, _rec, group, rect = _paper_scene_setup(
+        qapp, layer_overrides={"A-WALL": {"colour": "token:accent"}})
+    kids = [c for c in group.childItems() if hasattr(c, "set_colour_src")]
+    assert kids
+    for c in kids:
+        c.set_colour_src("token:accent")
+    img = QImage(200, 200, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#ffffff"))
+    saved = pd.apply_paper_overrides(scene, rect, paper_scale=0.02)
+    try:
+        p = QPainter(img)
+        scene.render(p, QRectF(0, 0, 200, 200), rect)
+        p.end()
+    finally:
+        pd.restore_model_display(saved)
+    names = {QColor(img.pixel(x, y)).name()
+             for x in range(200) for y in range(200)}
+    assert _ROW in names
+    assert all(c._colour_src == "token:accent" for c in kids)
+
+
+def test_legacy_project_migration_leaves_no_color_mode_and_no_hatch_toggle():
+    """F3 / F4: the project path never writes paper/color_mode, and Hatch
+    (LW only) never gains as_authored."""
+    pd.apply_paper_display_from_project({"color_mode": "custom"})
+    assert QSettings("GV", "FirePro3D").value("paper/color_mode") is None
+    assert "as_authored" not in pd.load_paper_categories()["Hatch"]
+
+
+def test_legacy_qsettings_migration_has_no_hatch_toggle():
+    """F4: the QSettings migration path leaves Hatch without as_authored."""
+    s = QSettings("GV", "FirePro3D")
+    s.setValue("paper/color_mode", "full_color")
+    s.sync()
+    assert "as_authored" not in pd.load_paper_categories(s)["Hatch"]

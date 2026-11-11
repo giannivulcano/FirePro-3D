@@ -28,7 +28,7 @@ from . import theme as th
 from . import colour_picker
 from . import fill_types
 from .house_dialog import HouseDialog
-from .ui_kit import EyeToggle, Swatch, TopTabs, glyph_button
+from .ui_kit import AsAuthoredToggle, EyeToggle, Swatch, TopTabs, glyph_button
 from .constants import MODEL_WEIGHT_PX_MAX, TOKEN_AUTO, TOKEN_BG
 from .colour_tokens import is_token, resolve_colour, token_label
 
@@ -302,6 +302,10 @@ _MODEL_PX_TIP = (
 
 
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
+
+
+_AS_AUTH_TIP = ("As Authored: plot this row's items in their own colours "
+                "(off = paint the row colours over them)")
 
 
 def category_label(key: str) -> str:
@@ -918,10 +922,9 @@ class DisplayManager(HouseDialog):
 
         self._take_snapshot()
         # Paper-space settings snapshot for cancel-revert
-        from .paper_display import load_paper_categories, load_paper_color_mode
+        from .paper_display import load_paper_categories
         self._paper_settings_snapshot = {
             "categories": load_paper_categories(self._settings),
-            "color_mode": load_paper_color_mode(self._settings).value,
         }
 
         self._build_ui()
@@ -1777,17 +1780,14 @@ class DisplayManager(HouseDialog):
         self._apply_preview()
 
     def _reset_paper_space_tab(self):
-        """Reset Paper Space tab to B&W factory defaults."""
+        """Reset Paper Space tab to the D3 factory (every row As Authored)."""
         from .paper_display import (
             factory_paper_categories, save_paper_categories,
-            PaperColorMode, save_paper_color_mode, _HAS_FILL, _HAS_SECTION,
-            _LW_ONLY,
+            _HAS_FILL, _HAS_SECTION, _LW_ONLY,
         )
-        save_paper_color_mode(PaperColorMode.BW, self._settings)
         cats = factory_paper_categories()
         save_paper_categories(cats, self._settings)
         self._suppress = True
-        self._color_mode_combo.setCurrentIndex(1)  # B&W
         for key, widgets in self._paper_cat_data.items():
             factory = cats[key]
             if key not in _LW_ONLY:
@@ -1797,13 +1797,16 @@ class DisplayManager(HouseDialog):
             if key in _HAS_SECTION:
                 self._update_color_btn(widgets["section_btn"],
                                        factory["section_color"])
-            idx = widgets["lw_combo"].findText(factory["line_weight"])
-            if idx >= 0:
-                widgets["lw_combo"].setCurrentIndex(idx)
+            if factory["line_weight"]:
+                idx = widgets["lw_combo"].findText(factory["line_weight"])
+                if idx >= 0:
+                    widgets["lw_combo"].setCurrentIndex(idx)
             widgets["opacity"].setValue(factory["opacity"])
             widgets["vis"].setChecked(factory.get("visible", True))
+            if widgets["auth"] is not None:
+                widgets["auth"].setChecked(factory["as_authored"])
         self._suppress = False
-        self._apply_color_mode_ui(PaperColorMode.BW)
+        self._apply_authored_ui()
         self._apply_paper_preview()
 
     def _reset_line_weights_tab(self):
@@ -1968,11 +1971,12 @@ class DisplayManager(HouseDialog):
     # Paper-space tree column indices
     _PS_COL_NAME    = 0
     _PS_COL_VIS     = 1
-    _PS_COL_COLOR   = 2
-    _PS_COL_FILL    = 3
-    _PS_COL_SECTION = 4
-    _PS_COL_LW      = 5
-    _PS_COL_OPACITY = 6
+    _PS_COL_AUTH    = 2
+    _PS_COL_COLOR   = 3
+    _PS_COL_FILL    = 4
+    _PS_COL_SECTION = 5
+    _PS_COL_LW      = 6
+    _PS_COL_OPACITY = 7
 
     # Paper-space category groups
     _PS_GROUPS = {
@@ -1984,15 +1988,14 @@ class DisplayManager(HouseDialog):
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Section Marker", "Detail Marker",
         ],
-        "Drafting": ["Hatch", "Blocks"],
+        "Drafting": ["Hatch", "Blocks", "Underlay"],
     }
 
     def _build_paper_space_tab(self) -> QWidget:
         """Build the Paper Space display overrides tab."""
         from .paper_display import (
-            weight_names, load_paper_categories, load_paper_color_mode,
-            save_paper_categories, save_paper_color_mode,
-            PaperColorMode, _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS, _LW_ONLY,
+            weight_names, load_paper_categories,
+            _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS, _LW_ONLY, _AUTH_ONLY,
         )
         _t = th.detect()
 
@@ -2000,34 +2003,16 @@ class DisplayManager(HouseDialog):
         layout = QVBoxLayout(page)
         self._page_margins(layout)
 
-        # ── Color mode dropdown ─────────────────────────────────────
-        mode_row = QHBoxLayout()
-        self._control_row_margins(mode_row)
-        mode_row.addWidget(QLabel("Color Mode:"))
-        self._color_mode_combo = QComboBox()
-        self._color_mode_combo.addItems(["Full Color", "B&W", "Custom"])
-        mode = load_paper_color_mode(self._settings)
-        mode_index = {
-            PaperColorMode.FULL_COLOR: 0,
-            PaperColorMode.BW: 1,
-            PaperColorMode.CUSTOM: 2,
-        }.get(mode, 1)
-        self._color_mode_combo.setCurrentIndex(mode_index)
-        self._color_mode_combo.currentIndexChanged.connect(
-            self._on_color_mode_changed)
-        mode_row.addWidget(self._color_mode_combo)
-        mode_row.addStretch()
-        layout.addLayout(mode_row)
-
         # ── Category tree ───────────────────────────────────────────
         self._ps_tree = QTreeWidget()
         self._ps_tree.setObjectName("underlayTable")   # Underlay Manager table look
-        self._ps_tree.setColumnCount(7)
+        self._ps_tree.setColumnCount(8)
         self._ps_tree.setHeaderLabels(
-            ["NAME", "VIS", "COLOUR", "FILL", "SECTION", "LINE WEIGHT",
-             "OPACITY"])
-        _center_headers(self._ps_tree, (self._PS_COL_VIS, self._PS_COL_COLOR,
-                                        self._PS_COL_FILL, self._PS_COL_SECTION))
+            ["NAME", "VIS", "AS AUTH.", "COLOUR", "FILL", "SECTION",
+             "LINE WEIGHT", "OPACITY"])
+        _center_headers(self._ps_tree, (self._PS_COL_VIS, self._PS_COL_AUTH,
+                                        self._PS_COL_COLOR, self._PS_COL_FILL,
+                                        self._PS_COL_SECTION))
         self._ps_tree.setRootIsDecorated(True)
         self._ps_tree.setIndentation(20)
         self._ps_tree.setSelectionMode(
@@ -2037,8 +2022,8 @@ class DisplayManager(HouseDialog):
         hdr = self._ps_tree.header()
         hdr.setSectionResizeMode(self._PS_COL_NAME,
                                  QHeaderView.ResizeMode.Stretch)
-        for col in (self._PS_COL_VIS, self._PS_COL_COLOR, self._PS_COL_FILL,
-                    self._PS_COL_SECTION):
+        for col in (self._PS_COL_VIS, self._PS_COL_AUTH, self._PS_COL_COLOR,
+                    self._PS_COL_FILL, self._PS_COL_SECTION):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
             self._ps_tree.setColumnWidth(col, 60)
         self._ps_tree.setColumnWidth(self._PS_COL_VIS, 40)
@@ -2099,6 +2084,21 @@ class DisplayManager(HouseDialog):
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_VIS,
                                             vis_box)
 
+                # ── As Authored glyph (D8) ───────────────────────────
+                auth_cb = None
+                if key not in _LW_ONLY:
+                    auth_cb = AsAuthoredToggle(checked=cat.get("as_authored", True))
+                    auth_cb.setToolTip(_AS_AUTH_TIP)
+                    auth_cb.toggled.connect(
+                        lambda checked, k=key: self._on_paper_authored_changed(k, checked))
+                auth_box = QWidget(objectName="tableCell")
+                auth_lay = QHBoxLayout(auth_box)
+                auth_lay.setContentsMargins(0, 0, 0, 0)
+                auth_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                if auth_cb is not None:
+                    auth_lay.addWidget(auth_cb)
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_AUTH, auth_box)
+
                 # ── Colour chip (R2) ─────────────────────────────────
                 color_btn = Swatch(cat.get("color", "#000000"), context="Colour",
                                    show_label=False, auto_pick=False)
@@ -2133,12 +2133,13 @@ class DisplayManager(HouseDialog):
 
                 # ── Line Weight combo ────────────────────────────────
                 lw_combo = QComboBox()
-                lw_combo.addItems(lw_names)
-                cur_lw = picker_weight_name(cat.get("line_weight")
-                                            or factory_all[key]["line_weight"])  # MW-6: the row it draws as
-                idx = lw_combo.findText(cur_lw)
-                if idx >= 0:
-                    lw_combo.setCurrentIndex(idx)
+                if key not in _AUTH_ONLY:      # R2: the Underlay row has no weight
+                    lw_combo.addItems(lw_names)
+                    cur_lw = picker_weight_name(cat.get("line_weight")
+                                                or factory_all[key]["line_weight"])  # MW-6: the row it draws as
+                    idx = lw_combo.findText(cur_lw)
+                    if idx >= 0:
+                        lw_combo.setCurrentIndex(idx)
                 lw_combo.currentTextChanged.connect(
                     lambda t, k=key: self._on_paper_lw_changed(k, t))
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_LW,
@@ -2165,9 +2166,18 @@ class DisplayManager(HouseDialog):
                         self._PS_COL_NAME,
                         "Line weight of hatch pattern lines on sheets and PDF")
 
+                if key in _AUTH_ONLY:            # R2: toggle + Colour only
+                    for _w in (vis_cb, lw_combo, opacity_spin):
+                        _w.setEnabled(False)
+                    # Fill / Section are already disabled (no _HAS_FILL / _HAS_SECTION)
+                    tree_item.setToolTip(self._PS_COL_NAME,
+                                         "Underlay layers on sheets and PDF: As Authored "
+                                         "plots each layer's colour; off paints the row colour")
+
                 self._paper_cat_data[key] = {
                     "tree_item": tree_item,
                     "vis": vis_cb,
+                    "auth": auth_cb,
                     "color_btn": color_btn,
                     "fill_btn": fill_btn,
                     "section_btn": section_btn,
@@ -2177,77 +2187,48 @@ class DisplayManager(HouseDialog):
 
         self._suppress = False
 
-        # Apply initial color mode UI state
-        self._apply_color_mode_ui(mode)
+        self._apply_authored_ui()
 
         layout.addWidget(self._ps_tree)
         return page
 
     # ── Paper Space event handlers ───────────────────────────────────
 
-    def _on_color_mode_changed(self, index: int):
-        """Color mode dropdown changed."""
+    def _on_paper_authored_changed(self, key: str, checked: bool):
+        """As Authored glyph toggled (D8): persist, re-grey the row, preview."""
         if self._suppress:
             return
-        from .paper_display import (
-            PaperColorMode, save_paper_color_mode,
-            save_paper_categories, load_paper_categories,
-            _HAS_FILL, _HAS_SECTION, _LW_ONLY,
-        )
-        mode_map = {0: PaperColorMode.FULL_COLOR,
-                    1: PaperColorMode.BW,
-                    2: PaperColorMode.CUSTOM}
-        mode = mode_map.get(index, PaperColorMode.BW)
-        save_paper_color_mode(mode, self._settings)
-
-        if mode == PaperColorMode.BW:
-            # Populate all colours with B&W values
-            cats = load_paper_categories(self._settings)
-            self._suppress = True
-            for key, widgets in self._paper_cat_data.items():
-                if key in _LW_ONLY:
-                    continue
-                cats[key]["color"] = "#000000"
-                self._update_color_btn(widgets["color_btn"], "#000000")
-                if key in _HAS_FILL:
-                    cats[key]["fill"] = "#ffffff"
-                    self._update_color_btn(widgets["fill_btn"], "#ffffff")
-                if key in _HAS_SECTION:
-                    cats[key]["section_color"] = "#000000"
-                    self._update_color_btn(widgets["section_btn"], "#000000")
-            save_paper_categories(cats, self._settings)
-            self._suppress = False
-
-        self._apply_color_mode_ui(mode)
+        from .paper_display import load_paper_categories, save_paper_categories
+        cats = load_paper_categories(self._settings)
+        cats[key]["as_authored"] = checked
+        save_paper_categories(cats, self._settings)
+        self._apply_authored_ui(key)
         self._apply_paper_preview()
 
-    def _apply_color_mode_ui(self, mode):
-        """Enable/disable colour columns based on color mode."""
-        from .paper_display import (
-            PaperColorMode, _HAS_FILL, _HAS_SECTION, _LW_ONLY)
-        disable = (mode == PaperColorMode.FULL_COLOR)
-        for key, widgets in self._paper_cat_data.items():
-            if key in _LW_ONLY:
+    def _apply_authored_ui(self, only: str | None = None):
+        """Grey a row's Colour / Fill / Section while As Authored is ON (D8);
+        Fill / Section only where the row has them."""
+        from .paper_display import _HAS_FILL, _HAS_SECTION, _LW_ONLY
+        for key, w in self._paper_cat_data.items():
+            if key in _LW_ONLY or (only is not None and key != only):
                 continue
-            widgets["color_btn"].setEnabled(not disable)
+            live = not w["auth"].isChecked()
+            w["color_btn"].setEnabled(live)
             if key in _HAS_FILL:
-                widgets["fill_btn"].setEnabled(not disable)
+                w["fill_btn"].setEnabled(live)
             if key in _HAS_SECTION:
-                widgets["section_btn"].setEnabled(not disable)
+                w["section_btn"].setEnabled(live)
 
     def _on_paper_color_clicked(self, key: str, prop: str):
         """Open the house colour picker for a paper-space category colour property."""
-        from .paper_display import (
-            PaperColorMode, save_paper_color_mode, load_paper_color_mode,
-            load_paper_categories, save_paper_categories,
-        )
+        from .paper_display import load_paper_categories, save_paper_categories
         widgets = self._paper_cat_data[key]
         btn_key = {"color": "color_btn", "fill": "fill_btn",
                    "section_color": "section_btn"}[prop]
         btn = widgets[btn_key]
         cur_hex = btn.property("_color")
         if cur_hex is None:
-            cur_hex = "#000000"
+            cur_hex = TOKEN_AUTO
         hex_val = colour_picker.pick_colour(cur_hex, self, f"{key} · {prop}")
         if hex_val is None:
             return
@@ -2258,15 +2239,6 @@ class DisplayManager(HouseDialog):
         cats = load_paper_categories(self._settings)
         cats[key][prop] = hex_val
         save_paper_categories(cats, self._settings)
-
-        # Auto-switch to Custom if currently in Full Color or B&W
-        current_mode = load_paper_color_mode(self._settings)
-        if current_mode in (PaperColorMode.FULL_COLOR, PaperColorMode.BW):
-            save_paper_color_mode(PaperColorMode.CUSTOM, self._settings)
-            self._suppress = True
-            self._color_mode_combo.setCurrentIndex(2)  # Custom
-            self._suppress = False
-            self._apply_color_mode_ui(PaperColorMode.CUSTOM)
 
         self._apply_paper_preview()
 
@@ -2719,7 +2691,10 @@ class DisplayManager(HouseDialog):
         cats = load_paper_categories(self._settings)
         factory_all = factory_paper_categories()
         self._suppress = True
+        from .paper_display import _AUTH_ONLY
         for key, widgets in self._paper_cat_data.items():
+            if key in _AUTH_ONLY:
+                continue                    # R2: the Underlay row has no weight
             combo = widgets["lw_combo"]
             cur = combo.currentText()
             combo.clear()
@@ -2796,14 +2771,9 @@ class DisplayManager(HouseDialog):
             set_weight_aliases(self._lw_alias_snapshot)
             self.lineWeightsChanged.emit()
         if hasattr(self, "_paper_settings_snapshot"):
-            from .paper_display import (
-                save_paper_categories, save_paper_color_mode, PaperColorMode,
-            )
+            from .paper_display import save_paper_categories
             save_paper_categories(self._paper_settings_snapshot["categories"],
                                   self._settings)
-            save_paper_color_mode(
-                PaperColorMode(self._paper_settings_snapshot["color_mode"]),
-                self._settings)
         super().reject()
 
 

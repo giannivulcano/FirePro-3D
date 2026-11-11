@@ -106,7 +106,9 @@ def _dispose(w):
 
 def _assert_full_picker(seen):
     assert len(seen) == 1, "the real caller must open the picker once"
-    assert seen[0]["theme"] == [TOKEN_AUTO, TOKEN_ACCENT]
+    from firepro3d.constants import TOKEN_BG
+    # paper-as-authored D7: the Theme row gains a Background chip
+    assert seen[0]["theme"] == [TOKEN_AUTO, TOKEN_ACCENT, TOKEN_BG]
     assert seen[0]["standard"][-1] == "", "No Fill chip ends the Standard row"
 
 
@@ -443,19 +445,23 @@ def test_dm_paper_tab_colour_reaches_the_paper_pen(qapp, monkeypatch, force_them
                                                    value, name, alpha):
     from firepro3d.display_manager import DisplayManager
     from firepro3d.model_space import Model_Space
-    from firepro3d.paper_display import load_paper_categories
-    from tests.paper_mode_shim import CUSTOM, set_paper_mode
+    from firepro3d.paper_display import load_paper_categories, save_paper_categories
     force_theme("dark")
     ms, gl = _grid_scene()
     _pick_returns(monkeypatch, value)
-    set_paper_mode(CUSTOM)          # row OFF: the row colour paints over the item
+    cats = load_paper_categories()
+    cats["Grid Line"]["as_authored"] = True     # start ON (factory)
+    save_paper_categories(cats)
     dm = DisplayManager(ms)
     try:
         dm._on_paper_color_clicked("Grid Line", "color")
     finally:
         _dispose(dm)
     # paper-as-authored D8: a colour pick flips nothing (was: switched to Custom)
-    assert load_paper_categories()["Grid Line"]["as_authored"] is False
+    assert load_paper_categories()["Grid Line"]["as_authored"] is True
+    cats = load_paper_categories()
+    cats["Grid Line"]["as_authored"] = False    # row OFF: the row colour paints over the item
+    save_paper_categories(cats)
     grid, bubble_pen = _paper_pass_colours(ms, gl)
     assert grid.alpha() == alpha and bubble_pen.alpha() == alpha
     if name:

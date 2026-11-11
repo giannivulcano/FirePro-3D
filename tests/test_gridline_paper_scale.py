@@ -606,7 +606,8 @@ class TestDisplayManagerLabelHtRetired:
         try:
             tree = dlg._ps_tree
             headers = [tree.headerItem().text(i) for i in range(tree.columnCount())]
-            assert "Label Ht" not in headers and tree.columnCount() == 7
+            # paper-as-authored D8: the AS AUTH. column makes it 8 (was 7)
+            assert "Label Ht" not in headers and tree.columnCount() == 8
             assert "bubble_ht" not in dlg._paper_cat_data["Grid Line"]
         finally:
             dlg.close()

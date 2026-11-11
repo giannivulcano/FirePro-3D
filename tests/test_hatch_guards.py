@@ -171,11 +171,13 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
         assert pd.load_paper_categories()["Hatch"]["line_weight"] == "Thick"
         after = pd.hatch_line_mm()
         assert after == 0.50 and after != before
-        # Colour-mode switch must not re-enable the inapplicable cells.
-        dlg._color_mode_combo.setCurrentIndex(2)
+        # paper-as-authored D8: Hatch has no As Authored glyph, and another
+        # row's toggle must not re-enable the inapplicable cells (was: the
+        # Color Mode combo).
+        assert row.get("auth") is None
+        dlg._paper_cat_data["Pipe"]["auth"].click()
         assert not row["color_btn"].isEnabled()
-        # B&W switch and Reset must not restyle or rewrite the Hatch colour (M1).
-        dlg._color_mode_combo.setCurrentIndex(1)
+        # A toggle and Reset must not restyle or rewrite the Hatch colour (M1).
         assert pd.load_paper_categories()["Hatch"]["color"] == "#123456"
         assert row["color_btn"].hex() == "#123456"
         dlg._reset_paper_space_tab()
