@@ -503,3 +503,22 @@ class SectionManager(QObject):
                 m.refresh_heads()
         self._recount()
         self.sectionsChanged.emit()
+
+    # -- per-section datum ends follow the level (elevation-parity D7) ------------------
+    def rename_level_ends(self, old: str, new: str) -> None:
+        """A level rename re-keys every marker's ``datum_ends``. Called by
+        ``LevelManager.rename_level`` (the user's rename only: load and undo
+        restore copy records verbatim, so no cascade re-runs), before the
+        Level Manager pushes the rename's one undo step."""
+        for m in self.markers.values():
+            if old in m.datum_ends:
+                m.datum_ends[new] = m.datum_ends.pop(old)
+
+    def drop_level_ends(self, names) -> None:
+        """A level delete drops each deleted level's ``datum_ends`` entry from
+        every marker. Called by ``LevelManager.remove_levels`` (the user's
+        delete only), inside the delete's one undo step."""
+        doomed = set(names)
+        for m in self.markers.values():
+            for n in doomed & set(m.datum_ends):
+                del m.datum_ends[n]

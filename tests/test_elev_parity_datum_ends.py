@@ -300,3 +300,95 @@ def test_an_untouched_selected_datum_writes_no_record(mw):
     sec._commit_elev_grip("move")                                # the manipulator's release hook
     assert set(sec.marker.datum_ends) == {"Level 1"}
     assert len(scene._undo_stack) == depth + 1
+
+
+def _row(widget, name):
+    from firepro3d.level_widget import _COL_NAME
+    return next(r for r in range(widget.table.rowCount())
+                if widget.table.item(r, _COL_NAME).data(Qt.ItemDataRole.UserRole) == name)
+
+
+def test_level_rename_rekeys_every_markers_datum_ends_in_its_step(mw):
+    """The real rename path (Level Manager dialog -> LevelWidget ->
+    LevelManager.rename_level) re-keys datum_ends on every marker inside the
+    rename's one undo step; undo puts the old key back."""
+    from firepro3d.level_widget import _COL_NAME
+    win = mw
+    scene = win.scene
+    v, sec = _north(win)
+    _drag_datum_right(v, sec)
+    _settle(sec)
+    rec = dict(sec.marker.datum_ends["Level 1"])
+    south = win.section_manager.markers["south"]
+    south.datum_ends["Level 1"] = {"left": -1000.0, "right": 1000.0}   # a second marker's record
+    scene.push_undo_state()
+    depth = len(scene._undo_stack)
+    dlg = win._build_level_dialog()
+    dlg.show()
+    QTest.qWaitForWindowExposed(dlg)
+    try:
+        dlg.widget.table.item(_row(dlg.widget, "Level 1"), _COL_NAME).setText("Ground")
+    finally:
+        dlg.close()
+    QApplication.processEvents()
+    assert sec.marker.datum_ends == {"Ground": rec}
+    assert south.datum_ends == {"Ground": {"left": -1000.0, "right": 1000.0}}
+    assert len(scene._undo_stack) == depth + 1                   # the rename's one step
+    _settle(sec)
+    assert _datum(sec, "Ground").line().p2().x() == pytest.approx(rec["right"])
+    scene.undo()
+    assert sec.marker.datum_ends == {"Level 1": rec}
+    _settle(sec)
+    assert _datum(sec, "Level 1").line().p2().x() == pytest.approx(rec["right"])
+
+
+def test_level_delete_drops_its_datum_ends_in_its_step(mw, monkeypatch):
+    from firepro3d import level_widget as lw_mod
+    monkeypatch.setattr(lw_mod, "themed_confirm", lambda *a, **k: True)
+    win = mw
+    scene = win.scene
+    v, sec = _north(win)
+    _drag_datum_right(v, sec, "Level 2")
+    _settle(sec)
+    rec = dict(sec.marker.datum_ends["Level 2"])
+    scene.push_undo_state()
+    depth = len(scene._undo_stack)
+    dlg = win._build_level_dialog()
+    dlg.show()
+    QTest.qWaitForWindowExposed(dlg)
+    try:
+        dlg.widget.table.setCurrentCell(_row(dlg.widget, "Level 2"), 0)
+        dlg.widget._delete_level()
+    finally:
+        dlg.close()
+    QApplication.processEvents()
+    assert "Level 2" not in sec.marker.datum_ends
+    assert len(scene._undo_stack) == depth + 1                   # the delete's one step
+    scene.undo()
+    assert sec.marker.datum_ends == {"Level 2": rec}
+    _settle(sec)
+    assert _datum(sec, "Level 2").line().p2().x() == pytest.approx(rec["right"])
+
+
+def test_loading_a_file_never_reruns_a_level_cascade(mw, tmp_path):
+    """Load / undo restore the records verbatim: a datum_ends key naming a
+    level that the file does not list is NOT dropped by any cascade, and a
+    re-save keeps the very same records (idempotent load)."""
+    win = mw
+    scene = win.scene
+    v, sec = _north(win)
+    _drag_datum_right(v, sec)
+    _settle(sec)
+    rec = dict(sec.marker.datum_ends["Level 1"])
+    path = str(tmp_path / "cascade.fpd")
+    assert scene.save_to_file(path)
+    win._modified = False
+    win._load_project(path)
+    sec2 = win.section_manager.get_or_build_scene("north")
+    assert sec2.marker.datum_ends == {"Level 1": rec}
+    path2 = str(tmp_path / "cascade2.fpd")
+    assert win.scene.save_to_file(path2)
+    win._modified = False
+    win._load_project(path2)
+    sec3 = win.section_manager.get_or_build_scene("north")
+    assert sec3.marker.datum_ends == {"Level 1": rec}

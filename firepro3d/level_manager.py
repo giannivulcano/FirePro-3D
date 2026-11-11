@@ -420,7 +420,8 @@ class LevelManager:
         """Delete *names* (one action), re-pointing every level ref in *items* and the
         floor ``_top_level`` / ``_bottom_level`` refs on *scene* to each level's
         ``delete_targets`` entry; a ref with a paired offset keeps its absolute z
-        (``_rebase_offsets``). Returns the targets (empty = refused: nothing left)."""
+        (``_rebase_offsets``). Each section marker's datum_ends entry for a deleted
+        level is dropped (D7). Returns the targets (empty = refused: nothing left)."""
         targets = self.delete_targets(names)
         if not targets:
             return {}
@@ -429,6 +430,9 @@ class LevelManager:
         for old, new in targets.items():
             self._remap_level_refs(old, new, items, scene)
         self._levels = [l for l in self._levels if l.name not in targets]
+        sec_mgr = getattr(scene, "_section_manager", None)
+        if sec_mgr is not None:
+            sec_mgr.drop_level_ends(targets)      # D7: the deleted datums' section ends go too
         return targets
 
     def _rebase_offsets(self, items, targets, scene=None) -> None:
@@ -512,6 +516,9 @@ class LevelManager:
         z-range), so they are *not* in the generic ``.level`` loop; instead
         their two boundary references (``_top_level`` / ``_bottom_level``)
         are remapped when *scene* is supplied.
+
+        A ``scene`` carrying a ``_section_manager`` also has every section
+        marker's ``datum_ends`` re-keyed (elevation-parity D7).
         """
         if not new_name or (self.get(new_name) is not None
                            and new_name != old_name):
@@ -521,6 +528,9 @@ class LevelManager:
             return False
         lvl.name = new_name
         self._remap_level_refs(old_name, new_name, items, scene)
+        sec_mgr = getattr(scene, "_section_manager", None)
+        if sec_mgr is not None:
+            sec_mgr.rename_level_ends(old_name, new_name)   # D7: section datum ends follow the name
         return True
 
     # ── Serialisation ─────────────────────────────────────────────────────────
