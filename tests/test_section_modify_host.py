@@ -427,3 +427,27 @@ def test_a_bare_write_back_is_one_deferred_step(host, qapp):
     qapp.processEvents()
     qapp.processEvents()
     assert ms._undo_pos == pos0 + 1
+
+
+@pytest.mark.parametrize("op", ["rotate", "reflect", "scale"])
+def test_far_side_write_back_round_trips_through_the_projection(
+        qapp, section_scene_for, op):
+    """A far-side section's Rotate / Reflect / Scale write the model block so
+    that rebuilding that section reproduces the copy's edited pose (D2 / D4:
+    rotation negated and mirror toggled when the host is seen from behind).
+    """
+    ms, sec, gl, inst = _setup(section_scene_for)
+    far = _far_side(ms)
+    sec.rebuild()
+    cp = far._hosted_copies[id(inst)]
+    old = cp.block_pos()
+    if op == "rotate":
+        cp.manip_rotate(90.0, QPointF(old[0] - 500.0, old[1]))
+    elif op == "reflect":
+        cp.manip_reflect(QPointF(old[0] + 100.0, 0.0),
+                         QPointF(old[0] + 100.0, -1000.0))
+    else:
+        cp.manip_scale_about(QPointF(old[0] - 100.0, old[1] + 100.0), 2.0)
+    want = _pose(cp)
+    far.rebuild()
+    assert _pose(far._hosted_copies[id(inst)]) == want
