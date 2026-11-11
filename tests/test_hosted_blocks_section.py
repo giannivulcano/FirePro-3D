@@ -107,10 +107,10 @@ def test_hide_then_show_all_hosted_copy(qapp, section_scene_for):
     src = _host(ms, gl)
     sec.rebuild()
     (cp,) = _copies(sec)
-    sec._hide_elev_items([cp])
+    sec._hide_section_items([cp])
     assert not cp.isVisible()
+    assert src._display_overrides.get("visible") is False      # the one global flag (D5)
     sec._show_all_elev_hidden()
-    (cp2,) = _copies(sec)
-    assert cp2.isVisible() and cp2.scene() is sec
-    assert not src.isVisible()
+    assert cp.isVisible() and cp.scene() is sec                 # the same copy: no rebuild (D5)
+    assert not src.isVisible()                                  # still plan-hidden (D11)
     assert src._display_overrides.get("visible") is not False

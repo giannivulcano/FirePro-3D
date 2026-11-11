@@ -1197,10 +1197,9 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             target,
             scene=self._ms,
             # target is None on a right-click over empty canvas (AC8): hide
-            # the selection, never None. Area E's menu rewrite keeps this.
-            on_hide=lambda: self._hide_elev_items(
-                [i for i in [target] + [i for i in selected if i is not target]
-                 if i is not None]
+            # the selection, never None.
+            on_hide=lambda: self._hide_section_items(
+                [i for i in [target] + selected if i is not None]
             ),
             on_show_all=lambda: self._show_all_elev_hidden(),
             on_delete=lambda: self._delete_elev_selected(),
@@ -1211,21 +1210,22 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         )
         menu.exec(event.screenPos())
 
-    def _hide_elev_items(self, items):
-        """Hide elevation items and their source entities."""
-        for item in items:
-            source = item.data(_ROLE_SOURCE) if item else None
-            if source is not None and hasattr(source, "_display_overrides"):
-                source._display_overrides["visible"] = False
-            item.setVisible(False)
-            lab = getattr(item, "pipe_label", None)
-            if lab is not None:
-                lab.setVisible(False)
+    def _hide_section_items(self, items) -> None:
+        """Section Hide (D5, R8): the plan's Hide on the de-duplicated model
+        sources of *items* -- one global flag, so they leave plan and every
+        section and stay hidden through rebuilds and save / reopen. Items
+        with no source (datums) are skipped; None is never touched."""
+        sources = [s for s in self._sources_of(items)   # the one de-dup (S2)
+                   if hasattr(s, "_display_overrides")]     # a datum's Level is not hideable
+        if sources:
+            self._ms._hide_items(sources)        # hiddenChanged -> every section's pass
+        self._apply_hidden_pass()                # also a scene no manager tracks
 
     def _show_all_elev_hidden(self):
-        """Restore all hidden source entities and rebuild."""
+        """Section "Show All Hidden" (R9): the plan's Show All, then this
+        section's pass re-shows what it hid. No rebuild."""
         self._ms._show_all_hidden()
-        self.rebuild()
+        self._apply_hidden_pass()
 
     # -- Modify host (elevation parity D2; ModifyHostMixin hooks) ----------
 

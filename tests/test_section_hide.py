@@ -141,3 +141,78 @@ def test_browser_hide_and_show_reach_every_open_section_without_a_rebuild(qapp, 
             assert all(i.isVisible() for i in p)
     finally:
         dispose_main_window(win)
+
+
+def _line_of(sec, pipe):
+    from firepro3d.section_scene import _ElevProxyLine, _ROLE_SOURCE
+    return next(i for i in sec.items()
+                if isinstance(i, _ElevProxyLine) and i.data(_ROLE_SOURCE) is pipe)
+
+
+def test_section_hide_is_global_survives_rebuild_and_reopen(qapp, monkeypatch, tmp_path):
+    """AC7: right-click Hide on a pipe in a section tab hides the model pipe -
+    one global flag: gone whole from this and the parallel section and from
+    plan, after a forced rebuild, and after save / reopen."""
+    from tests._mainwindow_helpers import dispose_main_window
+    from tests._section_window_helpers import (action, aim, open_section_window,
+                                               right_click, settle)
+    win, markers, views = open_section_window(2)
+    ms = win.scene
+    name = markers[0].name
+    try:
+        pipe = _pipe(ms, (2000.0, -1000.0, 2400.0), (6000.0, -1000.0, 2400.0))
+        sec, other = views[0].scene(), views[1].scene()
+        settle(sec)
+        settle(other)
+        line = _line_of(sec, pipe)
+        pt = line.mapToScene(line.line().pointAt(0.25))
+        aim(views[0], pt)
+        action(right_click(views[0], pt, monkeypatch), "Hide").trigger()
+        assert pipe._display_overrides.get("visible") is False
+        assert not pipe.isVisible()                                  # plan too (R8)
+        for sc in (sec, other):
+            assert not any(i.isVisible() for i in _pipe_pieces(sc, pipe))
+            settle(sc)
+            assert _pipe_pieces(sc, pipe)
+            assert not any(i.isVisible() for i in _pipe_pieces(sc, pipe))
+        path = str(tmp_path / "hide.fpd")
+        assert ms.save_to_file(path, backup=False)
+        win._load_project(path)                                      # the real open path
+        (p2,) = win.scene.sprinkler_system.pipes
+        sec2 = win.section_manager.open_section(name).scene()
+        settle(sec2)
+        assert _pipe_pieces(sec2, p2)
+        assert not any(i.isVisible() for i in _pipe_pieces(sec2, p2))
+    finally:
+        dispose_main_window(win)
+
+
+def test_empty_canvas_menu_hides_the_selection_and_show_all_restores_without_rebuild(
+        qapp, monkeypatch):
+    """AC8 + AC7 (R9): right-click on EMPTY canvas with a proxy selected ->
+    Hide hides its pipe (no None crash); Show All Hidden from the same menu
+    restores the very same items - no rebuild."""
+    from PyQt6 import sip
+    from tests._mainwindow_helpers import dispose_main_window
+    from tests._section_window_helpers import (action, aim, open_section_window,
+                                               right_click, settle)
+    win, _markers, views = open_section_window(1)
+    ms = win.scene
+    try:
+        pipe = _pipe(ms, (2000.0, -1000.0, 2400.0), (6000.0, -1000.0, 2400.0))
+        sec = views[0].scene()
+        settle(sec)
+        line = _line_of(sec, pipe)
+        line.setSelected(True)
+        empty = QPointF(line.mapToScene(line.line().pointAt(0.25)).x(), -20000.0)
+        aim(views[0], empty)                     # far above every datum and gridline end
+        action(right_click(views[0], empty, monkeypatch), "Hide").trigger()
+        pieces = _pipe_pieces(sec, pipe)
+        assert pipe._display_overrides.get("visible") is False
+        assert not any(i.isVisible() for i in pieces)
+        action(right_click(views[0], empty, monkeypatch), "Show All Hidden").trigger()
+        assert not sec._rebuild_timer.isActive()
+        assert all(not sip.isdeleted(i) and i.isVisible() for i in pieces)
+        assert pipe._display_overrides.get("visible") is not False
+    finally:
+        dispose_main_window(win)

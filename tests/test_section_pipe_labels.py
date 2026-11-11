@@ -102,8 +102,11 @@ def test_hide_takes_the_label_with_the_line(qapp, section_scene_for):
     pipe = _pipe(ms, (2000.0, -1000.0, 2500.0), (6000.0, -1000.0, 2500.0))
     sec.rebuild()
     (lab,) = _labels(sec, pipe)
-    sec._hide_elev_items(_lines(sec, pipe))
+    sec._hide_section_items(_lines(sec, pipe))
     assert not lab.isVisible()
+    sec.rebuild()
+    (lab2,) = _labels(sec, pipe)
+    assert not lab2.isVisible()                    # D5: the Hide outlives a rebuild
 
 
 def test_refresh_annotation_tags_reshapes_the_label(qapp, section_scene_for):
