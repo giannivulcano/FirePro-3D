@@ -216,3 +216,40 @@ def test_empty_canvas_menu_hides_the_selection_and_show_all_restores_without_reb
         assert pipe._display_overrides.get("visible") is not False
     finally:
         dispose_main_window(win)
+
+
+def test_hidden_proxies_are_not_picked_by_ctrl_a_halo_or_snap(qapp):
+    """D5: a hidden pipe's proxies are not selected by Ctrl+A on the section
+    tab, not HALO candidates and not snap sources; a visible pipe still is."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtTest import QTest
+    from firepro3d import halo_selection
+    from firepro3d.snap_engine import SnapEngine
+    from tests._mainwindow_helpers import dispose_main_window
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, _markers, views = open_section_window(1)
+    ms = win.scene
+    try:
+        pipe = _pipe(ms, (2000.0, -1000.0, 2400.0), (6000.0, -1000.0, 2400.0))
+        keep = _pipe(ms, (2000.0, -1000.0, 1200.0), (6000.0, -1000.0, 1200.0))
+        view, sec = views[0], views[0].scene()
+        settle(sec)
+        line, keep_line = _line_of(sec, pipe), _line_of(sec, keep)
+        end = line.mapToScene(line.line().p1())
+        aim(view, end)
+        a = halo_selection.HALO_APERTURE_PX / view.transform().m11()
+        vt = view.viewportTransform()
+        assert line in sec.halo_candidates_at(end, a, vt)
+        before = SnapEngine().find(end, sec, vt)
+        assert before is not None and before.source_item is line     # precondition
+        ms._hide_items([pipe])
+        assert line not in sec.halo_candidates_at(end, a, vt)
+        after = SnapEngine().find(end, sec, vt)
+        assert after is None or after.source_item is not line
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        QApplication.processEvents()
+        chosen = sec.selectedItems()
+        assert keep_line in chosen                                      # Ctrl+A ran here
+        assert not any(i in chosen for i in _pipe_pieces(sec, pipe))
+    finally:
+        dispose_main_window(win)
