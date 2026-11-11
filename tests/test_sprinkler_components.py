@@ -391,10 +391,11 @@ class TestPipeSerialization:
         expected_keys = {
             "Diameter", "Schedule", "C-Factor", "Material",
             "Line Type",
-            "Colour", "Phase", "Show Label",
+            "Colour", "Show Label",
         }
         actual = {k for k in pipe._properties if not k.startswith("──")}
         assert expected_keys.issubset(actual)
+        assert "Phase" not in actual and pipe.phase == "new"   # PH1 PD1: relocated to pipe.phase
 
     def test_raw_properties_serializable(self, qapp, two_nodes):
         """Property values should survive JSON roundtrip."""

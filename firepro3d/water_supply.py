@@ -21,6 +21,7 @@ from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QTransform, QPainterPath
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from .constants import DEFAULT_LEVEL, Z_WATER_SUPPLY
+from . import phase_registry
 from .paper_display import paper_pass_active
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -42,6 +43,7 @@ class WaterSupply(QGraphicsSvgItem):
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale multiplier
         self._display_fill_color: str | None = None
+        self.phase: str = phase_registry.PHASE_NEW
 
         self._properties: dict = {
             "Static Pressure":   {"type": "string", "value": "80"},   # psi
@@ -101,10 +103,14 @@ class WaterSupply(QGraphicsSvgItem):
     # Property API (compatible with PropertyManager)
 
     def get_properties(self) -> dict:
-        return self._properties.copy()
+        props = self._properties.copy()
+        props[phase_registry.ROW_KEY] = phase_registry.property_row(self)   # PD1
+        return props
 
     def set_property(self, key: str, value: str):
-        if key in self._properties:
+        if key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
+        elif key in self._properties:
             self._properties[key]["value"] = str(value)
 
     # -------------------------------------------------------------------------

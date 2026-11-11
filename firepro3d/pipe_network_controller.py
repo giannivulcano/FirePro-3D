@@ -266,8 +266,9 @@ class PipeNetworkController:
             seg.level = pipe.level
             seg._tag_block = pipe._tag_block
             for key in ("Diameter", "Schedule", "C-Factor",
-                        "Material", "Colour", "Phase", "Line Type"):
+                        "Material", "Colour", "Line Type"):
                 seg._properties[key]["value"] = pipe._properties[key]["value"]
+            seg.phase = pipe.phase                    # D-PH16: halves keep the phase
             if na is node_a:
                 seg._properties["Mark"]["value"] = pipe._properties["Mark"]["value"]
             self._scene.sprinkler_system.add_pipe(seg)

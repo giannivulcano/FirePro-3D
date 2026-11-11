@@ -7,6 +7,7 @@ from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
 from .fitting import Fitting
 from .bound_label import BoundLabelItem, TagBlockHost
+from . import phase_registry
 
 from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
                         Z_CAT_PIPE, Z_CAT_SYMBOL, RISER_SYMBOL_TAG,
@@ -99,7 +100,6 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC", "CPVC"]},
             "Line Type":   {"type": "enum",   "value": "Branch",         "options": ["Branch", "Main"]},
             "Colour":      {"type": "enum",   "value": "Red",            "options": ["Black", "White", "Red", "Blue", "Grey"]},
-            "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
             "── Label ──": {"type": "label",  "value": ""},
             "Show Label":  {"type": "enum",   "value": "True",           "options": ["True", "False"]},
         }
@@ -108,6 +108,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         self.node2 = node2
         self.colour = None
         self.length = 0.0
+        self.phase: str = phase_registry.PHASE_NEW   # PD1: was _properties["Phase"]
 
         # Shared display-manager attributes
         self.init_displayable()
@@ -409,6 +410,8 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         props = {}
         for k, v in self._properties.items():
             props[k] = v
+            if k == "Colour":
+                props[phase_registry.ROW_KEY] = phase_registry.property_row(self)   # PD1 row
             if k == "Show Label":
                 props["Tag"] = self._tag_row()     # SB3b/SB4a: per-pipe tag block
         # Show diameter with Ø prefix; metric nominal sizes when metric display
@@ -515,6 +518,9 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                 except (ValueError, TypeError):
                     pass
             return
+        if key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
+            return
         if key in self._properties:
             # Convert display diameter string back to internal key
             if key == "Diameter" and value in self._DISPLAY_TO_INT:
@@ -539,12 +545,13 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                 self.level = str(value)
     
     def set_properties(self, template: "Pipe"):
-        """Copy property values from a template pipe."""
+        """Copy property values (and the phase, D-PH5) from a template pipe."""
         for key, meta in template.get_properties().items():
-            if key == "Tag":      # a label text _set_tag cannot map off-scene; carry the id below
+            if key in ("Tag", phase_registry.ROW_KEY):   # copied directly below
                 continue
             self.set_property(key, meta["value"])
         self._tag_block = getattr(template, "_tag_block", None)
+        self.phase = getattr(template, "phase", phase_registry.PHASE_NEW)
 
     def z_range_mm(self) -> tuple[float, float] | None:
         """Return (z_bottom, z_top) spanning the full storey range of both nodes.

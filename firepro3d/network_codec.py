@@ -23,6 +23,29 @@ its own orchestration (ordering, id maps, scene setup).
 from __future__ import annotations
 
 from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
+from . import phase_registry
+
+
+def sprinkler_props(spr) -> dict:
+    """A head's stored panel rows for the node entry / clipboard, minus Phase
+    (written once as ``sprinkler_phase``, PD1)."""
+    return {k: v for k, v in spr.get_properties().items() if k != phase_registry.ROW_KEY}
+
+
+def pipe_record(pipe) -> dict:
+    """A pipe's fields without its node ids: the file / undo entry body and the
+    clipboard's per-pipe record (D-PH16 ruling 2026-11-11)."""
+    entry = {
+        "level":      getattr(pipe, "level", DEFAULT_LEVEL),
+        "properties": {k: v["value"] for k, v in pipe._properties.items()},
+    }
+    phase_registry.write_element(pipe, entry)
+    pipe_ovr = getattr(pipe, "_display_overrides", {})
+    if pipe_ovr:
+        entry["display_overrides"] = pipe_ovr
+    if pipe.tag_block:
+        entry["tag_block"] = pipe.tag_block   # SB4a D5: sparse, absent = project default
+    return entry
 
 
 def serialize_node(node, node_id: dict) -> dict:
@@ -39,7 +62,7 @@ def serialize_node(node, node_id: dict) -> dict:
         "ceiling_level":     getattr(node, "ceiling_level", DEFAULT_LEVEL),
         "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
         "room_name":         getattr(node, "_room_name", ""),
-        "sprinkler":         node.sprinkler.get_properties() if node.has_sprinkler() else None,
+        "sprinkler":         sprinkler_props(node.sprinkler) if node.has_sprinkler() else None,
     }
     node_ovr = getattr(node, "_display_overrides", {})
     if node_ovr:
@@ -51,24 +74,18 @@ def serialize_node(node, node_id: dict) -> dict:
     fit_ovr = getattr(node.fitting, "_display_overrides", {}) if node.has_fitting() else {}
     if fit_ovr:
         entry["fitting_display_overrides"] = fit_ovr
+    if node.has_sprinkler() and node.sprinkler.phase != phase_registry.PHASE_NEW:
+        entry["sprinkler_phase"] = node.sprinkler.phase           # PD1 explicit key
+    if node.has_fitting() and node.fitting.phase_override is not None:
+        entry["fitting_phase_override"] = node.fitting.phase_override   # D-PH4
     return entry
 
 
 def serialize_pipe(pipe, node_id: dict) -> dict:
     """Serialize a Pipe. Uses ``pipe._properties`` (the stored values) — not
     ``get_properties()`` which injects synthesized display rows."""
-    entry = {
-        "node1_id":   node_id[pipe.node1],
-        "node2_id":   node_id[pipe.node2],
-        "level":      getattr(pipe, "level", DEFAULT_LEVEL),
-        "properties": {k: v["value"] for k, v in pipe._properties.items()},
-    }
-    pipe_ovr = getattr(pipe, "_display_overrides", {})
-    if pipe_ovr:
-        entry["display_overrides"] = pipe_ovr
-    if pipe.tag_block:
-        entry["tag_block"] = pipe.tag_block   # SB4a D5: sparse, absent = project default
-    return entry
+    return {"node1_id": node_id[pipe.node1], "node2_id": node_id[pipe.node2],
+            **pipe_record(pipe)}
 
 
 def serialize_note(note) -> dict:
@@ -95,8 +112,9 @@ def serialize_water_supply(ws) -> dict:
     entry = {
         "x":          ws.pos().x(),
         "y":          ws.pos().y(),
-        "properties": {k: v["value"] for k, v in ws.get_properties().items()},
+        "properties": {k: v["value"] for k, v in ws._properties.items()},
     }
+    phase_registry.write_element(ws, entry)
     ws_ovr = getattr(ws, "_display_overrides", {})
     if ws_ovr:
         entry["display_overrides"] = ws_ovr
@@ -203,6 +221,7 @@ def deserialize_water_supply(scene, entry):
     scene.sprinkler_system.supply_node = ws
     for key, value in entry.get("properties", {}).items():
         ws.set_property(key, value)
+    phase_registry.read_element(ws, entry)
     ws._display_overrides = entry.get("display_overrides", {})
     return ws
 
@@ -234,12 +253,15 @@ def deserialize_node(scene, entry):
                 template.set_property(key, value["value"])
             else:
                 template.set_property(key, value)
+        template.phase = phase_registry.read_id(entry.get("sprinkler_phase"))  # set_properties copies it
         scene.add_sprinkler(node, template, mint=False)
         node.sprinkler._display_overrides = entry.get(
             "sprinkler_display_overrides", {})
 
     node._fitting_display_overrides_pending = entry.get(
         "fitting_display_overrides", {})
+    ov = entry.get("fitting_phase_override")
+    node.fitting.phase_override = phase_registry.read_id(ov) if ov else None
 
     node.level = entry.get("level", DEFAULT_LEVEL)
     node._room_name = entry.get("room_name", "")
@@ -260,6 +282,29 @@ def deserialize_node(scene, entry):
     return node
 
 
+def apply_pipe_record(pipe, entry, *, skip=()) -> None:
+    """Apply a ``pipe_record`` (properties, overrides, tag, phase) to *pipe*.
+
+    The one field applier for file load, undo restore and paste (paste skips
+    ``"Mark"`` so the copy keeps the Mark ``add_pipe`` minted).
+    """
+    from .pipe import Pipe
+    props = entry.get("properties", {})
+    for key, value in props.items():
+        if key not in skip:
+            pipe.set_property(key, value)
+    if "Line Type" not in props:  # legacy backfill (pre-Line-Type saves)
+        dia = props.get("Diameter", "1\"Ø")
+        pipe._properties["Line Type"]["value"] = (
+            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch")
+        pipe.set_pipe_display()
+    pipe._display_overrides = dict(entry.get("display_overrides", {}))
+    tb = entry.get("tag_block")
+    pipe._tag_block = tb if isinstance(tb, str) and tb else None
+    phase_registry.read_element(pipe, entry)
+    pipe.update_label()
+
+
 def deserialize_pipe(scene, entry, id_to_node):
     """Create + register a Pipe via scene.add_pipe (the canonical creation path).
 
@@ -269,25 +314,13 @@ def deserialize_pipe(scene, entry, id_to_node):
     single-homes creation (geometry, visibility, label, category defaults, fitting
     DM colours) and removes _restore_network's hand-rolled variant.
     """
-    from .pipe import Pipe
     n1 = id_to_node.get(entry["node1_id"])
     n2 = id_to_node.get(entry["node2_id"])
     if not (n1 and n2):
         return None
     pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False, mint=False)
     pipe.level = entry.get("level", DEFAULT_LEVEL)
-    for key, value in entry.get("properties", {}).items():
-        pipe.set_property(key, value)
-    props = entry.get("properties", {})
-    if "Line Type" not in props:  # legacy backfill (pre-Line-Type saves)
-        dia = props.get("Diameter", "1\"Ø")
-        pipe._properties["Line Type"]["value"] = (
-            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch")
-        pipe.set_pipe_display()
-    pipe._display_overrides = entry.get("display_overrides", {})
-    tb = entry.get("tag_block")
-    pipe._tag_block = tb if isinstance(tb, str) and tb else None
-    pipe.update_label()
+    apply_pipe_record(pipe, entry)
     return pipe
 
 

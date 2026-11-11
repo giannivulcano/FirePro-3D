@@ -88,6 +88,7 @@ class Fitting():
         self._display_fill_color: str | None = None  # display fill override
         self._display_opacity: float = 100    # display opacity (0-100)
         self._display_visible: bool = True    # display visibility
+        self.phase_override: str | None = None   # D-PH4: None = derived from the pipes
 
     def update(self,visibility=True):
         pipes = self.node.pipes

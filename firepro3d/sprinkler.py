@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 
 from .assets import asset_path
 from .constants import DEFAULT_LEVEL, Z_SPRINKLER
+from . import phase_registry
 
 from .displayable_item import DisplayableItemMixin
 
@@ -28,6 +29,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         self.node = node
         self.init_displayable()
         self._display_scale: float = 1.0
+        self.phase: str = phase_registry.PHASE_NEW
         self._properties = {
             "Mark":            {"type": "string", "value": ""},
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
@@ -116,6 +118,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
                 raw_mm = -50.8
             props["Ceiling Offset"]["value"] = self._fmt(raw_mm)
             props["Ceiling Offset"]["label"] = "Offset"
+        props[phase_registry.ROW_KEY] = phase_registry.property_row(self)   # PD1
         # X / Y / Z move the node (D10); Y is up-positive
         if self.node is not None:
             props.update(self.node.position_rows())
@@ -135,6 +138,9 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         # Accept legacy names from old save files ("Offset" is the panel label)
         if key in ("Elevation", "Elevation Offset", "Ceiling Offset (in)", "Offset"):
             key = "Ceiling Offset"
+        if key == phase_registry.ROW_KEY:
+            phase_registry.set_from_row(self, value)
+            return
         if key not in self._properties:
             return
         self._properties[key]["value"] = value
@@ -172,8 +178,9 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
                     self._properties["Ceiling Offset"]["value"] = str(parsed_mm)
 
     def set_properties(self, template: "Sprinkler"):
-        """Copy all property values from a template Sprinkler."""
+        """Copy all property values (and the phase, D-PH5) from a template Sprinkler."""
         for key, meta in template.get_properties().items():
-            if meta.get("single_only"):
-                continue       # a template's position rows never move this node
+            if meta.get("single_only") or key == phase_registry.ROW_KEY:
+                continue       # position rows never move this node; phase copied below
             self.set_property(key, meta["value"])
+        self.phase = getattr(template, "phase", phase_registry.PHASE_NEW)
