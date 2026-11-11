@@ -386,3 +386,72 @@ def test_section_selection_fills_the_properties_panel_with_its_sources(section_w
     targets = win.prop_manager._targets
     assert len(targets) == 2                      # [RED] 3 without the de-dup
     assert {id(t) for t in targets} == {id(inst), id(pipe)}
+
+
+def test_section_selection_drives_the_editor_buttons(section_win):
+    """AC1 (ribbon) / R2 / R3: Edit is live on a section. A hosted copy
+    selected enables Move, Copy and Delete; a read-only proxy alone keeps the
+    modify tools off but Delete on."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    btns = win._be_modify_buttons
+    assert win._canvas_kind == "section"                       # precondition
+    QApplication.processEvents()
+    on = {label for label, b in btns.items() if b.isEnabled()}
+    assert {"Move", "Copy", "Delete"} <= on                    # [RED] all off
+    pipe = parallel_pipe(ms, sec)
+    (line,) = proxies_of(sec, pipe)
+    sec.clearSelection()
+    line.setSelected(True)
+    QApplication.processEvents()
+    on = {label for label, b in btns.items() if b.isEnabled()}
+    assert "Delete" in on
+    assert not on & {"Move", "Copy", "Cut", "Duplicate", "Rotate", "Array"}   # [RED] PI-14
+
+
+def test_section_selection_jumps_to_editor_and_clear_restores(section_win):
+    """U3 (plan approval 2026-11-10): a user selection on a section canvas
+    makes Editor current, as in plan (G14); clearing it restores the tab
+    the user was on."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    tb = win.ribbon._tab_bar
+    sec.clearSelection()
+    QApplication.processEvents()
+    tb.setCurrentIndex(2)                                      # Sprinkler Systems
+    QApplication.processEvents()
+    assert tb.currentIndex() == 2                              # precondition
+    sec._hosted_copies[id(inst)].setSelected(True)
+    QApplication.processEvents()
+    assert tb.currentIndex() == win._editor_page_index         # [RED] no jump
+    sec.clearSelection()
+    QApplication.processEvents()
+    assert tb.currentIndex() == 2                              # [RED] stuck on Editor
+
+
+def test_ribbon_button_over_a_mixed_selection_reports_the_current_skip(section_win):
+    """R3 (carry item): the real Edit-group Rotate button over a hosted copy
+    plus two read-only proxies enables, starts the tool on the SECTION and
+    names the current skipped count (2), after a first tool left a count of 1.
+    A regression pin, not a RED guard: three independent paths refresh the
+    count (``_refresh_modify_buttons`` calls ``modify_selection()`` on every
+    selection change, ``ModifyToolsController.start`` asks the host for it,
+    and ``SectionScene``'s capture recounts); the bare ``set_mode`` guard
+    above is the one that goes RED."""
+    from firepro3d.constants import SECTION_EDIT_SKIPPED
+    win, ms, sec, gl, plan_gl, inst = section_win
+    a, b = _two_readonly_proxies(ms, sec)
+    cp = sec._hosted_copies[id(inst)]
+    sec.clearSelection()
+    cp.setSelected(True)
+    a.setSelected(True)
+    QApplication.processEvents()
+    press(win, "Shift+M")                                      # first tool: 1 skipped
+    assert win.statusBar().currentMessage() == SECTION_EDIT_SKIPPED.format(n=1)
+    b.setSelected(True)
+    QApplication.processEvents()
+    win.statusBar().clearMessage()
+    btn = win._be_modify_buttons["Rotate"]
+    assert btn.isEnabled()                                     # the editable subset is non-empty
+    btn.click()
+    QApplication.processEvents()
+    assert sec.mode == "rotate"
+    assert win.statusBar().currentMessage() == SECTION_EDIT_SKIPPED.format(n=2)

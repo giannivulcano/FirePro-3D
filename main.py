@@ -3276,12 +3276,18 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         ctl = scene._modify_ctl
         can_explode = kind in self._EDITOR_KINDS and any(
             isinstance(i, (BlockInstance, FilledRegionItem)) for i in selected)
+        # A section's tools act on its editable subset only (R3): the tool
+        # buttons follow the host's modify_selection() (ModifyHostMixin hook;
+        # the raw selection on every other host). Delete keeps the raw
+        # selection (R2).
+        hook = getattr(scene, "modify_selection", None)
+        editable = list(hook()) if hook is not None else selected
         for label, b in buttons.items():
             if sip.isdeleted(b):
                 continue
             tool = self._TOOL_OF_LABEL.get(label)
             if tool is not None:
-                b.setEnabled(ctl.can_start(tool, selected))
+                b.setEnabled(ctl.can_start(tool, editable))
             elif label == "Delete":
                 # needs a selection and a canvas (the empty canvas
                 # refuses at the _delete_if_not_editing chokepoint)
@@ -4775,12 +4781,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
     _GROUP_LIVE_KINDS = {
         "definition": _EDITOR_KINDS,
         "geometry": _EDITOR_KINDS,
-        "edit": frozenset({"plan", "detail", "block", "schematic"}),
+        # elevation-parity D1: a section edits its own editable subset (R1).
+        "edit": frozenset({"plan", "detail", "block", "schematic", "section"}),
         # Slice 2: plan + detail too (design s1 note (d), s2).
         "constrain": frozenset({"plan", "detail", "block", "schematic"}),
+        # Not on a section: it has no constraints (elevation-parity U4).
         "inspect": frozenset({"plan", "detail", "block", "schematic"}),
-        # Note: view-owned, so plan + detail only (text-leader-annotations D11).
-        "annotate": frozenset({"plan", "detail"}),
+        # Note: view-owned (text-leader-annotations D11) -- plan, detail and
+        # section views (elevation-parity D4). Note is the group's only gated
+        # button, so a section gets Note only.
+        "annotate": frozenset({"plan", "detail", "section"}),
         # Build's Note: it saves as a text with a leader (notes design N26).
         "schematic_note": frozenset({"schematic"}),
     }
@@ -5345,7 +5355,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         makes Editor current; clearing it restores the remembered tab only
         if Editor is still current (B3 pattern). A placement's auto-select
         (``Model_Space._auto_selected``) and a selection change mid-placement
-        never jump; paper / 3D / section never jump."""
+        never jump; paper / 3D never jump. A section jumps like plan
+        (elevation-parity U3)."""
         sc = self.sender()
         if sc is None or sc is not self._active_scene():
             return
