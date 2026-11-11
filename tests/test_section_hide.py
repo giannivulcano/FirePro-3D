@@ -253,3 +253,15 @@ def test_hidden_proxies_are_not_picked_by_ctrl_a_halo_or_snap(qapp):
         assert not any(i in chosen for i in _pipe_pieces(sec, pipe))
     finally:
         dispose_main_window(win)
+
+
+def test_section_hide_ignores_a_none_in_the_selection(qapp, section_scene_for):
+    """Unit 6 review: a None reaching section Hide (an empty-canvas target in
+    the picked list) is skipped; the real proxy source is still hidden."""
+    ms, sec = _labelled_scene(section_scene_for)
+    pipe = _pipe(ms, (2000.0, -1000.0, 2500.0), (6000.0, -1000.0, 2500.0))
+    sec.rebuild()
+    line = _line_of(sec, pipe)
+    sec._hide_section_items([None, line])
+    assert pipe._display_overrides.get("visible") is False
+    assert not line.isVisible()
