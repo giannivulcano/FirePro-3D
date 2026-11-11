@@ -93,7 +93,11 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
   - Pipe: the existing `_properties["Phase"]` row becomes this field (no second key).
   - Sprinkler: an explicit `"phase"` key in the node entry (`serialize_node` / `deserialize_node`).
   - Fitting: `phase_override` (None = derived), stored in the node entry next to
-    `fitting_display_overrides`.
+    `fitting_display_overrides`. `Fitting` has no panel rows, so the override is a
+    "Fitting Phase" row on the node's panel (`Auto (<derived>)` + each status; Auto
+    clears it; D-PH4 ruling 2026-11-11).
+  - Panel row: no shared row helper exists today (each kind hand-codes its rows); PH1 adds
+    one Phase row helper on the `materials.py` `property_row` / `set_from_row` model.
 - **Migration**: the next free `SAVE_VERSION` (12 is taken by Printed schematics; 13 at the
   2026-11-06 check), as its own step in the `scene_io` load beside `migrate_old_schematics`.
   `migrate_project_payload` is HF1 colour-only and returns early from v11, so it cannot hold
@@ -157,8 +161,15 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
 
 - **Templates** are instances of the element class, so they get the Phase row. Each
   placement controller copies `phase` from its template. The plan must enumerate every
-  site: pipe, sprinkler, wall, floor, roof, room, opening (doors, windows and openings place
-  through `feature_placement_controller.py`), block placement, water supply.
+  site: pipe, sprinkler, wall, floor, roof, opening (doors, windows and openings place
+  through `feature_placement_controller.py`). Pipe and sprinkler copy through
+  `set_properties`; wall, floor (`_apply_floor_template_fields`), roof and opening copy field
+  by field, so each gets an explicit `phase` line. Room, floor opening, water supply and
+  block placement have no template object and place as `"new"` (D-PH5 ruling 2026-11-11;
+  templates for them are a follow-up).
+- **Template persistence**: `apply_template_settings` copies only scale, project info,
+  mark patterns, annotation defaults and title block, so the `"phases"` registry needs its
+  own overlay there.
 - **Set Phase**: a right-click submenu, one undoable command through the model undo
   snapshot; non-phased items in a selection are skipped.
 - **Model Browser**: a "Group by: Level | Phase" toggle plus a status filter.
@@ -166,9 +177,10 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
   edit only sets the dirty flag.
 - **Opening warning**: the panel shows "Host wall is Demolition" when an opening's status
   is not Demolition and its wall's is.
-- **Copies**: block paste and duplicate already use `to_dict`. Pipe paste is fixed to
-  carry the source pipe's `_properties` (today it creates a default pipe: the open P2 bug
-  "Pasted pipes lose all their properties"). Sprinkler paste carries `phase`. Walls, floors,
+- **Copies**: block paste and duplicate already use `to_dict`. Pipe paste is fixed **in
+  PH1** (D-PH16 ruling 2026-11-11) to carry the source pipe's `_properties` (today
+  `paste_items` stores only endpoints and calls `add_pipe(node1, node2)`: the open P2 bug
+  "Pasted pipes lose all their properties"), and water supply joins `paste_items`. Sprinkler paste carries `phase`. Walls, floors,
   roofs and rooms paste through their own `from_dict` branches in `paste_items`, so the
   `to_dict` key carries.
 - **Hydraulics**: `HydraulicSolver` filters `system.pipes` (read in `_build_adjacency` and
