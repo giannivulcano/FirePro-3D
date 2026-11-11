@@ -11,6 +11,7 @@ keep the ``"elevation"`` identity (spec s7.2); placed sections are
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from .model_space import Model_Space
     from .level_manager import LevelManager
     from .scale_manager import ScaleManager
+
+log = logging.getLogger(__name__)
 
 
 def _valid_record(d) -> bool:
@@ -406,6 +409,7 @@ class SectionManager(QObject):
             if m is None or m.view_name in self.markers:
                 continue
             self._adopt(m)
+            self._migrate_gridline_overrides(m)     # D7: gridlines are loaded first (scene_io)
         self._recount()
         self.sectionsChanged.emit()
 
@@ -420,6 +424,33 @@ class SectionManager(QObject):
             return m
         except (TypeError, ValueError, KeyError, IndexError):
             return None
+
+    def _migrate_gridline_overrides(self, m: SectionMarker) -> None:
+        """Project load: re-key *m*'s ``gridline_z_overrides`` from gridline
+        label to gridline ``uid`` (elevation-parity D7).
+
+        A key that is a loaded gridline's uid stays. A label key maps to the
+        uid of the ONE loaded gridline with that label (a uid key for the same
+        gridline wins). A duplicated label (ambiguous) or a label no gridline
+        carries (unknown) is dropped with a log line. Idempotent: a re-saved
+        record is all uid keys, so a re-load keeps it as is. Runs in
+        ``from_list``, which ``scene_io`` calls after the gridlines load; undo
+        snapshots are taken after it, so ``restore_from_list`` copies records
+        verbatim and never re-runs a migration.
+        """
+        grids = list(getattr(self._ms, "_gridlines", []))
+        uids = {g._uid for g in grids}
+        out = {k: v for k, v in m.gridline_z_overrides.items() if k in uids}
+        for key, rec in m.gridline_z_overrides.items():
+            if key in uids:
+                continue
+            hits = [g for g in grids if getattr(g, "_label_text", "") == key]
+            if len(hits) == 1:
+                out.setdefault(hits[0]._uid, rec)
+            else:
+                log.info("Section %r: dropped gridline end override %r (%s label)",
+                         m.name, key, "ambiguous" if hits else "unknown")
+        m.gridline_z_overrides = out
 
     def _recount(self) -> None:
         """Name counter = the highest ``Section N`` suffix present (0 when none)."""

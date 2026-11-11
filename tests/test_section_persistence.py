@@ -31,7 +31,10 @@ def test_round_trip_restores_placed_section(qapp, tmp_path):
     mgr.seed_cardinals()
     s = mgr.place_section(QPointF(100.0, 200.0), QPointF(5100.0, 1200.0))
     s.flip(); s.set_geometry(s.cut_a, s.cut_b, 4321.0)
-    s.gridline_z_overrides["A"] = {"v_top": -9000.0, "v_bot": 100.0}
+    from tests._hosted_blocks_helpers import gridline
+    gl = gridline(ms, (0.0, -1000.0), (0.0, 1000.0), "A")
+    s.gridline_z_overrides[gl._uid] = {"v_top": -9000.0, "v_bot": 100.0}
+    s.datum_ends["Level 1"] = {"left": -2000.0, "right": 3000.0}    # D7 record rides the file
     north = mgr.markers["north"]
     north.set_geometry(north.cut_a, north.cut_b, 7777.0)        # user-owned cardinal box
     path = tmp_path / "p.fp3d"

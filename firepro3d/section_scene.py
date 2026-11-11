@@ -513,7 +513,7 @@ class ElevGridlineItem(QGraphicsLineItem):
         # resolution, kept for readers, the selection ring and the no-source case.
         self._grid_src = color_src
         self._h = h_pos
-        self._label = label  # gridline label used as override key
+        self._label = label  # gridline label (display; the D7 record keys by the plan uid)
         self._gridline = gridline  # the plan GridlineItem: the bubbles' data host
 
         # Line pen — suppress default; drawn manually in paint()
@@ -711,19 +711,29 @@ class ElevGridlineItem(QGraphicsLineItem):
         self._update_bubble_positions()
         self.update()
 
-    def _commit_grip_override(self):
-        """Write current Z-extent back to the scene's override dict.
+    def _commit_grip_override(self) -> bool:
+        """Write the current Z-extent into this section's end record, keyed by
+        the plan gridline's ``uid`` (elevation-parity D7).
 
-        Called after a grip drag completes so the scene can persist the
-        user-adjusted top/bottom extents for this gridline.
+        Called by ``SectionScene._commit_elev_grip`` after a manipulator
+        gesture.
+
+        Returns:
+            True when the record changed (the caller pushes one undo step);
+            False for a detached item (no plan gridline, so no uid) or an
+            unchanged extent.
         """
         scene = self.scene()
-        if scene and hasattr(scene, "_gridline_z_overrides"):
-            line = self.line()
-            scene._gridline_z_overrides[self._label] = {
-                "v_top": line.p1().y(),
-                "v_bot": line.p2().y(),
-            }
+        if self._gridline is None or scene is None \
+                or not hasattr(scene, "_gridline_z_overrides"):
+            return False
+        line = self.line()
+        rec = {"v_top": line.p1().y(), "v_bot": line.p2().y()}
+        uid = self._gridline._uid
+        if scene._gridline_z_overrides.get(uid) == rec:
+            return False
+        scene._gridline_z_overrides[uid] = rec
+        return True
 
 
 class LevelDatumHead(OutlinedLabel):
@@ -1086,9 +1096,10 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._snap_result = None          # the marker SectionView paints
         self._snap_enabled = True
 
-        # Per-view Z-extent overrides keyed by gridline label live on the
-        # marker (see the ``_gridline_z_overrides`` property) so they persist.
-        # Keyed by gridline label → {"v_top": float, "v_bot": float}
+        # Per-section end records live on the marker so they persist and ride
+        # undo (elevation-parity D7): ``gridline_z_overrides`` (gridline uid ->
+        # {"v_top", "v_bot"}, see the ``_gridline_z_overrides`` property) and
+        # ``datum_ends`` (level name -> {"left", "right"}).
 
         # Grip-drag state (mirrors Model_Space pattern). KEPT after the legacy
         # _find_grip_hit path was retired: the manipulator's live-apply
@@ -3291,9 +3302,10 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             v_top = -z_max - ELEV_GRIDLINE_END_PAD_MM
             v_bot = -z_min + ELEV_GRIDLINE_END_PAD_MM
 
-            # Apply per-view override if the user has grip-dragged this gridline
-            if label_text in self._gridline_z_overrides:
-                ov = self._gridline_z_overrides[label_text]
+            # This section's end record for this gridline (D7: keyed by uid;
+            # no record = the auto extent above).
+            ov = self._gridline_z_overrides.get(gl._uid)
+            if ov is not None:
                 v_top = ov.get("v_top", v_top)
                 v_bot = ov.get("v_bot", v_bot)
 

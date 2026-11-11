@@ -366,7 +366,7 @@ def test_ac7_elevation_bubble_prints_at_the_plan_blocks_authored_mm(
     gl = GridlineItem(QPointF(2500.0, -3000.0), QPointF(2500.0, 3000.0), label="1")
     ms._gridlines.append(gl)
     ms.addItem(gl)
-    sec._gridline_z_overrides["1"] = {"v_top": -1500.0, "v_bot": 500.0}
+    sec._gridline_z_overrides[gl._uid] = {"v_top": -1500.0, "v_bot": 500.0}
     sec.rebuild()
     (eg,) = [i for i in sec.items() if isinstance(i, ElevGridlineItem)]
     top = eg.bubble1                                          # plan Bubble 1 -> elevation top (D2)

@@ -494,7 +494,7 @@ def _auto_wall_and_accent_gridline_elevation(section_scene_for):
     ms._gridlines.append(gl)
     ms.addItem(gl)
     # Keep the dashed line inside the viewport so its stroke is sampled whole.
-    elev._gridline_z_overrides["A"] = {"v_top": -2500.0, "v_bot": 500.0}
+    elev._gridline_z_overrides[gl._uid] = {"v_top": -2500.0, "v_bot": 500.0}
     elev.rebuild()
     return elev
 

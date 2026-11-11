@@ -31,8 +31,10 @@ def test_manipulator_wraps_selected_gridline(qapp, section_scene_for):
 
 
 def test_gridline_grip_drag_commits_override(qapp, section_scene_for):
+    from firepro3d.gridline import GridlineItem
     _ms, elev = section_scene_for("north")
-    g = _grid(label="G7")
+    plan = GridlineItem(QPointF(0.0, -1000.0), QPointF(0.0, 1000.0), label="G7")
+    g = ElevGridlineItem(100.0, -50.0, 50.0, "G7", QColor("#888"), 1.0, gridline=plan)
     elev.addItem(g)
     g.setSelected(True)
 
@@ -42,9 +44,21 @@ def test_gridline_grip_drag_commits_override(qapp, section_scene_for):
     elev._commit_elev_grip("move")
 
     assert g._label == "G7"
-    ov = elev._gridline_z_overrides["G7"]
+    assert "G7" not in elev._gridline_z_overrides             # uid-keyed (D7)
+    ov = elev._gridline_z_overrides[plan._uid]
     assert ov["v_top"] == -50.0
     assert ov["v_bot"] == 80.0
+
+
+def test_detached_gridline_commits_nothing(qapp, section_scene_for):
+    """No plan gridline = no uid to key by: the commit writes no record."""
+    _ms, elev = section_scene_for("north")
+    g = _grid(label="G8")
+    elev.addItem(g)
+    g.setSelected(True)
+    g.apply_grip(1, QPointF(999.0, 80.0))
+    elev._commit_elev_grip("move")
+    assert elev._gridline_z_overrides == {}
 
 
 def test_manipulator_constructed_once(qapp, section_scene_for):
