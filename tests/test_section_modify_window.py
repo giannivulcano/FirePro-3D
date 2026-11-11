@@ -169,3 +169,160 @@ def test_ctrl_c_v_into_a_parallel_section_and_the_refusals(section_win):
     assert _status(win) == HOSTED_PASTE_IN_PLAN
     assert len(ms._block_instances) == n_blocks
     assert ms._undo_pos == pos0 + 1
+
+
+# -- C-9c: typed input on a section tab --------------------------------------
+from PyQt6.QtCore import Qt
+from PyQt6.QtTest import QTest
+
+
+def _engage(view, sec, key):
+    """A real digit / Tab on the section view; returns the engaged HUD."""
+    QTest.keyClick(view, key)
+    hud = sec.dynamic_input
+    assert hud is not None and hud.is_engaged()
+    return hud
+
+
+def test_typed_move_distance(section_win):
+    """AC3 / AC11 with C-9: Shift+M, base click, "500 mm" / "300 mm" typed
+    (dX / dY, Y-up): the MODEL block moves to along 3000 / elevation 1500;
+    one undo step; the HUD closes.
+    RED when: ``self._plc = PlacementInputCoordinator(self)`` is deleted from
+    ``SectionScene.__init__`` (no HUD on the digit)."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = _ready(win, sec, inst)
+    pos0 = ms._undo_pos
+    press(win, "Shift+M")
+    click(view, QPointF(2500.0, -1200.0))
+    hud = _engage(view, sec, Qt.Key.Key_5)
+    QTest.keyClicks(hud.editor("dX"), "00 mm")
+    QTest.keyClick(hud.editor("dX"), Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("dY"), "300 mm")
+    QTest.keyClick(hud.editor("dY"), Qt.Key.Key_Return)
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG + 500.0)
+    assert inst.host["elevation_mm"] == pytest.approx(PLACED_ELEV + 300.0)
+    assert ms._undo_pos == pos0 + 1
+    assert sec.dynamic_input is None and sec.mode in (None, "select")
+
+
+def test_typed_rotate_angle(section_win):
+    """AC3 / AC11 with C-9: Shift+R, pivot 500 mm left, "90" typed: the MODEL
+    block turns 90 deg and swings to along 2000 / elevation 1700; one step.
+    RED when: ``return self._modify_hud_key(event)`` in
+    ``ModifyHostMixin.modify_key_press`` becomes ``return False`` (the digit
+    never engages)."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = _ready(win, sec, inst)
+    pos0 = ms._undo_pos
+    press(win, "Shift+R")
+    click(view, QPointF(2000.0, -1200.0))                 # pivot
+    hud = _engage(view, sec, Qt.Key.Key_9)
+    QTest.keyClicks(hud.editor("Angle"), "0")
+    QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Return)
+    assert inst.block_rotation() == pytest.approx(90.0)
+    assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG - 500.0)
+    assert inst.host["elevation_mm"] == pytest.approx(PLACED_ELEV + 500.0)
+    assert ms._undo_pos == pos0 + 1
+
+
+def test_typed_scale_factor_after_the_right_arrow(section_win):
+    """AC3 / AC11 with C-9: Shift+S, base 500 mm left, reference at the
+    insertion point, Right (Length -> Factor), "3" typed: the MODEL block's
+    scale is 3 and its host point moves to along 2000 + 3 * 500 = 3500.
+    RED when: the <-/-> branch is deleted from ``_modify_hud_key`` (the
+    variant stays Length; no Factor field)."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = _ready(win, sec, inst)
+    pos0 = ms._undo_pos
+    press(win, "Shift+S")
+    click(view, QPointF(2000.0, -1200.0))                 # base
+    click(view, QPointF(2500.0, -1200.0))                 # reference = 1x (500 mm)
+    QTest.keyClick(view, Qt.Key.Key_Right)
+    assert sec._scale_variant == "factor"
+    hud = _engage(view, sec, Qt.Key.Key_3)
+    QTest.keyClick(hud.editor("Factor"), Qt.Key.Key_Return)
+    assert inst.block_scale() == pytest.approx(3.0)
+    assert inst.host["along_mm"] == pytest.approx(3500.0)
+    assert ms._undo_pos == pos0 + 1
+
+
+def test_typed_linear_array_count_and_spacing(section_win):
+    """AC3 in full / AC11: Shift+A, base at the insertion point, aim up,
+    Tab, then Angle 90 / Spacing "1000 mm" / Count 4 (the TOTAL): three new
+    model blocks on the host gridline at elevations 2200 / 3200 / 4200;
+    one undo step.
+    RED when: the Tab branch is deleted from ``SectionView.keyPressEvent``
+    (Tab engages nothing)."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = _ready(win, sec, inst)
+    host_gl = _host(ms, inst)
+    pos0 = ms._undo_pos
+    press(win, "Shift+A")
+    assert sec._array_variant == "linear"
+    click(view, QPointF(2500.0, -1200.0))                 # base
+    move(view, QPointF(2500.0, -2200.0))                  # aim: straight up
+    hud = _engage(view, sec, Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("Angle"), "90")
+    QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("Spacing"), "1000 mm")
+    QTest.keyClick(hud.editor("Spacing"), Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("Count"), "4")
+    QTest.keyClick(hud.editor("Count"), Qt.Key.Key_Return)
+    got = sorted((round(b.host["along_mm"], 3), round(b.host["elevation_mm"], 3))
+                 for b in _hosted(ms, host_gl) if b is not inst)
+    assert got == [(PLACED_ALONG, PLACED_ELEV + k * 1000.0) for k in (1, 2, 3)]
+    assert ms._undo_pos == pos0 + 1
+
+
+def test_left_arrow_polar_array(section_win):
+    """AC3 in full: Shift+A, Left (Linear -> Polar, the variant list wraps),
+    centre 500 mm left of the insertion point, Tab, Count 4 / Total 360: three
+    rotated model blocks at 90 / 180 / 270 deg about the centre -- (along,
+    elevation, rotation) = (2000, 1700, 90), (1500, 1200, 180),
+    (2000, 700, 270); one undo step.
+    RED when: ``self._write_back(old)`` is deleted from
+    ``_HostedBlockCopy.manip_rotate`` (the three pasted copies keep the
+    original's pose: all at along 2500, rotation 0)."""
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = _ready(win, sec, inst)
+    host_gl = _host(ms, inst)
+    pos0 = ms._undo_pos
+    press(win, "Shift+A")
+    QTest.keyClick(view, Qt.Key.Key_Left)
+    assert sec._array_variant == "polar"
+    click(view, QPointF(2000.0, -1200.0))                 # centre
+    hud = _engage(view, sec, Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("Count"), "4")
+    QTest.keyClick(hud.editor("Count"), Qt.Key.Key_Tab)
+    QTest.keyClicks(hud.editor("Total"), "360")
+    QTest.keyClick(hud.editor("Total"), Qt.Key.Key_Return)
+    got = sorted((round(b.host["along_mm"], 3), round(b.host["elevation_mm"], 3),
+                  round(b.block_rotation() % 360.0, 3))
+                 for b in _hosted(ms, host_gl) if b is not inst)
+    assert got == sorted([(2000.0, 1700.0, 90.0), (1500.0, 1200.0, 180.0),
+                          (2000.0, 700.0, 270.0)])
+    assert ms._undo_pos == pos0 + 1
+
+
+def test_hud_is_seeded_from_the_live_cursor(section_win):
+    """OPEN-5 (integrator; R-C9a-01): Shift+M, base click, a button-less move
+    300 mm right and 300 mm up, then Tab: the HUD opens seeded with the live
+    displacement, not zeros -- the Move tool's ``publish_placement_state``
+    (modify_tools_controller.py:779) reaches the section's coordinator
+    through T52's mixin shell.
+    RED when: a no-op ``publish_placement_state`` is defined on SectionScene
+    (T37's dropped override): the resolved point stays None, dX / dY seed 0."""
+    from firepro3d.scale_manager import ScaleManager
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = _ready(win, sec, inst)
+    sec.toggle_snap(False)                                # exact cursor points (setup, T18)
+    press(win, "Shift+M")
+    click(view, QPointF(2500.0, -1200.0))                 # base (the placement, C-8 probe)
+    move(view, QPointF(2800.0, -1500.0))                  # +300 h, 300 up (Y-up)
+    got = sec.get_resolved_point()
+    assert got is not None and (got.x(), got.y()) == pytest.approx((2800.0, -1500.0))
+    hud = _engage(view, sec, Qt.Key.Key_Tab)
+    dx = ScaleManager.parse_dimension(hud.editor("dX").text())
+    dy = ScaleManager.parse_dimension(hud.editor("dY").text())
+    assert (dx, dy) == pytest.approx((300.0, 300.0), abs=2.0)   # 2 mm: a 1/16" display round
