@@ -373,6 +373,99 @@ class _HostedBlockCopy(BlockInstance):
         self._write_back(old)
 
 
+class _SectionNoteCopy(BlockInstance):
+    """Section copy of a Note owned by this section (elevation-parity D4).
+
+    ``_ROLE_SOURCE`` names the model Note in the plan ``_block_instances``
+    (``note["view"] == "section:<name>"``, pose in this section's 2D frame,
+    so the copy's pose equals the model's). The copy shares the model's
+    ``note`` dict, so leader / box / style writes land on the model; pose and
+    attribute writes are forwarded to the model and the copy re-reads it.
+    Each pose write marks one pending section undo step
+    (``SectionScene._mark_section_edit``), except on a copy the Note tool
+    just placed (``_fresh``): the editor's commit pushes place + type as one.
+    """
+
+    _fresh = False
+    SECTION_EDITABLE = True     # the section modify tools act on it (D2 / R3)
+
+    def _source(self):
+        return self.data(_ROLE_SOURCE)
+
+    def _pull(self) -> None:
+        """Re-read the model note's pose, attributes and note dict."""
+        src = self._source()
+        if src is None:
+            return
+        self.prepareGeometryChange()
+        self._pose_x, self._pose_y = src._pose_x, src._pose_y
+        self._pose_rot, self._pose_mirrored = src._pose_rot, src._pose_mirrored
+        self._pose_scale = src._pose_scale
+        self.attributes = src.attributes
+        self.note = src.note
+        BlockInstance.note_changed(self)
+
+    def _wrote(self) -> None:
+        """Mark one pending section undo step for a pose write."""
+        if self._fresh:
+            return
+        sc = self.scene()
+        mark = getattr(sc, "_mark_section_edit", None) if sc is not None else None
+        if mark is not None:
+            mark()
+
+    def _forward(self, name: str, *args, mark: bool = True) -> None:
+        """Apply BlockInstance.<name>(*args) to the model note, re-read it."""
+        src = self._source()
+        if src is None:                          # not wired yet (construction)
+            getattr(BlockInstance, name)(self, *args)
+            return
+        getattr(src, name)(*args)
+        self._pull()
+        if mark:
+            self._wrote()
+
+    def translate(self, dx: float, dy: float) -> None:
+        self._forward("translate", dx, dy, mark=bool(dx or dy))
+
+    def set_block_pos(self, x: float, y: float) -> None:
+        self._forward("set_block_pos", x, y)
+
+    def set_block_rotation(self, deg: float) -> None:
+        self._forward("set_block_rotation", deg)
+
+    def set_block_mirrored(self, mirrored: bool) -> None:
+        self._forward("set_block_mirrored", mirrored)
+
+    def set_block_scale(self, scale: float) -> None:
+        self._forward("set_block_scale", scale)
+
+    def manip_rotate(self, angle_deg: float, pivot) -> None:
+        self._forward("manip_rotate", angle_deg, pivot)
+
+    def manip_reflect(self, p1, p2) -> None:
+        self._forward("manip_reflect", p1, p2)
+
+    def manip_scale_about(self, base, factor: float) -> None:
+        self._forward("manip_scale_about", base, factor)
+
+    def set_attributes(self, values: dict) -> None:
+        # The Note editor's write: its own commit pushes the step (no mark).
+        self._forward("set_attributes", values, mark=False)
+
+    def note_changed(self) -> None:
+        BlockInstance.note_changed(self)
+        src = self._source()
+        if src is not None:
+            src.note_changed()
+
+    def apply_grip(self, index: int, pos) -> None:
+        # Measured in THIS frame (the section's annotative k); the note dict is
+        # shared, so the box / knee / tip write lands on the model.
+        BlockInstance.apply_grip(self, index, pos)
+        self._wrote()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ElevGridlineItem — selectable gridline in elevation view
 # ─────────────────────────────────────────────────────────────────────────────
@@ -936,7 +1029,9 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._zones: dict[int, str] = {}
         self._cut_items: list = []
         self._hosted_copies: dict = {}      # id(model block) -> section copy
+        self._note_copies: dict = {}        # id(model note) -> section copy (D4)
         self._hosted_push_pending = False   # one undo step per drag (D10)
+        self._edit_mark_state = None        # undo top when that step was marked
         self._place_block_id = None         # armed placement (hosted-blocks G16)
         self._place_ghost = None
         self._place_ghost_pt = None         # last ghost point (survives a rebuild)
@@ -1219,8 +1314,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         src = section_source_of(target) if target is not None else None
         # A datum stands for its Level (T12), which no Hide can take (S2).
         hideable = src is not None and hasattr(src, "_display_overrides")
-        is_block = isinstance(target, _HostedBlockCopy) or isinstance(
-            target, globals().get("_SectionNoteCopy", ()))
+        is_block = isinstance(target, (_HostedBlockCopy, _SectionNoteCopy))
         views = sorted(self.views(), key=lambda v: not v.isVisible())
         return build_entity_context_menu(
             selected,
@@ -1411,19 +1505,34 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._mark_section_edit()
 
     def _mark_section_edit(self) -> None:
-        """Mark one pending section undo step (a hosted drag, a write-back):
-        the manipulator release (``_commit_elev_grip``), a tool commit's own
+        """Mark one pending section undo step (a hosted drag, a write-back,
+        a Note copy write, a datum / gridline end edit): the manipulator
+        release (``_commit_elev_grip``), a tool commit's own
         ``push_undo_state`` (which folds it in) or the deferred flush
-        records it once (D10, AC11)."""
-        if not self._hosted_push_pending:
-            self._hosted_push_pending = True
-            QTimer.singleShot(0, self._flush_hosted_push)
+        records it once (D10, AC11). The undo top at the mark lets the flush
+        skip when a push since already recorded the edit."""
+        if self._hosted_push_pending:
+            return
+        self._hosted_push_pending = True
+        self._edit_mark_state = self._undo_top_state()
+        QTimer.singleShot(0, self._flush_hosted_push)
+
+    def _undo_top_state(self):
+        """The plan undo stack's current state object (its identity marks a push)."""
+        stack = getattr(self._ms, "_undo_stack", None) or []
+        pos = getattr(self._ms, "_undo_pos", -1)
+        return stack[pos] if 0 <= pos < len(stack) else None
 
     def _flush_hosted_push(self) -> None:
-        """Push the one undo step for a hosted drag (no-op when none pending)."""
+        """Push the one pending section step, unless a push since the mark
+        already recorded the edit (a modify-tool or Note-editor commit): one
+        step per edit either way. No-op when none is pending."""
         if not self._hosted_push_pending:
             return
         self._hosted_push_pending = False
+        mark, self._edit_mark_state = self._edit_mark_state, None
+        if self._undo_top_state() is not mark:
+            return
         self._ms.push_undo_state()
 
     def _write_hosted_pose(self, copy, old_xy) -> None:
@@ -1507,10 +1616,11 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
 
     def _delete_elev_selected(self):
         """Delete source entities for selected elevation items."""
+        copies = (_HostedBlockCopy, _SectionNoteCopy)   # plan-hidden model blocks (D11, D4)
         hosted = [it.data(_ROLE_SOURCE) for it in self.selectedItems()
-                  if isinstance(it, _HostedBlockCopy)]
+                  if isinstance(it, copies)]
         others = [it for it in self.selectedItems()
-                  if not isinstance(it, _HostedBlockCopy)]
+                  if not isinstance(it, copies)]
         # Only the section's selection is deleted: a stale plan selection must
         # not ride along into delete_items / delete_selected_items.
         plan_sel = list(self._ms.selectedItems())
@@ -1544,6 +1654,13 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     @property
     def _gridline_z_overrides(self) -> dict:
         return self._marker.gridline_z_overrides
+
+    @property
+    def active_view_key(self) -> str:
+        """The view key this section owns Notes under (D4): ``section:`` +
+        the marker's view name (a cardinal's direction, a placed section's
+        name), read live so a rename re-keys the scene with its marker."""
+        return f"section:{self._marker.view_name}"
 
     @property
     def show_datums(self) -> bool:
@@ -1875,6 +1992,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._project_gridlines()
         self._render_cut_items()
         self._project_geometry_2d()
+        self._project_section_notes()              # this section's Notes (D4)
         self._assign_depth_z_values()
         self._apply_hidden_pass()                  # hidden sources stay hidden (D5)
         if self._place_block_id is not None:        # placement survives a rebuild
@@ -1938,6 +2056,26 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             wx, wy = hb.world_point(gl, host, ppm)
             self._hosted_depth.append((b.sort_key(wx, wy), top))   # tag band, not the depth walk (D5)
             self._hosted_copies[id(src)] = cp
+
+    def _project_section_notes(self) -> None:
+        """Copies of the Notes this section owns (D4): plan-store instances
+        keyed ``note["view"] == active_view_key``, already in this frame."""
+        from .note_controller import notes_of
+        self._note_copies = {}
+        for src in notes_of(self._ms, self.active_view_key):
+            self._add_note_copy(src)
+
+    def _add_note_copy(self, src) -> "_SectionNoteCopy":
+        """Add (and return) the section copy of model Note *src*."""
+        from .constants import Z_NOTE
+        cp = _SectionNoteCopy.from_dict(src.to_dict(), self._ms.get_block_definition)
+        cp.setData(_ROLE_SOURCE, src)
+        cp._pull()                                 # share the model's note / attributes
+        cp.setZValue(Z_NOTE)
+        cp.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.addItem(cp)
+        self._note_copies[id(src)] = cp
+        return cp
 
     def _register_depth_item(self, depth: float, *items):
         """Register scene items at a given depth for unified Z assignment."""
