@@ -728,6 +728,8 @@ class ElevGridlineItem(QGraphicsLineItem):
                 or not hasattr(scene, "_gridline_z_overrides"):
             return False
         line = self.line()
+        if line == getattr(self, "_built_line", None):
+            return False      # not moved in this gesture (OPEN-7)
         rec = {"v_top": line.p1().y(), "v_bot": line.p2().y()}
         uid = self._gridline._uid
         if scene._gridline_z_overrides.get(uid) == rec:
@@ -957,14 +959,38 @@ class ElevDatumItem(QGraphicsLineItem):
 
         V is pinned to ``self._v`` (a vertical shift would author the datum's
         level elevation), so ``dy`` is dropped; ``dx`` shifts both endpoints,
-        moving the horizontal draw-extent, and carries the head (session-only,
-        not persisted -- parity).
+        moving the horizontal draw-extent, and carries the head; the scene's
+        commit hook records the new ends (elevation-parity D7).
         """
         line = self.line()
         self.prepareGeometryChange()
         self.setLine(line.p1().x() + dx, self._v, line.p2().x() + dx, self._v)
         self._move_head(self._bx + dx)
         self.update()
+
+    def _commit_grip_override(self) -> bool:
+        """Write the current H-extent into this section's ``datum_ends`` record,
+        keyed by the level name (elevation-parity D7): ``left`` = the head end
+        (``line().p1()``), ``right`` = the far end (``line().p2()``).
+
+        Returns:
+            True when the record changed (the caller pushes one undo step);
+            False when the item is not in a section scene, was not moved since
+            its projection, or the extent is unchanged.
+        """
+        scene = self.scene()
+        marker = getattr(scene, "marker", None) if scene is not None else None
+        if marker is None or self._level is None:
+            return False
+        line = self.line()
+        if line == getattr(self, "_built_line", None):
+            return False      # not moved in this gesture: no record, no step (OPEN-7)
+        rec = {"left": line.p1().x(), "right": line.p2().x()}
+        name = self._level.name
+        if marker.datum_ends.get(name) == rec:
+            return False
+        marker.datum_ends[name] = rec
+        return True
 
 
 def section_source_of(item):
@@ -1142,8 +1168,9 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
 
         # Selection manipulator — sole grip owner (retires _find_grip_hit).
         # Mirrors Model_Space._create_manipulator with an elevation commit hook
-        # (no undo — elevation has none) and an exclude that keeps datum bubble
-        # decoration out of the wrap so only the top-level item is framed.
+        # (records the ends, one plan-stack undo step: D7) and an exclude that
+        # keeps datum bubble decoration out of the wrap so only the top-level
+        # item is framed.
         self._manipulator = None
         self._create_manipulator()
 
@@ -1175,12 +1202,19 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         return isinstance(item, BoundLabelItem)
 
     def _commit_elev_grip(self, mode):
-        """Manipulator commit hook (no undo). Persist each selected gridline's
-        adjusted Z-extent into ``_gridline_z_overrides``; datum edits are
-        session-only (parity)."""
+        """Manipulator commit hook (elevation-parity D7 / AC11). Record each
+        selected gridline's Z-extent and each selected level datum's H-extent
+        on the section marker; a changed record joins the gesture's ONE undo
+        step on the plan stack -- the same push a hosted drag pending in this
+        gesture takes (``_flush_hosted_push``)."""
+        changed = False
         for it in self.selectedItems():
-            if isinstance(it, ElevGridlineItem):
-                it._commit_grip_override()
+            if isinstance(it, (ElevGridlineItem, ElevDatumItem)):
+                changed = it._commit_grip_override() or changed
+        if changed:
+            # One pending step through the shared mark (the push-aware flush
+            # skips a pending flag set without a mark: integrator S6 / PI-08).
+            self._mark_section_edit()
         # The manipulator's release hook closes a hosted drag: one undo step
         # now (the timer in _move_hosted_source is the fallback for a bare
         # translate with no gesture).
@@ -3315,6 +3349,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
                 color_src=grid_src, gridline=gl)
             self.addItem(item)
             self._snap_lines.append(item)
+            item._built_line = QLineF(item.line())   # untouched = no record (OPEN-7)
 
     # ── Construction geometry ────────────────────────────────────────────
 
@@ -3328,7 +3363,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     # ── Level datums ─────────────────────────────────────────────────────
 
     def _datum_extent(self) -> tuple[float, float]:
-        """H range of the datum lines = the crop box (s5)."""
+        """Auto H range of a datum line = the crop box (s5); a D7 record overrides it."""
         return self._basis.h_min, self._basis.h_max
 
     def _gridline_crossing_h(self, p, q):
@@ -3374,13 +3409,17 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         # annotative._drawing_scale rule).
         sm = getattr(self._ms, "scale_manager", None) or self._sm
 
+        ends = self._marker.datum_ends
         for lvl in self._lm.levels:
-            item = ElevDatumItem(-lvl.elevation, h_min, h_max, lvl, datum_color,
+            rec = ends.get(lvl.name)          # D7: this section's end record; none = auto
+            left, right = (h_min, h_max) if rec is None else (rec["left"], rec["right"])
+            item = ElevDatumItem(-lvl.elevation, left, right, lvl, datum_color,
                                  datum_pen_w, opacity=opacity, color_src=datum_src,
                                  scale_manager=sm)
             self.addItem(item)
             item.refresh_head()       # the head resolves its block only once in a scene
             self._snap_lines.append(item)
+            item._built_line = QLineF(item.line())   # untouched = no record (OPEN-7)
 
     # ── Selection ────────────────────────────────────────────────────────
     # Selection is handled by Qt's built-in ItemIsSelectable flags + the HALO
