@@ -5,6 +5,7 @@ import pytest
 from PyQt6.QtCore import QPointF, Qt
 
 from firepro3d import element_params as ep
+from tests._dm_theme_helpers import mw  # noqa: F401  (fixture: real MainWindow for the DM row guard)
 from tests._sb4e_helpers import dispose, solve, tree_scene
 
 
@@ -313,6 +314,9 @@ def test_g8_dm_row_applies_visible_and_opacity_only(tree):
     assert b._paper_pen_color is None                         # no tint (R7)
     assert getattr(b, "_display_color", None) is None
     assert b.pos() == pos0 and b.boundingRect() == rect0      # row scale ignored
+    ink = _hexagon_colours(b)                                 # review T7 M1: painted ink
+    assert {"#2b2b2b", "#ffffff"} <= ink                      # the seed's own colours ...
+    assert "#ff0000" not in ink                               # ... no row colour (the image ground is the green fill)
     dm._apply_vals_to_item(b, dict(vals, visible=False), key="Hydraulic Badge")
     assert not b.isVisible()
     dm._apply_vals_to_item(b, vals, key="Hydraulic Badge")
@@ -398,6 +402,34 @@ def test_g9_refresh_annotation_tags_reshapes_badges_and_show_all_follows_the_nod
     b._display_overrides["visible"] = False
     ms._show_all_hidden()
     assert b.isVisible() is True
+
+
+def test_block_definitions_changed_reshapes_badges(tree):
+    """AC10 / review T7 M4: a registry change reaches the badges through the
+    blockDefinitionsChanged wiring, not only a direct refresh call."""
+    ms, nodes = tree
+    solve(ms)
+    n, b = next(iter(_badges(nodes).items()))
+    w0 = b.boundingRect().width()
+    ms.scale_manager.drawing_scale = 200.0
+    ms.blockDefinitionsChanged.emit()
+    assert b.boundingRect().width() == pytest.approx(2 * w0, rel=0.05)
+
+
+def test_dm_badge_row_dims_colour_and_fill_chips(mw):
+    """R7 / review T7 M2: the Hydraulic Badge row offers Visible + Opacity only;
+    its colour and fill chips are dimmed while another row's colour chip is live."""
+    from firepro3d.ui_kit import Swatch
+    from tests._dm_theme_helpers import dispose_dm, open_dm
+    dlg = open_dm(mw)
+    try:
+        badge = dlg._cat_data["Hydraulic Badge"]["widgets"]
+        wall = dlg._cat_data["Wall"]["widgets"]
+        assert isinstance(badge["color_btn"], Swatch) and not badge["color_btn"].isEnabled()
+        assert isinstance(badge["fill_btn"], Swatch) and not badge["fill_btn"].isEnabled()
+        assert wall["color_btn"].isEnabled()                    # control: chips are live elsewhere
+    finally:
+        dispose_dm(dlg)
 
 
 def test_clipboard_record_drops_the_hydraulic_rows(tree):
