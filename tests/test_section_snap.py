@@ -303,3 +303,61 @@ def test_ac12_selected_proxy_shows_only_the_manipulator_frame(qapp, section_scen
         assert sel_no_frame == unselected, "a selected proxy paints its own outline"
     finally:
         v.close()
+
+
+def test_ac13_markers_and_f3_on_a_section_tab(qapp):
+    """AC13 through the real window: on a section tab with a block armed,
+    hovering 4 px off the Level 1 datum x gridline crossing paints the
+    intersection marker and a click places the block ON the crossing; the
+    window F3 shortcut then turns the SECTION's snap off (plan untouched):
+    no marker, and the next click places at the raw cursor."""
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication
+    from tests._mainwindow_helpers import dispose_main_window
+    from tests._modify_tools_helpers import ignore_os_mouse
+    from tests._snap_polish_helpers import click, move
+    from tests.test_hosted_blocks_click import _flip_window
+    win, d, sec, gl, view = _flip_window()           # shown window, north tab, block armed
+    try:
+        ms = win.scene
+        ignore_os_mouse(view)
+        g2 = gridline(ms, (1000.0, -4000.0), (1000.0, 4000.0), "AC13")   # crosses the north cut
+        sec.rebuild()
+        QApplication.processEvents()
+        ex = next(it for it in sec.items()
+                  if isinstance(it, ElevGridlineItem) and it._gridline is g2)
+        cross = QPointF(ex._h, -ms._level_manager.get("Level 1").elevation)
+        view.fit_to_screen()
+        QTest.qWait(150)                             # let any deferred fit land first
+        view.centerOn(cross)
+        QApplication.processEvents()
+        near =QPointF(cross.x() + _px(view, 4), cross.y() - _px(view, 4))
+
+        move(view, near)
+        assert sec._snap_result is not None
+        assert sec._snap_result.snap_type == "intersection"
+        n_on = _marker_px(view, cross)
+        click(view, near)                            # snapped placement
+        plan_snap = ms._snap_enabled
+
+        QTest.keyClick(win.windowHandle(), Qt.Key.Key_F3)   # the wired window shortcut
+        QApplication.processEvents()
+        assert ms._snap_enabled == plan_snap         # the plan scene was not toggled
+        move(view, near)
+        assert n_on - _marker_px(view, cross) >= 10  # the marker is gone
+        click(view, near)                            # raw placement
+
+        # The window holds other parallel gridlines, so the nearest host
+        # (``choose_host``) need not be ``gl``: read every placed block.
+        poses = sorted(sec._hosted_copies[id(i)].block_pos()
+                       for i in ms._block_instances if i.host)
+        assert len(poses) == 2
+        snapped = min(poses, key=lambda p: (p[0] - cross.x()) ** 2 + (p[1] - cross.y()) ** 2)
+        raw = next(p for p in poses if p is not snapped)
+        assert snapped == pytest.approx((cross.x(), cross.y()), abs=1e-6)   # ON the crossing
+        # The raw click lands at the cursor, to the pixel the click was sent
+        # on (a QTest click is whole viewport pixels), 4 px from the crossing.
+        assert raw == pytest.approx((near.x(), near.y()), abs=_px(view, 1))
+        assert abs(raw[1] - cross.y()) >= _px(view, 3), (poses, raw, snapped, cross, near)
+    finally:
+        dispose_main_window(win)
