@@ -371,24 +371,26 @@ def test_level_delete_drops_its_datum_ends_in_its_step(mw, monkeypatch):
 
 
 def test_loading_a_file_never_reruns_a_level_cascade(mw, tmp_path):
-    """Load / undo restore the records verbatim: a datum_ends key naming a
-    level that the file does not list is NOT dropped by any cascade, and a
-    re-save keeps the very same records (idempotent load)."""
+    """Load restores the records verbatim: a datum_ends key naming a level the
+    file does not list ("Ghost") is NOT dropped by load, and survives two
+    save / load cycles together with the real record (idempotent load)."""
     win = mw
     scene = win.scene
     v, sec = _north(win)
     _drag_datum_right(v, sec)
     _settle(sec)
     rec = dict(sec.marker.datum_ends["Level 1"])
+    sec.marker.datum_ends["Ghost"] = dict(rec)       # a level the file will not list
+    want = {"Level 1": rec, "Ghost": rec}
     path = str(tmp_path / "cascade.fpd")
     assert scene.save_to_file(path)
     win._modified = False
     win._load_project(path)
     sec2 = win.section_manager.get_or_build_scene("north")
-    assert sec2.marker.datum_ends == {"Level 1": rec}
+    assert sec2.marker.datum_ends == want
     path2 = str(tmp_path / "cascade2.fpd")
     assert win.scene.save_to_file(path2)
     win._modified = False
     win._load_project(path2)
     sec3 = win.section_manager.get_or_build_scene("north")
-    assert sec3.marker.datum_ends == {"Level 1": rec}
+    assert sec3.marker.datum_ends == want
