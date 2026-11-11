@@ -92,7 +92,9 @@ def test_selecting_underlay_emits_readonly_properties(qapp):
     record = captured[-1]
     props = record.get_properties()
     assert props, "underlay record should expose properties"
-    assert all(meta.get("type") == "label" for meta in props.values())
+    assert all(meta.get("type") == "label" for key, meta in props.items()
+               if key != "Phase")                # PH1 / PD1: the one editable row
+    assert props["Phase"]["type"] == "enum"
 
 
 def test_underlay_group_has_no_grips(qapp):

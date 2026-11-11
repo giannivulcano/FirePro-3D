@@ -698,6 +698,7 @@ class ModelBrowser(QWidget):
                 self._syncing = False
 
         # Populate property panel (always, even when item is None)
+        data._scene_ref = self._scene          # R6: the panel's Phase edit marks this project dirty
         self.entitySelected.emit(data)
 
     def _underlay_context_menu(self, tree_item, ul_idx: int, pos):

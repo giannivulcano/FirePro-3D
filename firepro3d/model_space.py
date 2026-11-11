@@ -2847,7 +2847,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              scale: float = 1.0, level_offset_mm: float = 0.0,
                              host: dict | None = None, note: dict | None = None,
                              layer_height: int = 0, opaque: bool | None = None,
-                             constraint_points_off: bool = False):
+                             constraint_points_off: bool = False, phase: str = "new"):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2873,6 +2873,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 ``opaque_blocks`` default (D3).
             constraint_points_off: Child constraint points are not offered
                 for new picks (D10).
+            phase: Status id (project-phasing PD1); placement passes none -> New (D-PH5 ruling).
         """
         import copy
         from .block_instance import BlockInstance
@@ -2909,6 +2910,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         inst.layer_height = layer_height
         inst._opaque = opaque
         inst.constraint_points_off = constraint_points_off
+        inst.phase = phase
         inst.apply_stack_z()
         inst.stack_changed()            # _opaque was set after the add
         # Backref only when the definition lives in THIS scene's own store: a

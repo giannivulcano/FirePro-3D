@@ -464,6 +464,9 @@ class TestGetProperties:
                      hidden_layers=["L1"], import_mode="auto")
         props = u.get_properties()
         for key, entry in props.items():
+            if key == "Phase":                 # PH1 / PD1: the one editable row
+                assert entry["type"] == "enum"
+                continue
             assert entry["type"] == "label", (
                 f"Property '{key}' has type '{entry['type']}', expected 'label'")
 

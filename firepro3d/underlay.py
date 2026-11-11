@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 from .constants import DEFAULT_LEVEL
+from . import phase_registry
 
 if TYPE_CHECKING:
     from .block_definition import BlockDefinition
@@ -53,6 +54,8 @@ class Underlay:
     # User-authored display name (import dialog Source step). Blank falls back
     # to the file basename for display (Manager NAME column, browser node).
     name: str = ""
+    # Project phasing (PD1): status id, saved sparse; not on the undo stack (underlays never are).
+    phase: str = phase_registry.PHASE_NEW
     # Reference-graphic unification (R3/RD2): the shared reference BlockDefinition
     # that OWNS this underlay's geometry (curve-preserving, layer-tagged geoms).
     # Runtime + cache-backed — set when the batched group is built, reconstructed
@@ -98,6 +101,7 @@ class Underlay:
         d["line_weight_name"] = self.line_weight_name
         d["scale_verified"] = self.scale_verified
         d["name"] = self.name
+        phase_registry.write_element(self, d)
         return d
 
     @staticmethod
@@ -105,7 +109,7 @@ class Underlay:
         levels = d.get("levels")
         if levels is None:
             levels = [d.get("level", DEFAULT_LEVEL)]
-        return Underlay(
+        u = Underlay(
             type        = d["type"],
             path        = d["path"],
             x           = d.get("x", 0.0),
@@ -140,6 +144,8 @@ class Underlay:
             scale_verified = d.get("scale_verified", False),
             name = d.get("name", ""),
         )
+        phase_registry.read_element(u, d)
+        return u
 
     @staticmethod
     def relativize_path(abs_path: str, project_dir: str) -> str:
@@ -193,8 +199,8 @@ class Underlay:
     def get_properties(self) -> dict:
         """Return property template for the property manager panel.
 
-        All fields are read-only labels for MVP. Edits are done via
-        the browser tree context menu actions.
+        Rows are read-only labels except Phase (project-phasing PD1); other
+        edits go through the browser menu.
         """
         display_name = (self.name or "").strip() or os.path.basename(self.path)
         props = {
@@ -202,6 +208,7 @@ class Underlay:
             "File": {"type": "label", "value": os.path.basename(self.path)},
             "Path": {"type": "label", "value": self.path},
             "Type": {"type": "label", "value": self.type.upper()},
+            phase_registry.ROW_KEY: phase_registry.property_row(self),
             "Levels": {"type": "label",
                        "value": "All Levels" if self.levels == ["*"]
                        else ", ".join(self.levels) or "—"},
@@ -228,6 +235,16 @@ class Underlay:
                 "type": "label",
                 "value": ", ".join(self.hidden_layers)}
         return props
+
+    def set_property(self, key: str, value) -> None:
+        """The one editable panel row: Phase. Not undoable (underlays never are);
+        a change marks the project unsaved (ruling R6) through the scene the
+        Model Browser attached when it showed this record (``_scene_ref``)."""
+        if key == phase_registry.ROW_KEY and phase_registry.set_from_row(self, value):
+            sc = getattr(self, "_scene_ref", None)
+            if sc is not None:
+                sc._dirty = True
+                sc.sceneModified.emit()      # MainWindow._on_scene_modified -> _modified
 
     def cache_key(self) -> str:
         """Return the cache filename for this underlay's geometry.

@@ -31,6 +31,7 @@ from . import end_render as _er
 from . import hatch_render as _hr
 from . import linetype_render as _lr
 from . import paper_display as _pd
+from . import phase_registry
 from . import theme as _theme
 from .block_definition import BlockDefinition
 from .block_stack import clamp_layer_height, stack_z
@@ -157,6 +158,7 @@ class BlockInstance(QGraphicsObject):
         self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
+        self.phase: str = phase_registry.PHASE_NEW   # project-phasing PD1; never on a nested record (D-PH16)
         # Placement Weight / Linetype / Colour override (linetypes.md WM2,
         # WM3): As Authored x3 by default; _ov_args is None while nothing
         # overrides (render_ops' fast path returns the definition's list itself).
@@ -2083,6 +2085,12 @@ class BlockInstance(QGraphicsObject):
                 return None
         return valid_scale(value, default=None)
 
+    def _phased(self) -> bool:
+        """A placement carries a phase; a Note (annotation, D-PH3) and a Block
+        Editor instance (part of a definition, D-PH16) do not."""
+        sc = self.scene()
+        return not self.note and getattr(sc, "scene_role", "plan") != "block_editor"
+
     def get_properties(self) -> dict:
         props = {
             "Type":         {"type": "label",     "value": "Note" if self.note else "Block"},
@@ -2115,6 +2123,8 @@ class BlockInstance(QGraphicsObject):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
+        if self._phased():      # after the stroke rows: they must follow the pose rows (DD8)
+            props[phase_registry.ROW_KEY] = phase_registry.property_row(self)
         # Block stacking D6 / D7: editors only; D10: every placement.
         if self.in_stack_scene():
             from .constants import LAYER_HEIGHT_MAX, LAYER_HEIGHT_MIN
@@ -2260,6 +2270,10 @@ class BlockInstance(QGraphicsObject):
         """
         if self.host and key in ("Reference", "Offset", "Elevation"):
             self._set_host_property(key, value)
+            return
+        if key == phase_registry.ROW_KEY:
+            if self._phased():
+                phase_registry.set_from_row(self, value)   # requests its own undo step
             return
         before = self._panel_state()
         if key == "Level":
@@ -2416,6 +2430,7 @@ class BlockInstance(QGraphicsObject):
             d["host"] = dict(self.host)
         if self.note:
             d["note"] = copy.deepcopy(self.note)
+        phase_registry.write_element(self, d)
         d.update(self._stack_fields())
         return d
 
@@ -2431,6 +2446,7 @@ class BlockInstance(QGraphicsObject):
         inst._pose_mirrored = bool(data.get("mirrored", False))
         inst._pose_scale = _record_scale(data)
         inst.attributes = dict(data.get("attributes", {}))
+        phase_registry.read_element(inst, data)
         inst.set_overrides(data.get("overrides"))
         if data.get("uid"):
             inst._uid = str(data["uid"])
@@ -2454,7 +2470,7 @@ class BlockInstance(QGraphicsObject):
                 never does -- C3); None lets the scene use its active level.
 
         Returns:
-            The pose / level / override kwargs (``uid`` stays the caller's:
+            The pose / level / override / phase kwargs (``uid`` stays the caller's:
             only restore paths carry it).
         """
         return {"rotation": float(rec.get("rotation", 0.0)),
@@ -2465,6 +2481,7 @@ class BlockInstance(QGraphicsObject):
                 "overrides": rec.get("overrides"),
                 "host": rec.get("host"),
                 "note": rec.get("note"),
+                "phase": phase_registry.read_id(rec.get("phase")),
                 "layer_height": clamp_layer_height(rec.get("layer_height", 0)),
                 "opaque": rec["opaque"] if isinstance(rec.get("opaque"), bool) else None,
                 "constraint_points_off": rec.get("constraint_points_off") is True}

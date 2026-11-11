@@ -147,6 +147,7 @@ class UnderlayContextMenu:
             hidden_layers=list(data.hidden_layers),
             import_mode=data.import_mode,
             name=data.name,
+            phase=data.phase,
         )
         if data.type == "pdf":
             scene.import_pdf(
