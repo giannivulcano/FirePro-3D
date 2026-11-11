@@ -2,6 +2,17 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Linetypes -- WM3 placement Colour override + Model Blocks colour -- 2026-11-11
+
+- [x] [type:feature] WM3 — Colour cascade: placement / nested-record Colour (As Authored | By Category | named), Model "Blocks" row Colour column [subject:CAD] [P1] [done:2026-11-11]
+  - Details: `linetypes.md` WM-7/8/12. A colour override reaches linetype-embedded symbols, fills, hatches, text and end blocks; paper B&W / Custom modes stay above the cascade (D-L19). Hatch D-A12 "By block" → "By Pattern (<colour>)" label (see the hatch-colour maint task). Depends HF1 (Automatic token) and WM2. Tier Large.
+  - Split 2026-11-09 (block polish "colour override at instance level" run): this line keeps the placement / nested-record Colour + the Model "Blocks" Colour column; primitive Colour By Linetype moved to `WM3b` below.
+  - WM2 done 2026-10-07 (`a65daf67`): add `colour` to the same `overrides` dict (`stroke_style.normalize_overrides` / `override_args` / `compose_overrides`, `render_op.apply_overrides`, `block_explode._bake`, `stroke_rows(placement=True)`); WM-7 colour reaches text / fills / hatches / embedded symbols, unlike weight.
+  - Note 2026-10-18: dependency HF1 landed (084b43e0, Automatic token + universal picker); unblocked on HF1 (still depends WM2).
+  - Built 2026-11-09 to 2026-11-11 on `feature/block-colour-override` (base `b6b66b51`; feature/Large, chain 1 → 1b → 2 → 3 → 4 → 5 → 6, FP6). Design `docs/superpowers/specs/2026-11-09-wm3-placement-colour-design.md`; as built in `linetypes.md` WM3. Groups A–F (`2a58d311`, `e42cd42e`, `002aebb4`, `70a9ec81`, `c480f8d4`, `30bd5d4e`, `c568e4e6`, `36826b4f`, `1ead126e`): placement and nested-record Colour row (As Authored | By Category | Pick colour, wheel ignored), By Category as a paint-time token resolved to the Model Blocks colour on canvas and the paper Blocks colour on sheets, Explode bakes the resolved colour, text box fill keeps its authored colour (R3), nested placements compose per axis (R4), Display Manager Model Blocks colour swatch (factory Automatic) saved with the project.
+  - Verification: per-group guards RED-proven; per-group keep-green and the merged-tree re-test (401 passed) green; VC9 seam review F1 (block Colour labels written into walls, roofs and pipes on a mixed selection) fixed in `8afdc158`; swatch chip tooltip fixed in `a78826e3` (keep-green 1067 passed). Full suite waived by the user (2026-11-11). Smoke S1: Custom / B&W sheets paint the paper Blocks colour over blocks as designed (D3); the As Authored chip built for it (`78eeeac8`) was reverted (`8bdde677`) and the per-row toggle redesign filed.
+  - Follow-ups filed in `todo_open.md`: Paper Space "As Authored" per-row toggle (`f6c1cb18`); WM3 review Minors; WM3b stays open. Shipped 0.97.0.
+
 ## Paper-space sheet output -- sheet-linked Word / PDF document -- 2026-11-10
 
 - [x] [type:feature] Link a Word document to a sheet so its pages show on the sheet and update with the file (project specification sheets) [done:2026-11-10] [P2] [subject:Paper]

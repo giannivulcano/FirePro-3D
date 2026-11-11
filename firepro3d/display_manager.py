@@ -2386,7 +2386,7 @@ class DisplayManager(HouseDialog):
         self._model_blocks_combo = combo
         sw = Swatch(model_blocks_colour(), context="Model blocks colour")
         sw.set_tooltip("Canvas colour of every placed block whose Colour is "
-                      "By Category (sheets use the paper \"Blocks\" colour)")
+                       "By Category (sheets use the paper \"Blocks\" colour)")
         sw.colorChanged.connect(self._on_model_blocks_colour)
         self._model_blocks_swatch = sw
         btn_row.addWidget(blocks_lbl)
