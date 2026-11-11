@@ -36,6 +36,18 @@ END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 END_SCALE_SUFFIX = "×"       # the Scale row's suffix (ET1 Q10-b)
 
 
+def is_block_only_colour_label(value) -> bool:
+    """True for a placement-only Colour row label (WM3 D4): "As Authored",
+    "By Category (...)" or "Pick colour..." -- never an item's own colour.
+
+    A mixed selection sends the block's Colour row to every target that has a
+    "Colour" key; each non-block owner skips these labels (WM2 Q5 / WM3 D4).
+    """
+    v = str(value)
+    return (v == AS_AUTHORED_LABEL or v.startswith(BY_CATEGORY_LABEL)
+            or v == PICK_COLOUR_LABEL)
+
+
 def parse_end_scale(value) -> float | None:
     """A per-end Scale entry (``"2"``, ``"1.5 ×"``, ``"2×"``, ``"2x"``, a
     number) -> a float within [END_SCALE_MIN, END_SCALE_MAX], else None (the

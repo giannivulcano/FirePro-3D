@@ -559,6 +559,9 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         if key == "Name":
             self.name = str(value)
         elif key == "Colour":
+            from .stroke_style import is_block_only_colour_label
+            if is_block_only_colour_label(value):
+                return                     # WM3 D4: a placed block's row label
             self._colour = _stored_colour(value)
             self.update()
         elif key == "Roof Type":

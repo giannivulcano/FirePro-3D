@@ -928,6 +928,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         elif key == "Mark":
             self._mark = str(value)
         elif key == "Colour":
+            from .stroke_style import is_block_only_colour_label
+            if is_block_only_colour_label(value):
+                return                     # WM3 D4: a placed block's row label
             self._colour = normalize_colour(value, _DEFAULT_COLOUR)
             self.update()
         elif key == "Thickness":

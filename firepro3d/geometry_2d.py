@@ -4634,9 +4634,8 @@ def _is_block_only_weight_label(value) -> bool:
 def _is_block_only_colour_label(value) -> bool:
     """True for a placement-only Colour label (WM3 D4): "As Authored",
     "By Category (...)" or "Pick colour..." -- never a primitive value."""
-    from .stroke_style import PICK_COLOUR_LABEL
-    v = str(value)
-    return _is_block_only_weight_label(v) or v == PICK_COLOUR_LABEL
+    from .stroke_style import is_block_only_colour_label
+    return is_block_only_colour_label(value)
 
 
 def _placement_colour_row(c: str) -> dict:

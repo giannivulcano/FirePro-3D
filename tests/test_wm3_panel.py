@@ -257,3 +257,51 @@ def test_mixed_selection_block_first_by_category_skips_the_primitive(qapp, make_
     QApplication.processEvents()
     assert inst.overrides["colour"] == "by_category"
     assert ln.style["colour"] == "#ff0000"
+
+
+def _wall(ms):
+    from firepro3d.wall import WallSegment
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
+    ms.addItem(w)
+    w.set_property("Colour", "#123456")
+    return w, lambda: w._colour, "#123456"
+
+
+def _roof(ms):
+    from firepro3d.roof import RoofItem
+    r = RoofItem([QPointF(0, 0), QPointF(1000, 0), QPointF(1000, 1000)])
+    ms.addItem(r)
+    r.set_property("Colour", "#123456")
+    return r, lambda: r._colour, "#123456"
+
+
+def _pipe(ms):
+    from firepro3d.node import Node
+    from firepro3d.pipe import Pipe
+    n1, n2 = Node(0, 0), Node(1000, 0)
+    ms.addItem(n1)
+    ms.addItem(n2)
+    p = Pipe(n1, n2)
+    ms.addItem(p)
+    p.set_property("Colour", "Blue")
+    return p, lambda: p._properties["Colour"]["value"], "Blue"
+
+
+@pytest.mark.parametrize("make", [_wall, _roof, _pipe], ids=["wall", "roof", "pipe"])
+@pytest.mark.parametrize("label", ["As Authored", _BY_CAT],
+                         ids=["as_authored", "by_category"])
+def test_mixed_selection_block_first_skips_wall_roof_pipe_colour(qapp, make_pm,
+                                                                 make, label):
+    """VC9 seam F1: a block-first mixed selection sends the placement Colour
+    row's label to every target with a "Colour" key; a wall, roof or pipe
+    keeps its own colour (WM3 D4: only targets that own the row are written)."""
+    s = sprinkler_def()
+    ms, inst = scene_with([s], s.id, {"colour": OVR})
+    item, colour, before = make(ms)
+    assert colour() == before                         # composition: the setup wrote it
+    pm = make_pm([inst, item])
+    pm._prop_widgets["Colour"].setCurrentText(label)
+    QApplication.processEvents()
+    assert inst.overrides["colour"] == ("as_authored" if label == "As Authored"
+                                        else "by_category")
+    assert colour() == before
