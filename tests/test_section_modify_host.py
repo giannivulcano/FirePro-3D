@@ -152,6 +152,10 @@ def host(qapp, section_scene_for, monkeypatch):
     monkeypatch.setattr(sec, "_show_status",
                         lambda m, timeout=5000: statuses.append(m))
     yield ms, sec, gl, inst, view, statuses
+    # A pending debounced rebuild must not outlive the test: it would fire in
+    # the NEXT test's event loop on this dropped scene (selectedItems() on a
+    # scene whose model is gone aborts: access violation).
+    sec._rebuild_timer.stop()
     view.close()
     view.deleteLater()
     QApplication.processEvents()
@@ -709,3 +713,19 @@ def test_mirror_across_a_section_gridline_creates_a_mirrored_model_block(host):
     assert inst.host["along_mm"] == pytest.approx(PLACED_ALONG)
     assert inst.block_mirrored() is False
     assert ms._undo_pos == pos0 + 1
+
+
+# -- C-7: the selection survives a rebuild -----------------------------------
+
+def test_moved_copy_stays_selected_after_the_debounced_rebuild(host):
+    """Plan parity (scene-tools D3): after a section Move the moved block's
+    rebuilt copy is still the selection.
+    RED when: the ``self._reselect_editable(keep)`` line is deleted from
+    ``rebuild`` (the rebuilt copy is not selected)."""
+    ms, sec, gl, inst, view, statuses = host
+    assert sec._modify_ctl.start("move") is True
+    click(view, QPointF(2500.0, -1200.0))
+    click(view, QPointF(2800.0, -1200.0))
+    QTest.qWait(250)                                       # the debounced rebuild
+    cp2 = sec._hosted_copies[id(inst)]
+    assert sec.selectedItems() == [cp2]

@@ -2213,6 +2213,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
 
     def rebuild(self):
         """Clear and re-project all entities from the model."""
+        keep = self._editable_selection_uids()   # re-selected after the rebuild
         if getattr(self, "mode", None) in self._MODIFY_MODES:
             # clear() would delete the copies a running tool holds: end it
             # (the debounced path holds instead -- _rebuild_when_idle).
@@ -2244,6 +2245,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._project_geometry_2d()
         self._project_section_notes()              # this section's Notes (D4)
         self._assign_depth_z_values()
+        self._reselect_editable(keep)
         self._apply_hidden_pass()                  # hidden sources stay hidden (D5)
         if self._place_block_id is not None:        # placement survives a rebuild
             bid, rot, gpt = self._place_block_id, self._place_rot, self._place_ghost_pt
@@ -2256,6 +2258,26 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
                 if gpt is not None:
                     self._place_ghost_pt = gpt
                     self._place_ghost.set_block_pos(*gpt)
+
+    def _editable_selection_uids(self) -> set:
+        """Model ``_uid`` of each selected editable copy's source (the key
+        that survives a rebuild and an undo restore)."""
+        uids = {getattr(it.data(_ROLE_SOURCE), "_uid", None)
+                for it in self.selectedItems() if is_section_editable(it)}
+        uids.discard(None)
+        return uids
+
+    def _reselect_editable(self, uids) -> None:
+        """Select the rebuilt copies whose model record's uid is in *uids*
+        (one ``selectionChanged``, selection-mode 5.9)."""
+        if not uids:
+            return
+        pool = (list(self._hosted_copies.values())
+                + list(getattr(self, "_note_copies", {}).values()))
+        again = [cp for cp in pool
+                 if getattr(cp.data(_ROLE_SOURCE), "_uid", None) in uids]
+        if again:
+            self.select_items(again)
 
     def _project_hosted_blocks(self):
         """Copies of gridline-hosted model blocks whose host is parallel to
