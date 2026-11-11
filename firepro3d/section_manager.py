@@ -146,7 +146,15 @@ class SectionManager(QObject):
         self.sectionsChanged.emit()
         return m
 
-    def delete_section(self, name: str) -> None:
+    def delete_section(self, name: str, *, notes: bool = True) -> None:
+        """Remove a placed section (and, by default, the Notes it owns).
+
+        Args:
+            name: The section's name.
+            notes: Also remove its Notes (elevation-parity D4) inside the
+                caller's undo step. ``restore_from_list`` passes False: an undo
+                restore has already restored the blocks as they were.
+        """
         key = self._key(name)
         m = self.markers.get(key)
         if m is None:
@@ -155,19 +163,34 @@ class SectionManager(QObject):
             raise ValueError("cardinal sections are permanent (D5b)")
         self.close_section(key)
         self.markers.pop(key)
+        if notes:
+            from .note_controller import remove_notes
+            remove_notes(self._ms, f"section:{m.view_name}")
         if m.scene() is self._ms:
             self._ms.removeItem(m)
         self.sectionsChanged.emit()
 
-    def rename_section(self, old: str, new: str) -> None:
+    def rename_section(self, old: str, new: str, *, notes: bool = True) -> None:
+        """Rename a placed section; its Notes follow by default (D4).
+
+        Args:
+            old: The current name.
+            new: The new name (refused: empty, unchanged, a cardinal, taken).
+            notes: Re-key its Notes inside the caller's undo step;
+                ``restore_from_list`` passes False (see ``delete_section``).
+        """
         key = self._key(old)
         m = self.markers.get(key)
         if (m is None or m.cardinal or not new or new == old
                 or new.lower() in CARDINALS or self._key(new) in self.markers):
             return
+        old_view = f"section:{m.view_name}"
         self.markers.pop(key)
         m.name = new
         self.markers[new] = m
+        if notes:
+            from .note_controller import rekey_notes
+            rekey_notes(self._ms, old_view, f"section:{m.view_name}")
         if key in self._views:
             scene, view = self._views.pop(key)
             self._views[new] = (scene, view)
@@ -425,11 +448,11 @@ class SectionManager(QObject):
                 continue
             for old in unwanted:
                 if _same_cut(self.markers[old], d):
-                    self.rename_section(old, d["name"])
+                    self.rename_section(old, d["name"], notes=False)   # blocks already restored
                     unwanted.remove(old)
                     break
         for key in unwanted:
-            self.delete_section(key)
+            self.delete_section(key, notes=False)                  # blocks already restored
         for key, d in want.items():
             m = self.markers.get(key)
             if m is None:
