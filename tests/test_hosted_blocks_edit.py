@@ -116,8 +116,8 @@ def _window_with_hosted_block():
     ms = win.scene
     marker = win.section_manager.place_section(QPointF(0.0, 0.0), QPointF(10000.0, 0.0))
     view = win.section_manager.open_section(marker.name)
-    QApplication.processEvents()
-    sec = view.scene()
+    QTest.qWait(150)          # open_section's deferred 50 ms fit_to_screen runs now,
+    sec = view.scene()        # never after a caller's own zoom (a posted click misses)
     gl = gridline(ms, (0, -3000), (6000, -3000), "B")
     plan_gl = gridline(ms, (0, -9000), (6000, -9000), "P")
     sec.rebuild()

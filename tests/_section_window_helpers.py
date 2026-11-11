@@ -34,7 +34,7 @@ def open_section_window(n_sections: int = 1):
     win.show()
     QTest.qWaitForWindowExposed(win)
     views = [sm.open_section(m.name) for m in markers]
-    QApplication.processEvents()
+    QTest.qWait(150)      # each open's deferred 50 ms fit_to_screen runs now, not after aim()
     show_tab(win, views[0])
     return win, markers, views
 

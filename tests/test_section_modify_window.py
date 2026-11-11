@@ -9,6 +9,7 @@ QShortcuts; mouse events are posted to the section view's viewport.
 """
 import pytest
 from PyQt6.QtCore import QPointF
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.constants import (HOSTED_PASTE_IN_PLAN, SECTION_EDIT_SKIPPED,
@@ -52,11 +53,14 @@ def _hosted(ms, gl_):
 
 
 def _open(win, a, b):
-    """Place + open a section tab and make it current."""
+    """Place + open a section tab and make it current. Waits out
+    ``open_section``'s deferred 50 ms ``fit_to_screen``: fired after the
+    caller's ``_aim`` it re-zooms the view to a size-dependent fit, and a
+    posted click then rounds to that zoom's pixels (a paste 11 mm off)."""
     m = win.section_manager.place_section(QPointF(*a), QPointF(*b))
     view = win.section_manager.open_section(m.name)
     win.central_tabs.setCurrentWidget(view)
-    QApplication.processEvents()
+    QTest.qWait(150)
     return view, view.scene()
 
 
