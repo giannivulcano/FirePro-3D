@@ -146,6 +146,35 @@ def test_s1_rows_show_only_on_a_badged_node(tree):
     assert props["Actual P"]["value"] == ep.host_values(n)["Pressure"].text
 
 
+def test_pipe_panel_node_sections_hide_the_hydraulic_rows(qapp, tree):
+    from firepro3d.node import HYDRAULIC_ROW_KEYS
+    from firepro3d.property_manager import PropertyManager
+    ms, nodes = tree
+    solve(ms)
+    pipe = next(p for p in ms.sprinkler_system.pipes
+                if p.node1._hydraulic_badge is not None
+                and p.node2._hydraulic_badge is not None)
+    assert "Badge Position" in pipe.node1.get_properties()      # the node itself has them
+    pm = PropertyManager()
+    try:
+        pm.show_properties(pipe)
+        labels = []
+        for i in range(pm._form.rowCount()):
+            item = pm._form.itemAt(i, pm._form.ItemRole.LabelRole)
+            w = item.widget() if item is not None else None
+            if w is not None and hasattr(w, "text"):
+                labels.append(w.text())
+        assert "NODE 1" in labels and "NODE 2" in labels
+        shown = {"Badge Position", "Node Number", "Required P", "Actual P",
+                 "Flow Out q", "Total Flow Q"}
+        assert not shown & set(labels)
+        assert HYDRAULIC_ROW_KEYS == shown
+        assert labels.count("Offset") >= 2 and labels.count("Absolute Elev.") == 2
+    finally:
+        pm._refresh_timer.stop()                    # tests own teardown (panel timer crash)
+        pm.deleteLater()
+
+
 def test_g5_panel_commit_pushes_undo_and_marks_modified(qapp, tree):
     from firepro3d.property_manager import PropertyManager
     ms, nodes = tree

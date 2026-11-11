@@ -13,7 +13,6 @@ docs/specs/hydraulic-solver-and-reporting.md
 """
 from __future__ import annotations
 
-
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QBrush, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsEllipseItem, QGraphicsRectItem
