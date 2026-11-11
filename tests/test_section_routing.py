@@ -366,3 +366,23 @@ def test_section_snap_toggle_reaches_the_pill_through_exactly_one_connect(
                         lambda v: (calls.append(v), real(v))[1])
     press(win, "F3")
     assert calls == [sec._snap_enabled]
+
+
+def test_section_selection_fills_the_properties_panel_with_its_sources(section_win):
+    """AC6 / R6: the panel shows the section selection as MODEL sources, each
+    once - a pipe crossing the cut (two proxies) is listed once."""
+    from tests._note_helpers import click
+    win, ms, sec, gl, plan_gl, inst = section_win
+    view = win.central_tabs.currentWidget()
+    pipe = crossing_pipe(ms, sec)                 # rebuild: the section selection is dropped
+    pipe_proxies = proxies_of(sec, pipe)
+    assert len(pipe_proxies) == 2                 # precondition (probe at 41a76d1b)
+    cp = sec._hosted_copies[id(inst)]             # the rebuilt copy
+    click(view, cp.sceneBoundingRect().center())  # real HALO-committed press
+    assert win.prop_manager._targets == [inst]    # [RED] the copy / stale panel
+    for p in pipe_proxies:
+        p.setSelected(True)
+    QApplication.processEvents()
+    targets = win.prop_manager._targets
+    assert len(targets) == 2                      # [RED] 3 without the de-dup
+    assert {id(t) for t in targets} == {id(inst), id(pipe)}

@@ -1474,6 +1474,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _on_section_scene_built(self, scene):
         """Once per SectionScene: property panel, footer line and mode feedback."""
+        # The selection drives the panel (D8); entitySelected is the context
+        # menu's single-target "Properties" entry.
+        scene.selectionChanged.connect(self._on_section_selection_changed)
         scene.entitySelected.connect(self.prop_manager.show_properties)
         # HALO "<Type> - i of N" readout and tool hints -> the footer (D8).
         scene.instructionChanged.connect(self.footer.set_instruction)
@@ -1485,6 +1488,14 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         scene.modeChanged.connect(self._sync_mode_buttons)
         # The footer SNAP pill follows the section's own engine (D3, area D).
         scene.snapToggled.connect(self._update_snap_indicator)
+
+    def _on_section_selection_changed(self) -> None:
+        """A SectionScene's selection changed: refresh the Properties panel
+        when it is the current tab's scene (D8). A tab-less sheet scene, or a
+        background tab whose rebuild drops its selection, leaves the panel."""
+        if self.sender() is not self._active_section_scene():
+            return
+        self.update_property_manager()
 
     def _on_section_view_opened(self, view):
         """Once per SectionView: show the cursor H/Z in the footer."""
@@ -5775,11 +5786,22 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         try:
             sc = self._active_scene()
             # Don't override template properties during placement modes
-            if sc.mode in ("pipe", "sprinkler", "wall",
-                           "floor", "roof", "roof_rect",
-                           "set_scale", "design_area", "note"):
+            if getattr(sc, "mode", None) in ("pipe", "sprinkler", "wall",
+                                             "floor", "roof", "roof_rect",
+                                             "set_scale", "design_area", "note"):
                 return
-            items = sc.selectedItems()
+            # A section's selection is proxies / copies: the panel shows the
+            # model sources they stand for, each once (elevation-parity D8 /
+            # R6); panel edits land on those model items (R7).
+            # (no get_properties = no panel, e.g. a datum's Level). A source
+            # already taken out of the model scene (a Delete in flight: the
+            # plan's selection signals fire before the section rebuilds) has
+            # no scale manager to format with, so it is left out too.
+            sources_of = getattr(sc, "_sources_of", None)
+            items = (sc.selectedItems() if sources_of is None
+                     else [s for s in sources_of(sc.selectedItems())
+                           if hasattr(s, "get_properties")
+                           and not (hasattr(s, "scene") and s.scene() is None)])
         except RuntimeError:
             return
         if items:

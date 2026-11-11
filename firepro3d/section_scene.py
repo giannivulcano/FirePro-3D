@@ -843,7 +843,7 @@ def section_source_of(item):
 class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
-    entitySelected = pyqtSignal(object)   # picked legacy entity
+    entitySelected = pyqtSignal(object)   # context-menu "Properties" target (one source)
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
     snapToggled = pyqtSignal(bool)        # toggle_snap() ran (footer SNAP pill; D3)
 
@@ -972,7 +972,8 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._rebuild_timer.setInterval(100)
         self._rebuild_timer.timeout.connect(self._rebuild_when_idle)
         self._ms.sceneModified.connect(self._schedule_rebuild)
-        self.selectionChanged.connect(self._on_selection_changed)
+        # The selection reaches the Properties panel through MainWindow
+        # (selectionChanged -> _sources_of(selectedItems()), elevation-parity D8).
 
         # Selection manipulator — sole grip owner (retires _find_grip_hit).
         # Mirrors Model_Space._create_manipulator with an elevation commit hook
@@ -1058,17 +1059,26 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
 
     # ── Selection sync ───────────────────────────────────────────────────
 
-    def _on_selection_changed(self):
-        """When items are selected (click or rubber-band), emit source entity."""
-        selected = self.selectedItems()
-        if selected:
-            # Emit the last selected item's source entity
-            for item in reversed(selected):
-                source = item.data(_ROLE_SOURCE)
-                if source is not None:
-                    self.entitySelected.emit(source)
-                    return
-        self.entitySelected.emit(None)
+    def _sources_of(self, items) -> list:
+        """The model objects *items* stand for (``section_source_of``), each
+        once, in order; items with no source and None entries are left out
+        (elevation-parity D8 / R6; S2: the one de-dup of a section
+        selection -- Properties, Hide, the context menu).
+
+        Args:
+            items: Section items (None entries skipped).
+
+        Returns:
+            De-duplicated model sources.
+        """
+        out, seen = [], set()
+        for it in items:
+            src = section_source_of(it) if it is not None else None
+            if src is None or id(src) in seen:
+                continue
+            seen.add(id(src))
+            out.append(src)
+        return out
 
     # ── Mouse handling ────────────────────────────────────────────────────
     # The legacy grip path (_find_grip_hit + _grip_dragging lifecycle) was
@@ -2741,5 +2751,5 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             self._snap_lines.append(item)
 
     # ── Selection ────────────────────────────────────────────────────────
-    # Selection is handled by Qt's built-in rubber-band + ItemIsSelectable
-    # flags, routed through _on_selection_changed() which emits entitySelected.
+    # Selection is handled by Qt's built-in ItemIsSelectable flags + the HALO
+    # press / scene-drawn band; MainWindow maps it through _sources_of().
