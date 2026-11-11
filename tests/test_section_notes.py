@@ -18,6 +18,15 @@ def _note_scene(section_scene_for):
     return ms, sec
 
 
+def _dispose(win):
+    """Close a test window. A Note editor left live by a failing assertion
+    would be committed by ``closeEvent`` (marking the project dirty) and raise
+    the modal save prompt, hanging the run: end it first."""
+    from tests._mainwindow_helpers import dispose_main_window
+    win._commit_text_edits()
+    dispose_main_window(win)
+
+
 def _copies(sec):
     from firepro3d.section_scene import _SectionNoteCopy
     return [i for i in sec.items() if isinstance(i, _SectionNoteCopy)]
@@ -83,3 +92,138 @@ def test_delete_removes_the_model_note_in_one_step_and_undo_restores(qapp, secti
     sec.rebuild()
     (back,) = _copies(sec)
     assert back.attributes["Text"] == "GONE"
+
+
+TIP, KNEE, THIRD = QPointF(2000.0, -1500.0), QPointF(2600.0, -2200.0), QPointF(3400.0, -2200.0)
+
+
+def _arm_and_click(win, view):
+    """The ribbon Note button on the section tab, then tip / elbow / box-edge
+    clicks posted to the section view."""
+    from tests._note_helpers import click
+    win._mode_buttons["note"].click()
+    assert view.scene().mode == "note"        # S4: the tool entered on the SECTION
+    for pt in (TIP, KNEE, THIRD):
+        click(view, pt)
+
+
+def test_note_tool_on_a_section_tab_places_a_section_owned_note(qapp, real_system_library):
+    """AC9: the Note button on a section tab arms the tool THERE; three clicks,
+    typed text and Esc place ONE model Note keyed to the section, in its 2D
+    frame (tip where the click landed), one undo step, never on the plan
+    canvas, re-projected after a rebuild."""
+    from PyQt6.QtCore import Qt
+    from firepro3d.note_controller import notes_of
+    from firepro3d.section_scene import _ROLE_SOURCE, _SectionNoteCopy
+    from firepro3d.text_item import editing_text_item
+    from tests._note_helpers import key
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, markers, views = open_section_window(1)
+    ms = win.scene
+    try:
+        view, sec = views[0], views[0].scene()
+        settle(sec)
+        aim(view, KNEE, 0.25)
+        pos = ms._undo_pos
+        _arm_and_click(win, view)
+        assert ms.mode != "note"                                   # never the hidden plan
+        assert editing_text_item(sec) is sec._note_ctl.overlay is not None
+        key(view, Qt.Key.Key_H)
+        key(view, Qt.Key.Key_I)
+        key(view, Qt.Key.Key_Escape)
+        assert editing_text_item(sec) is None
+        (note,) = notes_of(ms, "section:" + markers[0].name)
+        assert note.attributes["Text"] == "hi"
+        assert ms._undo_pos == pos + 1                             # place + type = one step
+        tip = note.note_tip_scene()
+        want = view.mapToScene(view.mapFromScene(TIP))
+        tol = 1.5 / view.transform().m11()
+        assert (tip.x(), tip.y()) == pytest.approx((want.x(), want.y()), abs=tol)
+        win.level_mgr.apply_to_scene(ms)
+        assert not note.isVisible()
+        settle(sec)
+        (cp,) = [i for i in sec.items() if isinstance(i, _SectionNoteCopy)]
+        assert cp.data(_ROLE_SOURCE) is note and cp.isVisible()
+    finally:
+        _dispose(win)
+
+
+def test_esc_in_the_empty_section_note_editor_leaves_nothing(qapp, real_system_library):
+    """AC9 / notes N24: Esc in a new, empty editor -> no note, no undo step."""
+    from PyQt6.QtCore import Qt
+    from firepro3d.note_controller import notes_of
+    from tests._note_helpers import key
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, markers, views = open_section_window(1)
+    ms = win.scene
+    try:
+        view, sec = views[0], views[0].scene()
+        settle(sec)
+        aim(view, KNEE, 0.25)
+        pos = ms._undo_pos
+        _arm_and_click(win, view)
+        key(view, Qt.Key.Key_Escape)
+        assert notes_of(ms, "section:" + markers[0].name) == []
+        assert ms._undo_pos == pos
+        settle(sec)
+        assert sec._note_copies == {}
+    finally:
+        _dispose(win)
+
+
+def test_arming_note_on_a_section_shows_the_sections_template(qapp, real_system_library):
+    """OPEN-3 (integrator): the Note button on a section tab shows THAT
+    scene's Note template in the Properties panel (the one its tool places
+    with), not the plan scene's.
+    RED when: ``getattr(sender, "_note_ctl", None) or`` is dropped from
+    ``MainWindow._on_mode_changed_template`` (the panel shows
+    ``win.scene._note_ctl.template``)."""
+    from PyQt6.QtWidgets import QApplication
+    from tests._section_window_helpers import open_section_window, settle
+    win, markers, views = open_section_window(1)
+    try:
+        sec = views[0].scene()
+        settle(sec)
+        assert sec._note_ctl.template is not win.scene._note_ctl.template   # precondition
+        win._mode_buttons["note"].click()
+        QApplication.processEvents()
+        assert sec.mode == "note"
+        assert win.prop_manager._targets == [sec._note_ctl.template]
+    finally:
+        _dispose(win)
+
+
+def test_switching_tools_while_editing_a_section_note_keeps_the_text(qapp, real_system_library):
+    """OPEN-4 (integrator): a tool switch (the Note button again) while a
+    section Note editor is live commits the typed text first, as plan's
+    set_mode does: the editor closes and the model note keeps "hi".
+    RED when: the ``self._text_edit_ctl.commit()`` line is deleted from
+    ``SectionScene.set_mode`` (if Step 0 showed it is needed; else a pin)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.note_controller import notes_of
+    from firepro3d.text_item import editing_text_item
+    from tests._note_helpers import key
+    from tests._section_window_helpers import aim, open_section_window, settle
+    win, markers, views = open_section_window(1)
+    ms = win.scene
+    try:
+        view, sec = views[0], views[0].scene()
+        settle(sec)
+        aim(view, KNEE, 0.25)
+        _arm_and_click(win, view)
+        key(view, Qt.Key.Key_H)
+        key(view, Qt.Key.Key_I)
+        assert editing_text_item(sec) is not None                 # precondition: editor live
+        # The Editor's Move button is disabled while the editor is live (the
+        # editing copy is hidden, so it is not selected): the Note button is
+        # the tool switch a user has on a section tab.
+        btn = win._mode_buttons["note"]
+        assert btn.isEnabled()
+        btn.click()
+        QApplication.processEvents()
+        assert editing_text_item(sec) is None
+        (note,) = notes_of(ms, "section:" + markers[0].name)
+        assert note.attributes["Text"] == "hi"
+    finally:
+        _dispose(win)

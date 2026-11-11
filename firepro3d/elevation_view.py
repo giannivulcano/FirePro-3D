@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtWidgets import QGraphicsView
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
-from PyQt6.QtGui import QPainter
+from PyQt6.QtCore import Qt, QEvent, QPoint, QPointF, QRectF, pyqtSignal
+from PyQt6.QtGui import QPainter, QKeyEvent, QKeySequence
 
 from . import theme as th
 
@@ -319,7 +319,24 @@ class SectionView(QGraphicsView):
 
     # ── Keyboard ─────────────────────────────────────────────────────────
 
+    def event(self, ev) -> bool:
+        """While a Note editor is live in this section, accept EVERY
+        ShortcutOverride but Ctrl+S, so typed keys reach the editor instead of
+        a window shortcut (``Model_View.event`` precedent; elevation-parity D4)."""
+        from .text_item import editing_text_item
+        if (ev.type() == QEvent.Type.ShortcutOverride
+                and isinstance(ev, QKeyEvent)
+                and editing_text_item(self.scene()) is not None
+                and not ev.matches(QKeySequence.StandardKey.Save)):
+            ev.accept()
+            return True
+        return super().event(ev)
+
     def keyPressEvent(self, event):
+        from .text_item import editing_text_item
+        if editing_text_item(self.scene()) is not None:
+            super().keyPressEvent(event)      # the editor owns the key (F, Space, Esc too)
+            return
         if event.key() == Qt.Key.Key_F:
             self.fit_to_screen()
             event.accept()

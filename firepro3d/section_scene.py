@@ -961,6 +961,10 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     """Projects model entities onto a vertical plane for elevation display."""
 
     entitySelected = pyqtSignal(object)   # context-menu "Properties" target (one source)
+    requestPropertyUpdate = pyqtSignal(object)   # the Note editor asks for the panel (D4)
+    # The Note tool is a host mode beyond Select / modify: the mixin's generic
+    # set_mode enters it (T6 _HOST_EXTRA_MODES, integrator S4).
+    _HOST_EXTRA_MODES = frozenset({"note"})
     cursorMoved = pyqtSignal(str)         # formatted "H: … Z: …"
     snapToggled = pyqtSignal(bool)        # toggle_snap() ran (footer SNAP pill; D3)
 
@@ -1038,6 +1042,14 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._place_rot = 0.0
         self._place_mirrored = False
         self._show_datums = True
+        # Notes (D4): the plan's Note tool and inline editor, composed here
+        # unchanged; the section answers their host attributes below.
+        from .note_controller import NoteController
+        from .text_edit_controller import TextEditController
+        self._texts: list = []              # a section holds no Text items of its own
+        self._editing_item = None           # set by TextItem.begin_edit
+        self._text_edit_ctl = TextEditController(self)
+        self._note_ctl = NoteController(self)
         # Elevation gridlines + level datums of the current build: the snap
         # engine's line targets (snap_line_items; elevation parity D3).
         self._snap_lines: list = []
@@ -1206,6 +1218,15 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
     # manipulator's live-apply GripHandle borrows them during a drag.
 
     def mousePressEvent(self, event):
+        # A live Note editor owns presses inside its box; an outside press
+        # commits and falls through (text-annotation-system, Inline edit).
+        if self._text_edit_ctl.handle_press(event):
+            return
+        if (event.button() == Qt.MouseButton.LeftButton
+                and getattr(self, "mode", None) == "note"):
+            self._note_ctl.tool_click(event.scenePos())     # tip, elbow, box edge (D4)
+            event.accept()
+            return
         # A running modify tool owns the left press (ModifyHostMixin, D2).
         if self.modify_mouse_press(event):
             return
@@ -1257,6 +1278,12 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         # A running modify tool: ghost, handle snap, readout (D2).
         if self.modify_mouse_move(event):
             return
+        if self._text_edit_ctl.handle_move(event):
+            return
+        if getattr(self, "mode", None) == "note":
+            self._note_ctl.tool_move(event.scenePos())
+            event.accept()
+            return
         super().mouseMoveEvent(event)
 
     def keyPressEvent(self, event):
@@ -1265,10 +1292,23 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             return
         super().keyPressEvent(event)
 
+    def mouseReleaseEvent(self, event):
+        if self._text_edit_ctl.handle_release(event):
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        # Double-click on a Note copy opens its editor (D13 via D4).
+        if self._text_edit_ctl.handle_double_click(event):
+            return
+        super().mouseDoubleClickEvent(event)
+
     def contextMenuEvent(self, event):
         """Right-click menu (D6, R10): plan's shared builder with plan's
         callbacks, each acting on the model source of the right-clicked item.
         An empty-canvas right-click acts on the selection (never on None)."""
+        if self._text_edit_ctl.handle_context_menu(event):
+            return                       # the native text menu inside a live editor
         target = self._context_target(event.scenePos())
         if target is not None and not target.isSelected():
             self.clearSelection()
@@ -1662,6 +1702,91 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         name), read live so a rename re-keys the scene with its marker."""
         return f"section:{self._marker.view_name}"
 
+    # ── Notes (elevation-parity D4) ─────────────────────────────────────
+
+    @property
+    def _block_registry_owner(self):
+        """The project scene that owns block definitions (system Note block,
+        leader ends) -- the paper scene's precedent (paper_space.py:2907)."""
+        return self._ms
+
+    def note_allowed(self, rec: "dict | None" = None) -> bool:
+        """Whether a Note can live here: a section always holds its own; a
+        pasted record only when it is a section's note (D4 / R5)."""
+        if rec is None:
+            return True
+        view = str(((rec.get("note") or {}).get("view")) or "")
+        return view.startswith("section:")
+
+    def note_tool_allowed(self) -> bool:
+        """The Note tool runs on every section and elevation tab (D4)."""
+        return True
+
+    def note_instance_live(self, inst) -> bool:
+        """``note_controller._note_live`` for this scene: *inst* is one of
+        this section's Note copies whose model note still exists."""
+        return (isinstance(inst, _SectionNoteCopy) and inst.scene() is self
+                and inst.data(_ROLE_SOURCE) in getattr(self._ms, "_block_instances", ()))
+
+    def place_block_instance(self, block_id: str, pos, **kwargs):
+        """The Note tool's placement (``NoteController._place_note``): the
+        model Note goes to the plan store, keyed to this section and hidden on
+        the plan canvas; returns its section copy. Only Notes place here.
+
+        Returns:
+            The ``_SectionNoteCopy``, or None (no note record / refused).
+        """
+        if not kwargs.get("note"):
+            return None
+        src = self._ms.place_block_instance(block_id, pos, **kwargs)
+        if src is None:
+            return None
+        src.note["view"] = self.active_view_key
+        src.setVisible(False)                    # view-owned: never on the plan canvas
+        cp = self._add_note_copy(src)
+        cp._fresh = True                         # the editor commit pushes place + type (D13)
+        return cp
+
+    def remove_block_instance(self, inst) -> None:
+        """Remove a Note copy and its model note (empty-text commit, a
+        discarded new note). No undo push: the caller's step carries it."""
+        src = inst.data(_ROLE_SOURCE) if isinstance(inst, _SectionNoteCopy) else None
+        if inst.scene() is self:
+            self.removeItem(inst)
+        if src is not None:
+            self._note_copies.pop(id(src), None)
+            self._ms.remove_block_instance(src)
+
+    def _end_placement_switch(self, item=None) -> None:
+        """After the Note tool placed *item*: back to Select with it selected
+        (``Model_Space._end_placement_switch`` for a section's one placement)."""
+        self.set_mode(None)
+        self.clearSelection()
+        if item is not None and item.scene() is self:
+            item.setSelected(True)
+
+    def _format_cursor_readout(self, pt) -> str:
+        """``H / Z`` readout of scene point *pt* (the editor's drag readout)."""
+        sm = getattr(self._ms, "scale_manager", None) or self._sm
+        fmt = getattr(sm, "format_length", None)
+        h, z = pt.x(), -pt.y()
+        if fmt is None:
+            return f"H: {h:.0f} mm  Z: {z:.0f} mm"
+        return f"H: {fmt(h)}  Z: {fmt(z)}"
+
+    def commit_text_edit(self):
+        """End a live Note edit on this scene (idempotent; main's
+        ``_commit_text_edits`` and the editor's own Esc / Ctrl+Enter)."""
+        return self._text_edit_ctl.commit()
+
+    def set_mode(self, mode, template=None):
+        """The host mixin's ``set_mode`` plus the Note tool's rule: leaving
+        the tool drops a half-made note (``Model_Space.set_mode`` 1340)."""
+        self._text_edit_ctl.commit()     # a tool switch ends any inline edit (Step 0, OPEN-4)
+        if mode != "note":
+            self._note_ctl.cancel_tool()
+        return super().set_mode(mode, template)
+
     @property
     def show_datums(self) -> bool:
         return self._show_datums
@@ -1970,8 +2095,11 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             # clear() would delete the copies a running tool holds: end it
             # (the debounced path holds instead -- _rebuild_when_idle).
             self.set_mode(None)
+        if self._note_ctl.overlay is not None:
+            self._text_edit_ctl.commit()       # clear() would delete a live editor
+        self._note_ctl.drop_previews()         # clear() deletes the Note tool's previews
         self._apply_theme_colours()
-        self._marker.auto_fit(self._ms)           # geometry re-seeded (s4.3); basis below reads it
+        self._marker.auto_fit(self._ms)          # geometry re-seeded (s4.3); basis below reads it
         self._refresh_basis()
         self._zones = {}
         self._cut_items = []

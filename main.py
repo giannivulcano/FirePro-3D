@@ -1478,6 +1478,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # menu's single-target "Properties" entry.
         scene.selectionChanged.connect(self._on_section_selection_changed)
         scene.entitySelected.connect(self.prop_manager.show_properties)
+        # A Note editor in this section asks for the panel: show the model note
+        # its copy stands for (elevation-parity D4; panel rows edit the model).
+        from firepro3d.section_scene import section_source_of   # one source map (S2)
+        scene.requestPropertyUpdate.connect(
+            lambda it: self.prop_manager.show_properties(
+                section_source_of(it) if it is not None else None))
         # HALO "<Type> - i of N" readout and tool hints -> the footer (D8).
         scene.instructionChanged.connect(self.footer.set_instruction)
         # Mode feedback: the footer badge + the plan's panel clear (armed block
@@ -2764,7 +2770,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         elif mode in self._GEOMETRY_DRAW_MODES:
             self.prop_manager.show_properties(sc._get_geometry_template())
         elif mode == "note":
-            self.prop_manager.show_properties(sc._note_ctl.template)
+            # A section arms its own Note tool (elevation-parity D4): show the
+            # sender scene's template, the one that tool places with.
+            ctl = getattr(sender, "_note_ctl", None) or sc._note_ctl
+            self.prop_manager.show_properties(ctl.template)
         else:
             # Exiting a template mode — clear stale template properties
             self.prop_manager.show_properties(None)
@@ -4619,7 +4628,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._active_scene()._modify_ctl.start(tool)
 
     def _text_edit_scenes(self) -> list:
-        """The plan scene + every open Block Editor's editor_scene.
+        """The plan scene + every open Block Editor's editor_scene + every live section scene (a Note editor, elevation-parity D4).
 
         Shared list for every app-level inline-text-edit concern (committing,
         or checking whether a session is live) — spec text-annotation-system
@@ -4633,7 +4642,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         mgr = getattr(self, "block_editor_manager", None)
         if mgr is None:
             return [self.scene]
-        return [self.scene] + [w.editor_scene for w in mgr.open_editors()]
+        secs = getattr(self, "section_manager", None)
+        sections = list(secs.open_scenes) if secs is not None else []   # Note editors (D4)
+        return ([self.scene] + [w.editor_scene for w in mgr.open_editors()]
+                + sections)
 
     def _commit_text_edits(self) -> None:
         """End any live inline text edit — plan scene + every Block Editor scene.

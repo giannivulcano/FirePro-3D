@@ -106,7 +106,7 @@ NO_VIEW_HINT = "Open a view from the Project Browser"
 
 # Status hint shown when the Note tool is refused: a Note is owned by one plan or
 # detail view (text-leader-annotations D9 / D11), so no other canvas holds one.
-NOTE_OFF_HINT = "Notes can be placed on plan, detail and schematic views"
+NOTE_OFF_HINT = "Notes can be placed on plan, detail, section and schematic views"
 NOTE_PASTE_REFUSED = "Notes can only be pasted on plan and detail views"
 
 
