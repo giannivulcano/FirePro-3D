@@ -653,3 +653,11 @@ VIEW_3D_EDIT_REFUSED_HINT = "Modify and clipboard tools work in 2D views, not in
 # R3: a section's modify tools act only on its write-back copies; read-only
 # model proxies in the selection are skipped (or refuse the tool) with this.
 SECTION_EDIT_SKIPPED = "{n} items skipped (edit in plan)"
+# R4: a hosted block pastes on its own host gridline -- refused in a view
+# that does not show that gridline.
+SECTION_PASTE_NO_HOST = ("Can't paste here - this view does not show the "
+                         "block's host gridline")
+# R5: cross-type pastes refuse (plan items in a section, hosted blocks in plan).
+SECTION_PASTE_PLAN_ITEMS = "Plan items can't be pasted in a section - edit them in plan"
+HOSTED_PASTE_IN_PLAN = ("Gridline-hosted blocks can only be pasted in a "
+                        "section or elevation view")

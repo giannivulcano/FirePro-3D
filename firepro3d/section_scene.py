@@ -33,7 +33,8 @@ from PyQt6.QtCore import QSettings
 from .constants import (DEFAULT_LEVEL, TOKEN_AUTO, TOKEN_BG,
                         ELEV_GRIDLINE_END_PAD_MM, ELEV_GRIDLINE_PEN_W_MM,
                         Z_DEPTH_CEIL, Z_ANNOT_GRID, Z_ANNOT_TAG,
-                        RISER_SYMBOL_SIZE_MM, SECTION_EDIT_SKIPPED)
+                        RISER_SYMBOL_SIZE_MM, SECTION_EDIT_SKIPPED,
+                        SECTION_PASTE_NO_HOST, SECTION_PASTE_PLAN_ITEMS)
 from . import theme as th
 from .paper_display import shows_selection
 from .colour_tokens import resolve_colour, resolve_pen_brush, section_fill_colour
@@ -2361,9 +2362,11 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         ppm = self._ppm()
         host = hb.host_at(self._basis, gl, h, -v, ppm)
         host["offset_mm"] = float(sh.get("offset_mm", 0.0))
-        kw = BlockInstance.place_kwargs(obj)
-        kw.update(host=host, note=None, scale=kw["scale"] * ppm)
-        inst = self._ms.place_block_instance(obj["block_id"], (0.0, 0.0), **kw)
+        scale = BlockInstance.place_kwargs(obj)["scale"] * ppm
+        inst = self._ms.place_block_instance(
+            obj["block_id"], (0.0, 0.0),
+            **{**BlockInstance.place_kwargs(obj), "host": host, "note": None,
+               "scale": scale})
         if inst is None:
             return None
         inst.attributes = dict(obj.get("attributes", {}))
@@ -2371,6 +2374,36 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         if cp is None:                       # outside this view's depth / crop
             self._ms.remove_block_instance(inst)
         return cp
+
+    def _shows_record_host(self, obj: dict) -> bool:
+        """True when this view shows hosted record *obj*'s host gridline."""
+        gl = self._ms.gridline_by_uid((obj.get("section_host") or {}).get("gridline"))
+        return gl is not None and self.shows_host_gridline(gl)
+
+    def paste_refusal(self, items) -> "str | None":
+        """ModifyHostMixin hook (R4 / R5): why nothing on the clipboard can
+        be pasted in this section, else None. A partly fitting clipboard
+        pastes what fits (the commit reports the rest skipped).
+
+        Args:
+            items: The clipboard payload's records.
+
+        Returns:
+            Plan / detail Notes only -> area E's ``NOTE_INTO_SECTION_REFUSED``;
+            other plan items only -> ``SECTION_PASTE_PLAN_ITEMS``; hosted
+            blocks whose gridline this view does not show ->
+            ``SECTION_PASTE_NO_HOST``.
+        """
+        accepted = [d for d in items if self._paste_accepts(d)]
+        if not accepted:
+            if items and all(d.get("note") for d in items):
+                from .model_space import NOTE_INTO_SECTION_REFUSED
+                return NOTE_INTO_SECTION_REFUSED
+            return SECTION_PASTE_PLAN_ITEMS
+        if all(d.get("section_host") and not self._shows_record_host(d)
+               for d in accepted):
+            return SECTION_PASTE_NO_HOST
+        return None
 
     def _project_section_notes(self) -> None:
         """Copies of the Notes this section owns (D4): plan-store instances

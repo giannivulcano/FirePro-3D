@@ -9319,14 +9319,33 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         Returns:
             True for 2D geometry / text, node, block-instance, gridline,
-            wall, room, floor-slab, roof and design-area records.
+            wall, room, floor-slab, roof and design-area records. False for
+            a section's hosted-block record (``section_host``, elevation
+            parity R5).
         """
+        if obj.get("section_host"):
+            return False        # a section's hosted copy: sections only (R5)
         obj_type = obj.get("type", "")
         return (obj_type in self._GEOM_TYPE_REGISTRY
                 or obj_type in ("node", "block_instance", "wall", "room",
                                 "floor_slab", "roof", "design_area")
                 # Gridline: to_dict() emits no "type" key.
                 or (not obj_type and "origin" in obj and "angle" in obj))
+
+    def paste_refusal(self, items) -> "str | None":
+        """ModifyHostMixin hook (elevation parity R5): a clipboard holding
+        only section-hosted blocks has nothing this canvas can place.
+
+        Args:
+            items: The clipboard payload's records.
+
+        Returns:
+            The footer reason, or None.
+        """
+        from .constants import HOSTED_PASTE_IN_PLAN
+        if items and all(d.get("section_host") for d in items):
+            return HOSTED_PASTE_IN_PLAN
+        return None
 
     def paste_items(self, offset, data=None, constraints=None, rotation_deg=None):
         """Add clipboard records translated by *offset*.

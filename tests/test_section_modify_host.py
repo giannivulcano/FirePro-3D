@@ -545,3 +545,132 @@ def test_cut_removes_the_model_block_in_one_step(host):
     assert ms._undo_pos == pos0 + 1
     ms.undo()
     assert len(_hosted(ms, gl)) == 1
+
+
+# -- C-5: paste rules R4 / R5 ------------------------------------------------
+import json
+
+
+def _copy_block(sec, view):
+    """Section Copy of the selected hosted copy, base at its insertion point."""
+    assert sec._modify_ctl.start("copy") is True
+    click(view, QPointF(2500.0, -1200.0))
+
+
+def _record_status(monkeypatch, scene):
+    got = []
+    monkeypatch.setattr(scene, "_show_status",
+                        lambda m, timeout=5000: got.append(m))
+    return got
+
+
+def test_paste_lands_at_the_cursor_on_the_host_gridline(host):
+    """R4 / AC4 / AC11: Ctrl+V's tool in the same section, click at
+    (4000, -500): a new model block on gridline B at along 4000 /
+    elevation 500 (the cursor sets both); one undo step.
+    RED when: ``h, v = float(p[0]) + offset.x(), ...`` in
+    ``_place_hosted_record`` drops ``+ offset`` (the copy lands on the
+    original); or ``SectionScene.get_block_definition`` is deleted (the
+    ghost path swallows the AttributeError: no ghost; integrator OPEN-6)."""
+    ms, sec, gl, inst, view, statuses = host
+    _copy_block(sec, view)
+    pos0 = ms._undo_pos
+    assert sec._modify_ctl.start("paste") is True
+    move(view, QPointF(4000.0, -500.0))
+    assert sec._move_ghost                                # OPEN-6: the paste ghost rides the cursor
+    click(view, QPointF(4000.0, -500.0))
+    new = _new_block(ms, gl, inst)
+    assert new.host["along_mm"] == pytest.approx(4000.0)
+    assert new.host["elevation_mm"] == pytest.approx(500.0)
+    assert ms._undo_pos == pos0 + 1
+
+
+def test_paste_into_a_parallel_section(host, monkeypatch):
+    """AC4 / AC3: copied in one section, pasted in a parallel one: the new
+    model block sits on gridline B where clicked there, and the first
+    section shows it after a rebuild.
+    RED when: ``shows_host_gridline`` returns False (the paste is refused)."""
+    ms, sec, gl, inst, view, statuses = host
+    _copy_block(sec, view)
+    same = _same_side(ms)
+    same_view = _show(same)
+    try:
+        same.toggle_snap(False)
+        _record_status(monkeypatch, same)
+        pos0 = ms._undo_pos
+        assert same._modify_ctl.start("paste") is True
+        click(same_view, QPointF(4000.0, -500.0))
+        new = _new_block(ms, gl, inst)
+        assert new.host["along_mm"] == pytest.approx(4000.0)
+        assert new.host["elevation_mm"] == pytest.approx(500.0)
+        assert ms._undo_pos == pos0 + 1
+        sec.rebuild()
+        assert id(new) in sec._hosted_copies
+    finally:
+        same_view.close()
+        same_view.deleteLater()
+        QApplication.processEvents()
+
+
+def test_paste_refused_where_the_host_gridline_is_not_shown(host, monkeypatch):
+    """R4: a section cut across gridline B (not parallel) does not show it:
+    Paste refuses with the footer reason, no mode, nothing placed.
+    RED when: the ``paste_refusal`` check is deleted from ``begin_paste``
+    (Paste arms; status is not the refusal)."""
+    from firepro3d.constants import SECTION_PASTE_NO_HOST
+    ms, sec, gl, inst, view, statuses = host
+    _copy_block(sec, view)
+    cross = _section(ms, (3000, 2000), (3000, -8000), 1, name="Cross")
+    got = _record_status(monkeypatch, cross)
+    assert cross._modify_ctl.start("paste") is False
+    assert cross.mode in (None, "select")
+    assert got[-1] == SECTION_PASTE_NO_HOST
+    assert len(_hosted(ms, gl)) == 1
+
+
+def test_plan_refuses_a_hosted_block_clipboard(host, monkeypatch):
+    """R5: hosted blocks never paste in plan -- the plan's Paste refuses with
+    the footer reason, and its paste path places nothing (no plain block at
+    the section coordinates).
+    RED when: the ``if obj.get("section_host"): return False`` line is
+    deleted from ``Model_Space._paste_accepts`` (a second block appears)."""
+    from firepro3d.constants import HOSTED_PASTE_IN_PLAN
+    ms, sec, gl, inst, view, statuses = host
+    _copy_block(sec, view)
+    got = _record_status(monkeypatch, ms)
+    assert ms._modify_ctl.start("paste") is False
+    assert got[-1] == HOSTED_PASTE_IN_PLAN
+    assert ms.paste_items(QPointF(0.0, 0.0)) == []
+    assert ms._block_instances == [inst]
+
+
+def _clip(items):
+    from firepro3d.constants import CLIPBOARD_FORMAT_VERSION
+    QApplication.clipboard().setText(json.dumps(
+        {"fp3d_clipboard": CLIPBOARD_FORMAT_VERSION, "base": [2500.0, -1200.0],
+         "scene_role": "plan", "items": items, "constraints": []}))
+
+
+def test_plan_items_refuse_in_a_section(host):
+    """R5: a clipboard of plan items only (a node) refuses in a section.
+    RED when: ``SectionScene.paste_refusal`` returns None for an all-refused
+    clipboard (Paste arms, then "Nothing pasted")."""
+    from firepro3d.constants import SECTION_PASTE_PLAN_ITEMS
+    ms, sec, gl, inst, view, statuses = host
+    _clip([{"type": "node", "x": 0.0, "y": 0.0}])
+    assert sec._modify_ctl.start("paste") is False
+    assert statuses[-1] == SECTION_PASTE_PLAN_ITEMS
+
+
+def test_a_mixed_clipboard_pastes_the_fitting_part(host):
+    """R5: hosted block + plan node on the clipboard: the section pastes the
+    block and reports the node skipped.
+    RED when: ``SectionScene.paste_refusal`` refuses on ANY refused record
+    (``if len(accepted) < len(items): return SECTION_PASTE_PLAN_ITEMS``)."""
+    ms, sec, gl, inst, view, statuses = host
+    rec = sec._clipboard_item_dicts([sec._hosted_copies[id(inst)]])[0]
+    _clip([rec, {"type": "node", "x": 0.0, "y": 0.0}])
+    assert sec._modify_ctl.start("paste") is True
+    click(view, QPointF(4000.0, -500.0))
+    assert _new_block(ms, gl, inst).host["along_mm"] == pytest.approx(4000.0)
+    assert statuses[-1] == "Pasted 1 item(s) (1 skipped)"

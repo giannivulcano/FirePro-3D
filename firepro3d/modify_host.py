@@ -280,6 +280,13 @@ class ModifyHostMixin:
         """Status text when a select-first tool finds nothing to act on."""
         return "Select items first"
 
+    def paste_refusal(self, items) -> "str | None":
+        """Why nothing in clipboard *items* can be pasted on this host
+        (footer text), else None. ``begin_paste`` asks before arming Paste;
+        a partly fitting clipboard is not refused (``paste_items`` skips the
+        rest and the commit reports them). Default: never refuses."""
+        return None
+
     # ── Modify keys (moved from Model_Space.keyPressEvent) ───────────────
     def _modify_flip_arrow_key(self, event) -> bool:
         """Moved from model_space.py:9162-9175. True when consumed."""

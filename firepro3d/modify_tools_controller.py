@@ -376,6 +376,13 @@ class ModifyToolsController:
                                                             | {"block_instance"}):
             s._show_status("Plan elements can't be pasted into the Block Editor", 4000)
             return False
+        # R4 / R5 (elevation parity D2): the host says why nothing on the
+        # clipboard can land here (a section without the block's host
+        # gridline, plan items in a section, hosted blocks in plan).
+        why = s.paste_refusal(payload["items"])
+        if why is not None:
+            s._show_status(why, 4000)
+            return False
         s.set_mode("paste")
         s._paste_payload = payload
         # The copied base point is the anchor of the ghost and the dX/dY HUD.
