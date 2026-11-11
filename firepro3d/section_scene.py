@@ -61,6 +61,29 @@ _ROLE_SOURCE = Qt.ItemDataRole.UserRole
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
+# Hide-only source of a decoration piece (opening frame / sill / mid line, slab
+# mask): it follows its source's Hide (elevation-parity D5) without becoming a
+# pick, menu or Properties target the way a _ROLE_SOURCE item is.
+_ROLE_HIDE_SOURCE = Qt.ItemDataRole.UserRole + 2
+
+
+def _hidden_flag(obj) -> bool:
+    """True when *obj* carries the user's Hide (``_display_overrides``)."""
+    return (getattr(obj, "_display_overrides", None) or {}).get("visible") is False
+
+
+def _source_hidden(src) -> bool:
+    """Whether a section item standing for *src* must be hidden (D5, R8): the
+    source is hidden, an opening's wall is hidden, or a sprinkler node's
+    sprinkler is hidden."""
+    if _hidden_flag(src):
+        return True
+    wall = getattr(src, "_wall", None)                     # WallOpening
+    if wall is not None and _hidden_flag(wall):
+        return True
+    has_spr = getattr(src, "has_sprinkler", None)          # Node
+    return bool(callable(has_spr) and has_spr() and _hidden_flag(src.sprinkler))
+
 # Footer status when a section placement finds no host gridline (hosted-blocks G9).
 HOSTED_REFUSAL = ("Can't place here — a block in a section needs a "
                   "gridline parallel to the cut inside the view's depth.")
@@ -299,7 +322,8 @@ class _ElevEndOnSymbol(_ElevPipeSymbol):
 class _ElevPipeLabel(BoundLabelItem):
     """A pipe's label in a section (R-8): the plan's block, host = the model
     pipe, top-level so it draws in the annotation band. Built per rebuild; the
-    line proxy owns it for the paper pass and Hide."""
+    line proxy owns it for the paper pass. Its ``_ROLE_SOURCE`` is the pipe,
+    so a Hide takes every piece of the pipe together (elevation-parity D5)."""
 
 
 class _HostedBlockCopy(BlockInstance):
@@ -1296,6 +1320,38 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         """Cut's delete (nothing yet: C-4)."""
         return [], 0
 
+    # ── Hide (elevation-parity D5) ──────────────────────────────────────
+
+    # (The source map is the module function ``section_source_of`` and the
+    # de-dup is ``_sources_of``; no second copy lives here.)
+
+    def _apply_hidden_pass(self) -> None:
+        """Hide every item whose model source carries the user's Hide and
+        re-show the ones this pass hid whose source is visible again (D5, R8).
+
+        No rebuild: runs at the end of :meth:`rebuild` and, through
+        ``SectionManager``, on ``Model_Space.hiddenChanged``. A hidden item is
+        deselected first (edge case "hidden source whose proxy is the current
+        selection"). Items hidden for any other reason are never re-shown."""
+        for it in self.items():
+            src = it.data(_ROLE_SOURCE)
+            if src is None:
+                src = it.data(_ROLE_HIDE_SOURCE)
+            if src is None and isinstance(it, ElevGridlineItem):
+                src = it._gridline
+            if src is None:
+                continue
+            by_pass = getattr(it, "_hidden_by_pass", False)
+            if _source_hidden(src):
+                if not by_pass:
+                    if it.isSelected():
+                        it.setSelected(False)
+                    it.setVisible(False)
+                    it._hidden_by_pass = True
+            elif by_pass:
+                it.setVisible(True)
+                it._hidden_by_pass = False
+
     def _move_hosted_source(self, copy, dx: float, dy: float) -> None:
         """A drag on a hosted copy moves its model block in its plane only:
         ``along_mm`` (by the section's h direction) + ``elevation_mm`` (D10).
@@ -1778,6 +1834,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         self._render_cut_items()
         self._project_geometry_2d()
         self._assign_depth_z_values()
+        self._apply_hidden_pass()                  # hidden sources stay hidden (D5)
         if self._place_block_id is not None:        # placement survives a rebuild
             bid, rot, gpt = self._place_block_id, self._place_rot, self._place_ghost_pt
             mir = self._place_mirrored
@@ -2117,6 +2174,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
 
                 for it in items_to_add[1:]:          # the void is NoPen
                     it._paper_cat = op.display_category
+                    it.setData(_ROLE_HIDE_SOURCE, op)    # follows the opening's Hide (D5)
                 for item in items_to_add:
                     self.addItem(item)
                 self._register_depth_item(depth, *items_to_add)
@@ -2265,6 +2323,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         ln = line.line()
         mid, angle = CAD_Math.readable_line_pose(ln.p1(), ln.p2())
         lab = _ElevPipeLabel(pipe, child=False)
+        lab.setData(_ROLE_SOURCE, pipe)          # Hide takes the label with the pipe (D5)
         self.addItem(lab)
         lab.set_anchor(mid)
         lab.setRotation(angle)
@@ -2390,6 +2449,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
             mask.setPen(QPen(Qt.PenStyle.NoPen))
             mask.set_colour_src(brush=TOKEN_BG)       # canvas bg on canvas, white on paper
             mask.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
+            mask.setData(_ROLE_HIDE_SOURCE, slab)    # a hidden slab's mask must not occlude (D5)
 
             # Visible slab rect with styled fill
             rect = _ElevProxyRect(h_min, v_top, width, height)
