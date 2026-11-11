@@ -78,6 +78,7 @@ def build_entity_context_menu(
     on_explode=None,
     on_bring_to_front=None,
     on_send_to_back=None,
+    hide_type_name=None,
 ) -> QMenu:
     """Build and return a QMenu with standard entity actions.
 
@@ -109,6 +110,9 @@ def build_entity_context_menu(
         "Bring to Front" action (block editors only — block stacking D7).
     on_send_to_back : callable or None
         "Send to Back" action (block editors only — block stacking D7).
+    hide_type_name : str or None
+        The type named in "Hide All (<type>)"; None -> ``type(target).__name__``.
+        A section passes its proxy's model source type (elevation-parity D6).
     """
     menu = QMenu()
     has_sel = bool(selected) or target is not None
@@ -147,7 +151,7 @@ def build_entity_context_menu(
         act.triggered.connect(on_hide)
 
     if on_hide_all_type is not None and target is not None:
-        type_name = type(target).__name__
+        type_name = hide_type_name or type(target).__name__
         act = menu.addAction(f"Hide All ({type_name})")
         act.triggered.connect(on_hide_all_type)
 

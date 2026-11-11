@@ -1171,44 +1171,86 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         super().keyPressEvent(event)
 
     def contextMenuEvent(self, event):
-        """Show right-click context menu for elevation view entities."""
-        from .entity_context_menu import build_entity_context_menu
-
-        # Find entity under cursor
-        target = None
-        for item in self.items(event.scenePos()):
-            source = item.data(_ROLE_SOURCE)
-            if source is not None:
-                target = item
-                break
-            if isinstance(item, (ElevDatumItem, ElevGridlineItem)):
-                target = item
-                break
-
+        """Right-click menu (D6, R10): plan's shared builder with plan's
+        callbacks, each acting on the model source of the right-clicked item.
+        An empty-canvas right-click acts on the selection (never on None)."""
+        target = self._context_target(event.scenePos())
         if target is not None and not target.isSelected():
             self.clearSelection()
             target.setSelected(True)
+        self._build_section_context_menu(target).exec(event.screenPos())
+        event.accept()
 
+    def _context_target(self, pos):
+        """The section item a right-click at *pos* is about, or None: the
+        topmost item with a model source (or a datum / elevation gridline),
+        else the HALO-nearest candidate in the aperture (a line-only block is
+        not "inside" its shape -- plan's ``_nested_block_near`` precedent)."""
+        for item in self.items(pos):
+            it = self._halo_resolve(item)
+            if not (it.flags() & it.GraphicsItemFlag.ItemIsSelectable):
+                continue    # a pipe label: a Hide source (T31), never a menu target
+            if (section_source_of(it) is not None
+                    or isinstance(it, (ElevDatumItem, ElevGridlineItem))):
+                return it
+        from . import halo_selection
+        for v in sorted(self.views(), key=lambda v: not v.isVisible())[:1]:
+            a = halo_selection.HALO_APERTURE_PX / max(v.transform().m11(), 1e-9)
+            ranked = self.halo_candidates_at(pos, a, v.viewportTransform())
+            if ranked and section_source_of(ranked[0]) is not None:
+                return ranked[0]
+        return None
+
+    def _build_section_context_menu(self, target):
+        """Build (no exec) the section right-click menu -- split out so tests
+        can read the production wiring (plan's ``_build_entity_context_menu``
+        precedent).
+
+        Args:
+            target: The right-clicked section item, or None (empty canvas).
+
+        Returns:
+            The populated ``QMenu``.
+        """
+        from .entity_context_menu import build_entity_context_menu
         selected = self.selectedItems()
-        source_entity = target.data(_ROLE_SOURCE) if target else None
-
-        menu = build_entity_context_menu(
+        picked = [i for i in [target] + selected if i is not None]
+        # Empty canvas: no target, no source (S5: never map None).
+        src = section_source_of(target) if target is not None else None
+        # A datum stands for its Level (T12), which no Hide can take (S2).
+        hideable = src is not None and hasattr(src, "_display_overrides")
+        is_block = isinstance(target, _HostedBlockCopy) or isinstance(
+            target, globals().get("_SectionNoteCopy", ()))
+        views = sorted(self.views(), key=lambda v: not v.isVisible())
+        return build_entity_context_menu(
             selected,
             target,
             scene=self._ms,
-            # target is None on a right-click over empty canvas (AC8): hide
-            # the selection, never None.
-            on_hide=lambda: self._hide_section_items(
-                [i for i in [target] + selected if i is not None]
-            ),
-            on_show_all=lambda: self._show_all_elev_hidden(),
-            on_delete=lambda: self._delete_elev_selected(),
-            on_properties=lambda: (
-                self.entitySelected.emit(source_entity) if source_entity else None
-            ),
-            on_refresh=lambda: self.rebuild(),
+            on_copy=lambda: self._modify_ctl.start("copy"),
+            on_cut=lambda: self._modify_ctl.start("cut"),
+            on_hide=lambda: self._hide_section_items(picked),
+            on_hide_all_type=(
+                (lambda _checked=False, t=type(src): self._hide_all_of_source_type(t))
+                if hideable else None),
+            hide_type_name=type(src).__name__ if hideable else None,
+            on_show_all=self._show_all_elev_hidden,
+            on_delete=self._delete_elev_selected,
+            on_properties=(
+                (lambda _checked=False, s=src: self._ms.requestPropertyUpdate.emit(s))
+                if src is not None else None),
+            on_edit_block=(
+                (lambda _checked=False, bid=src.block_id:
+                 self._ms.blockEditRequested.emit(bid))
+                if is_block and src is not None else None),
+            on_fit=views[0].fit_to_screen if views else None,
+            on_refresh=self.rebuild,
         )
-        menu.exec(event.screenPos())
+
+    def _hide_all_of_source_type(self, item_type) -> None:
+        """Hide All (<type>) from a section: the plan's global Hide All of the
+        model type (R10), then this section's pass."""
+        self._ms._hide_all_of_type(item_type)
+        self._apply_hidden_pass()
 
     def _hide_section_items(self, items) -> None:
         """Section Hide (D5, R8): the plan's Hide on the de-duplicated model
