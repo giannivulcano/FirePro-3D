@@ -6382,9 +6382,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             selection = selection.node
         else:
             selection = next((i for i in items if isinstance(i, Node)), None)
-        if selection is None:
+        if selection is None and self.mode in (None, "select"):
             # A hydraulic node badge resolves to its node (SB4e AC5); it is
-            # drawn above pipes, so it wins over a pipe under it.
+            # drawn above pipes, so it wins over a pipe under it. Select mode
+            # only: placement modes act on the pipe under it (T6 ruling).
             selection = next((i.host for i in items
                               if isinstance(i, HydraulicNodeBadge)), None)
         if selection is None:

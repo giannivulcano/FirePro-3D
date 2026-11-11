@@ -263,3 +263,35 @@ def test_g4_click_without_a_hover_selects_the_node(qapp, shown_model_view, real_
     click(view, hit)
     qapp.processEvents()
     assert ms.selectedItems() == [n]
+
+
+def test_placement_mode_click_on_a_badge_acts_on_the_pipe_under_it(
+        qapp, shown_model_view, real_system_library):
+    """T6 ruling: only Select mode resolves a badge to its node; sprinkler
+    placement on a badge over a pipe splits the pipe, as before SB4e."""
+    from firepro3d.water_supply import WaterSupply
+    from tests._snap_polish_helpers import click
+    view, ms = shown_model_view
+    ws = WaterSupply(0.0, 0.0)
+    ms.addItem(ws)
+    ms.water_supply_node = ws
+    ms.sprinkler_system.supply_node = ws
+    a = ms.add_node(0.0, 0.0)
+    b = ms.add_node(3000.0, 0.0)
+    pipe = ms.add_pipe(a, b)
+    ms.add_sprinkler(b)
+    solve(ms)
+    n = b if b._hydraulic_badge is not None else a
+    n.set_property("Badge Position", "Left" if n is b else "Right")
+    solve(ms)
+    badge = n._hydraulic_badge
+    view.centerOn(badge.sceneBoundingRect().center())
+    qapp.processEvents()
+    hit = badge.sceneBoundingRect().center()
+    assert 0.0 < hit.x() < 3000.0 and abs(hit.y()) < 1.0      # badge sits over the pipe
+    assert pipe in ms.items(hit)
+    before = len(ms.sprinkler_system.nodes)
+    ms.set_mode("sprinkler")
+    click(view, hit)
+    qapp.processEvents()
+    assert len(ms.sprinkler_system.nodes) == before + 1       # the pipe was split
