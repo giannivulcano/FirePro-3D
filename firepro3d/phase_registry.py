@@ -249,3 +249,75 @@ def migrate_payload(payload) -> None:
             sid = PHASE_NEW
         if sid != PHASE_NEW:
             entry["phase"] = sid
+
+
+# -- fittings (D-PH4) ---------------------------------------------------------------
+def derive_fitting_phase(fitting) -> str:
+    """D-PH4 over every connected pipe: any New -> New; else any Existing ->
+    Existing; else Demolition. A fitting with no pipes reads New (D-PH5 default)."""
+    node = getattr(fitting, "node", None)
+    phases = [effective_phase(p) or PHASE_NEW for p in (node.pipes if node is not None else ())]
+    if not phases or PHASE_NEW in phases:
+        return PHASE_NEW
+    if PHASE_EXISTING in phases:
+        return PHASE_EXISTING
+    return PHASE_DEMOLITION
+
+
+def _auto_label(node) -> str:
+    return f"{_AUTO} ({project_table().name_of(derive_fitting_phase(node.fitting))})"
+
+
+def fitting_row(node) -> dict:
+    """The node panel's ``FITTING_ROW_KEY`` row: Auto (<derived>) then each status."""
+    reg = project_table()
+    auto = _auto_label(node)
+    ov = node.fitting.phase_override
+    return {"type": "enum", "value": auto if ov is None else reg.name_of(ov),
+            "options": [auto, *reg.names()]}
+
+
+def set_fitting_from_row(node, value) -> bool:
+    """Apply a Fitting Phase value; Auto clears the override (ruling 2026-11-11)."""
+    text = str(value).strip()
+    new = None if text.startswith(f"{_AUTO} (") else _resolve(text)
+    if new is None and not text.startswith(f"{_AUTO} ("):
+        return False
+    if new == node.fitting.phase_override:
+        return False
+    node.fitting.phase_override = new
+    _changed(node)
+    return True
+
+
+# -- the single reader (PD1) ----------------------------------------------------------
+def effective_phase(item) -> str | None:
+    """The phase *item* plots and calculates with; None = not phased (D-PH3).
+
+    Section / elevation proxies -> their source element; a child of a block
+    placement -> the outermost placement; a Note (annotation) -> None; a fitting
+    -> its override, else the D-PH4 derivation; anything with ``phase`` -> it.
+    """
+    if item is None:
+        return None
+    from PyQt6.QtWidgets import QGraphicsItem
+    if isinstance(item, QGraphicsItem):
+        from .section_scene import section_source_of
+        src = section_source_of(item)
+        if src is not None and src is not item:
+            return effective_phase(src)
+        from .block_instance import BlockInstance
+        outer, parent = None, item.parentItem()
+        while parent is not None:
+            if isinstance(parent, BlockInstance):
+                outer = parent
+            parent = parent.parentItem()
+        if outer is not None:
+            return effective_phase(outer)
+        if isinstance(item, BlockInstance) and item.note:
+            return None
+    from .fitting import Fitting
+    if isinstance(item, Fitting):
+        return item.phase_override or derive_fitting_phase(item)
+    sid = getattr(item, "phase", None)
+    return sid if isinstance(sid, str) else None

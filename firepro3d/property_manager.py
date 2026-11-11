@@ -64,6 +64,7 @@ from .sprinkler import Sprinkler
 from .sprinkler_db import SprinklerDatabase
 from .dimension_edit import DimensionEdit
 from .ui_kit import Selector, Stepper, Swatch
+from . import phase_registry
 from . import theme as th
 from .theme import M
 
@@ -700,8 +701,8 @@ class PropertyManager(QWidget):
 
                 node_props = node.get_properties()
                 for nkey, nmeta in node_props.items():
-                    if nmeta.get("single_only"):
-                        continue
+                    if nmeta.get("single_only") or nkey == phase_registry.FITTING_ROW_KEY:
+                        continue        # the fitting override is a node-panel picker (I1)
                     ntype = nmeta.get("type", "string")
                     nwidget = None
 

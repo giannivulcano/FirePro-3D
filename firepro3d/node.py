@@ -3,6 +3,7 @@ from .cad_math import CAD_Math
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
+from . import phase_registry
 from .fitting import Fitting
 from .sprinkler import Sprinkler
 from .constants import (DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE,
@@ -68,9 +69,13 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if self._room_name:
             props["Room"] = {"type": "string", "value": self._room_name,
                              "readonly": True}
+        props[phase_registry.FITTING_ROW_KEY] = phase_registry.fitting_row(self)   # D-PH4 ruling
         return props
 
     def set_property(self, key: str, value: str):
+        if key == phase_registry.FITTING_ROW_KEY:
+            phase_registry.set_fitting_from_row(self, value)
+            return
         if key in ("X", "Y", "Z"):
             self._edit_position(key, value)
             return
