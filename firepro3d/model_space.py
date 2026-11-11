@@ -13,7 +13,7 @@ from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QTransform)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from . import marks
-from .node import Node
+from .node import HYDRAULIC_ROW_KEYS, Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_system import SprinklerSystem
@@ -1827,7 +1827,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             self.refresh_annotation_tags()
 
     def refresh_annotation_tags(self) -> None:
-        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, and every open section's elevation bubbles, SB4c D1): its bounds
+        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, node badges (SB4e), and every open section's elevation bubbles, SB4c D1): its bounds
         rect is cached, so a mapping, registry, units or scale change needs
         ``refresh()``."""
         labels = [r._tag for r in list(self._rooms)]
@@ -1835,6 +1835,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                    if isinstance(getattr(p, "label", None), BoundLabelItem)]
         for gl in list(self._gridlines):
             labels += [gl.bubble1, gl.bubble2]
+        labels += [n._hydraulic_badge for n in list(self.sprinkler_system.nodes)
+                   if n._hydraulic_badge is not None]
         for lab in labels:
             try:
                 lab.refresh()
@@ -8632,8 +8634,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if hasattr(item, "_display_overrides"):
                 if item._display_overrides.get("visible") is False:
                     item._display_overrides.pop("visible", None)
-                    # A top-level node badge follows its node (SB4d D5).
-                    pn = getattr(item, "_parent_node", None)
+                    # A top-level node badge follows its node (SB4d D5 / SB4e).
+                    pn = item.host if isinstance(item, HydraulicNodeBadge) else None
                     item.setVisible(pn.isVisible() if pn is not None else True)
         # Also clear fitting overrides (Fitting is not a QGraphicsItem)
         ss = getattr(self, "sprinkler_system", None)
@@ -9175,7 +9177,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         data = []
         for item in items:
             if isinstance(item, Node):
-                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
+                # SB4e (review I2): the badge rows (Badge Position + solver
+                # values) are the node's, not the sprinkler's -- never copied.
+                sprinkler = ({k: v for k, v in item.sprinkler.get_properties().items()
+                              if k not in HYDRAULIC_ROW_KEYS}
+                             if item.has_sprinkler() else None)
                 pipes = []
                 for p in item.pipes:
                     other = item.other_end(p)

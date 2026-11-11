@@ -295,3 +295,119 @@ def test_placement_mode_click_on_a_badge_acts_on_the_pipe_under_it(
     click(view, hit)
     qapp.processEvents()
     assert len(ms.sprinkler_system.nodes) == before + 1       # the pipe was split
+
+
+# -- T7: Display Manager, paper pass, refresh, Show all hidden (AC9, AC10) ----
+
+def test_g8_dm_row_applies_visible_and_opacity_only(tree):
+    from firepro3d import display_manager as dm
+    ms, nodes = tree
+    solve(ms)
+    n, b = next(iter(_badges(nodes).items()))
+    pos0, rect0 = b.pos(), b.boundingRect()
+    vals = {"color": "#ff0000", "fill": "#00ff00", "scale": 3.0,
+            "opacity": 40, "visible": True}
+    dm._apply_vals_to_item(b, vals, key="Hydraulic Badge")
+    assert b.opacity() == pytest.approx(0.4)
+    assert b.isVisible()
+    assert b._paper_pen_color is None                         # no tint (R7)
+    assert getattr(b, "_display_color", None) is None
+    assert b.pos() == pos0 and b.boundingRect() == rect0      # row scale ignored
+    dm._apply_vals_to_item(b, dict(vals, visible=False), key="Hydraulic Badge")
+    assert not b.isVisible()
+    dm._apply_vals_to_item(b, vals, key="Hydraulic Badge")
+    n.setVisible(False)
+    dm._apply_vals_to_item(b, vals, key="Hydraulic Badge")
+    assert not b.isVisible()                                  # follows its hidden node
+
+
+def _hexagon_colours(b):
+    """The badge's painted colours (fill + text) on a green image."""
+    from PyQt6.QtGui import QImage, QPainter
+    r = b.boundingRect()
+    img = QImage(200, 200, QImage.Format.Format_ARGB32)
+    img.fill(0xFF00FF00)
+    p = QPainter(img)
+    p.scale(200 / r.width(), 200 / r.height())
+    p.translate(-r.left(), -r.top())
+    b.paint(p, None, None)
+    p.end()
+    return {img.pixelColor(x, y).name() for x in range(0, 200, 4) for y in range(0, 200, 4)}
+
+
+def test_g7_paper_pass_draws_the_badge_through_apply_block(tree):
+    """AC9: the paper pass reaches the badge as an annotation block -- As
+    Authored ON keeps the seed's colours, OFF forces the row colour onto it --
+    re-placed at the paper k and restored after."""
+    from PyQt6.QtCore import QRectF
+    from firepro3d import paper_display as pd
+    from firepro3d.constants import HYD_BADGE_OFFSET_MM
+    from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
+    ms, nodes = tree
+    solve(ms)
+    n, b = next(iter(_badges(nodes).items()))
+    off0 = b.pos() - n.scenePos()
+    rect = QRectF(-10000, -10000, 30000, 30000)
+    S = 0.005                                       # 1:200 viewport, canvas is 1:100
+    for mode, authored in ((FULL_COLOR, True), (BW, False)):
+        set_paper_mode(mode)
+        cats = pd.load_paper_categories()
+        cats["Hydraulic Badge"]["color"] = "#ff0000"
+        pd.save_paper_categories(cats)
+        saved = pd.apply_paper_overrides(ms, rect, paper_scale=S)
+        try:
+            assert b._paper_scale == S and b._paper_pen_width is not None
+            d = b.pos() - n.scenePos()
+            assert math.hypot(d.x(), d.y()) == pytest.approx(HYD_BADGE_OFFSET_MM / S)
+            ink = _hexagon_colours(b)
+            # Phase 4 ruling: OFF forces the row colour onto strokes + text;
+            # the hexagon fill stays under the hatch rules (seed fill kept).
+            assert "#2b2b2b" in ink
+            assert ("#ffffff" in ink) is authored               # seed number when ON
+            assert ("#ff0000" in ink) is (not authored)         # row colour when OFF
+        finally:
+            pd.restore_model_display(saved)
+        assert b._paper_pen_width is None and b._paper_scale is None
+        d = b.pos() - n.scenePos()
+        assert (d.x(), d.y()) == pytest.approx((off0.x(), off0.y()))
+
+
+def test_g9_refresh_annotation_tags_reshapes_badges_and_show_all_follows_the_node(tree):
+    ms, nodes = tree
+    solve(ms)
+    n, b = next(iter(_badges(nodes).items()))
+    w0 = b.boundingRect().width()                               # cached at k = 100
+    off0 = b.pos() - n.scenePos()
+    ms.scale_manager.drawing_scale = 200.0
+    ms.refresh_annotation_tags()
+    assert b.boundingRect().width() == pytest.approx(2 * w0, rel=0.05)   # re-shaped at k = 200
+    d = b.pos() - n.scenePos()
+    assert (d.x(), d.y()) == pytest.approx((2 * off0.x(), 2 * off0.y()))  # re-placed
+    lvl = n.level
+    n.level = "SB4e elsewhere"                     # off the active level: the level pass hides it
+    ms._level_manager.apply_to_scene(ms)
+    assert n.isVisible() is False
+    b._display_overrides["visible"] = False
+    ms._show_all_hidden()
+    assert "visible" not in b._display_overrides
+    assert b.isVisible() is False                               # follows its hidden node
+    n.level = lvl
+    ms._level_manager.apply_to_scene(ms)
+    assert n.isVisible() is True
+    b.setVisible(False)
+    b._display_overrides["visible"] = False
+    ms._show_all_hidden()
+    assert b.isVisible() is True
+
+
+def test_clipboard_record_drops_the_hydraulic_rows(tree):
+    """Review I2: a copied badged sprinkler node never carries Badge Position
+    or stale solver text in its clipboard record."""
+    from firepro3d.node import HYDRAULIC_ROW_KEYS
+    ms, nodes = tree
+    solve(ms)
+    n = nodes[2]
+    assert n._hydraulic_badge is not None
+    assert HYDRAULIC_ROW_KEYS <= set(n.sprinkler.get_properties())   # the rows exist ...
+    rec = next(r for r in ms._clipboard_item_dicts([n]) if r.get("type") == "node")
+    assert rec["sprinkler"] and not HYDRAULIC_ROW_KEYS & set(rec["sprinkler"])  # ... not copied

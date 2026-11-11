@@ -108,16 +108,6 @@ class HydraulicNodeBadge(OutlinedLabel):
         self.setZValue(Z_ANNOT_TAG)
 
     @property
-    def _parent_node(self):
-        """Transitional shim for ``model_space._show_all_hidden`` / DM row code
-        that still read the old attribute (SB4e Task 7 moves them to ``host``)."""
-        return self.host
-
-    def _centre_on_offset(self) -> None:
-        """Transitional shim (display_manager row code calls it); Task 7 drops it."""
-        self.place()
-
-    @property
     def side(self) -> str:
         return self._side
 

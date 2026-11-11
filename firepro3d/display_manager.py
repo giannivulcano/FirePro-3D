@@ -185,8 +185,6 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     # Re-centre after renderer change
     if hasattr(item, "_centre_on_node"):
         item._centre_on_node()
-    elif hasattr(item, "_centre_on_offset"):
-        item._centre_on_offset()
     elif hasattr(item, "_centre_on_origin"):
         item._centre_on_origin()
     item.update()
@@ -425,7 +423,12 @@ _CUT_ATTRS = ("_display_color", "_display_fill_color",
               "_display_scale", "_fill_mode")
 
 _NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor", "Grid Line", "Level Datum",
-                        "Elevation Marker", "Section Marker", "Detail Marker"}
+                        "Elevation Marker", "Section Marker", "Detail Marker",
+                        "Hydraulic Badge"}
+
+# SB4e R7: rows whose items draw in their block's own colours -- the row sets
+# Visible + Opacity only, so its colour / fill chips are dimmed.
+_VIS_OPACITY_ONLY = {"Hydraulic Badge"}
 
 
 def _category_has_scale(key: str) -> bool:
@@ -498,11 +501,10 @@ def apply_display_to_item(item, color: str | None, scale: float,
         item._display_scale = scale
         item._centre_on_origin()
     elif isinstance(item, HydraulicNodeBadge):
-        # Top-level (SB4d D5): Qt no longer hides it with a hidden node.
-        _apply_svg_item(item, color, scale, opacity,
-                        visible and item._parent_node.isVisible(), fill_color)
-        item._display_scale = scale
-        item._centre_on_offset()
+        # SB4e R7: the badge draws in its block's colours; the row sets
+        # Visible + Opacity only. Top-level (SB4d D5): hidden with a hidden node.
+        item.setVisible(visible and item.host.isVisible())
+        item.setOpacity(opacity / 100.0)
     elif isinstance(item, GridlineItem):
         _apply_gridline(item, color, scale, opacity, visible, fill_color, font_size)
     elif _is_elevation_marker(item):
@@ -856,8 +858,7 @@ def apply_category_defaults(item, stamp_material: bool = True):
     # explicitly saved settings — otherwise the default colour tint would
     # mangle the SVG's natural appearance.  Non-SVG categories (walls,
     # roofs, rooms, floors) always apply so they match the display manager.
-    _SVG_CATEGORIES = {"Sprinkler", "Fitting", "Water Supply",
-                       "Hydraulic Badge", "Node"}
+    _SVG_CATEGORIES = {"Sprinkler", "Fitting", "Water Supply", "Node"}
     if key in _SVG_CATEGORIES and not settings.contains(f"display/{key}/color"):
         return
 
@@ -1023,7 +1024,6 @@ class DisplayManager(HouseDialog):
         from .sprinkler import Sprinkler
         from .water_supply import WaterSupply
         from .gridline import GridlineItem
-        from .hydraulic_node_badge import HydraulicNodeBadge
 
         for item in self._iter_all_items():
             snap = self._snapshot.get(id(item))
@@ -1054,11 +1054,7 @@ class DisplayManager(HouseDialog):
                     item._centre_on_node()
                 else:
                     item._centre_on_origin()
-            elif isinstance(item, HydraulicNodeBadge):
-                _set_svg_tint(item, snap.get("display_color"),
-                              snap.get("display_fill_color"))
-                item._display_scale = snap.get("display_scale", 1.0)
-                item._centre_on_offset()
+            # A node badge restores Visible + Opacity only (SB4e R7), above.
 
         for it, attrs, overrides, vis, opa in getattr(self, "_section_snapshot", ()):
             for a, v in attrs.items():
@@ -1235,7 +1231,13 @@ class DisplayManager(HouseDialog):
             fill = _fill_or(getattr(item, "_display_fill_color", None),
                             cat_def.get("fill"))
             font = None
-        elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
+        elif isinstance(item, HydraulicNodeBadge):
+            # SB4e R7: the badge draws in its block's colours; the row's
+            # colour / fill are stored values only (S3), never applied.
+            color = cat_def["color"]
+            fill = cat_def.get("fill")
+            font = None
+        elif isinstance(item, (Sprinkler, WaterSupply)):
             color = _fill_or(getattr(item, "_display_color", None),
                              cat_def["color"])
             fill = _fill_or(getattr(item, "_display_fill_color", None),
@@ -1564,6 +1566,9 @@ class DisplayManager(HouseDialog):
         else:
             fill_btn = Swatch("", context="Fill", show_label=False, auto_pick=False)
             fill_btn.setEnabled(False)       # not applicable: dimmed chip
+        if category_key in _VIS_OPACITY_ONLY:
+            color_btn.setEnabled(False)      # SB4e R7: block colours, not the row's
+            fill_btn.setEnabled(False)
         self._tree.setItemWidget(tree_item, _COL_FILL, fill_btn)
 
         # ── Opacity spinbox ──────────────────────────────────────────
