@@ -1988,7 +1988,7 @@ class DisplayManager(HouseDialog):
         "Grids & Levels": [
             "Grid Line", "Level Datum", "Elevation Marker", "Section Marker", "Detail Marker",
         ],
-        "Drafting": ["Hatch", "Blocks", "Underlay"],
+        "Drafting": ["Hatch", "Blocks", "Underlay", "Construction"],
     }
 
     def _build_paper_space_tab(self) -> QWidget:

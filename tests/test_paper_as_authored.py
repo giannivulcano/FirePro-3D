@@ -200,14 +200,27 @@ def test_ac2_construction_row(qapp, tmp_path, on, colour, want):
 def test_ac4_underlay_row(qapp, on, want):
     from tests.test_underlay_display import _paper_scene_setup
     _set_row("Underlay", on=on)
+    # Both fixture layers draw the same line; colour both, or A-DOOR's
+    # default #c0c0c0 paints over A-WALL's red.
     scene, _rec, group, rect = _paper_scene_setup(
-        qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
+        qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"},
+                               "A-DOOR": {"colour": "#ff0000"}})
     child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
     before = child.pen().color().name()
+    img = QImage(200, 200, QImage.Format.Format_ARGB32)
+    img.fill(QColor("#ffffff"))
     saved = pd.apply_paper_overrides(scene, rect, paper_scale=0.02)
-    assert child.pen().color().name() == want
-    pd.restore_model_display(saved)
+    try:
+        assert child.pen().color().name() == want
+        p = QPainter(img)                  # FX2: painted pixels, both branches
+        scene.render(p, QRectF(0, 0, 200, 200), rect)
+        p.end()
+    finally:
+        pd.restore_model_display(saved)
     assert child.pen().color().name() == before
+    names = {QColor(img.pixel(x, y)).name() for x in range(200) for y in range(200)}
+    assert want in names
+    assert ({"#ff0000", _ROW} - {want}).isdisjoint(names)   # the other branch's colour is absent
 
 
 # -- AC8: SVG symbols re-resolve token colour and fill on paper (R6) --------------

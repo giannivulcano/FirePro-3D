@@ -43,14 +43,34 @@ def test_ac1_every_row_but_hatch_has_the_glyph_left_of_colour(qapp):
     dlg = _dm(qapp)
     assert dlg._ps_tree.headerItem().text(dlg._PS_COL_AUTH) == "AS AUTH."
     assert dlg._PS_COL_AUTH == dlg._PS_COL_COLOR - 1
-    for key, w in dlg._paper_cat_data.items():
+    # Loop the pass's registry, not the built rows: a category the pass
+    # paints but the tab never shows has an unreachable toggle (VC9 FX1).
+    for key in pd._CATEGORY_KEYS:
+        assert key in dlg._paper_cat_data, f"{key}: no Paper Space row"
+        w = dlg._paper_cat_data[key]
         if key in pd._LW_ONLY:
             assert w.get("auth") is None
             continue
         assert isinstance(w["auth"], AsAuthoredToggle), key
         host = dlg._ps_tree.itemWidget(w["tree_item"], dlg._PS_COL_AUTH)
         assert w["auth"] in host.findChildren(AsAuthoredToggle)
+        assert w["auth"].toolTip() == (       # D8 tooltip text, verbatim (FX3)
+            "As Authored: plot this row's items in their own colours "
+            "(off = paint the row colours over them)"), key
     dlg.reject()
+
+
+def test_construction_row_toggle_reaches_the_pass(qapp):
+    """VC9 FX1: a legacy B&W load sets Construction OFF; the row's glyph is
+    the only way back ON short of Reset All."""
+    pd.apply_paper_display_from_project({"color_mode": "bw"})
+    dlg = _dm(qapp)
+    w = dlg._paper_cat_data["Construction"]
+    assert not w["auth"].isChecked() and w["color_btn"].isEnabled()
+    w["auth"].click()                                       # real input path
+    assert not w["color_btn"].isEnabled()
+    assert pd.load_paper_categories()["Construction"]["as_authored"] is True
+    dlg.accept()
 
 
 def test_ac1_on_greys_chips_off_makes_them_live_and_persists(qapp):

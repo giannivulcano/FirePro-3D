@@ -229,8 +229,8 @@ def test_paper_tab_has_blocks_row_under_drafting(qapp):
     try:
         row = dlg._paper_cat_data["Blocks"]
         assert row["tree_item"].parent().text(0) == "Drafting"
-        # paper-as-authored D2: the Drafting group is Hatch, Blocks, Underlay
-        assert dlg._PS_GROUPS["Drafting"] == ["Hatch", "Blocks", "Underlay"]
+        # paper-as-authored D2 + VC9 ruling (2026-11-11): Construction joins Drafting
+        assert dlg._PS_GROUPS["Drafting"] == ["Hatch", "Blocks", "Underlay", "Construction"]
         for w in ("vis", "color_btn", "lw_combo", "opacity"):
             assert row[w].isEnabled(), w
         assert not row["fill_btn"].isEnabled()
