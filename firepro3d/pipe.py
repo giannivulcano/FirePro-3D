@@ -486,6 +486,10 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                     "Node 1 Elevation", "Node 2 Elevation",
                     "Ceiling Level", "Ceiling Offset"):
             return  # discard old/removed or read-only properties
+        if key == "Colour":
+            from .stroke_style import is_block_only_colour_label
+            if is_block_only_colour_label(value):
+                return  # WM3 D4: a placed block's row label, not a pipe colour
         if key == "C-Factor":
             return  # read-only; derived from Material
         if key == "Tag":

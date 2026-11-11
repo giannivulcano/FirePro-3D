@@ -189,7 +189,7 @@ def test_new_placement_starts_as_authored(qapp):
     from firepro3d.stroke_style import AS_AUTHORED
     s = sprinkler_def()
     ms, prev = scene_with([s], s.id, {"weight": "Thick", "linetype": "continuous"})
-    both = {"weight": AS_AUTHORED, "linetype": AS_AUTHORED}
+    both = {"weight": AS_AUTHORED, "linetype": AS_AUTHORED, "colour": AS_AUTHORED}
     ms.set_mode("place_block", template=s.id)
     # The placement ghost is a Paste-style trace since 2026-10-10 (no
     # overrides of its own); the PLACED instance is what starts As Authored.

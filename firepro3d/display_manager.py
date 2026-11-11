@@ -953,8 +953,9 @@ class DisplayManager(HouseDialog):
 
     def _take_snapshot(self):
         """Capture the current visual state of every FS item for cancel-revert."""
-        from .paper_display import model_blocks_weight
+        from .paper_display import model_blocks_colour, model_blocks_weight
         self._model_blocks_snapshot = model_blocks_weight()
+        self._model_blocks_colour_snapshot = model_blocks_colour()   # WM3 D5
         for item in self._iter_all_items():
             entry: dict = {
                 "visible": item.isVisible(),
@@ -1095,6 +1096,16 @@ class DisplayManager(HouseDialog):
                 self._settings.setValue(
                     f"display/{_MODEL_BLOCKS_KEY}/line_weight",
                     self._model_blocks_snapshot)
+                self.lineWeightsChanged.emit()
+
+        # Model "Blocks" colour (WM3 D5)
+        if hasattr(self, "_model_blocks_colour_snapshot"):
+            from .paper_display import model_blocks_colour, set_model_blocks_colour
+            if model_blocks_colour() != self._model_blocks_colour_snapshot:
+                set_model_blocks_colour(self._model_blocks_colour_snapshot)
+                self._settings.setValue(
+                    f"display/{_MODEL_BLOCKS_KEY}/color",
+                    self._model_blocks_colour_snapshot)
                 self.lineWeightsChanged.emit()
 
         # Force scene repaint
@@ -1484,6 +1495,23 @@ class DisplayManager(HouseDialog):
         self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/line_weight", name)
         self.lineWeightsChanged.emit()         # dirty + repaint (LT1 H3)
 
+    def _on_model_blocks_colour(self, value: str):
+        """The Model "Blocks" Colour swatch picked *value* (WM3 D5): store it
+        (cache + QSettings) and repaint -- By Category placements read it at
+        paint. No Fill / an unpickable value is refused (it would hide every
+        By Category placement) and the swatch reverts."""
+        if self._suppress:
+            return
+        from .colour_tokens import picked_colour
+        from .paper_display import model_blocks_colour, set_model_blocks_colour
+        v = picked_colour(value)
+        if v is None:
+            self._model_blocks_swatch.set_hex(model_blocks_colour())
+            return
+        set_model_blocks_colour(v)
+        self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/color", v)
+        self.lineWeightsChanged.emit()         # dirty + repaint (WM3 D5)
+
     def _refresh_model_blocks_combo(self):
         """Re-fill the Blocks combo from the project table (rename / add /
         remove / reset) without firing ``_on_model_blocks_weight``."""
@@ -1792,6 +1820,10 @@ class DisplayManager(HouseDialog):
         # Model "Blocks" weight -> factory (fires _on_model_blocks_weight)
         from .paper_display import model_blocks_factory_weight
         self._model_blocks_combo.setCurrentText(model_blocks_factory_weight())
+        # Model "Blocks" colour -> factory Automatic (WM3 Q3)
+        from .paper_display import model_blocks_factory_colour
+        self._model_blocks_swatch.set_hex(model_blocks_factory_colour())
+        self._on_model_blocks_colour(model_blocks_factory_colour())
 
     def _set_as_default(self):
         """Save current tab settings as defaults for new projects."""
@@ -1831,7 +1863,7 @@ class DisplayManager(HouseDialog):
         self._settings.sync()
 
     def _set_model_blocks_as_default(self):
-        """Save the Model "Blocks" weight (Line Weights tab) as the default for
+        """Save the Model "Blocks" weight and colour (Line Weights tab) as the default for
         new projects, and as the current key so it persists across sessions."""
         from .paper_display import model_blocks_weight
         self._settings.setValue(
@@ -1839,6 +1871,11 @@ class DisplayManager(HouseDialog):
             model_blocks_weight())
         self._settings.setValue(
             f"display/{_MODEL_BLOCKS_KEY}/line_weight", model_blocks_weight())
+        from .paper_display import model_blocks_colour     # WM3 D5: both written
+        self._settings.setValue(
+            f"display/{_MODEL_BLOCKS_KEY}/default_color", model_blocks_colour())
+        self._settings.setValue(
+            f"display/{_MODEL_BLOCKS_KEY}/color", model_blocks_colour())
         self._settings.sync()
 
     # ------------------------------------------------------------------
@@ -2330,13 +2367,15 @@ class DisplayManager(HouseDialog):
         btn_row.addStretch()
         # Model "Blocks" weight (linetypes.md LT2-6): the canvas weight of block
         # linework whose weight is By Linetype on a Continuous line (WM-5
-        # fallback). Weight-only -- block colours, visibility and opacity stay
-        # authored / per instance.
-        from .paper_display import (model_blocks_weight, picker_weight_name,
-                                    weight_names)
-        blocks_lbl = QLabel("Model blocks weight:")
-        blocks_lbl.setToolTip("Blocks: line weight only (block colours, "
-                              "visibility and opacity stay authored)")
+        # fallback); and its Colour (WM3 D5): the canvas colour of a placement
+        # whose Colour is By Category. Visibility and opacity stay authored /
+        # per instance.
+        from .paper_display import (model_blocks_colour, model_blocks_weight,
+                                    picker_weight_name, weight_names)
+        blocks_lbl = QLabel("Model blocks weight / colour:")
+        blocks_lbl.setToolTip("Blocks: line weight and colour of block linework "
+                              "drawn By Category (visibility and opacity stay "
+                              "authored)")
         combo = QComboBox()
         combo.addItems(weight_names())
         combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
@@ -2345,8 +2384,14 @@ class DisplayManager(HouseDialog):
                          "applies)")
         combo.currentTextChanged.connect(self._on_model_blocks_weight)
         self._model_blocks_combo = combo
+        sw = Swatch(model_blocks_colour(), context="Model blocks colour")
+        sw.set_tooltip("Canvas colour of every placed block whose Colour is "
+                       "By Category (sheets use the paper \"Blocks\" colour)")
+        sw.colorChanged.connect(self._on_model_blocks_colour)
+        self._model_blocks_swatch = sw
         btn_row.addWidget(blocks_lbl)
         btn_row.addWidget(combo)
+        btn_row.addWidget(sw)
         layout.addLayout(btn_row)
 
         return page
@@ -2715,9 +2760,11 @@ class DisplayManager(HouseDialog):
             # One writer (HF5): the shared helper stores the category's values.
             _write_category_to_settings(
                 key, self._read_category_settings(key), self._settings)
-        from .paper_display import model_blocks_weight
+        from .paper_display import model_blocks_colour, model_blocks_weight
         self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/line_weight",
                                 model_blocks_weight())
+        self._settings.setValue(f"display/{_MODEL_BLOCKS_KEY}/color",
+                                model_blocks_colour())
         self._settings.sync()
 
         # D-A39: a Fill Type pattern the user OK'd draws in this project too —
@@ -2820,7 +2867,8 @@ def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
                                prefer_default: bool,
                                use_user_default: bool = True) -> None:
     """Resolve the Model "Blocks" weight (linetypes.md LT2-6): user default
-    -> project -> current QSettings -> factory.
+    -> project -> current QSettings -> factory. Also resolves the Model
+    "Blocks" colour (WM3 D5) by the same chain.
 
     Args:
         project: the project ``display_settings`` dict (Open), or None.
@@ -2842,6 +2890,17 @@ def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
         name = settings.value(f"display/{key}/line_weight")
     set_model_blocks_weight(name or None)      # canonical (alias key -> live)
     settings.setValue(f"display/{key}/line_weight", model_blocks_weight())
+    # WM3 D5: the Model "Blocks" colour, same precedence (user default ->
+    # project -> current QSettings -> factory Automatic).
+    from .paper_display import model_blocks_colour, set_model_blocks_colour
+    col = (settings.value(f"display/{key}/default_color")
+           if use_user_default else None)
+    if not col and project:
+        col = (project.get(key) or {}).get("color")
+    if not col and not prefer_default:
+        col = settings.value(f"display/{key}/color")
+    set_model_blocks_colour(col or None)
+    settings.setValue(f"display/{key}/color", model_blocks_colour())
 
 
 def get_display_settings_for_save() -> dict:
@@ -2858,8 +2917,9 @@ def get_display_settings_for_save() -> dict:
         entry = {k: v for k, v in vals.items()
                  if v is not None and k not in ("scale", "font")}
         result[key] = entry
-    from .paper_display import model_blocks_weight
-    result[_MODEL_BLOCKS_KEY] = {"line_weight": model_blocks_weight()}
+    from .paper_display import model_blocks_colour, model_blocks_weight
+    result[_MODEL_BLOCKS_KEY] = {"line_weight": model_blocks_weight(),
+                                 "color": model_blocks_colour()}
     return result
 
 

@@ -223,6 +223,32 @@ def set_model_blocks_weight(name: str | None, *, canonical: bool = True) -> None
                                 else str(name))
 
 
+# Display Manager Model "Blocks" colour (linetypes.md WM3 D5): the canvas
+# colour of a By Category placement Colour (token:blocks). Cached here so
+# paint never reads QSettings; None = the factory (Automatic, WM3 Q3).
+_MODEL_BLOCKS_COLOUR: str | None = None
+
+
+def model_blocks_factory_colour() -> str:
+    """Factory Model "Blocks" colour: Automatic (theme ink, WM3 Q3)."""
+    from .constants import TOKEN_AUTO
+    return TOKEN_AUTO
+
+
+def model_blocks_colour() -> str:
+    """The Model-tab "Blocks" colour (factory: Automatic)."""
+    return _MODEL_BLOCKS_COLOUR or model_blocks_factory_colour()
+
+
+def set_model_blocks_colour(value) -> None:
+    """Set the Model "Blocks" colour; None / anything not pickable
+    (``colour_tokens.picked_colour``: ``""`` No Fill, an internal token,
+    garbage) -> the factory."""
+    global _MODEL_BLOCKS_COLOUR
+    from .colour_tokens import picked_colour       # circular at import time
+    _MODEL_BLOCKS_COLOUR = picked_colour(value) if value else None
+
+
 def weight_aliases() -> dict[str, str]:
     """A copy of the project rename-alias map."""
     return dict(_WEIGHT_ALIASES)
@@ -937,7 +963,7 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm, paper_scale):
     pipe.update()
 
 
-def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
+def _apply_block(inst, cat, color_mode, lw_mm, paper_scale, blocks_hook=False):
     """Paper overrides for a BlockInstance (linetypes.md LT1-2 / H5).
 
     Every stroke op plots non-cosmetic at the "Blocks" weight in true paper mm
@@ -946,6 +972,8 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     the authored colours. Compiled op pens are never mutated (flyweight: one
     compile is shared by every instance) -- ``BlockInstance.paint`` reads these
     two hooks instead. Fill / pattern ops stay under the hatch rules.
+    *blocks_hook* (WM3 D3): True only from the "Blocks" category branch --
+    caches the paper "Blocks" colour for ``token:blocks``.
     """
     from PyQt6.QtGui import QColor
     from .annotative import is_annotative
@@ -955,6 +983,8 @@ def _apply_block(inst, cat, color_mode, lw_mm, paper_scale):
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
     inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
                              if color_mode != PaperColorMode.FULL_COLOR else None)
+    if blocks_hook:
+        inst._paper_blocks_colour = _paper_qcolor(cat["color"], inst)   # WM3 D3: By Category on paper
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
 
@@ -1283,7 +1313,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             elif cat_key == "Blocks":
                 entry["block_paper"] = (item._paper_pen_width,
                                         item._paper_pen_color,
-                                        item._paper_scale)
+                                        item._paper_scale,
+                                        getattr(item, "_paper_blocks_colour", None))
             from .room import Room as _Room
             if isinstance(item, _Room):
                 _tag = item._tag
@@ -1339,7 +1370,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         h.setOpacity(1.0)
                 item.prepareGeometryChange()           # the arrow / leader follow the paper k
             elif cat_key == "Blocks":
-                _apply_block(item, cat, color_mode, lw_mm, paper_scale)
+                _apply_block(item, cat, color_mode, lw_mm, paper_scale, blocks_hook=True)
             elif cat_key == "Construction":
                 _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
             else:
@@ -1603,8 +1634,8 @@ def restore_model_display(saved: list[dict]):
             from .annotative import is_annotative
             if is_annotative(item.definition()):
                 item.prepareGeometryChange()     # SB1c D6
-            (item._paper_pen_width, item._paper_pen_color,
-             item._paper_scale) = entry.get("block_paper", (None, None, None))
+            (item._paper_pen_width, item._paper_pen_color, item._paper_scale,
+             item._paper_blocks_colour) = entry.get("block_paper", (None, None, None, None))
             item.update()
 
         elif cat_key == "Construction":

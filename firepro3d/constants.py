@@ -461,6 +461,7 @@ TOKEN_AUTO = "token:auto"        # theme ink on canvas, black on paper / B&W
 TOKEN_ACCENT = "token:accent"    # theme accent on canvas, light accent on paper
 TOKEN_BG = "token:bg"            # theme canvas bg on canvas, white on paper (internal; 600)
 TOKEN_ELEMENT = "token:element"  # HF5 R8: the drawing element's line colour (fill-type pattern colour only)
+TOKEN_BLOCKS = "token:blocks"    # WM3 D3: a By Category placement colour (internal; canvas Model "Blocks", paper "Blocks")
 FILL_TYPE_FALLBACK_NAME = "Solid Grey 20%"   # HF5: missing-type look (D-A14) + seed row
 FILL_TYPE_FALLBACK_COLOR = "#808080"
 FILL_TYPE_FALLBACK_OPACITY = 0.20
@@ -661,3 +662,19 @@ SECTION_PASTE_NO_HOST = ("Can't paste here - this view does not show the "
 SECTION_PASTE_PLAN_ITEMS = "Plan items can't be pasted in a section - edit them in plan"
 HOSTED_PASTE_IN_PLAN = ("Gridline-hosted blocks can only be pasted in a "
                         "section or elevation view")
+
+# -- Sheet-linked document (docs/superpowers/specs/2026-11-09-sheet-linked-document-design.md)
+PDF_PT_PER_MM = 72.0 / 25.4          # PDF user-space points per paper mm
+Z_PAPER_LINKED_PAGE = 0.5            # above the paper background (z 0), below the title block (z 1)
+Z_PAPER_LINKED_BADGE = 15_000        # screen-only badge: above every sheet item, below Z_PREVIEW
+LINKED_DOC_DEBOUNCE_MS = 1500        # folder-watch debounce (D4)
+LINKED_DOC_CONVERT_TIMEOUT_S = 120   # Word conversion timeout (D3)
+LINKED_PAGE_MIN_DPI = 36.0           # lowest raster of a linked page
+LINKED_PAGE_DPI_STEP = 1.5           # screen re-renders only past 1.5x growth (Performance)
+LINKED_PAGE_SCREEN_MAX_DPI = 300.0   # screen raster cap (Performance)
+LINKED_PAGE_PRINT_MAX_DPI = 400.0    # print raster cap, dpi of the source page (memory bound)
+LINKED_PAGE_RASTER_CACHE_SIZE = 4   # cached page rasters; a 17x11 page is ~50-68 MB at 300-400 dpi
+LINKED_BADGE_CAP_MM = 3.0           # badge text cap height, paper mm
+LINKED_BADGE_PAD_MM = 1.0            # badge inner padding, paper mm
+LINKED_BADGE_FILL = "#FEF3C7"        # badge background (screen only, never printed)
+LINKED_BADGE_INK = "#92400E"         # badge text

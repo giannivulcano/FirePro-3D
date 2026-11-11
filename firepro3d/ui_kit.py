@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QHBoxLayout, QLabel, QWidget,
                              QTabBar, QStackedWidget, QComboBox, QStyledItemDelegate,
                              QLineEdit, QToolButton, QHeaderView, QAbstractButton)
 
-from .colour_tokens import is_token, resolve_colour, token_label
+from .colour_tokens import is_token, resolve_colour, swatch_label, token_label
 from .fill_layers import NO_LAYER, BackgroundLayer, PatternLayer
 from .theme import M, detect as _detect, theme_bus
 
@@ -1023,6 +1023,7 @@ class Selector(QComboBox):
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumWidth(0)
         self._show_icon = False      # opt-in: swatch left of the text (Materials Section selector)
+        self._wheel_steps = True     # opt-out: a row whose option runs an action (WM3 Colour)
         # Size lives in the widget's OWN QSS: setFont() loses to the app QSS
         # ``QWidget { font-size }`` (13 px everywhere outside the property
         # panel's field rule — ui-design-system.md).
@@ -1040,6 +1041,23 @@ class Selector(QComboBox):
         exactly as before."""
         self._show_icon = bool(on)
         self.update()
+
+    def setWheelSteps(self, on: bool) -> None:
+        """Opt out of stepping the selection with the mouse wheel.
+
+        Args:
+            on: False makes a closed selector ignore the wheel (the event
+                passes to the parent, so the panel still scrolls); the popup
+                list scrolls as usual. Used by a row whose option opens a
+                dialog, so a scroll never opens it (WM3 Colour row).
+        """
+        self._wheel_steps = bool(on)
+
+    def wheelEvent(self, event):
+        if not self._wheel_steps:
+            event.ignore()
+            return
+        super().wheelEvent(event)
 
     def paintEvent(self, event):
         t = _detect()
@@ -1205,6 +1223,18 @@ def no_fill_icon(w: int, h: int):
     return QIcon(pm)
 
 
+def colour_icon(value: str, w: int = 16, h: int = 16):
+    """QIcon of a flat colour chip for a stored colour string (``#hex`` /
+    ``token:*``, resolved on the canvas; ``""`` -> the No-Fill glyph) -- the
+    per-option swatches of a colour enum row (WM3 D4)."""
+    from PyQt6.QtGui import QIcon, QPixmap
+    if not value:
+        return no_fill_icon(w, h)
+    pm = QPixmap(w, h)
+    pm.fill(resolve_colour(value))
+    return QIcon(pm)
+
+
 class _Chip(QWidget):
     """A small painted colour chip (rounded rect + border) that emits ``clicked``."""
 
@@ -1294,7 +1324,7 @@ class Swatch(QWidget):
 
     @staticmethod
     def _text_for(v):
-        return "None" if not v else (token_label(v) or v.upper())
+        return swatch_label(v)        # one home: colour_tokens.swatch_label (WM3 D4)
 
     def _on_chip(self):
         self.clicked.emit()
@@ -1315,6 +1345,18 @@ class Swatch(QWidget):
         self.setProperty("_color", hex_color)
         self._chip.set_color(hex_color)
         self._label.setText(self._text_for(hex_color))
+
+    def set_tooltip(self, text):
+        """Show *text* over the whole swatch, the chip included.
+
+        ``setToolTip`` alone sets only the container: the chip keeps its own
+        "Pick <context>" tip, so hovering the chip never shows *text*.
+
+        Args:
+            text: The tooltip for the container and the chip.
+        """
+        self.setToolTip(text)
+        self._chip.setToolTip(text)
 
     def hex(self):
         return self._hex

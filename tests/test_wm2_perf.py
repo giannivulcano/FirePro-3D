@@ -5,7 +5,9 @@ worktree; the override cases skip there) and pass the medians as
 WM2_BASE_SMALL / WM2_BASE_LARGE.
 
 Bars (Phase-2 Q11): As Authored <= 1.05x base, Weight override <= 1.1x the
-same scene As Authored, Linetype override report-only."""
+same scene As Authored, Linetype override report-only. WM3 (Phase 3): the
+Colour override is report-only (no bar) -- the same op replace WM2 measured
+at <= 1.1x."""
 import os
 import random
 
@@ -56,6 +58,8 @@ def _scene(n_inst, n_lines, ov, extra=()):
             assert {op.weight for op in strokes} == {ov["weight"]}
         if "linetype" in ov:
             assert {op.linetype for op in strokes} == {ov["linetype"]}
+        if "colour" in ov:
+            assert {op.colour for op in strokes} == {ov["colour"]}
     return sc
 
 
@@ -92,3 +96,12 @@ def test_linetype_override_report_only(qapp, shape, n_inst, n_lines):
     ref = _bench(f"{shape} as-authored(ref)", _scene(n_inst, n_lines, None))
     _bench(f"{shape} linetype", _scene(n_inst, n_lines, {"linetype": lt.id},
                                        extra=[lt]), ref=ref)
+
+
+@pytest.mark.skipif(not _HAS_WM2, reason="base tree: no overrides")
+@pytest.mark.parametrize("shape,n_inst,n_lines", _SHAPES)
+def test_colour_override_report_only(qapp, shape, n_inst, n_lines):
+    """WM3: report-only (Phase 3 ruling) -- printed, never asserted."""
+    ref = _bench(f"{shape} as-authored(ref)", _scene(n_inst, n_lines, None))
+    _bench(f"{shape} colour", _scene(n_inst, n_lines, {"colour": "#808080"}),
+           ref=ref)

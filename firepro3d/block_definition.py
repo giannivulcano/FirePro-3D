@@ -154,7 +154,7 @@ def _placeholder_op(t) -> RenderOp:
     path.lineTo(h, h)
     pen = QPen(QColor(_PLACEHOLDER_COLOR))
     pen.setCosmetic(True)               # match BlockInstance's orphan placeholder
-    return RenderOp(STROKE, t.map(path), pen=pen)
+    return RenderOp(STROKE, t.map(path), pen=pen, fixed=True)   # WM3 D2: never restyled
 
 
 def _local_path(item) -> QPainterPath:
@@ -196,7 +196,8 @@ def text_box_ops(item, t: QTransform) -> tuple[list, list]:
     glyphs) and the border stroke (over them), in the text's own frame --
     rotation baked like ``render_outline_path``, then pos, then *t*. The
     border keeps its named weight, line type and corner, in the text colour,
-    so the placement Weight / Colour override reaches it (linetypes WM-12).
+    so the placement Weight / Colour override reaches it (linetypes WM-12);
+    the box fill keeps its own colour under a Colour override (WM3 R3).
     """
     d = item.data
     m = item._rotation_transform()
@@ -210,7 +211,8 @@ def text_box_ops(item, t: QTransform) -> tuple[list, list]:
         box = QPainterPath()
         box.addRect(item._box_rect_local())
         under.append(RenderOp(FILL, _mapped(box), colour=d.fill_color,
-                              alpha=alpha(max(0.0, min(1.0, d.fill_opacity / 100.0)))))
+                              alpha=alpha(max(0.0, min(1.0, d.fill_opacity / 100.0))),
+                              keep_colour=True))   # WM3 R3: a text's box fill keeps its colour
     if d.border:
         pen = QPen()
         pen.setStyle(_BORDER_STYLES.get(d.border_line_type, Qt.PenStyle.SolidLine))
@@ -944,7 +946,13 @@ class BlockDefinition:
         # (load already canonicalised them): a compile inside the Display
         # Manager Cancel replay must not bake the renamed-away alias target.
         ov = override_args(prim.get("overrides"), canonical=False)
-        bound.extend(BoundPrim(b.prim, b.transform * t, ov) for b in child_bound)
+        # Per axis, the outer record wins only where it is set (WM-6; R4
+        # 2026-11-10): a full replace let an As Authored record above erase an
+        # inner record's override on bound text -- WM2 weight / linetype too.
+        bound.extend(BoundPrim(b.prim, b.transform * t,
+                               tuple(o if o is not None else i
+                                     for o, i in zip(ov, b.override_args)))
+                     for b in child_bound)
         clips: dict = {}
         return apply_overrides([op.mapped(t, clips) for op in child_ops], *ov)
 

@@ -8,8 +8,8 @@ from firepro3d.block_instance import BlockInstance
 from firepro3d.model_space import Model_Space
 from tests.wm2_support import nested_record, scene_with, sprinkler_def
 
-_OV = {"weight": "Thick", "linetype": "continuous"}
-_OV2 = {"weight": "by_category", "linetype": "as_authored"}
+_OV = {"weight": "Thick", "linetype": "continuous", "colour": "as_authored"}
+_OV2 = {"weight": "by_category", "linetype": "as_authored", "colour": "as_authored"}
 
 
 def test_to_dict_omits_as_authored_and_round_trips(qapp):
@@ -120,9 +120,83 @@ def test_fpdb_round_trip_keeps_record_overrides(qapp, tmp_path):
     assert summary["loaded"] and not summary["missing"]
     assert {h.id, s.id, lt.id} <= set(fresh._block_definitions)
     rec = fresh.get_block_definition(h.id).primitives[0]
-    assert rec["overrides"] == ov
+    assert rec["overrides"] == {**ov, "colour": "as_authored"}
     # Observable: a placement in the fresh project strokes the override.
     inst = fresh.place_block_instance(h.id, (0.0, 0.0), level=fresh.active_level)
     strokes = [op for op in inst.render_ops() if op.kind == "stroke"]
     assert strokes and {op.weight for op in strokes} == {"Thick"}
     assert {op.linetype for op in strokes} == {lt.id}
+
+
+# -- WM3 G5: the Colour axis rides the same record (AC5) ----------------------
+
+_OVC = {"weight": "as_authored", "linetype": "as_authored", "colour": "#808080"}
+
+
+def _lit(ms):
+    """Observable: the colours the reloaded scene actually paints."""
+    from tests.test_lt1_block_paper import _render_model
+    from tests.wm3_support import lit_outside_origin
+    return lit_outside_origin(_render_model(ms))
+
+
+def test_wm3_colour_only_override_saves_and_round_trips(qapp):
+    d = sprinkler_def()
+    ms, inst = scene_with([d], d.id, {"colour": "#808080"})
+    assert inst.to_dict()["overrides"] == _OVC
+    assert inst.to_nested_dict()["overrides"] == _OVC
+    back = BlockInstance.from_dict(inst.to_dict(), ms.get_block_definition)
+    assert back.overrides == _OVC
+    inst.set_overrides({})
+    assert "overrides" not in inst.to_dict()           # As Authored x3: legacy shape
+
+
+def test_wm3_colour_survives_file_undo_and_paste_and_paints(qapp, tmp_path):
+    d = sprinkler_def()
+    ms, _inst = scene_with([d], d.id, {"colour": "#808080"})
+    path = tmp_path / "c.fpd"
+    assert ms.save_to_file(str(path))
+    ms2 = Model_Space()
+    ms2.load_from_file(str(path))
+    assert ms2._block_instances[0].overrides == _OVC
+    assert _lit(ms2) == {"#808080"}                     # the reload paints it
+    ms2.push_undo_state()
+    ms2._block_instances[0].set_overrides({"colour": "by_category"})
+    ms2.push_undo_state()
+    ms2.undo()
+    assert ms2._block_instances[0].overrides == _OVC
+    ms2.paste_items(QPointF(100, 0), data=[ms2._block_instances[0].to_dict()])
+    assert [i.overrides for i in ms2._block_instances] == [_OVC, _OVC]
+
+
+def test_wm3_block_editor_seed_and_fpdb_keep_record_colour(qapp, tmp_path):
+    from firepro3d import block_library
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.block_editor import BlockEditorWidget
+    s = sprinkler_def()
+    project = Model_Space()
+    project.register_block_definition(s)
+    w = BlockEditorWidget(project)
+    w.seed_from_dicts([nested_record(s.id, {"colour": "#808080"})])
+    assert [i.overrides for i in w.editor_scene._block_instances] == [_OVC]
+    h = BlockDefinition.new(name="H", library="L", series="S",
+                            primitives=[nested_record(s.id, {"colour": "#808080"})],
+                            origin=(0.0, 0.0))
+    ms, _inst = scene_with([s, h], h.id)
+    path = block_library.save_to_library(
+        h, root=str(tmp_path), bundled=ms.block_registry.bundle_for(h.id))
+    fresh = Model_Space()
+    assert fresh.load_blocks_from_files([path])["loaded"]
+    assert fresh.get_block_definition(h.id).primitives[0]["overrides"] == _OVC
+    fresh.place_block_instance(h.id, (0.0, 0.0), level=fresh.active_level)
+    assert _lit(fresh) == {"#808080"}
+
+
+def test_wm3_wm2_era_record_loads_as_authored_colour(qapp):
+    d = sprinkler_def()
+    ms, inst = scene_with([d], d.id)
+    rec = inst.to_dict()
+    rec["overrides"] = {"weight": "Thick", "linetype": "continuous"}   # WM2-era record
+    back = BlockInstance.from_dict(rec, ms.get_block_definition)
+    assert back.overrides == {"weight": "Thick", "linetype": "continuous",
+                              "colour": "as_authored"}

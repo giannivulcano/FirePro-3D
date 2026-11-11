@@ -442,10 +442,26 @@ class PropertyManager(QWidget):
                     for i in range(widget.count()):
                         if widget.itemText(i) in warn:
                             widget.setItemData(i, wc, Qt.ItemDataRole.ForegroundRole)
+                icons = meta.get("icons") or {}
+                if icons:                       # WM3 D4: per-option colour chips
+                    from .ui_kit import colour_icon
+                    widget.setShowIcon(True)
+                    for i in range(widget.count()):
+                        c = icons.get(widget.itemText(i))
+                        if c is not None:
+                            widget.setItemIcon(i, colour_icon(c))
                 widget.setCurrentText(str(meta["value"]))
-                widget.currentTextChanged.connect(
-                    lambda val, k=key: self._apply_property(k, val)
-                )
+                actions = meta.get("action_options") or {}
+                if actions:
+                    widget.setWheelSteps(False)  # a scroll never opens the picker (WM3)
+                    prev = "< mixed >" if is_mixed else str(meta["value"])
+                    widget.currentTextChanged.connect(
+                        lambda val, k=key, w=widget, p=prev, a=actions, ic=icons:
+                        self._on_enum_action(k, w, p, a, ic, val))
+                else:
+                    widget.currentTextChanged.connect(
+                        lambda val, k=key: self._apply_property(k, val)
+                    )
 
             # ── button (opens a callback) ───────────────────────────────
             elif prop_type == "button":
@@ -791,6 +807,27 @@ class PropertyManager(QWidget):
             scene.sceneModified.emit()
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
+
+    def _on_enum_action(self, key, widget, prev, actions, icons, val):
+        """An enum row whose option runs an action (WM3 D4): ``"colour"``
+        opens the house colour picker HERE, in the panel (never from the
+        item), and applies the picked colour string to every target in one
+        commit; a cancel -- or No Fill, which is not a placement colour --
+        restores the previous selection without a write. Any other option
+        applies as a plain enum value."""
+        if actions.get(val) != "colour":
+            self._apply_property(key, val)
+            return
+        from . import colour_picker
+        from .constants import TOKEN_AUTO
+        v = colour_picker.pick_colour(icons.get(prev) or TOKEN_AUTO, self, key)
+        if not v:
+            widget.blockSignals(True)
+            widget.setCurrentText(prev)
+            widget.blockSignals(False)
+            widget.update()
+            return
+        self._apply_property(key, v)
 
     def _apply_property(self, key: str, value):
         """Apply a property change to ALL selected targets, then refresh.

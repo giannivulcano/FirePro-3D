@@ -1399,6 +1399,11 @@ class Geometry2DMixin:
         if self.style is not None and key in ("Weight", "Colour"):
             if key == "Weight" and _is_block_only_weight_label(value):
                 return True                    # WM2 Q5: not a primitive value
+            if key == "Colour" and _is_block_only_colour_label(value):
+                return True                    # WM3 D4: not a primitive value
+            if key == "Colour":
+                from .colour_tokens import colour_from_label
+                value = colour_from_label(value) or value   # "Automatic" / "Accent" row labels
             self._dim_edit(lambda v: self._set_style_field(key, v), value)
             return True
         if key == "Fill":
@@ -4487,6 +4492,12 @@ _PLACEMENT_WEIGHT_TIP = (
     "As Authored keeps each stroke's own weight;\n"
     "By Category uses the Display Manager “Blocks” weight\n"
     "(shown in brackets).")
+_PLACEMENT_COLOUR_TIP = (
+    "Colour of everything in this block (strokes, text,\n"
+    "fills, hatches, end blocks), nested blocks included.\n"
+    "As Authored keeps each item's own colour;\n"
+    "By Category uses the Display Manager \"Blocks\" colour\n"
+    "(shown in brackets; sheets use the paper \"Blocks\" colour).")
 _LOCKED_PLACEMENT_TIP = (
     "Strokes in a pattern tile or linetype unit\n"
     "draw Continuous at the pattern's own pen,\n"
@@ -4620,6 +4631,39 @@ def _is_block_only_weight_label(value) -> bool:
     return v == AS_AUTHORED_LABEL or v.startswith(BY_CATEGORY_LABEL)
 
 
+def _is_block_only_colour_label(value) -> bool:
+    """True for a placement-only Colour label (WM3 D4): "As Authored",
+    "By Category (...)" or "Pick colour..." -- never a primitive value."""
+    from .stroke_style import is_block_only_colour_label
+    return is_block_only_colour_label(value)
+
+
+def _placement_colour_row(c: str) -> dict:
+    """The placement Colour enum row (WM3 D4 / Q1): As Authored, By Category
+    (<Model "Blocks" colour label>), Pick colour..., plus the picked colour
+    (its Swatch label) when one is set; ``icons`` maps an option to its
+    colour string, ``action_options`` makes Pick colour... open the picker."""
+    from .colour_tokens import swatch_label
+    from .paper_display import model_blocks_colour
+    from .stroke_style import (AS_AUTHORED, AS_AUTHORED_LABEL, BY_CATEGORY,
+                               BY_CATEGORY_LABEL, PICK_COLOUR_LABEL)
+    blocks = model_blocks_colour()
+    by_cat = f"{BY_CATEGORY_LABEL} ({swatch_label(blocks)})"
+    options = [AS_AUTHORED_LABEL, by_cat, PICK_COLOUR_LABEL]
+    icons = {by_cat: blocks}
+    if c == AS_AUTHORED:
+        value = AS_AUTHORED_LABEL
+    elif c == BY_CATEGORY:
+        value = by_cat
+    else:
+        value = swatch_label(c)
+        options.append(value)
+        icons[value] = c
+    return {"type": "enum", "options": options, "value": value, "icons": icons,
+            "action_options": {PICK_COLOUR_LABEL: "colour"},
+            "tooltip": _PLACEMENT_COLOUR_TIP}
+
+
 def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
                 placement: bool = False, ends: bool = False,
                 ends_locked_tip: str | None = None,
@@ -4635,7 +4679,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
         locked: The primitive lives in a linetype Block Editor (LT4-4 / H4-f):
             the Linetype row is disabled with a "why" tooltip.
         placement: Rows for a placed block / nested record (WM2 Q4): As
-            Authored + By Category instead of By Linetype.
+            Authored + By Category instead of By Linetype + the Colour row (WM3).
         ends: Add the LT5 Start End / Finish End / Visible rows (open
             primitives only -- never the template or a placement).
         ends_locked_tip: Disable the end rows with this "why" tooltip (a
@@ -4678,6 +4722,8 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
         "Weight": {"type": "enum", "options": [*head, *weight_names()],
                    "value": value_w, "tooltip": tip_w},
     }
+    if placement:                       # WM3 D4: Colour after Weight
+        rows["Colour"] = _placement_colour_row(style.get("colour", AS_AUTHORED))
     if locked:
         rows["Linetype"]["disabled"] = True
         rows["Linetype"]["tooltip"] = locked_tip or _LOCKED_LINETYPE_TIP

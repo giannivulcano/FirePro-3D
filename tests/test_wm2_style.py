@@ -21,7 +21,8 @@ def test_keywords_are_not_names_or_refs():
 
 def test_normalize_overrides_defaults_and_canonical():
     assert ss.normalize_overrides(None) == {"weight": "as_authored",
-                                            "linetype": "as_authored"}
+                                            "linetype": "as_authored",
+                                            "colour": "as_authored"}
     old = pd.weight_aliases()
     pd.set_weight_aliases({"Old": "Thick"})
     try:
@@ -30,20 +31,21 @@ def test_normalize_overrides_defaults_and_canonical():
         pd.set_weight_aliases(old)
     assert ss.normalize_overrides({"weight": "by_category",
                                    "linetype": "abc"}) == {
-        "weight": "by_category", "linetype": "abc"}
+        "weight": "by_category", "linetype": "abc", "colour": "as_authored"}
 
 
 def test_override_args_and_refs_and_compose():
-    assert ss.override_args(ss.normalize_overrides(None)) == (None, None)
+    assert ss.override_args(ss.normalize_overrides(None)) == (None, None, None)
     ov = {"weight": "Thick", "linetype": "lt1"}
-    assert ss.override_args(ov) == ("Thick", "lt1")
+    assert ss.override_args(ov) == ("Thick", "lt1", None)
     assert ss.override_refs(ov) == ({"Thick"}, {"lt1"})
     assert ss.override_refs({"weight": "by_category",
                              "linetype": "continuous"}) == (set(), set())
     outer = {"weight": "Thinnest", "linetype": "as_authored"}
     inner = {"weight": "Thickest", "linetype": "lt1"}
     assert ss.compose_overrides(outer, inner) == {"weight": "Thinnest",
-                                                  "linetype": "lt1"}
+                                                  "linetype": "lt1",
+                                                  "colour": "as_authored"}
 
 
 def test_canvas_weight_name_by_category_is_model_blocks():
@@ -76,7 +78,7 @@ def test_normalize_overrides_invalid_linetype_is_as_authored(bad):
 
 def test_normalize_overrides_keeps_continuous_linetype_and_strips_weight():
     ov = ss.normalize_overrides({"weight": " Thick ", "linetype": "continuous"})
-    assert ov == {"weight": "Thick", "linetype": "continuous"}
+    assert ov == {"weight": "Thick", "linetype": "continuous", "colour": "as_authored"}
 
 
 def test_is_as_authored_cases():

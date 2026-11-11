@@ -18,7 +18,7 @@ import math
 import os
 
 from PyQt6.QtCore import Qt, QObject, QPointF, QRectF, QSize
-from PyQt6.QtGui import (QBrush, QColor, QFont, QImage, QPainterPath, QPen, QPixmap,
+from PyQt6.QtGui import (QBrush, QColor, QFont, QPainterPath, QPen, QPixmap,
                          QTransform)
 from PyQt6.QtWidgets import (
     QApplication, QGraphicsItem, QGraphicsItemGroup, QGraphicsPathItem,
@@ -742,13 +742,8 @@ class UnderlayController:
                 self._scene._show_status(
                     f"Page {page} out of range (0–{len(doc)-1})")
                 return
-            pg = doc[page]
-            zoom = dpi / 72.0
-            mat = fitz.Matrix(zoom, zoom)
-            pix = pg.get_pixmap(matrix=mat, alpha=False)
-            qimg = QImage(pix.samples, pix.width, pix.height,
-                          pix.stride, QImage.Format.Format_RGB888)
-            pixmap = QPixmap.fromImage(qimg.copy())   # .copy() detaches from fitz buffer
+            from .pdf_raster import pdf_page_to_qimage
+            pixmap = QPixmap.fromImage(pdf_page_to_qimage(doc[page], dpi))
             doc.close()
         except ImportError:
             pass  # fitz not installed — fall through to QPdfDocument

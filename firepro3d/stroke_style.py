@@ -17,7 +17,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPen
 
 from . import paper_display as _pd
-from .colour_tokens import normalize_colour
+from .colour_tokens import normalize_colour, picked_colour
 from .constants import (TOKEN_AUTO, END_MODEL_SCALE_MAX, END_MODEL_SCALE_MIN, END_SCALE_MAX,
                         END_SCALE_MIN, STROKE_MITER_LIMIT)
 
@@ -28,11 +28,24 @@ AS_AUTHORED = "as_authored"    # placement / nested-record override: keep (WM2)
 BY_CATEGORY = "by_category"    # placement weight: the "Blocks" category (WM-3)
 AS_AUTHORED_LABEL = "As Authored"
 BY_CATEGORY_LABEL = "By Category"
+PICK_COLOUR_LABEL = "Pick colour\u2026"   # placement Colour row action (WM3 D4)
 _KEYWORDS = (BY_BLOCK, BY_LINETYPE, AS_AUTHORED, BY_CATEGORY)
 ENDS = ("start", "finish")
 NONE = "none"                  # end keyword: no end block (LT5 Q3)
 END_KEYWORDS = (BY_LINETYPE, NONE)   # end-slot keywords (never block ids)
 END_SCALE_SUFFIX = "×"       # the Scale row's suffix (ET1 Q10-b)
+
+
+def is_block_only_colour_label(value) -> bool:
+    """True for a placement-only Colour row label (WM3 D4): "As Authored",
+    "By Category (...)" or "Pick colour..." -- never an item's own colour.
+
+    A mixed selection sends the block's Colour row to every target that has a
+    "Colour" key; each non-block owner skips these labels (WM2 Q5 / WM3 D4).
+    """
+    v = str(value)
+    return (v == AS_AUTHORED_LABEL or v.startswith(BY_CATEGORY_LABEL)
+            or v == PICK_COLOUR_LABEL)
 
 
 def parse_end_scale(value) -> float | None:
@@ -566,11 +579,16 @@ def end_from_label(label) -> str | None:
 # -- WM2: placement / nested-record overrides ------------------------------
 
 def normalize_overrides(d, canonical: bool = True) -> dict:
-    """A complete ``{"weight", "linetype"}`` override record (WM2 H1).
+    """A complete ``{"weight", "linetype", "colour"}`` override record (WM2
+    H1, WM3 D1).
 
     Missing / blank / non-string / foreign keyword -> As Authored; a named weight is canonicalised through
     the rename aliases (legacy factory names keep resolving by mm at paint,
-    MW-6); a linetype value is kept verbatim (``continuous`` or an id).
+    MW-6); a linetype value is kept verbatim (``continuous`` or an id); a
+    colour is ``as_authored`` | ``by_category`` | a pickable colour
+    (``colour_tokens.picked_colour``: lower-case ``#rrggbb``, ``token:auto``,
+    ``token:accent``) -- ``""`` (No Fill), internal / unknown tokens, weight /
+    linetype keywords and garbage read As Authored.
 
     Args:
         d: The raw override dict (anything else reads As Authored).
@@ -588,21 +606,25 @@ def normalize_overrides(d, canonical: bool = True) -> dict:
     lt = lt.strip() if isinstance(lt, str) else ""
     if not lt or lt in (BY_BLOCK, BY_LINETYPE, BY_CATEGORY):
         lt = AS_AUTHORED
-    return {"weight": w, "linetype": lt}
+    c = d.get("colour")
+    c = c.strip() if isinstance(c, str) else ""
+    if c not in (AS_AUTHORED, BY_CATEGORY):
+        c = picked_colour(c) or AS_AUTHORED
+    return {"weight": w, "linetype": lt, "colour": c}
 
 
 def is_as_authored(ov) -> bool:
-    """True when *ov* overrides nothing (omitted from saved records)."""
+    """True when *ov* overrides nothing on any axis (omitted from saved records)."""
     ov = normalize_overrides(ov)
-    return ov["weight"] == AS_AUTHORED and ov["linetype"] == AS_AUTHORED
+    return all(v == AS_AUTHORED for v in ov.values())
 
 
 def override_args(ov, canonical: bool = True) -> tuple:
-    """``(weight | None, linetype | None)`` for ``render_op.apply_overrides``
-    (*canonical* as in :func:`normalize_overrides`)."""
+    """``(weight | None, linetype | None, colour | None)`` for
+    ``render_op.apply_overrides`` (*canonical* as in :func:`normalize_overrides`)."""
     ov = normalize_overrides(ov, canonical)
-    return (None if ov["weight"] == AS_AUTHORED else ov["weight"],
-            None if ov["linetype"] == AS_AUTHORED else ov["linetype"])
+    return tuple(None if ov[k] == AS_AUTHORED else ov[k]
+                 for k in ("weight", "linetype", "colour"))
 
 
 def override_refs(ov) -> tuple[set, set]:

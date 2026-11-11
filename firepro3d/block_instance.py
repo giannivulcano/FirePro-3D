@@ -157,9 +157,9 @@ class BlockInstance(QGraphicsObject):
         self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
         self.attributes: dict = {}
-        # Placement Weight / Linetype override (linetypes.md WM2): As
-        # Authored x2 by default; _ov_args is None while nothing overrides
-        # (render_ops' fast path returns the definition's list itself).
+        # Placement Weight / Linetype / Colour override (linetypes.md WM2,
+        # WM3): As Authored x3 by default; _ov_args is None while nothing
+        # overrides (render_ops' fast path returns the definition's list itself).
         self.overrides: dict = normalize_overrides(None)
         self._ov_args = None
         self._ov_cache = None      # (base ops list, args, derived list)
@@ -187,6 +187,9 @@ class BlockInstance(QGraphicsObject):
         # viewport pass by paper_display._apply_block, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
         self._paper_pen_color: Optional[QColor] = None
+        # WM3 D3: the paper "Blocks" colour a By Category placement Colour
+        # (token:blocks) paints in during a viewport pass; None on canvas.
+        self._paper_blocks_colour: Optional[QColor] = None
         # Paper mm per model mm during a viewport pass (LT2-5); None on canvas.
         self._paper_scale: Optional[float] = None
         # Placement-ghost preview (Model_Space._place_block_make_ghost): draws
@@ -534,7 +537,7 @@ class BlockInstance(QGraphicsObject):
         self.prepareGeometryChange()
         self.overrides = normalize_overrides(ov, canonical)
         a = override_args(self.overrides, canonical)
-        self._ov_args = None if a == (None, None) else a
+        self._ov_args = None if a == (None, None, None) else a
         self._ov_cache = None
         self.update()
 
@@ -2038,7 +2041,7 @@ class BlockInstance(QGraphicsObject):
                              "parser": ScaleManager.parse_factor,
                              "formatter": self._fmt_factor, "minimum": 0.0},
         }
-        # WM2 Q4: placement Linetype / Weight overrides; Q12: locked inside a
+        # WM2 Q4 / WM3 D4: placement Linetype / Weight / Colour overrides; Q12 / Q4: locked inside a
         # pattern-tile / linetype-unit Block Editor (strokes draw Continuous
         # at the pattern's own pen there).
         from .geometry_2d import _LOCKED_PLACEMENT_TIP, stroke_rows
@@ -2047,7 +2050,7 @@ class BlockInstance(QGraphicsObject):
         reg = getattr(sc, "block_registry", None) if sc is not None else None
         rows = stroke_rows(self.overrides, reg, picker_exclude(sc), placement=True)
         if self._overrides_locked():
-            for k in ("Linetype", "Weight"):
+            for k in ("Linetype", "Weight", "Colour"):
                 rows[k]["disabled"] = True
                 rows[k]["tooltip"] = _LOCKED_PLACEMENT_TIP
         props.update(rows)
@@ -2245,7 +2248,7 @@ class BlockInstance(QGraphicsObject):
             if not isinstance(value, bool):
                 return
             self.constraint_points_off = not value
-        elif key in ("Weight", "Linetype"):
+        elif key in ("Weight", "Linetype", "Colour"):
             if self._overrides_locked():
                 return                  # Q12: a mixed selection can't bypass the lock
             self._set_override_from_panel(key, str(value))
@@ -2267,7 +2270,7 @@ class BlockInstance(QGraphicsObject):
                                    or getattr(sc, "block_repeat", None) is not None)
 
     def _set_override_from_panel(self, key: str, value: str) -> None:
-        """Apply a panel pick to the placement override (WM2 Q4/Q5).
+        """Apply a panel pick to the placement override (WM2 Q4/Q5, WM3 D4).
 
         A value outside this row's option set (a primitive's "By Linetype
         (...)", an unknown name, "Missing (<id>)") changes nothing. A
@@ -2290,6 +2293,17 @@ class BlockInstance(QGraphicsObject):
                 new["weight"] = value
             else:
                 return
+        elif key == "Colour":
+            from .colour_tokens import colour_from_label, picked_colour
+            if value == ss.AS_AUTHORED_LABEL:
+                new["colour"] = ss.AS_AUTHORED
+            elif value.startswith(ss.BY_CATEGORY_LABEL):
+                new["colour"] = ss.BY_CATEGORY
+            else:
+                c = picked_colour(value) or colour_from_label(value)
+                if c is None:
+                    return          # No Fill, "Pick colour...", unknown: not a placement colour
+                new["colour"] = c
         else:
             if value == ss.AS_AUTHORED_LABEL:
                 new["linetype"] = ss.AS_AUTHORED

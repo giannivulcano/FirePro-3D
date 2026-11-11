@@ -13,7 +13,7 @@ from PyQt6.QtGui import QBrush, QColor, QPen
 
 from . import paper_display as _pd   # module imports (hot path)
 from . import theme as _th
-from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG, TOKEN_PREFIX
+from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG, TOKEN_BLOCKS, TOKEN_PREFIX
 
 _log = logging.getLogger(__name__)
 _warned: set[str] = set()
@@ -27,9 +27,10 @@ def is_token(value) -> bool:
 
 
 def token_label(value) -> str | None:
-    """UI label of a token ("Automatic" / "Accent"); None for hex / TOKEN_BG."""
-    if not is_token(value) or value == TOKEN_BG:
-        return None   # TOKEN_BG is internal, never offered in a picker
+    """UI label of a token ("Automatic" / "Accent"); None for hex and the
+    internal tokens TOKEN_BG / TOKEN_BLOCKS (never offered in a picker)."""
+    if not is_token(value) or value in (TOKEN_BG, TOKEN_BLOCKS):
+        return None
     return _LABELS.get(value, "Automatic")
 
 
@@ -46,6 +47,36 @@ def normalize_colour(value, default: str = "#ffffff") -> str:
     if is_token(s) or s.startswith("#"):
         return s
     return default
+
+
+def picked_colour(value) -> str | None:
+    """A user-pickable colour (WM3 D1): lower-case ``#rrggbb``,
+    ``token:auto`` or ``token:accent``; None for anything else -- ``""``
+    (No Fill), the internal tokens (``token:bg`` / ``token:element`` /
+    ``token:blocks``), unknown tokens, garbage."""
+    v = normalize_colour(value, "")
+    if v in (TOKEN_AUTO, TOKEN_ACCENT):
+        return v
+    if v.startswith("#"):
+        c = QColor(v)
+        return c.name() if c.isValid() else None
+    return None
+
+
+def swatch_label(value) -> str:
+    """The label a ``ui_kit.Swatch`` shows for a stored colour: "None" for
+    ``""``, the token label, else the upper-case hex."""
+    return "None" if not value else (token_label(value) or str(value).upper())
+
+
+def colour_from_label(label) -> str | None:
+    """Inverse of :func:`swatch_label` for a pickable colour: "Automatic" /
+    "Accent" -> its token, a hex label -> lower-case hex; else None."""
+    s = str(label)
+    for tok, lab in _LABELS.items():
+        if s == lab:
+            return tok
+    return picked_colour(s) if s.startswith("#") else None
 
 
 def _paper_mode(item):
@@ -67,12 +98,28 @@ def _paper_mode(item):
     return None
 
 
+def _blocks_colour(item) -> QColor:
+    """``token:blocks`` -- a By Category placement Colour (WM3 D3): the
+    Model "Blocks" colour on the canvas; on paper (every colour mode) the
+    paper "Blocks" category colour, cached on the instance for the pass by
+    ``paper_display._apply_block``, else read from the categories."""
+    if _paper_mode(item) is None:                # canvas: the Model "Blocks" colour
+        v = _pd.model_blocks_colour()
+        return resolve_colour(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item=item)
+    c = getattr(item, "_paper_blocks_colour", None)
+    if c is not None:
+        return QColor(c)
+    v = _pd.load_paper_categories()["Blocks"]["color"]
+    return _pd._paper_qcolor(TOKEN_AUTO if v == TOKEN_BLOCKS else v, item)
+
+
 def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
     """QColor for a stored colour string on the surface *item* paints on.
 
     Hex passes through ``QColor(value)`` unchanged. ``token:auto`` -> theme
     ``ink`` on canvas, black on paper; ``token:accent`` -> theme ``accent`` on
     canvas, the light-theme accent on paper; B&W paper -> black for both.
+    ``token:blocks`` (internal, WM3) -> :func:`_blocks_colour`.
     An unknown token draws as Automatic (one warning per value). ``""`` (No
     Fill / no stroke, universal picker) is fully transparent whatever *alpha*,
     so a pen, brush or text colour built from it draws nothing; ``None``
@@ -86,6 +133,8 @@ def resolve_colour(value, alpha: int | None = None, item=None) -> QColor:
         if value == TOKEN_BG:
             mode = _paper_mode(item)
             c = QColor(_th.detect().canvas_bg) if mode is None else QColor("#ffffff")
+        elif value == TOKEN_BLOCKS:
+            c = _blocks_colour(item)
         else:
             if value not in _LABELS and value not in _warned:
                 _warned.add(value)

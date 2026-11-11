@@ -1,13 +1,14 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-11-07  # HF7 Account: §10.5 HATCH / SOLID rows, cache version 6, child data-slot map (data(8) mask), §13.1 item 14 -- pointers to the HF7 design only, rest not re-audited; prior 2026-11-03  # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only; prior 2026-10-18  # HF1 Account: cache version 5 / ACI 7 -> Automatic pointer only (rest not re-audited); prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-01 scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
-verified-commit: 462c22d0   # HF7 branch head (ff to main, v0.95.0; pointers only); prior 6c03cd1c   # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only (ff to main); prior 084b43e0   # HF1 Account (pointer only); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c8ff4f4 feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
+last-verified: 2026-11-10  # sheet-linked doc Account: §4.2 shared-path pointer, §8.5 pdf_raster pointer, applies-to rows only, rest not re-audited; prior 2026-11-07  # HF7 Account: §10.5 HATCH / SOLID rows, cache version 6, child data-slot map (data(8) mask), §13.1 item 14 -- pointers to the HF7 design only, rest not re-audited; prior 2026-11-03  # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only; prior 2026-10-18  # HF1 Account: cache version 5 / ACI 7 -> Automatic pointer only (rest not re-audited); prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-01 scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: f1dcede4   # feature/sheet-linked-doc close (0.96.0; pointers only); prior 462c22d0   # HF7 branch head (ff to main, v0.95.0; pointers only); prior 6c03cd1c   # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only (ff to main); prior 084b43e0   # HF1 Account (pointer only); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c8ff4f4 feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/settings/panes.py        # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
   - firepro3d/model_space.py          # §16.3 pens, repen_underlay — now thin delegating shells (see note below)
-  - firepro3d/underlay_controller.py  # 2026-09-02: underlay concern extracted here (UnderlayController); behavior unchanged
+  - firepro3d/underlay_controller.py  # 2026-09-02: underlay concern extracted here (UnderlayController); behavior unchanged; 2026-11-10: import_pdf raster calls pdf_raster (behaviour unchanged)
+  - firepro3d/pdf_raster.py           # caller side only (§8.5); the helper is owned by the sheet-linked-document design
   - firepro3d/level_manager.py        # §7.2 per-level visibility clause
   - firepro3d/level_widget.py         # §16.7 rename remap
   - firepro3d/paper_display.py        # §16.5 paper override stage
@@ -222,6 +223,8 @@ When deserializing:
 2. If the resolved path does not exist, try the stored path as absolute (handles: project file moved but underlay stayed).
 3. If neither resolves, mark as missing (see §5).
 
+> **Shared (2026-11-10):** sheet-linked documents store their path with the same `Underlay.relativize_path` / `resolve_path` helpers ([sheet-linked-document design](../superpowers/specs/2026-11-09-sheet-linked-document-design.md) Q11 / AC9), so a change to §4.1-§4.2 changes theirs too.
+
 ### 4.3 Relink action
 
 User picks a new file via file dialog → `Underlay.path` updated using the save-time rules (§4.1) → triggers refresh from disk.
@@ -364,7 +367,7 @@ After re-importing, re-apply hidden layers: walk children, hide those whose `dat
 
 ### 8.5 PDF underlays
 
-Single raster item — no source layers. Browser tree shows the file node with a page child but no layer children. `hidden_layers` stays empty; layer toggling is not offered.
+Single raster item — no source layers. Browser tree shows the file node with a page child but no layer children. `hidden_layers` stays empty; layer toggling is not offered. The page → `QImage` raster in `import_pdf` (PyMuPDF path) is the shared helper `pdf_raster.pdf_page_to_qimage`, also used by the sheet-linked document page (governed by the [sheet-linked-document design](../superpowers/specs/2026-11-09-sheet-linked-document-design.md)).
 
 ---
 
