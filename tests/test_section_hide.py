@@ -22,3 +22,21 @@ def test_probe_hidden_pipe_stays_hidden_after_save_and_load(qapp, section_scene_
     (p2,) = ms2.sprinkler_system.pipes
     assert p2._display_overrides.get("visible") is False
     assert not p2.isVisible()
+
+
+def test_hide_and_show_paths_emit_hidden_changed_but_not_scene_modified(qapp, section_scene_for):
+    """D5: one signal per Hide / Show call (sections re-run their pass on it);
+    Hide stays outside undo, so sceneModified never fires (display_manager.py:899)."""
+    from firepro3d.pipe import Pipe
+    ms, _sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 8000.0)
+    pipe = _pipe(ms, (2000.0, -1000.0, 2500.0), (6000.0, -1000.0, 2500.0))
+    hidden, modified = [], []
+    ms.hiddenChanged.connect(lambda: hidden.append(1))
+    ms.sceneModified.connect(lambda: modified.append(1))
+    ms._hide_items([pipe])
+    ms._show_items([pipe])
+    ms._hide_all_of_type(Pipe)
+    ms._show_all_hidden()
+    assert len(hidden) == 4
+    assert modified == []
+    assert pipe._display_overrides.get("visible") is not False

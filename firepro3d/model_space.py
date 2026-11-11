@@ -203,6 +203,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes
     instructionDisplay = pyqtSignal(str)  # instructionChanged + " (Reference)" cue (RG8)
     sceneModified = pyqtSignal()          # emitted on every push_undo_state
+    hiddenChanged = pyqtSignal()          # a Hide / Show changed _display_overrides["visible"]
+                                          # (elevation-parity D5; no undo, no sceneModified)
     levelsRestored = pyqtSignal()         # undo / redo replaced the level list (SB2b M15)
     radiationConfirm = pyqtSignal()       # Enter pressed during radiation selection
     radiationCancel = pyqtSignal()        # Escape pressed during radiation selection
@@ -8652,6 +8654,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     item.symbol.setVisible(False)
             else:
                 item.setVisible(False)
+        self.hiddenChanged.emit()          # sections re-run their hidden pass (D5)
 
     def _show_items(self, items):
         """Show the given items via display overrides."""
@@ -8664,8 +8667,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             elif isinstance(getattr(item, "host", None), dict) and item.host:
                 pass   # gridline-hosted: never shown in plan (hosted-blocks D11);
                        # a floor void's host is its slab -- shown normally (A8)
+            elif (isinstance(getattr(item, "note", None), dict)
+                  and item.note.get("view") != self.active_view_key):
+                pass   # a Note owned by another view (a section's, D4) stays off this canvas
             else:
                 item.setVisible(True)
+        self.hiddenChanged.emit()
 
     def _show_all_hidden(self):
         """Restore visibility for all manually hidden items."""
@@ -8687,6 +8694,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         # don't remain visible after being un-hidden.
         if hasattr(self, "_level_manager"):
             self._level_manager.apply_to_scene(self)
+        self.hiddenChanged.emit()
 
     def _hide_all_of_type(self, item_type):
         """Hide all scene items that are instances of *item_type*."""
@@ -8695,6 +8703,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 if hasattr(item, "_display_overrides"):
                     item._display_overrides["visible"] = False
                 item.setVisible(False)
+        self.hiddenChanged.emit()
 
     def _move_selection_to_level(self, target_level: str):
         """Move all selected items to the target level, updating elevations."""
