@@ -254,6 +254,32 @@ def cardinal_cut(direction: str, box: QRectF):
 CARDINALS = ("north", "south", "east", "west")
 
 
+def copy_gridline_overrides(raw) -> dict[str, dict]:
+    """A deep copy of a ``gridline_z_overrides`` record: gridline ``uid`` (a
+    gridline label in a pre-elevation-parity file, re-keyed on load by
+    ``SectionManager``) -> ``{"v_top": float, "v_bot": float}`` (section-scene mm).
+
+    Raises:
+        TypeError / ValueError: a malformed record (the loader then skips the
+            marker, spec s13).
+    """
+    return {str(k): {str(kk): float(vv) for kk, vv in dict(v).items()}
+            for k, v in dict(raw).items()}
+
+
+def copy_datum_ends(raw) -> dict[str, dict]:
+    """A deep copy of a ``datum_ends`` record (elevation-parity D7): level name
+    -> ``{"left": h, "right": h}`` -- the datum line's head end (``p1``) and far
+    end (``p2``) in section-scene mm. No entry = the auto extent (the crop box).
+
+    Raises:
+        TypeError / ValueError / KeyError: a malformed record (the loader then
+            skips the marker, spec s13).
+    """
+    return {str(k): {"left": float(v["left"]), "right": float(v["right"])}
+            for k, v in dict(raw).items()}
+
+
 class SectionMarker(QGraphicsItem):
     """A section's cut line + crop box on the plan (spec s6).
 
@@ -278,7 +304,10 @@ class SectionMarker(QGraphicsItem):
         self._depth = float(depth)
         self._cardinal = cardinal
         self._auto_extent = bool(auto_extent) if cardinal else False
+        # This section's end records (elevation-parity D7), section-scene mm:
+        # gridline uid -> {"v_top", "v_bot"}; level name -> {"left", "right"}.
         self.gridline_z_overrides: dict[str, dict] = {}
+        self.datum_ends: dict[str, dict] = {}
         self._manager = None                     # set by SectionManager
         self.PAPER_EXCLUDED = cardinal is not None    # s6.4: cardinals never plot
         self._exclude_from_bulk_select = True
@@ -794,7 +823,8 @@ class SectionMarker(QGraphicsItem):
                "cut_b": [self._b.x(), self._b.y()],
                "look_sign": self._look, "depth": self._depth,
                "cardinal": self._cardinal, "auto_extent": self._auto_extent,
-               "gridline_z_overrides": dict(self.gridline_z_overrides)}
+               "gridline_z_overrides": copy_gridline_overrides(self.gridline_z_overrides),
+               "datum_ends": copy_datum_ends(self.datum_ends)}
         if not self._cardinal:
             # Always written for a placed section, "" included (SB4d D3, Phase 5
             # ruling): an absent key is the pre-SB4d signal that adopts the name
@@ -808,7 +838,8 @@ class SectionMarker(QGraphicsItem):
         m = cls(d["name"], QPointF(*d["cut_a"]), QPointF(*d["cut_b"]),
                 int(d.get("look_sign", 1)), float(d.get("depth", DEFAULT_DEPTH)),
                 cardinal=d.get("cardinal"), auto_extent=bool(d.get("auto_extent", False)))
-        m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+        m.gridline_z_overrides = copy_gridline_overrides(d.get("gridline_z_overrides", {}))
+        m.datum_ends = copy_datum_ends(d.get("datum_ends", {}))
         if not m.cardinal:
             # Q20: a pre-SB4d record adopts its name token once; a record
             # carrying a Mark keeps it (M7 never re-mints).

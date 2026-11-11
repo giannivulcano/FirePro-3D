@@ -20,7 +20,8 @@ from PyQt6.QtWidgets import QTabWidget
 from .section_scene import SectionScene
 from .elevation_view import SectionView
 from .section_marker import (SectionMarker, CARDINALS, building_bbox,
-                             CROP_MARGIN, FALLBACK_HALF, MIN_CUT_LEN, DEFAULT_DEPTH)
+                             CROP_MARGIN, FALLBACK_HALF, MIN_CUT_LEN, DEFAULT_DEPTH,
+                             copy_datum_ends, copy_gridline_overrides)
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -464,7 +465,8 @@ class SectionManager(QObject):
             if m.look_sign != d["look_sign"]:
                 m.flip()
             m._auto_extent = bool(d.get("auto_extent", False)) if m.cardinal else False
-            m.gridline_z_overrides = dict(d.get("gridline_z_overrides", {}))
+            m.gridline_z_overrides = copy_gridline_overrides(d.get("gridline_z_overrides", {}))
+            m.datum_ends = copy_datum_ends(d.get("datum_ends", {}))
             if not m.cardinal:
                 m._mark = d.get("mark", "")      # an undo snapshot carries its Mark (sparse = "")
                 m.refresh_heads()
