@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "system-tags-leveldatum",
-  "version": 3,
+  "version": 4,
   "name": "LevelDatum",
   "library": "System",
   "series": "Tags",
@@ -60,7 +60,7 @@
           "end": "by_linetype",
           "visible": true
         },
-        "colour": "token:auto"
+        "colour": ""
       }
     },
     {
@@ -85,7 +85,7 @@
           "end": "by_linetype",
           "visible": true
         },
-        "colour": "token:auto"
+        "colour": ""
       }
     },
     {
@@ -312,10 +312,10 @@
       "type": "text",
       "text": "@[Level.Name]",
       "x": 6.25,
-      "y": -5.392129013867974,
-      "height_mm": 2.701594270833333,
-      "wrap_width_mm": 30.0,
-      "box_height_mm": 5.0,
+      "y": -4.607870986131427,
+      "height_mm": 2.5252274305555553,
+      "wrap_width_mm": 27.17021169053232,
+      "box_height_mm": 4.215741972263453,
       "font_family": "Arial",
       "bold": true,
       "italic": false,
@@ -333,7 +333,7 @@
       "border_corner_radius_mm": 1.0,
       "angle": 0.0,
       "wrap": false,
-      "shrink": true,
+      "shrink": false,
       "uid": "2b2306a37bf9412dab9a6ad8b893f35d"
     },
     {
@@ -341,7 +341,7 @@
       "text": "@[Level.Elevation]",
       "x": 6.250000000000002,
       "y": 0.628581303179305,
-      "height_mm": 2.4,
+      "height_mm": 2.274242578125,
       "wrap_width_mm": 30.0,
       "box_height_mm": 3.74283739364239,
       "font_family": "Arial",
@@ -495,11 +495,7 @@
   ],
   "tile": null,
   "repeat": null,
-  "end": {
-    "trim": 0.0,
-    "screen": "fixed"
-  },
-  "base_version": 3,
+  "base_version": 4,
   "colour_tokens": 1,
   "weights": {
     "Thinner": 0.25
