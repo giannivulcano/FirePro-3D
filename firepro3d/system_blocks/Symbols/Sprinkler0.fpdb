@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "id": "system-symbols-sprinkler0",
+  "version": 1,
+  "name": "Sprinkler0",
+  "library": "System",
+  "series": "Symbols",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 1.5e-05,
+      "cy": 1.5e-05,
+      "radius": 289.923322,
+      "uid": "f6595011a7a750ca842e3b40dea04883",
+      "draw_z": 0.0,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#2e2e2e",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        213.360015,
+        213.360015
+      ],
+      "pt2": [
+        -213.36,
+        -213.36
+      ],
+      "uid": "5ff6f2a730255a1b8602ce7c70c84d4a",
+      "draw_z": 0.001,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        213.360015,
+        -213.36
+      ],
+      "pt2": [
+        -213.36,
+        213.360015
+      ],
+      "uid": "cd581b5bd7915a0d80a0102e5087afaa",
+      "draw_z": 0.002,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "symbol_for": "Sprinkler",
+  "colour_tokens": 1
+}

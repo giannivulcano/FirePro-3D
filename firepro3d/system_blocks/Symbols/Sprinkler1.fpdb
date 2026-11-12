@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "id": "system-symbols-sprinkler1",
+  "version": 1,
+  "name": "Sprinkler1",
+  "library": "System",
+  "series": "Symbols",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 0.0,
+      "cy": 0.0,
+      "radius": 297.365861,
+      "uid": "425e87f480f7593ab9ce2f6e878374ad",
+      "draw_z": 0.0,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#000000",
+          "opacity": 1.0
+        }
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "symbol_for": "Sprinkler",
+  "colour_tokens": 1
+}

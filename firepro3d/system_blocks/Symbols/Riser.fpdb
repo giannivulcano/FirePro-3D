@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "id": "system-symbols-riser",
+  "version": 1,
+  "name": "Riser",
+  "library": "System",
+  "series": "Symbols",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 7e-06,
+      "cy": 7e-06,
+      "radius": 69.639494,
+      "uid": "c5b89a017c1555359a14432e382045ea",
+      "draw_z": 0.0,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_spline",
+      "control_points": [
+        [
+          0.0,
+          -67.5
+        ],
+        [
+          -0.05085,
+          -67.093088
+        ],
+        [
+          -37.767144,
+          -27.200351
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          35.75148,
+          25.748648
+        ],
+        [
+          0.0,
+          67.5
+        ],
+        [
+          0.0,
+          67.5
+        ]
+      ],
+      "degree": 3,
+      "knots": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        1.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "weights": null,
+      "uid": "41eb5c71bae358169cdf648c1badcdd3",
+      "draw_z": 0.001,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "symbol_for": "Riser",
+  "colour_tokens": 1
+}

@@ -1,0 +1,176 @@
+{
+  "schema": 1,
+  "id": "system-symbols-watersupply",
+  "version": 1,
+  "name": "Water Supply",
+  "library": "System",
+  "series": "Symbols",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 1.5e-05,
+      "cy": 1.5e-05,
+      "radius": 289.923322,
+      "uid": "82f931824e1a5329800886f1f271de86",
+      "draw_z": 0.0,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#2b2b2e",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                57.322776,
+                95.289913
+              ],
+              [
+                79.49728,
+                53.144455
+              ],
+              [
+                58.165548,
+                19.308607
+              ],
+              [
+                0.358033,
+                -69.009451
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "267470845ed659b4a23ed139a7c89385"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                0.358033,
+                -69.009451
+              ],
+              [
+                -58.661549,
+                18.906546
+              ],
+              [
+                -80.179353,
+                56.478906
+              ],
+              [
+                -56.606682,
+                95.289913
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "f4cb4dad29595099a65fdafe98fbbe16"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -56.606682,
+                95.289913
+              ],
+              [
+                -33.034029,
+                134.100859
+              ],
+              [
+                35.14824,
+                137.435371
+              ],
+              [
+                57.322776,
+                95.289913
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "edd838ad0dd15d3bb9227c4555bbf104"
+          }
+        ]
+      ],
+      "outline": true,
+      "uid": "f2b94445655354b69114799f5daf838b",
+      "draw_z": 0.001,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "symbol_for": "Water Supply",
+  "colour_tokens": 1
+}

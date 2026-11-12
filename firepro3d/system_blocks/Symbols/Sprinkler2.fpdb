@@ -1,0 +1,969 @@
+{
+  "schema": 1,
+  "id": "system-symbols-sprinkler2",
+  "version": 1,
+  "name": "Sprinkler2",
+  "library": "System",
+  "series": "Symbols",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 1.5e-05,
+      "cy": 1.5e-05,
+      "radius": 297.003646,
+      "uid": "4ed6144385d25303bf53715ee6965e8b",
+      "draw_z": 0.0,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.152476,
+        304.800015
+      ],
+      "pt2": [
+        0.152323,
+        -300.382609
+      ],
+      "uid": "482b48ea61f55e4782dae716bc69ff3b",
+      "draw_z": 0.001,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.152323,
+        -300.382609
+      ],
+      "pt2": [
+        0.152323,
+        -304.799998
+      ],
+      "uid": "b5845bc8a233541d941d75f73f7dd065",
+      "draw_z": 0.002,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_line",
+      "pt1": [
+        -304.799998,
+        0.152628
+      ],
+      "pt2": [
+        304.800015,
+        0.152202
+      ],
+      "uid": "b61d8fda5d455e4db9011fd6cc529ffd",
+      "draw_z": 0.003,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -29.09491,
+                287.295591
+              ],
+              [
+                -92.983459,
+                280.724596
+              ],
+              [
+                -153.566901,
+                252.512878
+              ],
+              [
+                -199.808711,
+                207.799775
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "ff2617bf81ab5a229f0e3483536462b2"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -199.808711,
+                207.799775
+              ],
+              [
+                -216.584178,
+                191.578888
+              ],
+              [
+                -227.412937,
+                178.669914
+              ],
+              [
+                -239.815196,
+                160.108016
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "1c3c1a09a66c53f5ba3b4881ed604e52"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -239.815196,
+                160.108016
+              ],
+              [
+                -270.159436,
+                114.69318
+              ],
+              [
+                -286.009329,
+                65.625246
+              ],
+              [
+                -288.476306,
+                9.46348
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "2396d46c626456c9a9924579b3c553de"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -288.476306,
+              9.46348
+            ],
+            "pt2": [
+              -288.84162,
+              1.146965
+            ],
+            "uid": "5bfdfc81185b56f3ae210ef7ebfc8b45"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -288.84162,
+              1.146965
+            ],
+            "pt2": [
+              -144.855394,
+              1.146965
+            ],
+            "uid": "7623341d3e095f3285721c66fc97bf2f"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -144.855394,
+              1.146965
+            ],
+            "pt2": [
+              -0.86916,
+              1.146965
+            ],
+            "uid": "7bffee28ca715144861ba4c0297b2b69"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -0.86916,
+              1.146965
+            ],
+            "pt2": [
+              -0.86916,
+              144.795869
+            ],
+            "uid": "e365c21ffd305b8bb800dc1e27e923bf"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -0.86916,
+              144.795869
+            ],
+            "pt2": [
+              -0.86916,
+              288.444774
+            ],
+            "uid": "3b7b2da0819f5316abb9d3fd7a5929ec"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -0.86916,
+              288.444774
+            ],
+            "pt2": [
+              -10.697769,
+              288.310822
+            ],
+            "uid": "e87faabb912e54378decf98d2333bfec"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -10.697769,
+                288.310822
+              ],
+              [
+                -16.103508,
+                288.237435
+              ],
+              [
+                -24.382218,
+                287.780259
+              ],
+              [
+                -29.09491,
+                287.295591
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "9b64e7cb5486594fb6026a602b1154e5"
+          }
+        ]
+      ],
+      "outline": true,
+      "uid": "3d7dd58214bd5960bbb67550cc7ae0b0",
+      "draw_z": 0.004,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#000000",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_line",
+            "pt1": [
+              1.146965,
+              -144.926773
+            ],
+            "pt2": [
+              1.146965,
+              -288.984385
+            ],
+            "uid": "ee2e044c89f7565dbf55fdff3ad58060"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              1.146965,
+              -288.984385
+            ],
+            "pt2": [
+              9.46348,
+              -288.539136
+            ],
+            "uid": "2041a7029b265c508618c94193ba7dda"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                9.46348,
+                -288.539136
+              ],
+              [
+                41.307739,
+                -286.834268
+              ],
+              [
+                63.433436,
+                -282.853282
+              ],
+              [
+                90.864526,
+                -273.892984
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "fa4928a3e1a75baa8ef4db5b9ad064f9"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                90.864526,
+                -273.892984
+              ],
+              [
+                115.318961,
+                -265.905002
+              ],
+              [
+                137.396287,
+                -254.99166
+              ],
+              [
+                160.924869,
+                -239.260494
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "593e0cc7659850e7aa03b40dd88b7767"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                160.924869,
+                -239.260494
+              ],
+              [
+                226.015738,
+                -195.740873
+              ],
+              [
+                270.845551,
+                -126.728383
+              ],
+              [
+                284.349758,
+                -49.256159
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "b3864aae6dd159b4b4001e2b51ac0a42"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                284.349758,
+                -49.256159
+              ],
+              [
+                286.864858,
+                -34.827301
+              ],
+              [
+                288.444774,
+                -19.229115
+              ],
+              [
+                288.444774,
+                -8.826854
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "96ae3aff3a815946a9c1e558ce5380df"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              288.444774,
+              -8.826854
+            ],
+            "pt2": [
+              288.444774,
+              -0.86916
+            ],
+            "uid": "3bb20a7e9e0655af912a91cb14dc0b4b"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              288.444774,
+              -0.86916
+            ],
+            "pt2": [
+              144.795869,
+              -0.86916
+            ],
+            "uid": "658765f2cdff5927a3f6bf208e559cc3"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              144.795869,
+              -0.86916
+            ],
+            "pt2": [
+              1.146965,
+              -0.86916
+            ],
+            "uid": "6edaaa8d01b85ff59f6795ce04e4c3c7"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              1.146965,
+              -0.86916
+            ],
+            "pt2": [
+              1.146965,
+              -144.926773
+            ],
+            "uid": "ed2881fe199c5af3a4ed277aee8f5c7d"
+          }
+        ]
+      ],
+      "outline": true,
+      "uid": "8ee76d3281705875b8fdb9bc27e9ac76",
+      "draw_z": 0.005,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#000000",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -288.424255,
+                -10.697769
+              ],
+              [
+                -284.994071,
+                -109.877892
+              ],
+              [
+                -229.774642,
+                -200.852798
+              ],
+              [
+                -142.65898,
+                -250.848456
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "bd38662d77f75e97874a12d9cb9bf017"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                -142.65898,
+                -250.848456
+              ],
+              [
+                -103.070809,
+                -273.56809
+              ],
+              [
+                -57.738038,
+                -286.495541
+              ],
+              [
+                -10.697769,
+                -288.479552
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "d9a8af0276035d61b1b13665a80c4683"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -10.697769,
+              -288.479552
+            ],
+            "pt2": [
+              -0.86916,
+              -288.894092
+            ],
+            "uid": "f1ed82e6f85a58a9b54fb8789f916f0b"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -0.86916,
+              -288.894092
+            ],
+            "pt2": [
+              -0.86916,
+              -144.88162
+            ],
+            "uid": "e2fe83b5046a522f9a133577fe7c294a"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -0.86916,
+              -144.88162
+            ],
+            "pt2": [
+              -0.86916,
+              -0.86916
+            ],
+            "uid": "c37a8bc33b375478a2062638ab662be5"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -0.86916,
+              -0.86916
+            ],
+            "pt2": [
+              -144.816677,
+              -0.86916
+            ],
+            "uid": "7e9ef1e63d7e5a719bd6d4e067ef61e9"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -144.816677,
+              -0.86916
+            ],
+            "pt2": [
+              -288.764181,
+              -0.86916
+            ],
+            "uid": "bbd7b61f29ff567588fb71999a290e10"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -288.764181,
+              -0.86916
+            ],
+            "pt2": [
+              -288.424255,
+              -10.697769
+            ],
+            "uid": "bc9273a0543e52aaa513a65c4fd3f009"
+          }
+        ]
+      ],
+      "outline": true,
+      "uid": "b2e82c8a68fa594b99a6f962eeeddcfe",
+      "draw_z": 0.006,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#ffffff",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_line",
+            "pt1": [
+              1.146965,
+              144.952796
+            ],
+            "pt2": [
+              1.146965,
+              1.146965
+            ],
+            "uid": "e1e4cd49b4dc52a79008e76eeee66d74"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              1.146965,
+              1.146965
+            ],
+            "pt2": [
+              144.795869,
+              1.146965
+            ],
+            "uid": "69c57a4be48e5ab39809281d4b2e96ee"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              144.795869,
+              1.146965
+            ],
+            "pt2": [
+              288.444774,
+              1.146965
+            ],
+            "uid": "1acafdbde3ee55d5ae7b2f9aa2589a5e"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              288.444774,
+              1.146965
+            ],
+            "pt2": [
+              288.443556,
+              9.46348
+            ],
+            "uid": "c1524a0193405a0bbe797de306c448a4"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                288.443556,
+                9.46348
+              ],
+              [
+                288.441943,
+                20.386087
+              ],
+              [
+                285.925868,
+                41.984899
+              ],
+              [
+                282.893228,
+                57.109167
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "9b8164b9378050069beb582ea5f2d954"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                282.893228,
+                57.109167
+              ],
+              [
+                268.64687,
+                128.158129
+              ],
+              [
+                228.020791,
+                191.020131
+              ],
+              [
+                168.485338,
+                234.136052
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "07dbea1512205207920a90fa3485c283"
+          },
+          {
+            "type": "draw_spline",
+            "control_points": [
+              [
+                168.485338,
+                234.136052
+              ],
+              [
+                123.697686,
+                266.571527
+              ],
+              [
+                69.607787,
+                285.655279
+              ],
+              [
+                15.511855,
+                288.107468
+              ]
+            ],
+            "degree": 3,
+            "knots": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ],
+            "weights": null,
+            "uid": "3e7b0bb72f5356788e78d54709fbf956"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              15.511855,
+              288.107468
+            ],
+            "pt2": [
+              1.146965,
+              288.758676
+            ],
+            "uid": "83a52e68ab5952a1bdef0ab656f59de0"
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              1.146965,
+              288.758676
+            ],
+            "pt2": [
+              1.146965,
+              144.952796
+            ],
+            "uid": "0bab6586af155c45ad07913ad20d28d4"
+          }
+        ]
+      ],
+      "outline": true,
+      "uid": "542cd3f3739f591a8c40163d229619b3",
+      "draw_z": 0.007,
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      },
+      "fill": {
+        "background": {
+          "color": "#ffffff",
+          "opacity": 1.0
+        }
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "symbol_for": "Sprinkler",
+  "colour_tokens": 1
+}
