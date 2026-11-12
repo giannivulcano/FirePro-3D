@@ -443,3 +443,74 @@ def test_clipboard_record_drops_the_hydraulic_rows(tree):
     assert HYDRAULIC_ROW_KEYS <= set(n.sprinkler.get_properties())   # the rows exist ...
     rec = next(r for r in ms._clipboard_item_dicts([n]) if r.get("type") == "node")
     assert rec["sprinkler"] and not HYDRAULIC_ROW_KEYS & set(rec["sprinkler"])  # ... not copied
+
+
+# -- VC9 I1: undo / redo keep the solve on an unchanged network ---------------
+
+def _commit_badge_position(ms, n, value):
+    from firepro3d.property_manager import PropertyManager
+    pm = PropertyManager()
+    try:
+        pm.show_properties(n)
+        pm._apply_property("Badge Position", value)
+    finally:
+        pm._refresh_timer.stop()                    # tests own teardown (panel timer crash)
+        pm.deleteLater()
+
+
+def _assert_badges_live(ms, expected_count):
+    live = list(ms.sprinkler_system.nodes)
+    badges = [i for i in ms.items() if type(i).__name__ == "HydraulicNodeBadge"]
+    assert len(badges) == expected_count
+    assert len(_badges(live)) == expected_count
+    for n, b in _badges(live).items():
+        assert b.scene() is ms and n in live
+    r = ms.hydraulic_result
+    assert set(r.node_labels) <= set(live)
+    assert set(r.pipe_velocity) == set(ms.sprinkler_system.pipes)
+    for n in live:
+        assert ep.host_values(n)["NodeNumber"].raw == (r.node_labels.get(n) or None)
+        assert ep.host_values(n)["Pressure"].raw == r.node_pressures.get(n)
+
+
+def test_g11_undo_redo_of_a_badge_position_commit_keeps_the_solve(qapp, tree):
+    ms, nodes = tree
+    solve(ms)
+    count = len(_badges(nodes))
+    assert count
+    n = nodes[2]
+    auto_side = n._hydraulic_badge.side
+    assert auto_side != "Below"                       # else the guard proves nothing
+    ms.push_undo_state()                              # baseline (Auto)
+    _commit_badge_position(ms, n, "Below")            # pushes the Below snapshot
+    assert n._hydraulic_badge.side == "Below"
+    ms.undo()
+    live = {i: x for i, x in enumerate(ms.sprinkler_system.nodes)}
+    m = live[2]
+    assert m is not n
+    _assert_badges_live(ms, count)
+    assert m.badge_position == "Auto"
+    assert m._hydraulic_badge.side == auto_side
+    dy = m._hydraulic_badge.pos().y() - m.scenePos().y()
+    assert (dy > 0) == (auto_side == "Below")
+    ms.redo()
+    m2 = list(ms.sprinkler_system.nodes)[2]
+    _assert_badges_live(ms, count)
+    assert m2.badge_position == "Below"
+    assert m2._hydraulic_badge.side == "Below"
+    assert m2._hydraulic_badge.pos().y() > m2.scenePos().y()
+
+
+def test_g12_undo_to_a_different_network_clears_the_solve(qapp, tree):
+    ms, nodes = tree
+    solve(ms)
+    assert _badges(nodes)
+    ms.push_undo_state()                              # baseline: with the last pipe
+    ms.delete_pipe(next(p for p in ms.sprinkler_system.pipes
+                        if {p.node1, p.node2} == {nodes[4], nodes[5]}))
+    ms.push_undo_state()
+    ms.undo()
+    assert ms.hydraulic_result is None
+    live = list(ms.sprinkler_system.nodes)
+    assert _badges(live) == {}
+    assert not [i for i in ms.items() if type(i).__name__ == "HydraulicNodeBadge"]

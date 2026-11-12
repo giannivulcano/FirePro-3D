@@ -26,6 +26,38 @@ from .display_manager import apply_category_defaults
 from .constants import DEFAULT_LEVEL, DESIGN_AREA_HL_RADIUS_PX, Z_OVERLAY
 
 
+def refresh_hydraulic_overlay(scene) -> None:
+    """Redraw pipe labels and node badges from ``scene.hydraulic_result``.
+
+    Shared by a solve and by an undo/redo that keeps the result.
+    """
+    from .hydraulic_node_badge import layout_badges
+    for pipe in scene.sprinkler_system.pipes:
+        pipe.update_label()
+        pipe.update()
+    # Badges on major nodes only (numeric labels, AC7); values are live.
+    nodes = list(scene.sprinkler_system.nodes)
+    labels = getattr(scene.hydraulic_result, "node_labels", None) or {}
+    for node in nodes:
+        node.remove_hydraulic_badge()
+        label = labels.get(node)
+        if label is not None and str(label).isdigit():
+            node.create_hydraulic_badge()
+    layout_badges(nodes)
+    for node in nodes:
+        node.update()
+
+
+def clear_hydraulic_overlay(scene) -> None:
+    """Blank pipe labels and remove every node badge (result already None)."""
+    for pipe in scene.sprinkler_system.pipes:
+        pipe.update_label()
+        pipe.update()
+    for node in scene.sprinkler_system.nodes:
+        node.remove_hydraulic_badge()
+        node.update()
+
+
 class SprinklerWorkflowController:
     def __init__(self, scene):
         self._scene = scene
@@ -411,34 +443,13 @@ class SprinklerWorkflowController:
             } if (result.passed or result.node_pressures) else None)
         self._scene.hydraulic_result = result
         self._scene._supply_network_node = getattr(solver, '_supply_node', None)
-        # Refresh all pipe labels and node badges
-        for pipe in self._scene.sprinkler_system.pipes:
-            pipe.update_label()
-            pipe.update()
-        from .hydraulic_node_badge import layout_badges
-        # Badges on major nodes only (numeric labels, AC7); values are live.
-        nodes = list(self._scene.sprinkler_system.nodes)
-        labels = getattr(result, "node_labels", None) or {}
-        for node in nodes:
-            node.remove_hydraulic_badge()
-            label = labels.get(node)
-            if label is not None and str(label).isdigit():
-                node.create_hydraulic_badge()
-        layout_badges(nodes)
-
-        for node in self._scene.sprinkler_system.nodes:
-            node.update()
+        refresh_hydraulic_overlay(self._scene)
         return result
 
     def clear_hydraulics(self):
         """Remove the hydraulic results overlay."""
         self._scene.hydraulic_result = None
-        for pipe in self._scene.sprinkler_system.pipes:
-            pipe.update_label()
-            pipe.update()
-        for node in self._scene.sprinkler_system.nodes:
-            node.remove_hydraulic_badge()
-            node.update()
+        clear_hydraulic_overlay(self._scene)
 
     def set_coverage_overlay(self, visible: bool):
         """Show or hide translucent coverage circles on all sprinkler nodes."""

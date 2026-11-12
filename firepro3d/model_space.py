@@ -3628,6 +3628,46 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             **extra,
         }
 
+    def _network_pipes(self, node_list) -> list:
+        """Pipes in snapshot order: those whose both nodes are in ``node_list``."""
+        known = set(node_list)
+        return [p for p in self.sprinkler_system.pipes
+                if p.node1 is not None and p.node2 is not None
+                and p.node1 in known and p.node2 in known]
+
+    @staticmethod
+    def _network_signature(node_list, pipe_list) -> tuple:
+        """Geometry/topology identity of a network, as the codec serializes it."""
+        idx = {n: i for i, n in enumerate(node_list)}
+        nodes = tuple((round(n.scenePos().x(), 6), round(n.scenePos().y(), 6),
+                       round(n.z_pos, 6)) for n in node_list)
+        pipes = tuple((idx[p.node1], idx[p.node2]) for p in pipe_list)
+        return nodes, pipes
+
+    def _carry_hydraulic_result(self, old_nodes, old_pipes, old_sig):
+        """After a restore: keep the solve on an unchanged network, else clear it."""
+        from .sprinkler_workflow_controller import (
+            clear_hydraulic_overlay, refresh_hydraulic_overlay)
+        new_nodes = list(self.sprinkler_system.nodes)
+        new_pipes = self._network_pipes(new_nodes)
+        if self._network_signature(new_nodes, new_pipes) != old_sig:
+            self.hydraulic_result = None
+            clear_hydraulic_overlay(self)
+            return
+        import dataclasses
+        mapping = dict(zip(old_nodes, new_nodes))
+        mapping.update(zip(old_pipes, new_pipes))
+        res = self.hydraulic_result
+        for f in dataclasses.fields(res):
+            val = getattr(res, f.name)
+            if isinstance(val, dict):
+                setattr(res, f.name, {mapping.get(k, k): mapping.get(v, v)
+                                      for k, v in val.items()})
+        sup = self._supply_network_node
+        if sup is not None:
+            self._supply_network_node = mapping.get(sup, sup)
+        refresh_hydraulic_overlay(self)
+
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
         self._note_ctl.discard_overlay()      # a live Note overlay's host dies below
@@ -3645,6 +3685,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             for v in self.views():
                 v.viewport().update()
         levels_restored = False
+        # VC9 I1: a solved result survives an undo/redo whose restored network
+        # matches the one being replaced; capture the old objects first.
+        old_net = None
+        if self.hydraulic_result is not None:
+            old_nodes = list(self.sprinkler_system.nodes)
+            old_pipes = self._network_pipes(old_nodes)
+            old_net = (old_nodes, old_pipes,
+                       self._network_signature(old_nodes, old_pipes))
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
@@ -3999,6 +4047,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         finally:
             self._in_undo_restore = False
+        if old_net is not None:
+            self._carry_hydraulic_result(*old_net)
         if levels_restored:
             self.last_level_rename = level_rename
             try:
