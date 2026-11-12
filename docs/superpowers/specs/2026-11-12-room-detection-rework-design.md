@@ -44,6 +44,9 @@ Phase 3 (2026-11-12):
   exclude it.
 - **D-R5 Engine:** approach A (below), approved over B (wall-body union) and C (patch the walk).
 
+Phase 4 (2026-11-12): **D-R6** the not-enclosed ring marks the nearest free wall end (end-cap
+midpoint); **D-R7** perf bar (Verification Checklist).
+
 ## Architecture & Constraints
 
 - Geometry in mm (scene units; `pixels_per_mm` calibration applies to displayed area /
@@ -75,11 +78,14 @@ door never opens a room (Q8).
 
 **1.4 `detect(walls, click) -> RoomFace | Refusal`:**
 1. Any candidate body `containsPoint(click, OddEvenFill)` → `Refusal("in_wall")`.
-2. `face = arr.face_at(click)`; `None` → `Refusal("open", arr.nearest_open_end(click))`.
+2. `face = arr.face_at(click)`; `None` → `Refusal("open", nearest_open_end(click))`, where
+   the open end is the arrangement's own open end if any, else the midpoint of the nearest
+   free-end cap (`WallOutline.caps`) among the candidate walls (D-R6: wall bodies are closed
+   loops, so the arrangement never records an open end for walls — Phase 4 probe).
 3. A face whose interior sample point lies inside a wall body (a wall-body fragment) →
    `Refusal("in_wall")`.
-4. `outer` = the face's outer piece cycle as `list[QPointF]` (CCW, duplicate closing point
-   dropped).
+4. `outer` = the face's outer piece cycle as `list[QPointF]` in walk order (not reoriented;
+   area uses the absolute shoelace), duplicate closing point dropped.
 5. `holes`: `face.islands` grouped into clusters by shared walls (union-find on
    `tag.item` across island cycles); each cluster's walls' bodies → `wall_outline.cluster_union`
    → the outer subpath(s) of that union (largest-area ring per connected component) = one hole
@@ -108,7 +114,8 @@ branch, `_detect_sprinklers`, and new `contains_point(pt) -> bool`.
 **2.4 Transforms:** `translate` and `manip_rotate` move/rotate every hole with the outer ring
 (paste goes through `translate`).
 
-**2.5 Tag anchor (D-R3):** `_centroid()` keeps the vertex mean when `contains_point` holds;
+**2.5 Tag anchor (D-R3):** a room without holes keeps the vertex mean unconditionally (as
+today, concave rooms included). A room with holes keeps it when `contains_point` holds;
 otherwise the anchor is the midpoint of the widest inside interval of the horizontal line
 through the vertex mean (intersections with outer + hole rings, sorted, paired); if that line
 has no inside interval, the outer ring's first-edge midpoint nudged inward. `marks.py`'s Room
@@ -131,6 +138,10 @@ Keys documented in spec §12 and `scene-io.md` §2.
 | `halo.py` Room trace | `room_path()` |
 
 ### 3. Placement — `Model_Space._press_room`
+
+*Interior sample point* (used below): for an existing room, `Room.sample_point()` = the first
+outer-edge midpoint pushed `ROOM_SAMPLE_INSET_MM` (1.0, new constant) into the net area (the
+vertex mean can lie inside the very island being punched); for the new face, the click.
 
 1. `detect(...)`: `in_wall` → status "Click inside a room, not on a wall"; `open` → "Not
    enclosed — no closed wall boundary at the click point"; no room.
@@ -195,7 +206,10 @@ AC1–AC14 as ratified in `.todo/room-detect-phase2.md`, plus:
 
 - `tests/test_wall_polish_rooms.py` bow-tie golden (encodes R1) is re-baselined to the exact
   faces.
-- Perf (AC11): bench after smoke, metric confirmed with the user first (Phase 5 Performance).
+- Perf (AC11, D-R7, ratified 2026-11-12 at Phase 4): on the 304-wall endpoint grid (base:
+  today's click 595 ms) a Room-mode click / first build after a wall edit <= 200 ms and a
+  cached hover move <= 30 ms; two shapes (304-wall endpoint grid, 161-wall tee grid);
+  interleaved base/HEAD pairs, raw lines to a file; run after smoke on an idle host.
 
 ## Existing Code Context
 
