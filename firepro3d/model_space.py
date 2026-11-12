@@ -358,6 +358,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._pick_region_slow: bool = False             # last build > REGION_FINDER_DEBOUNCE_MS
         self._pick_region_timer = None                   # QTimer for the debounced hover
         self._pick_region_pending: "QPointF | None" = None
+        # Room mode (room-detection rework §1.5 / §4): (key, walls, Arrangement)
+        # cache, last-build-slow flag, and the debounced hover (HF4 D-A25 form).
+        self._room_arr: "tuple | None" = None
+        self._room_slow: bool = False
+        self._room_timer = None
+        self._room_pending: "QPointF | None" = None
         self._draw_line_anchor: "QPointF | None" = None       # first click for line
         # RG6: Space toggles reference placement in every 2D shape tool;
         # reset per placement (set_mode).  _last_instruction remembers the
@@ -1367,6 +1373,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 self._pick_region_timer.stop()
             for v in self.views():
                 v.viewport().update()
+
+        if mode != "room":
+            # Room-mode hover / cache teardown (§1.5, §4); the shared preview
+            # is cleared too so a switch to Pick point never inherits it.
+            self._room_arr = None
+            self._room_pending = None
+            self._room_slow = False
+            if self._room_timer is not None:
+                self._room_timer.stop()
+            self._pick_region_preview = None
 
         # Clean up manual room drawing state
         if mode != "room_manual":
@@ -6767,270 +6783,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             return False
         return zr[0] <= lvl.elevation <= zr[1]
 
-    def _detect_room_boundary(self, click_pt: QPointF) -> list[QPointF] | None:
-        """Detect a closed wall boundary enclosing *click_pt*.
-
-        Builds a graph from wall endpoints on the active level (including
-        T-junction face points), then walks the boundary choosing the
-        tightest clockwise turn.  Returns interior face polygon vertices.
-        """
-        import math as _m
-        from collections import defaultdict
-
-        TOL = 2.0
-        level = self.active_level
-        # Include walls visible on this plan — not just walls whose base
-        # level matches, but also multi-level walls that span through it.
-        walls = [w for w in self._walls
-                 if w.isVisible() and (
-                     w.level == level
-                     or getattr(w, "_base_level", "") == level
-                     or self._wall_spans_level(w, level))]
-        if not walls:
-            return None
-
-        # ── Collect graph nodes: endpoints + T-junction face points ────
-        raw_pts: list[QPointF] = []
-        pt_sources: list = []  # track which wall/endpoint for each raw_pt
-
-        for w in walls:
-            raw_pts.append(w.pt1)
-            pt_sources.append((w, 0))
-            raw_pts.append(w.pt2)
-            pt_sources.append((w, 1))
-
-        # Add T-junction points: where a wall endpoint meets the face of
-        # another wall (not at its endpoints)
-        for w in walls:
-            for ep in (w.pt1, w.pt2):
-                for other in walls:
-                    if other is w:
-                        continue
-                    # Check if ep is near other's centerline but NOT near endpoints
-                    if (other.endpoint_near(ep, TOL) is not None):
-                        continue  # already at an endpoint — handled above
-                    fp = other.nearest_face_point(ep, TOL * 3,
-                                                   self.scale_manager, ep)
-                    if fp is not None:
-                        raw_pts.append(ep)
-                        pt_sources.append((other, "tee"))
-
-        # Merge close points into unique node indices
-        node_coords: list[QPointF] = []
-        pt_to_node: dict[int, int] = {}
-
-        for i, pt in enumerate(raw_pts):
-            found = -1
-            for ni, nc in enumerate(node_coords):
-                if _m.hypot(pt.x() - nc.x(), pt.y() - nc.y()) <= TOL:
-                    found = ni
-                    break
-            if found >= 0:
-                pt_to_node[i] = found
-            else:
-                pt_to_node[i] = len(node_coords)
-                node_coords.append(QPointF(pt))
-
-        # ── Build directed edges ──────────────────────────────────────
-        # Each entry: (neighbor_node, angle, wall_ref)
-        adj: dict[int, list[tuple[int, float, "WallSegment"]]] = defaultdict(list)
-
-        for wi, w in enumerate(walls):
-            n1 = pt_to_node[wi * 2]
-            n2 = pt_to_node[wi * 2 + 1]
-            if n1 == n2:
-                continue
-
-            # Check for T-junction nodes along this wall's centerline
-            # and split the wall edge into segments
-            wall_nodes = [n1]
-            for i in range(len(walls) * 2, len(raw_pts)):
-                ni = pt_to_node[i]
-                if ni == n1 or ni == n2:
-                    continue
-                src_wall, src_type = pt_sources[i]
-                if src_wall is w or src_type != "tee":
-                    continue
-                # Check if this tee point is on wall w's centerline
-                nc = node_coords[ni]
-                ax, ay = w.pt1.x(), w.pt1.y()
-                bx, by = w.pt2.x(), w.pt2.y()
-                dx, dy = bx - ax, by - ay
-                lsq = dx * dx + dy * dy
-                if lsq < 1e-12:
-                    continue
-                t = ((nc.x() - ax) * dx + (nc.y() - ay) * dy) / lsq
-                if 0.05 < t < 0.95:
-                    wall_nodes.append(ni)
-            wall_nodes.append(n2)
-
-            # Sort by parameter t along the wall
-            p1 = node_coords[n1]
-            dx_w = node_coords[n2].x() - p1.x()
-            dy_w = node_coords[n2].y() - p1.y()
-            lsq_w = dx_w * dx_w + dy_w * dy_w
-            if lsq_w > 1e-12:
-                wall_nodes.sort(key=lambda ni: (
-                    (node_coords[ni].x() - p1.x()) * dx_w +
-                    (node_coords[ni].y() - p1.y()) * dy_w
-                ) / lsq_w)
-
-            # Add edges between consecutive nodes along this wall
-            for j in range(len(wall_nodes) - 1):
-                na, nb = wall_nodes[j], wall_nodes[j + 1]
-                if na == nb:
-                    continue
-                pa, pb = node_coords[na], node_coords[nb]
-                a_ab = _m.atan2(pb.y() - pa.y(), pb.x() - pa.x())
-                a_ba = _m.atan2(pa.y() - pb.y(), pa.x() - pb.x())
-                adj[na].append((nb, a_ab, w))
-                adj[nb].append((na, a_ba, w))
-
-        # ── Find nearest wall edge to click point ─────────────────────
-        best_wall = None
-        best_dist = float("inf")
-        for w in walls:
-            ax, ay = w.pt1.x(), w.pt1.y()
-            bx, by = w.pt2.x(), w.pt2.y()
-            dx, dy = bx - ax, by - ay
-            lsq = dx * dx + dy * dy
-            if lsq < 1e-12:
-                continue
-            t = max(0, min(1, ((click_pt.x() - ax) * dx + (click_pt.y() - ay) * dy) / lsq))
-            d = _m.hypot(click_pt.x() - (ax + t * dx), click_pt.y() - (ay + t * dy))
-            if d < best_dist:
-                best_dist = d
-                best_wall = w
-
-        if best_wall is None:
-            return None
-
-        start_n1 = pt_to_node[walls.index(best_wall) * 2]
-        start_n2 = pt_to_node[walls.index(best_wall) * 2 + 1]
-
-        # Which side of the wall is the click on?
-        wx = best_wall.pt2.x() - best_wall.pt1.x()
-        wy = best_wall.pt2.y() - best_wall.pt1.y()
-        cross = wx * (click_pt.y() - best_wall.pt1.y()) - wy * (click_pt.x() - best_wall.pt1.x())
-
-        if cross >= 0:
-            curr = start_n1
-            prev_angle = _m.atan2(
-                node_coords[start_n1].y() - node_coords[start_n2].y(),
-                node_coords[start_n1].x() - node_coords[start_n2].x())
-        else:
-            curr = start_n2
-            prev_angle = _m.atan2(
-                node_coords[start_n2].y() - node_coords[start_n1].y(),
-                node_coords[start_n2].x() - node_coords[start_n1].x())
-        start = curr
-
-        # ── Walk boundary (tightest CW turn) ──────────────────────────
-        boundary = [node_coords[curr]]
-        visited_edges: set[tuple[int, int]] = set()
-        boundary_walls: list = []  # walls actually forming this room boundary
-
-        for _ in range(len(node_coords) * 2 + 10):
-            neighbors = adj.get(curr, [])
-            if not neighbors:
-                return None
-
-            incoming = prev_angle + _m.pi
-            best_next = None
-            best_turn = float("inf")
-            for nb, edge_angle, wall_ref in neighbors:
-                if (curr, nb) in visited_edges:
-                    continue
-                turn = (incoming - edge_angle) % (2 * _m.pi)
-                if turn < 1e-10:
-                    turn = 2 * _m.pi
-                if turn < best_turn:
-                    best_turn = turn
-                    best_next = (nb, edge_angle, wall_ref)
-
-            if best_next is None:
-                return None
-
-            nb, edge_angle, wall_ref = best_next
-            visited_edges.add((curr, nb))
-            prev_angle = edge_angle
-            curr = nb
-            if wall_ref not in boundary_walls:
-                boundary_walls.append(wall_ref)
-
-            if curr == start and len(boundary) >= 3:
-                break
-            boundary.append(node_coords[curr])
-        else:
-            return None
-
-        if len(boundary) < 3:
-            return None
-
-        # Use only the walls that form this room's boundary
-        walls = boundary_walls
-
-        # The boundary walk traces wall centerlines/axes. For non-center
-        # alignments we may need to inset to reach the interior face:
-        #   Center → axis at wall center → inset by half thickness
-        #   Right  → axis IS the right face → no inset needed
-        #   Left   → axis at left face → inset by full wall thickness
-        align_counts = {"Center": 0, "Left": 0, "Right": 0}
-        total_ht = 0.0
-        for w in walls:
-            align_counts[w._alignment] = align_counts.get(w._alignment, 0) + 1
-            total_ht += w.half_thickness_scene()
-        avg_ht = total_ht / len(walls) if walls else 0.0
-
-        dominant = max(align_counts, key=align_counts.get)
-        # Determine inset needed to reach interior face from the boundary walk
-        # (which traces wall centerlines/axes):
-        #   Center → axis at wall center → inset by half thickness (shrink)
-        #   Right  → axis IS the right face → no inset needed
-        #   Left   → axis at left face → inset by full thickness (shrink)
-        if dominant == "Right":
-            inset_dist = 0.0
-        elif dominant == "Left":
-            inset_dist = avg_ht * 2  # full wall thickness
-        else:  # Center
-            inset_dist = avg_ht  # half wall thickness
-        want_larger = False  # always shrink toward room interior
-
-        if inset_dist > 0.01:
-            orig_area = abs(sum(
-                boundary[i].x() * boundary[(i+1) % len(boundary)].y() -
-                boundary[(i+1) % len(boundary)].x() * boundary[i].y()
-                for i in range(len(boundary))) / 2.0)
-            for sign in (1.0, -1.0):
-                candidate = self._inset_polygon(boundary, inset_dist * sign)
-                if candidate and len(candidate) >= 3:
-                    cand_area = abs(sum(
-                        candidate[i].x() * candidate[(i+1) % len(candidate)].y() -
-                        candidate[(i+1) % len(candidate)].x() * candidate[i].y()
-                        for i in range(len(candidate))) / 2.0)
-                    area_ok = (cand_area > orig_area) if want_larger else (cand_area < orig_area)
-                    if area_ok:
-                        test_path = QPainterPath()
-                        test_path.addPolygon(QPolygonF(candidate))
-                        test_path.closeSubpath()
-                        if test_path.contains(click_pt):
-                            boundary = candidate
-                            break
-
-        # Validate
-        path = QPainterPath()
-        path.addPolygon(QPolygonF(boundary))
-        path.closeSubpath()
-        if not path.contains(click_pt):
-            boundary.reverse()
-            path = QPainterPath()
-            path.addPolygon(QPolygonF(boundary))
-            path.closeSubpath()
-            if not path.contains(click_pt):
-                return None
-
-        return boundary
-
     @staticmethod
     def _inset_polygon(pts: list[QPointF], dist: float) -> list[QPointF] | None:
         """Offset a polygon inward by *dist* — delegates to
@@ -7039,30 +6791,87 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         from . import tool_geometry
         return tool_geometry.inset_polygon(pts, dist)
 
+    def _room_walls(self, level: str) -> list:
+        """Walls that bound rooms on *level* (design §1.2, Q8): visible walls on
+        the level, based on it, or spanning it."""
+        return [w for w in self._walls
+                if w.isVisible() and (            # Q8: hidden walls do not bound
+                    w.level == level
+                    or getattr(w, "_base_level", "") == level
+                    or self._wall_spans_level(w, level))]
+
+    def _room_arrangement(self):
+        """``(walls, arrangement)`` for the active level, cached while
+        ``(active_level, _undo_pos, len(_walls))`` holds (design §1.5)."""
+        import time
+        from . import room_detection
+        from .constants import REGION_FINDER_DEBOUNCE_MS
+        key = (self.active_level, self._undo_pos, len(self._walls))
+        cached = self._room_arr
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
+        walls = self._room_walls(self.active_level)
+        t0 = time.perf_counter()
+        arr = room_detection.build_arrangement(walls)
+        self._room_slow = (time.perf_counter() - t0) * 1000.0 > REGION_FINDER_DEBOUNCE_MS
+        self._room_arr = (key, walls, arr)
+        return walls, arr
+
+    def _room_detect(self, pt: QPointF):
+        """``room_detection.detect`` at *pt* on the cached arrangement."""
+        from . import room_detection
+        walls, arr = self._room_arrangement()
+        return room_detection.detect(walls, pt, arr)
+
+    def _room_same_face(self, face):
+        """The room on the active level with the same face as *face*, or None
+        (design §3.2, Q2: a room wholly inside another is never a duplicate)."""
+        from .constants import ROOM_SAME_FACE_AREA_TOL
+        from .room_detection import face_contains
+        for r in self._rooms:
+            if r.level != self.active_level or len(r._boundary) < 3:
+                continue
+            if abs(r._compute_area_mm2() - face.area_mm2) > ROOM_SAME_FACE_AREA_TOL * face.area_mm2:
+                continue
+            s = r.sample_point()
+            if s is not None and r.contains_point(face.sample) and face_contains(face, s):
+                return r
+        return None
+
+    def _room_punch_late_holes(self, click: QPointF, existing: list) -> None:
+        """D-R1: an island room placed inside an existing room punches its
+        walls' ring as a hole in that room (same undo step as the placement)."""
+        from .room_detection import RoomFace, ring_contains, same_ring
+        for r in existing:
+            if r.level != self.active_level or not r.contains_point(click):
+                continue
+            s = r.sample_point()
+            res = self._room_detect(s) if s is not None else None
+            if not isinstance(res, RoomFace):
+                continue
+            new = [ring for ring in res.holes
+                   if ring_contains(ring, click)
+                   and not any(same_ring(ring, h) for h in r._holes)]
+            if new:
+                r._holes.extend([QPointF(p) for p in ring] for ring in new)
+                r._rebuild()
+
     def _press_room(self, event, pos, snapped, item_under, node_under, pipe_under):
-        """Room mode: click inside a closed wall region to create a room."""
-        boundary = self._detect_room_boundary(snapped)
-        if boundary is None:
-            self._show_status("No closed wall boundary found at click point", 3000)
+        """Room mode: click inside walls -> a room on the clicked face (design §3)."""
+        from .room_detection import REFUSAL_TEXT, Refusal
+        res = self._room_detect(snapped)
+        self._pick_region_preview = None          # the next move re-evaluates
+        for v in self.views():
+            v.viewport().update()
+        if isinstance(res, Refusal):
+            self._show_status(REFUSAL_TEXT[res.reason], 3000)
+            return
+        if self._room_same_face(res) is not None:
+            self._show_status("Room already exists here", 2000)
             return
 
-        # Check if a room already exists at this location
-        click_path = QPainterPath()
-        click_path.addPolygon(QPolygonF(boundary))
-        for existing in self._rooms:
-            if existing.level == self.active_level:
-                ep = QPainterPath()
-                ep.addPolygon(QPolygonF(existing.boundary))
-                if ep.contains(snapped) and click_path.contains(
-                    QPointF(
-                        sum(p.x() for p in existing.boundary) / len(existing.boundary),
-                        sum(p.y() for p in existing.boundary) / len(existing.boundary),
-                    )
-                ):
-                    self._show_status("Room already exists here", 2000)
-                    return
-
-        room = Room(boundary=boundary)
+        existing = list(self._rooms)
+        room = Room(boundary=res.outer, holes=res.holes)
         room.level = self.active_level
         # Auto-assign ceiling level (next level up)
         if self._level_manager:
@@ -7079,10 +6888,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._rooms.append(room)
         marks.mint(self, room)
         apply_category_defaults(room)
+        self._room_punch_late_holes(snapped, existing)
         self.clearSelection()
         room.setSelected(True)
         self.requestPropertyUpdate.emit(room)
-        self.push_undo_state()
+        self.push_undo_state()                    # one step: the room and any punched hole
         self._show_status(f"Created {room.name}", 2000)
 
     # ── Room manual (polygon click-to-place) ──────────────────────────
