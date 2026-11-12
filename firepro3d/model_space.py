@@ -5676,6 +5676,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "floor_opening":            "_move_floor_router",
         "roof":                     "_move_roof",
         "roof_rect":                "_move_roof_rect",
+        "room":                     "_move_room",
         "room_manual":              "_move_room_manual",
         "opening":                  "_move_opening",
         "door":                     "_move_door_window",
@@ -6894,6 +6895,43 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self.requestPropertyUpdate.emit(room)
         self.push_undo_state()                    # one step: the room and any punched hole
         self._show_status(f"Created {room.name}", 2000)
+
+    def _move_room(self, event, snapped) -> None:
+        """Room-mode hover (design §4): preview what a click at *snapped* would
+        create; a slow scene hovers on HF4's single-shot debounce (D-A25)."""
+        from .constants import REGION_FINDER_DEBOUNCE_MS
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        if not self._room_slow:
+            self._room_hover(snapped)
+            return
+        self._room_pending = QPointF(snapped)
+        if self._room_timer is None:
+            self._room_timer = QTimer(self)      # parented: dies with the scene
+            self._room_timer.setSingleShot(True)
+            self._room_timer.timeout.connect(self._room_fire)
+        self._room_timer.start(REGION_FINDER_DEBOUNCE_MS)
+
+    def _room_fire(self) -> None:
+        pt = self._room_pending
+        self._room_pending = None
+        if pt is not None and self.mode == "room":
+            self._room_hover(pt)
+
+    def _room_hover(self, pt: QPointF) -> None:
+        """Write the Room-mode preview for *pt* and repaint: placeable -> tone
+        "ok", same face exists -> "warn", open -> the open end, in a wall ->
+        nothing (design §4)."""
+        from .room_detection import RoomFace, room_path_of
+        res = self._room_detect(pt)
+        if isinstance(res, RoomFace):
+            tone = "warn" if self._room_same_face(res) is not None else "ok"
+            self._pick_region_preview = (room_path_of(res), None, True, False, tone)
+        elif res.reason == "open":
+            self._pick_region_preview = (None, res.open_end, False, False, None)
+        else:
+            self._pick_region_preview = None
+        for view in self.views(): view.viewport().update()   # room hover repaint
 
     # ── Room manual (polygon click-to-place) ──────────────────────────
 

@@ -412,12 +412,14 @@ class Model_View(QGraphicsView):
         # ── 4b. Pick point hover overlay (HF4 design §3; viewport coords) ──
         preview = getattr(scene, "_pick_region_preview", None)
         if preview is not None:
-            p_path, open_end, enclosed, covered = preview
+            p_path, open_end, enclosed, covered = preview[:4]
+            tone = preview[4] if len(preview) > 4 else None   # Room mode: "ok" / "warn"
             painter.save()
             painter.resetTransform()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             if enclosed and not covered and p_path is not None:
-                accent = QColor(th.detect().accent)
+                _t = th.detect()
+                accent = QColor({"ok": _t.ok, "warn": _t.warn}.get(tone, _t.accent))
                 tint = QColor(accent)
                 tint.setAlpha(64)                                   # ~25 %
                 vp_path = self.viewportTransform().map(p_path)
