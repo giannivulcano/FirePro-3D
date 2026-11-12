@@ -116,7 +116,9 @@ def legacy_weight_migration(defs) -> tuple[list[LineWeightDef], dict[str, str]]:
 
     A row whose (name, mm) is in the MW or pre-MW factory set and whose mm
     equals a Default merges into it (``mapping[name]`` = the Default; a
-    ``model_px`` override carries over); another row named like a Default is
+    ``model_px`` override carries over); a row that is exactly a Default
+    (same name and mm) merges into itself (identity mapping, no `` (old)``
+    row); another row named like a Default is
     renamed with `` (old)`` (uniquified); any other row stays Custom. Missing
     Defaults are added. The mapping is single-hop (apply it simultaneously).
     """
@@ -134,6 +136,11 @@ def legacy_weight_migration(defs) -> tuple[list[LineWeightDef], dict[str, str]]:
             mapping[d.name] = target
             if d.model_px is not None:
                 px_over.setdefault(target, d.model_px)
+        elif target == d.name:
+            # Exactly a Default's (name, mm): merges into itself (identity).
+            mapping[d.name] = d.name
+            if d.model_px is not None:
+                px_over.setdefault(d.name, d.model_px)
         elif is_default_weight(d.name):
             clashes.append(d)
         else:
@@ -772,24 +779,109 @@ def get_paper_display_for_save() -> dict:
         "categories": load_paper_categories(),
         "line_weights": [d.to_dict() for d in project_line_weights()],
         "line_weight_aliases": weight_aliases(),
+        "line_weight_schema": LINE_WEIGHT_SCHEMA,
     }
 
 
-def apply_project_weights(data: dict | None) -> None:
+# LW-DC-8: a pre-schema-2 file's pending merge, ``(new_defs, mapping)``,
+# stashed by ``apply_project_weights(stash=True)`` and consumed by
+# ``apply_pending_weight_migration`` at the end of ``load_from_file``.
+_PENDING_LW_MIGRATION: "tuple[list[LineWeightDef], dict[str, str]] | None" = None
+
+
+def _schema_current(data: dict) -> bool:
+    v = data.get("line_weight_schema")
+    return isinstance(v, int) and not isinstance(v, bool) and v >= LINE_WEIGHT_SCHEMA
+
+
+def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
     """Install a project file's weight table, then its rename aliases.
 
     Called at the top of ``load_from_file`` (before any definition / text
     parse canonicalises weight names -- else the PREVIOUS project's aliases
     would rewrite this file's names) and again by
     ``apply_paper_display_from_project`` (same values; idempotent).
+
+    A schema-2 table installs with any missing Default added. A table with
+    no ``line_weight_schema`` installs UNCHANGED (holders parse against it);
+    with ``stash=True`` (the loader only) its LW-DC-8 merge-by-width is
+    stashed for ``apply_pending_weight_migration``. A table-less file takes
+    the template (and stashes the template's migration, so factory names the
+    template lacks map by width).
     """
+    global _PENDING_LW_MIGRATION
     data = data if isinstance(data, dict) else {}
+    _PENDING_LW_MIGRATION = None
     parsed = _parse_weight_list(data.get("line_weights"))
+    current = _schema_current(data)
     if parsed is None:
         reset_project_line_weights()       # old file / no paper_display -> template
+        if stash and not current:
+            _PENDING_LW_MIGRATION = legacy_weight_migration(project_line_weights())
+    elif current:
+        set_project_line_weights(ensure_defaults(parsed))
+        set_weight_aliases(data.get("line_weight_aliases"))
     else:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
         set_weight_aliases(data.get("line_weight_aliases"))
+        if stash:
+            _PENDING_LW_MIGRATION = legacy_weight_migration(parsed)
+
+
+def apply_pending_weight_migration(scene, paper_display: dict | None,
+                                   display_settings: dict | None = None) -> bool:
+    """Run the stashed LW-DC-8 migration against the freshly loaded *scene*.
+
+    Re-points every by-name holder through ``weight_refs.retarget_weight_refs``
+    (alias keys follow their target), then installs the migrated table and
+    prunes the aliases it touched. The file's own payload dicts are migrated
+    in place too -- ``paper_display`` (categories, table, schema stamp) and
+    ``display_settings`` (the Model Blocks weight) -- so the later
+    ``apply_paper_display_from_project`` / ``apply_project_display_settings``
+    re-apply migrated names. The retarget runs against a scratch settings
+    store: the app's QSettings (migrated once by ``migrate_settings_weights``)
+    must not be rewritten by a project open.
+
+    Returns:
+        True if a migration ran.
+    """
+    global _PENDING_LW_MIGRATION
+    pending, _PENDING_LW_MIGRATION = _PENDING_LW_MIGRATION, None
+    if pending is None:
+        return False
+    import shutil
+    import tempfile
+    from . import weight_refs
+    new_defs, mapping = pending
+    ext = dict(mapping)
+    for key in weight_aliases():
+        target = canonical_weight_name(key)
+        if key not in ext and target in mapping:
+            ext[key] = mapping[target]
+    tmp = tempfile.mkdtemp(prefix="fp3d_lwdc_")
+    try:
+        scratch = QSettings(f"{tmp}/scratch.ini", QSettings.Format.IniFormat)
+        weight_refs.retarget_weight_refs(scene, scratch, ext)
+        del scratch
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if isinstance(paper_display, dict):
+        for cat in (paper_display.get("categories") or {}).values():
+            if isinstance(cat, dict) and cat.get("line_weight") in ext:
+                cat["line_weight"] = ext[cat["line_weight"]]
+    if isinstance(display_settings, dict):
+        blocks = display_settings.get(weight_refs.MODEL_BLOCKS_KEY)
+        if isinstance(blocks, dict) and blocks.get("line_weight") in ext:
+            blocks["line_weight"] = ext[blocks["line_weight"]]
+    kept = {k: v for k, v in weight_aliases().items()
+            if k not in ext and canonical_weight_name(v) not in mapping}
+    set_project_line_weights(new_defs)
+    set_weight_aliases(kept)
+    if isinstance(paper_display, dict):
+        paper_display["line_weights"] = [d.to_dict() for d in project_line_weights()]
+        paper_display["line_weight_aliases"] = weight_aliases()
+        paper_display["line_weight_schema"] = LINE_WEIGHT_SCHEMA
+    return True
 
 
 def apply_paper_display_from_project(data: dict | None):

@@ -50,6 +50,17 @@ def test_merged_row_keeps_model_px_override():
     assert {d.name: d.model_px for d in defs}["Medium"] == 7
 
 
+def test_row_equal_to_a_default_merges_into_itself():
+    defs, m = pd.legacy_weight_migration(
+        _t([("Thin", .18), ("Medium", .35), ("Pen", .40)]) + [pd.LineWeightDef("Fine", .25, 7)])
+    assert m["Thin"] == "Thin" and m["Medium"] == "Medium" and m["Fine"] == "Fine"
+    names = [d.name for d in defs]
+    assert not any("(old" in n for n in names)
+    assert names == [d.name for d in pd.DEFAULT_LINE_WEIGHTS] + ["Pen"]
+    assert {d.name: d.model_px for d in defs}["Fine"] == 7     # override kept
+    assert {d.name: d.model_px for d in defs}["Thin"] == 2     # factory px
+
+
 def test_picker_order_defaults_then_custom():
     pd.set_project_line_weights([*pd.DEFAULT_LINE_WEIGHTS, pd.LineWeightDef("Pen X", .40),
                                  pd.LineWeightDef("Pen A", .05)])
@@ -94,7 +105,11 @@ def test_load_template_mw_or_legacy_factory_becomes_defaults():
         s = QSettings("GV", "FirePro3D")
         s.setValue("paper/line_weights", json.dumps(
             [{"name": n, "width_mm": w} for n, w in rows]))
-        assert [d.name for d in pd.load_line_weights(s)] == [
-            d.name for d in pd.DEFAULT_LINE_WEIGHTS]
+        got = pd.load_line_weights(s)
+        assert [d.name for d in got] == [d.name for d in pd.DEFAULT_LINE_WEIGHTS]
+        assert [d.model_px for d in got] == [1, 2, 3, 4, 5, 6, 8]
+        stored = json.loads(s.value("paper/line_weights"))        # rewritten
+        assert [(e["name"], e["width_mm"], e["model_px"]) for e in stored] == [
+            (d.name, d.width_mm, d.model_px) for d in pd.DEFAULT_LINE_WEIGHTS]
     s.setValue("paper/line_weights", json.dumps([{"name": "Solo", "width_mm": .4}]))
     assert [d.name for d in pd.load_line_weights(s)] == ["Solo"]

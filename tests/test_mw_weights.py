@@ -123,6 +123,8 @@ def test_g5_missing_factory_names_resolve_by_mm_both_ways():
     pd.set_project_line_weights(_defs(_OLD))
     assert pd.resolve_line_weight_mm("Thin") == 0.18       # Default name (0.18), old table
     assert pd.resolve_line_weight_mm("Thickest") == 0.50   # MW name (0.70) -> nearest 0.50
+    assert pd.resolve_line_weight_mm("Thinnest") == 0.18   # non-clashing MW name, by mm
+    assert pd.resolve_line_weight_mm("Thinner") == 0.25    # (a pre-MW table has no such row)
     pd.set_project_line_weights(_defs(_NEW))
     assert pd.resolve_line_weight_mm("Heavy") == 0.35      # old name, new table
     assert pd.resolve_line_weight_mm("Very Light") == 0.18 # 0.13 -> nearest
