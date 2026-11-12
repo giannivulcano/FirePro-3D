@@ -2354,8 +2354,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             return False
         if lib_def.kind != current.kind:
             return False                 # schematics.md D-S3 (SV4): kind is frozen
+        self._merge_bundled_weights(path, [lib_def, *bundled])   # LW-DC-10: before _add_bundled
         self._add_bundled(bundled, lib_def)              # project copy wins
-        self._merge_bundled_weights(path)
         self._merge_bundled_fill_types(pending_types)
         self._swap_block_definition(block_id, lib_def)
         self.constraint_ctl.on_definitions_changed()   # AC5 reload
@@ -2433,7 +2433,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                         summary["refused"].append(
                             f"{defn.name} ({block_library.KIND_REASON})")
                         continue
-                    self._merge_bundled_weights(path)
+                    self._merge_bundled_weights(path, [defn, *bundled])
                     types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
                     changed |= self._add_bundled(bundled, defn)  # before the swap repaints
                     summary["ids"][path] = defn.id
@@ -2455,7 +2455,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 if clash:
                     summary["refused"].append(defn.name)
                     continue
-                self._merge_bundled_weights(path)
+                self._merge_bundled_weights(path, [defn, *bundled])
                 types_added |= self._merge_bundled_fill_types(pending_types, notify=False)
                 self._add_bundled(bundled, defn)
                 self._block_registry.add(defn)
@@ -2562,14 +2562,23 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         pool = {d.id for d in [*bundled, defn]}
         return any(i in reg.closure(i, merged) for i in pool)
 
-    def _merge_bundled_weights(self, path) -> None:
-        """Add a library file's bundled named weights the project lacks
-        (project wins -- linetypes.md LT1-4)."""
+    def _merge_bundled_weights(self, path, defs=()) -> None:
+        """Merge a library file's bundled named weights into the project by
+        width (linetypes.md LT1-4 / LW-DC-10) and re-point *defs*' own weight
+        names through the resulting map -- call it BEFORE *defs* join the
+        project so the blocks draw as authored.
+
+        Args:
+            path: The ``.fpdb`` file.
+            defs: The file's definitions (its own + bundled), not yet added.
+        """
         from . import block_library
         from .paper_display import merge_project_line_weights
-        added = merge_project_line_weights(
+        from .weight_refs import retarget_definition_refs
+        added, mapping = merge_project_line_weights(
             block_library.read_bundled_weights(path),
             block_library.read_bundled_weight_model_px(path))
+        retarget_definition_refs(defs, mapping)
         if added:
             # Weights live outside undo, but they travel with the project: a
             # merge that added names must dirty it (no undo state pushed).

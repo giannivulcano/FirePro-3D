@@ -218,6 +218,59 @@ def retarget_weight_refs(scene, settings, mapping: dict[str, str], *,
     return journal
 
 
+def retarget_definition_refs(defs, mapping: dict[str, str]) -> int:
+    """Re-point the weight names inside block *defs* per *mapping* (``old ->
+    new``), simultaneously and single-hop (each value is read once).
+
+    Covers the ``prim`` / ``lead_prim`` / ``sprim`` / ``nrec`` holder kinds
+    of :func:`iter_weight_refs` -- a text primitive's ``border_weight`` and
+    leader weight, a stroke's ``style.weight`` and a nested record's
+    ``overrides.weight`` -- at any nesting depth of the primitive records
+    (filled-region loops included). Used on a library file's definitions
+    BEFORE they join the project (``Model_Space._merge_bundled_weights``),
+    so no registry invalidation is needed.
+
+    Args:
+        defs: ``BlockDefinition`` objects (their ``primitives`` are edited).
+        mapping: Old weight name to new weight name.
+
+    Returns:
+        The number of names rewritten.
+    """
+    from .stroke_style import is_named_weight
+    n = 0
+
+    def put(d: dict, key: str) -> None:
+        nonlocal n
+        cur = d.get(key)
+        if isinstance(cur, str) and cur in mapping and mapping[cur] != cur:
+            d[key] = mapping[cur]
+            n += 1
+
+    def walk(o) -> None:
+        if isinstance(o, dict):
+            if o.get("type") == "text":
+                if "border_weight" in o:
+                    put(o, "border_weight")
+                if isinstance(o.get("leader"), dict) and o["leader"].get("weight"):
+                    put(o["leader"], "weight")
+            for key in ("style", "overrides"):
+                rec = o.get(key)
+                if isinstance(rec, dict) and is_named_weight(rec.get("weight")):
+                    put(rec, "weight")
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    if not mapping:
+        return 0
+    for defn in defs:
+        walk(getattr(defn, "primitives", None) or [])
+    return n
+
+
 def restore_weight_refs(scene, settings, journal) -> None:
     """Undo a :func:`retarget_weight_refs` call exactly, newest write first.
 

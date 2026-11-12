@@ -516,29 +516,69 @@ def weight_separator_index() -> int:
     return sum(1 for d in project_line_weights() if is_default_weight(d.name))
 
 
-def merge_project_line_weights(weights: dict, model_px: dict | None = None) -> list[str]:
-    """Add bundled ``{name: mm}`` weights the project lacks (project wins).
+def _same_mm(a: float, b: float) -> bool:
+    return round(float(a), 6) == round(float(b), 6)
 
-    *model_px* is the bundle's ``weight_model_px`` ``{name: px}`` (H-MW-a);
-    an added row takes its valid override. Returns the names added. Invalid
-    widths are skipped.
+
+def merge_project_line_weights(weights: dict, model_px: dict | None = None
+                               ) -> tuple[list[str], dict[str, str]]:
+    """Merge a bundle's ``{name: mm}`` into the project table by width (LW-DC-10).
+
+    Per bundled ``(name, mm)``: the project row of that name with the same
+    mm -> nothing; a pre-schema-2 factory pair (MW / pre-MW name at its
+    factory mm) with a row of that exact mm -> mapped to that row (a Default
+    preferred); a name the table lacks -> added under its name; a name whose
+    row has another mm -> mapped to the row with that exact mm, else added
+    as Custom ``name (old)`` and mapped to it. *model_px* is the bundle's
+    ``weight_model_px`` ``{name: px}`` (H-MW-a) for an added row. Invalid
+    widths and rename-alias keys are skipped.
+
+    Returns:
+        ``(added_names, mapping)``: the rows added, and the ``old -> new``
+        name map the caller applies to the bundle's own references
+        (``weight_refs.retarget_definition_refs``).
     """
-    have = {d.name for d in project_line_weights()} | set(_WEIGHT_ALIASES)
-    added = []
+    table = list(project_line_weights())
+    aliases = set(_WEIGHT_ALIASES)
+    factory = {(d.name, round(d.width_mm, 6))
+               for d in (*MW_FACTORY_LINE_WEIGHTS, *LEGACY_FACTORY_LINE_WEIGHTS)}
+    added: list[LineWeightDef] = []
+    mapping: dict[str, str] = {}
+
+    def add(name: str, mm: float, px) -> None:
+        row = LineWeightDef(name, mm, px if validate_model_px(px) else None)
+        added.append(row)
+        table.append(row)
+
     for name, mm in (weights or {}).items():
         try:
             mm = float(mm)
         except (TypeError, ValueError):
             continue
-        if name in have or not name or not validate_line_weight_width(mm):
+        if not name or name in aliases or not validate_line_weight_width(mm):
             continue
-        px = (model_px or {}).get(name)
-        added.append(LineWeightDef(str(name), mm,
-                                   px if validate_model_px(px) else None))
-        have.add(name)
+        name = str(name)
+        cur = next((d for d in table if d.name == name), None)
+        if cur is not None and _same_mm(cur.width_mm, mm):
+            continue
+        exact = sorted((d for d in table if _same_mm(d.width_mm, mm)),
+                       key=lambda d: not is_default_weight(d.name))
+        ex = exact[0] if exact else None
+        if (name, round(mm, 6)) in factory and ex is not None:
+            mapping[name] = ex.name
+        elif cur is None:
+            add(name, mm, (model_px or {}).get(name))
+        elif ex is not None:
+            mapping[name] = ex.name
+        else:
+            new, n = name + OLD_SUFFIX, 2
+            while any(d.name == new for d in table):
+                new, n = f"{name} (old {n})", n + 1
+            add(new, mm, (model_px or {}).get(name))
+            mapping[name] = new
     if added:
         set_project_line_weights([*project_line_weights(), *added])
-    return [d.name for d in added]
+    return [d.name for d in added], mapping
 
 
 # ---------------------------------------------------------------------------

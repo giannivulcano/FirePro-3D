@@ -58,7 +58,7 @@ def test_aliases_persist_and_reset():
 
 def test_merge_does_not_readd_an_alias_key():
     _rename("A", "B")
-    assert pd.merge_project_line_weights({"A": 0.99}) == []
+    assert pd.merge_project_line_weights({"A": 0.99}) == ([], {})
     assert "A" not in pd.weight_names()
 
 
