@@ -6977,10 +6977,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             pts = self._room_manual_active._boundary
             # Close polygon: click near first point with ≥3 points
             if len(pts) >= 3:
-                scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
-                if d0 <= tol:
+                # No Ctrl tip in manual rooms: tip == cursor (L1831, CLOSE_HIT_PX)
+                if close_hit(pts[0], snapped, snapped, self._active_view_scale()):
                     self._room_manual_active._rebuild()
                     self._room_manual_active._update_label()
                     apply_category_defaults(self._room_manual_active)
@@ -6997,10 +6995,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             # Click-to-delete vertex
             if len(pts) >= 2:
                 scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
-                    dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
-                    if dv <= tol:
+                    if close_hit(pts[vi], snapped, snapped, scale):
                         pts.pop(vi)
                         self._room_manual_active._rebuild()
                         for v in self.views(): v.viewport().update()
@@ -8199,11 +8195,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         for it in self.items(snapped):
             if isinstance(it, FloorSlab) and len(it._points) >= 3:
                 scale = self._active_view_scale()
-                vtx_tol = 8.0 / max(scale, 1e-6)
                 # Check if near an existing vertex → delete it (min 3)
                 for vi, vpt in enumerate(it._points):
-                    dv = math.hypot(snapped.x() - vpt.x(), snapped.y() - vpt.y())
-                    if dv <= vtx_tol:
+                    if close_hit(vpt, snapped, snapped, scale):    # CLOSE_HIT_PX (L1831)
                         it.remove_point(vi)
                         it.setSelected(True)
                         it.update()
