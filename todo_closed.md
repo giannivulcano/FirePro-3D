@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System -- SB4e hydraulic node badge as a System block -- 2026-11-11
+
+- [x] [type:feature] SB4e — Convert the hydraulic node badge to a System block [subject:Hydraulic Calculator] [P1] [done:2026-11-11]
+  - Details: concept Q9; T3 fields (node number, P, q, Q) with placeholders before a solve; Badge Position carries over. SB3 checkpoint passed 2026-10-29. `hydraulic_node_badge.py`, `node.py`.
+  - +1 occurrence 2026-11-04 (SB4d D5): the badge is now a top-level item in the annotation band (`Z_ANNOT_TAG`, position / removal synced by `Node` itemChange, DM row opacity carried); SB4e converts its look only -- the band placement and the `_sb4d_helpers` badge helper stay. Its opacity sync bug is filed separately (SB4d VC9 M3).
+  - Built (0.100.0, branch feature/sb4e-node-badge): plan `docs/superpowers/plans/2026-11-11-sb4e-node-badge.md` (local), rulings R1-R8 / S1-S4 / AC1-AC11 in `.todo/sb4e-phase2.md`. Badge is a `BoundLabelItem` block label (seed `system-tags-hydraulicnode`, category "Hydraulic Node", Settings row "Hydraulic Node tag"); Badge Position saved on the node; click selects the node in Select mode only; DM row Visible + Opacity only; paper via `_apply_block`; undo/redo keeps results only when every hydraulic input is unchanged (Phase 6 ruling). Smoke passed 2026-11-11 (11 rows). Full suite waived by the user; touched-module keep-green 4684 passed; perf bars proved at base ff87c36d and filed.
+
 ## Paper Space -- As Authored per-row toggle replaces the Color Mode dropdown -- 2026-11-11
 
 - [x] [type:feature] Paper Space "As Authored" per-row toggle: remove the Color Mode dropdown; each Display Manager Paper Space row plots authored colours unless its toggle is off [P2] [subject:CAD] [done:2026-11-11]
