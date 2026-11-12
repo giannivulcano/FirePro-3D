@@ -43,40 +43,76 @@ def _assert_copy(src, cp):
     assert marks.get_mark(cp) != marks.get_mark(src)                 # a copy mints
 
 
-def test_duplicate_keeps_pipe_properties_phase_head_and_override(qapp):
+def _assert_copied_override(cp):
+    """The copy of node a (x == 0) keeps a's fitting override.
+
+    Both record orders matter: when b's record pastes first, its pipe creates
+    a's copy as a far-end node, and a's own record then lands on that node
+    (find_nearby_node). Selection order follows selectedItems(), which is not
+    stable across processes, so each guard pins it (_ORDERS).
+    """
+    new_a = cp.node1 if cp.node1.scenePos().x() == 0.0 else cp.node2
+    assert new_a.scenePos().x() == 0.0
+    assert new_a.fitting.phase_override == "new"
+
+
+_ORDERS = pytest.mark.parametrize("order", ["ab", "ba"])
+
+
+def _pick(a, b, order):
+    return [a, b] if order == "ab" else [b, a]
+
+
+@_ORDERS
+def test_duplicate_keeps_pipe_properties_phase_head_and_override(qapp, order):
     ms = scene()
     a, b, p = _network(ms)
     ms.clearSelection(); a.setSelected(True); b.setSelected(True)
+    ms._selected_items = _pick(a, b, order)               # commit_duplicate reads this first
     ms._modify_ctl.commit_duplicate(QPointF(0.0, 3000.0))
     (cp,) = _copies(ms, p)                                            # exactly one new pipe
     _assert_copy(p, cp)
     heads = [s for s in ms.sprinkler_system.sprinklers if s is not b.sprinkler]
     assert [s.phase for s in heads] == ["demolition"]
-    new_a = cp.node1 if cp.node1.scenePos().x() == 0.0 else cp.node2
-    assert new_a.fitting.phase_override == "new"
+    _assert_copied_override(cp)
 
 
-def test_copy_paste_keeps_pipe_properties(qapp):
+@_ORDERS
+def test_copy_paste_keeps_pipe_properties(qapp, order):
     ms = scene()
     a, b, p = _network(ms)
     ms.clearSelection(); a.setSelected(True); b.setSelected(True)
     ctl = ms._modify_ctl
-    assert ctl.write_clipboard([a, b], QPointF(0.0, 0.0))
+    assert ctl.write_clipboard(_pick(a, b, order), QPointF(0.0, 0.0))
     assert ctl.begin_paste()
     ctl.commit_paste(QPointF(0.0, 4000.0))
     (cp,) = _copies(ms, p)
     _assert_copy(p, cp)
+    _assert_copied_override(cp)
 
 
-def test_array_keeps_pipe_properties(qapp):
+@_ORDERS
+def test_array_keeps_pipe_properties(qapp, order):
     ms = scene()
     a, b, p = _network(ms)
     ms._array_variant = "linear"
     ms._array_dir = QPointF(0.0, 1.0)
-    ms._selected_items = [a, b]
+    ms._selected_items = _pick(a, b, order)
     assert ms._modify_ctl.commit_array({"count": 2, "spacing": 3000.0})
     (cp,) = _copies(ms, p)
     _assert_copy(p, cp)
+    _assert_copied_override(cp)
+
+
+def test_a_paste_onto_a_network_node_leaves_its_override(qapp):
+    """A record landing on a node that was in the network before the paste
+    (find_nearby_node) never mutates it, override included."""
+    ms = scene()
+    a, b, p = _network(ms)
+    records = ms._clipboard_item_dicts([a])                # a's record carries "new"
+    a.fitting.phase_override = "existing"
+    ms.paste_items(QPointF(0.0, 0.0), data=records)        # lands on a itself
+    assert a.fitting.phase_override == "existing"
 
 
 def test_pasted_wall_and_opening_keep_their_phases(qapp):

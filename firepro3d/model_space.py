@@ -9351,6 +9351,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         skip_reason = None    # footer text for the last skipped tile / repeat block
         pasted_spr = {}       # (x, y) of a sprinkler node created here -> node (design areas)
         da_records = []       # design-area records, resolved once every node exists
+        made_nodes = set()    # id() of every node this paste created (record order is free)
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -9383,10 +9384,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 existing = self.find_nearby_node(new_x, new_y, z_hint=paste_z)
                 node1 = existing if existing else self.add_node(
                     new_x, new_y, z_hint=paste_z)
+                if existing is None:
+                    made_nodes.add(id(node1))
                 # A node reused via find_nearby_node is not new: the record
                 # only counts as pasted if it created something (the node,
                 # a sprinkler, a pipe or a pipe end node).
                 created = existing is None
+                if existing is None or id(existing) in made_nodes:
+                    # A node this paste made (here, or as an earlier record's
+                    # pipe far end) is this record's copy: its override lands.
+                    # Record order follows selectedItems(), so it is free.
+                    ov = obj.get("fitting_phase_override")
+                    node1.fitting.phase_override = phase_registry.read_id(ov) if ov else None
 
                 # A node reused via find_nearby_node belongs to the network:
                 # never mutate it. Only a node created here takes the
@@ -9405,8 +9414,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                         node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
                     if "level" in obj:
                         node1.level = obj["level"]
-                    ov = obj.get("fitting_phase_override")
-                    node1.fitting.phase_override = phase_registry.read_id(ov) if ov else None
                     # Recompute z_pos from ceiling level + offset
                     if self._level_manager:
                         lvl = self._level_manager.get(node1.ceiling_level)
@@ -9433,6 +9440,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     node2 = existing_p if existing_p else self.add_node(
                         px, py, z_hint=paste_z)
                     if existing_p is None:
+                        made_nodes.add(id(node2))
                         created = True
                     if not any(
                         (pipe.node1 == node1 and pipe.node2 == node2) or
