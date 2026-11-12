@@ -94,9 +94,10 @@ def test_canvas_px_real_path():
     from firepro3d import paper_display as pd
     pd.reset_project_line_weights()
     pd.set_model_blocks_weight(None)
-    assert ss.canvas_px("by_block") == 1.0
-    assert ss.canvas_px("Heavy") == pd.canvas_weight_px(
-        pd.resolve_line_weight_mm("Heavy"))
+    # LW-DC-1: By Block -> the 0.18 mm row ("Thin") -> shipped 2 px; old
+    # "Heavy" (0.35 mm) -> "Medium" -> shipped 4 px.
+    assert ss.canvas_px("by_block") == 2.0
+    assert ss.canvas_px("Heavy") == 4.0
 
 
 # ---------------------------------------------------------------------------
@@ -182,10 +183,9 @@ def test_paint_pen_follows_weight(qapp, monkeypatch):
         return ln.pen().widthF()
 
     pd.set_model_blocks_weight(None)
-    assert _paint() == pytest.approx(1.0)           # By Block -> Light -> 1 px
+    assert _paint() == pytest.approx(2.0)           # By Block -> Thin (0.18 mm) -> shipped 2 px
     ln.style["weight"] = "Heavy"
-    assert _paint() == pytest.approx(
-        pd.canvas_weight_px(pd.resolve_line_weight_mm("Heavy")))
+    assert _paint() == pytest.approx(4.0)           # Heavy (0.35 mm) -> Medium -> shipped 4 px
     pd.set_thin_lines(True)
     try:
         assert _paint() == pytest.approx(1.0)
@@ -206,7 +206,7 @@ def heavy_blocks(qapp):
     visibly change a ghost pen's width (it would be 1 px under the default)."""
     from firepro3d import paper_display as pd
     pd.set_model_blocks_weight("Heavy")
-    heavy = pd.canvas_weight_px(pd.resolve_line_weight_mm("Heavy"))
+    heavy = 4.0                      # Heavy (0.35 mm) -> "Medium" -> shipped 4 px (LW-DC-1)
     assert heavy not in (1.0, 2.0)
     try:
         yield heavy

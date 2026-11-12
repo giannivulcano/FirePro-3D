@@ -124,13 +124,17 @@ def test_cancel_restores_overrides(qapp):
 
 
 def test_reset_is_new_factory_all_auto(qapp):
-    pd.set_project_line_weights([LineWeightDef("Thin", 0.35, 4)])
+    # LW-DC-1: the factory rows ship explicit Model px 1/2/3/4/5/6/8 (the MW-4
+    # "all Auto" contract is retired); Reset restores them.
+    pd.set_project_line_weights([LineWeightDef("Thin", 0.35, 7)])
     d = _dlg()
     d._reset_line_weights_tab()
     assert [(x.name, x.width_mm, x.model_px) for x in pd.project_line_weights()] \
-        == [(x.name, x.width_mm, None) for x in pd.FACTORY_LINE_WEIGHTS]
+        == [("Extra Thin", 0.13, 1), ("Thin", 0.18, 2), ("Fine", 0.25, 3),
+            ("Medium", 0.35, 4), ("Wide", 0.50, 5), ("Thick", 0.70, 6),
+            ("Extra Thick", 1.00, 8)]
     texts = [d._lw_table.item(r, 2).text() for r in range(d._lw_table.rowCount())]
-    assert texts == ["Auto (1)", "Auto (2)", "Auto (3)", "Auto (4)", "Auto (6)"]
+    assert texts == ["1", "2", "3", "4", "5", "6", "8"]
     d.reject()
 
 

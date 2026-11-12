@@ -235,11 +235,11 @@ def test_paper_tab_has_blocks_row_under_drafting(qapp):
             assert row[w].isEnabled(), w
         assert not row["fill_btn"].isEnabled()
         assert not row["section_btn"].isEnabled()
-        # MW-4/MW-5: factory 0.18 mm -> "Thinnest" (was "Light"); "Thin" is a
-        # live row of the new factory table (was "Heavy").
-        assert row["lw_combo"].currentText() == "Thinnest"
-        row["lw_combo"].setCurrentText("Thin")
-        assert pd.load_paper_categories()["Blocks"]["line_weight"] == "Thin"
+        # LW-DC-1: factory 0.18 mm -> "Thin" (was "Thinnest"); the 0.35 mm
+        # row is now "Medium" (was "Thin").
+        assert row["lw_combo"].currentText() == "Thin"
+        row["lw_combo"].setCurrentText("Medium")
+        assert pd.load_paper_categories()["Blocks"]["line_weight"] == "Medium"
     finally:
         dlg.close()
 
@@ -287,7 +287,8 @@ def test_model_canvas_block_render_unchanged(qapp):
     # any zoom; the authored 3 px pen width is ignored (paper weight would be
     # 0.18 mm = 0.018 px here and colour black).
     # Column x=320 is clear of the origin cross at the crop centre (x=200).
-    assert _row_run(before, 320) == 1
+    # LW-DC-1: the 0.18 mm row ("Thin") ships Model px 2 (was 1 px at that mm).
+    assert _row_run(before, 320) == 2
     saved = pd.apply_paper_overrides(ms, _crop(0.02), paper_scale=0.02)
     pd.restore_model_display(saved)
     assert _render_model(ms) == before

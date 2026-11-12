@@ -70,18 +70,18 @@ def _editor_scene(defs):
 
 
 def test_g8_explode_flat_bakes_and_looks_unchanged(qapp):
-    # "Thick" is neither an authored Sprinkler weight nor the factory Blocks
+    # "Wide" is neither an authored Sprinkler weight nor the factory Blocks
     # weight, so only a bake of the live Blocks weight passes.
-    pd.set_model_blocks_weight("Thick")
+    pd.set_model_blocks_weight("Wide")
     try:
         s = sprinkler_def()
         w, ms = _editor_scene([s])
         inst = ms.place_block_instance(s.id, (0.0, 0.0), level=ms.active_level,
                                        overrides={"weight": "by_category"})
         before = _runs(ms)
-        assert set(before.values()) == {round(canvas_px("Thick"))}
+        assert set(before.values()) == {round(canvas_px("Wide"))}
         created = explode_instances(ms, [inst], flatten=False)
-        assert {it.style["weight"] for it in created} == {"Thick"}
+        assert {it.style["weight"] for it in created} == {"Wide"}
         assert _runs(ms) == before
     finally:
         pd.set_model_blocks_weight(None)

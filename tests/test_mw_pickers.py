@@ -6,8 +6,9 @@ from PyQt6.QtCore import QPointF
 from firepro3d import paper_display as pd
 from firepro3d.paper_display import LineWeightDef
 
-_NEW = [("Thinnest", 0.18), ("Thinner", 0.25), ("Thin", 0.35),
-        ("Thick", 0.50), ("Thickest", 0.70)]
+# LW-DC-1 Defaults: the legacy / MW names below are all ABSENT from this table,
+# so each stored name must resolve by its factory mm (MW-6).
+_NEW = [(d.name, d.width_mm) for d in pd.DEFAULT_LINE_WEIGHTS]
 
 
 def _new_table():
@@ -24,9 +25,9 @@ def test_paper_tab_combo_shows_resolved_row(qapp):
     d = DisplayManager(Model_Space(), active_context="paper")
     try:
         combo = d._paper_cat_data["Wall"]["lw_combo"]
-        assert combo.currentText() == "Thin"        # what paper prints (0.35)
+        assert combo.currentText() == "Medium"      # what paper prints (0.35)
         d._refresh_lw_combos()                      # table-edit refill path
-        assert combo.currentText() == "Thin"
+        assert combo.currentText() == "Medium"
         assert pd.load_paper_categories()["Wall"]["line_weight"] == "Heavy"
     finally:
         d.close()
@@ -40,9 +41,9 @@ def test_model_blocks_combo_shows_resolved_row(qapp):
     try:
         d = DisplayManager(Model_Space())
         try:
-            assert d._model_blocks_combo.currentText() == "Thin"
+            assert d._model_blocks_combo.currentText() == "Medium"
             d._refresh_model_blocks_combo()
-            assert d._model_blocks_combo.currentText() == "Thin"
+            assert d._model_blocks_combo.currentText() == "Medium"
             assert pd.model_blocks_weight() == "Heavy"
         finally:
             d.close()
@@ -54,18 +55,18 @@ def test_text_border_weight_row_shows_resolved_row(qapp):
     from firepro3d.text_item import TextAnnotationData, TextItem
     _new_table()
     item = TextItem(TextAnnotationData(text="A", border=True,
-                                       border_weight="Medium"))
+                                       border_weight="Thinner"))
     row = item.get_properties()["Border Weight"]
-    assert row["value"] == "Thinner" and row["value"] in row["options"]
-    assert item.data.border_weight == "Medium"
+    assert row["value"] == "Fine" and row["value"] in row["options"]
+    assert item.data.border_weight == "Thinner"
 
 
 def test_paper_text_panel_border_weight_shows_resolved_row(qapp):
     from firepro3d.paper_space import _text_panel_properties
     from firepro3d.text_item import TextAnnotationData
     _new_table()
-    d = TextAnnotationData(text="A", border=True, border_weight="Medium")
-    assert _text_panel_properties(d)["Border Weight"]["value"] == "Thinner"
+    d = TextAnnotationData(text="A", border=True, border_weight="Thinner")
+    assert _text_panel_properties(d)["Border Weight"]["value"] == "Fine"
 
 
 def test_frame_group_combo_shows_resolved_row(qapp):
@@ -73,11 +74,11 @@ def test_frame_group_combo_shows_resolved_row(qapp):
     from firepro3d.text_item import TextAnnotationData, TextItem
     _new_table()
     item = TextItem(TextAnnotationData(text="A", border=True,
-                                       border_weight="Medium"))
+                                       border_weight="Thinner"))
     ctl = FrameGroupController(get_targets=lambda: [item])
     ctl.sync()
-    assert ctl.weight_combo.currentText() == "Thinner"
-    assert item.data.border_weight == "Medium"
+    assert ctl.weight_combo.currentText() == "Fine"
+    assert item.data.border_weight == "Thinner"
 
 
 def test_geometry_weight_row_shows_resolved_row(qapp):
@@ -89,7 +90,7 @@ def test_geometry_weight_row_shows_resolved_row(qapp):
     ms.addItem(ln)
     ln.style["weight"] = "Heavy"
     row = ln.get_properties()["Weight"]
-    assert row["value"] == "Thin" and row["value"] in row["options"]
+    assert row["value"] == "Medium" and row["value"] in row["options"]
     assert ln.style["weight"] == "Heavy"
 
 
@@ -112,7 +113,7 @@ def test_capability_dash_weight_row_shows_resolved_row(qapp):
     sc = w.editor_scene
     la.set_pattern_weight(sc, "Heavy")             # legacy stored dash weight
     row = capability_rows(sc)["Weight"]
-    assert row["value"] == "Thin" and row["value"] in row["options"]
+    assert row["value"] == "Medium" and row["value"] in row["options"]
     assert la.pattern_weight(sc) == "Heavy"
 
 
@@ -126,7 +127,7 @@ def test_capability_by_category_label_shows_resolved_row(qapp):
         w = BlockEditorWidget(Model_Space())
         assert w.toggle_capability("repeat")
         opts = capability_rows(w.editor_scene)["Weight"]["options"]
-        assert opts[0] == "By Category (Thin)"
+        assert opts[0] == "By Category (Medium)"
     finally:
         pd.set_model_blocks_weight(None)
 
@@ -139,7 +140,7 @@ def test_by_linetype_label_shows_resolved_row(qapp):
     try:
         ms = Model_Space()
         assert (ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, ms.block_registry)
-                == "By Linetype (Thin)")
+                == "By Linetype (Medium)")
     finally:
         pd.set_model_blocks_weight(None)
 
@@ -153,10 +154,10 @@ def test_underlay_weight_cell_shows_resolved_row(qapp):
     _new_table()
     rec, _scene, model = _dxf_model()
     rec.line_weight_name = "Heavy"
-    rec.layer_overrides = {"GRID": {"line_weight": "Medium"}}
+    rec.layer_overrides = {"GRID": {"line_weight": "Thinner"}}
     d = WeightDelegate(DARK)
     top = model.index(0, int(Col.WEIGHT), QModelIndex())
     grid = model.index(0, int(Col.WEIGHT), model.index(0, 0, QModelIndex()))
-    assert d._current_name(top) == "Thin"
-    assert d._current_name(grid) == "Thinner"
+    assert d._current_name(top) == "Medium"
+    assert d._current_name(grid) == "Fine"
     assert rec.line_weight_name == "Heavy"

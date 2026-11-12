@@ -47,14 +47,27 @@ class LineWeightDef:
         return d
 
 
-# MW-4: the user standard (2026-10-04).
-FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
+# LW-DC-1: the factory Defaults (ratified 2026-11-12; replaces MW-4's table).
+DEFAULT_LINE_WEIGHTS: list[LineWeightDef] = [
+    LineWeightDef("Extra Thin",  0.13, 1),
+    LineWeightDef("Thin",        0.18, 2),
+    LineWeightDef("Fine",        0.25, 3),
+    LineWeightDef("Medium",      0.35, 4),
+    LineWeightDef("Wide",        0.50, 5),
+    LineWeightDef("Thick",       0.70, 6),
+    LineWeightDef("Extra Thick", 1.00, 8),
+]
+FACTORY_LINE_WEIGHTS = DEFAULT_LINE_WEIGHTS      # the public name stays
+# MW-4's retired table (2026-10-04): a migration input only (LW-DC-8).
+MW_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
     LineWeightDef("Thinnest", 0.18),
     LineWeightDef("Thinner",  0.25),
     LineWeightDef("Thin",     0.35),
     LineWeightDef("Thick",    0.50),
     LineWeightDef("Thickest", 0.70),
 ]
+LINE_WEIGHT_SCHEMA = 2           # payload key "line_weight_schema" (LW-DC-8)
+OLD_SUFFIX = " (old)"
 # The pre-MW factory: an untouched template equal to it migrates (MW-4), and
 # its names resolve by their mm wherever a table lacks them (MW-6).
 LEGACY_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
@@ -64,8 +77,91 @@ LEGACY_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
     LineWeightDef("Heavy",      0.35),
     LineWeightDef("Very Heavy", 0.50),
 ]
+# Factory-name -> mm (MW-6): the Defaults, plus the old non-clashing names at
+# their old mm. "Thin" / "Thick" / "Medium" resolve to the Default rows.
 _FACTORY_NAME_MM: dict[str, float] = {
-    d.name: d.width_mm for d in (*LEGACY_FACTORY_LINE_WEIGHTS, *FACTORY_LINE_WEIGHTS)}
+    **{d.name: d.width_mm for d in (*LEGACY_FACTORY_LINE_WEIGHTS,
+                                    *MW_FACTORY_LINE_WEIGHTS)},
+    **{d.name: d.width_mm for d in DEFAULT_LINE_WEIGHTS}}
+
+# Old factory name -> Default name, only for pre-schema-2 sources (LW-DC-8).
+_STATIC_LEGACY_MAP: dict[str, str] = {
+    "Very Light": "Extra Thin", "Light": "Thin", "Medium": "Fine",
+    "Heavy": "Medium", "Very Heavy": "Wide", "Thinnest": "Thin",
+    "Thinner": "Fine", "Thin": "Medium", "Thick": "Wide", "Thickest": "Thick"}
+
+
+def is_default_weight(name: str) -> bool:
+    """True if *name* is one of the seven factory Default names (LW-DC-2)."""
+    return any(d.name == name for d in DEFAULT_LINE_WEIGHTS)
+
+
+def factory_default(name: str) -> "LineWeightDef | None":
+    """A copy of the factory Default called *name*, else None."""
+    for d in DEFAULT_LINE_WEIGHTS:
+        if d.name == name:
+            return d.copy()
+    return None
+
+
+def ensure_defaults(defs) -> list[LineWeightDef]:
+    """Copies of *defs* plus any missing Default in factory form (prepended)."""
+    have = {d.name for d in defs}
+    return [*(d.copy() for d in DEFAULT_LINE_WEIGHTS if d.name not in have),
+            *(d.copy() for d in defs)]
+
+
+def legacy_weight_migration(defs) -> tuple[list[LineWeightDef], dict[str, str]]:
+    """LW-DC-8 merge-by-width of a pre-schema-2 table.
+
+    A row whose (name, mm) is in the MW or pre-MW factory set and whose mm
+    equals a Default merges into it (``mapping[name]`` = the Default; a
+    ``model_px`` override carries over); another row named like a Default is
+    renamed with `` (old)`` (uniquified); any other row stays Custom. Missing
+    Defaults are added. The mapping is single-hop (apply it simultaneously).
+    """
+    factory = {(d.name, round(d.width_mm, 6))
+               for d in (*MW_FACTORY_LINE_WEIGHTS, *LEGACY_FACTORY_LINE_WEIGHTS)}
+    by_mm = {round(d.width_mm, 6): d.name for d in DEFAULT_LINE_WEIGHTS}
+    mapping: dict[str, str] = {}
+    px_over: dict[str, int | None] = {}
+    kept: list[LineWeightDef] = []
+    clashes: list[LineWeightDef] = []
+    for d in defs:
+        mm = round(d.width_mm, 6)
+        target = by_mm.get(mm)
+        if (d.name, mm) in factory and target is not None:
+            mapping[d.name] = target
+            if d.model_px is not None:
+                px_over.setdefault(target, d.model_px)
+        elif is_default_weight(d.name):
+            clashes.append(d)
+        else:
+            kept.append(d.copy())
+    taken = {d.name for d in kept} | {d.name for d in DEFAULT_LINE_WEIGHTS}
+    for d in clashes:
+        new = d.name + OLD_SUFFIX
+        n = 2
+        while new in taken:
+            new = f"{d.name} (old {n})"
+            n += 1
+        taken.add(new)
+        mapping[d.name] = new
+        c = d.copy()
+        c.name = new
+        kept.append(c)
+    present = {d.name for d in defs}
+    for name, target in _STATIC_LEGACY_MAP.items():
+        if name in present:
+            continue
+        mapping.setdefault(name, target)
+    out = []
+    for d in DEFAULT_LINE_WEIGHTS:
+        c = d.copy()
+        if d.name in px_over:
+            c.model_px = px_over[d.name]
+        out.append(c)
+    return [*out, *kept], mapping
 
 
 def validate_model_px(px) -> bool:
@@ -75,10 +171,13 @@ def validate_model_px(px) -> bool:
 
 
 def _is_legacy_factory(defs: list[LineWeightDef]) -> bool:
-    """An untouched pre-MW factory template (names + mm, no overrides)."""
-    want = {(d.name, round(d.width_mm, 6)) for d in LEGACY_FACTORY_LINE_WEIGHTS}
-    return (len(defs) == len(want) and all(d.model_px is None for d in defs)
-            and {(d.name, round(d.width_mm, 6)) for d in defs} == want)
+    """An untouched MW or pre-MW factory template (names + mm, no overrides)."""
+    got = {(d.name, round(d.width_mm, 6)) for d in defs}
+    return (all(d.model_px is None for d in defs) and any(
+        len(defs) == len(want) and got == want
+        for want in ({(d.name, round(d.width_mm, 6)) for d in fac}
+                     for fac in (LEGACY_FACTORY_LINE_WEIGHTS,
+                                 MW_FACTORY_LINE_WEIGHTS))))
 
 
 def load_line_weights(settings: QSettings | None = None) -> list[LineWeightDef]:
@@ -127,6 +226,8 @@ def validate_line_weight_name(name: str,
         return False
     if name.strip().lower() in _reserved_weight_names():
         return False
+    if is_default_weight(name.strip()):
+        return False           # a Default name is never taken by another row (LW-DC-3)
     return all(lw.name != name.strip() for lw in existing)
 
 
@@ -343,9 +444,16 @@ def reset_project_line_weights() -> None:
 
 
 def weight_names() -> list[str]:
-    """Project weight names sorted by width — the source for every picker."""
-    return [d.name for d in sorted(project_line_weights(),
-                                   key=lambda d: d.width_mm)]
+    """Project weight names for every picker: Defaults by width, then Custom
+    by width (LW-DC-7)."""
+    rows = sorted(project_line_weights(), key=lambda d: d.width_mm)
+    return ([d.name for d in rows if is_default_weight(d.name)]
+            + [d.name for d in rows if not is_default_weight(d.name)])
+
+
+def weight_separator_index() -> int:
+    """Index in ``weight_names()`` where Custom starts (= the Default count)."""
+    return sum(1 for d in project_line_weights() if is_default_weight(d.name))
 
 
 def merge_project_line_weights(weights: dict, model_px: dict | None = None) -> list[str]:
