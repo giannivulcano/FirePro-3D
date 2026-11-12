@@ -88,3 +88,6 @@ def test_unresolved_head_falls_back_to_node_radius(shown_model_view):
     node = _head(scene)
     assert node.sprinkler.extent_radius() == 0.0
     assert node.shape().boundingRect().width() / 2.0 == pytest.approx(Node.RADIUS)
+    # shape()/boundingRect() clamp to RADIUS on their own; the selection halo
+    # in paint() (radius * 0.95) does not, so pin the fallback it reads.
+    assert node._symbol_radius() == pytest.approx(Node.RADIUS)
