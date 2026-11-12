@@ -239,3 +239,26 @@ def test_a_level_copy_of_a_water_supply_says_why_it_was_refused(qapp):
     ms.copy_items_to_level([ws], ms.active_level)
     assert _water_supplies(ms) == [ws]
     assert any(ONE_WS in m for m in seen)
+
+
+def test_a_mixed_duplicate_and_paste_keep_the_supply_reason_in_the_status(qapp):
+    """T8-M4: the Duplicate / Paste commits show their own count after
+    paste_items; the R5 reason must survive in that final status. (A
+    supply-only clipboard is refused earlier, at begin_paste.)"""
+    ms = scene()
+    ws = add_water_supply(ms)
+    a, b, _p = _network(ms)
+    seen = _status(ms)
+    ms.clearSelection(); ws.setSelected(True); b.setSelected(True)
+    ms._selected_items = [ws, b]
+    ms._modify_ctl.commit_duplicate(QPointF(0.0, 3000.0))
+    assert _water_supplies(ms) == [ws]
+    assert seen[-1].startswith("Duplicated 1 item(s) (1 skipped)")
+    assert ONE_WS in seen[-1]                                         # [RED]
+    ctl = ms._modify_ctl
+    assert ctl.write_clipboard([ws, b], QPointF(0.0, 0.0))
+    assert ctl.begin_paste()
+    ctl.commit_paste(QPointF(0.0, 5000.0))
+    assert _water_supplies(ms) == [ws]
+    assert seen[-1].startswith("Pasted 1 item(s) (1 skipped)")
+    assert ONE_WS in seen[-1]                                         # [RED]

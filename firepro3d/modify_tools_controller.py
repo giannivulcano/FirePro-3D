@@ -51,6 +51,21 @@ def flip_refusal_targets(items) -> list:
     return [it for it in items or () if isinstance(it, BlockInstance)]
 
 
+def _with_skip_reason(scene, msg: str) -> str:
+    """*msg* plus the reason the last ``paste_items`` refused a record.
+
+    ``paste_items`` shows its refusal (one water supply per project, a pattern
+    block, a Note in the wrong view) itself; the Paste / Duplicate commits then
+    show their count, which would hide it (PH1 T8 M4).
+
+    Args:
+        scene: The Model_Space that just ran ``paste_items``.
+        msg: The commit's own status text.
+    """
+    reason = getattr(scene, "_last_paste_skip_reason", None)
+    return f"{msg} - {reason}" if reason else msg
+
+
 class ModifyToolsController:
     """Behaviour for the 2D modify tools. See docs/specs/scene-tools.md."""
 
@@ -412,11 +427,12 @@ class ModifyToolsController:
         s.clear_placement_state()
         s.set_mode(None)
         if not new_items:
-            s._show_status("Nothing pasted", 3000)
+            s._show_status(_with_skip_reason(s, "Nothing pasted"), 3000)
             return
         s.select_items(new_items, clear=False)    # one emit (selection-mode §5.9)
         msg = f"Pasted {len(new_items)} item(s)"
-        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
+        s._show_status(_with_skip_reason(
+            s, msg + (f" ({skipped} skipped)" if skipped else "")))
 
     def _apply_paste_displacement(self, params: dict) -> bool:
         """Typed dX/dY for ``paste`` (D5): commit one paste at base + offset.
@@ -978,12 +994,13 @@ class ModifyToolsController:
         s.clear_placement_state()
         s.set_mode(None)
         if not new_items:
-            s._show_status("Nothing duplicated", 3000)
+            s._show_status(_with_skip_reason(s, "Nothing duplicated"), 3000)
             return
         s.select_items(new_items, clear=False)    # one emit (selection-mode §5.9)
         skipped = len(records) - len(new_items)
         msg = f"Duplicated {len(new_items)} item(s)"
-        s._show_status(msg + (f" ({skipped} skipped)" if skipped else ""))
+        s._show_status(_with_skip_reason(
+            s, msg + (f" ({skipped} skipped)" if skipped else "")))
 
     # ── Rotate (D8) ─────────────────────────────────────────────────────────
     # Angles are Y-up, CCW+ (scene Y is down): a +X point turned +90° about

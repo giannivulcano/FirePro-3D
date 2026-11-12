@@ -9702,6 +9702,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if pasted_gls:
                 from . import auto_constrain as _ac
                 _ac.join_gridlines(self, pasted_gls, None)
+        # The Paste / Duplicate commits show their own count status after this
+        # returns; they append this reason so it is not lost (PH1 T8 M4).
+        self._last_paste_skip_reason = skip_reason if pattern_skipped else None
         if pattern_skipped:
             self._show_status(skip_reason)
         elif da_skipped:
