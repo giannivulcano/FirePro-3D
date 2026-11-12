@@ -669,6 +669,7 @@ SECTION_PASTE_NO_HOST = ("Can't paste here - this view does not show the "
 SECTION_PASTE_PLAN_ITEMS = "Plan items can't be pasted in a section - edit them in plan"
 HOSTED_PASTE_IN_PLAN = ("Gridline-hosted blocks can only be pasted in a "
                         "section or elevation view")
+WATER_SUPPLY_ONE = "A project has one water supply"   # R5: paste / duplicate refusal
 
 # -- Sheet-linked document (docs/superpowers/specs/2026-11-09-sheet-linked-document-design.md)
 PDF_PT_PER_MM = 72.0 / 25.4          # PDF user-space points per paper mm

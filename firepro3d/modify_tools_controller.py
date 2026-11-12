@@ -954,6 +954,17 @@ class ModifyToolsController:
         # The same per-item serialiser + paste path as Copy/Paste, so every
         # selectable kind (2D geometry, text, nodes, gridlines, blocks) copies.
         records = s._clipboard_item_dicts(src)
+        refuse = getattr(s, "water_supply_refusal", None)      # Model_Space only (R5)
+        why = refuse(records) if callable(refuse) else None
+        if why is not None:                                     # nothing changes
+            s._show_status(why, 4000)
+            s._selected_items = []
+            s.pick_base_pos = None
+            s._move_ghost = []
+            s._move_ghost_base = []
+            s.clear_placement_state()
+            s.set_mode(None)
+            return
         s.clearSelection()
         new_items = s.paste_items(
             offset, data=records,

@@ -9182,11 +9182,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         data = []
         for item in items:
             if isinstance(item, Node):
-                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
+                from .network_codec import pipe_record, sprinkler_props
+                sprinkler = sprinkler_props(item.sprinkler) if item.has_sprinkler() else None
                 pipes = []
                 for p in item.pipes:
                     other = item.other_end(p)
-                    pipes.append({"x": other.pos().x(), "y": other.pos().y()})
+                    pipes.append({"x": other.pos().x(), "y": other.pos().y(),
+                                  "pipe": pipe_record(p)})          # D-PH16 ruling: props ride
                 data.append({
                     "type": "node",
                     "x": item.pos().x(), "y": item.pos().y(),
@@ -9195,8 +9197,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "ceiling_offset_mm": getattr(item, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
                     "level": getattr(item, "level", DEFAULT_LEVEL),
                     "sprinkler": sprinkler,
+                    "sprinkler_phase": item.sprinkler.phase if item.has_sprinkler() else None,
+                    "fitting_phase_override": item.fitting.phase_override,
                     "pipes": pipes,
                 })
+            elif isinstance(item, WaterSupply):
+                from .network_codec import serialize_water_supply
+                data.append({"type": "water_supply", **serialize_water_supply(item)})
             elif isinstance(item, DesignArea):
                 # No to_dict: members are named by sprinkler-node position so a
                 # paste can rebind them to the sprinklers it created (G-P1).
@@ -9266,8 +9273,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         Returns:
             True for 2D geometry / text, node, block-instance, gridline,
-            wall, room, floor-slab, roof and design-area records. False for
-            a section's hosted-block record (``section_host``, elevation
+            wall, room, floor-slab, roof, design-area and water-supply
+            records. False for a section's hosted-block record (``section_host``, elevation
             parity R5).
         """
         if obj.get("section_host"):
@@ -9275,7 +9282,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         obj_type = obj.get("type", "")
         return (obj_type in self._GEOM_TYPE_REGISTRY
                 or obj_type in ("node", "block_instance", "wall", "room",
-                                "floor_slab", "roof", "design_area")
+                                "floor_slab", "roof", "design_area", "water_supply")
                 # Gridline: to_dict() emits no "type" key.
                 or (not obj_type and "origin" in obj and "angle" in obj))
 
@@ -9292,6 +9299,22 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         from .constants import HOSTED_PASTE_IN_PLAN
         if items and all(d.get("section_host") for d in items):
             return HOSTED_PASTE_IN_PLAN
+        return self.water_supply_refusal(items)   # R5
+
+    def water_supply_refusal(self, records) -> "str | None":
+        """R5: records holding only a water supply are refused while the project
+        already has one (one per project, ``press_water_supply``).
+
+        Args:
+            records: Clipboard / duplicate records (``_clipboard_item_dicts``).
+
+        Returns:
+            The status text, or None.
+        """
+        from .constants import WATER_SUPPLY_ONE
+        if (records and all(r.get("type") == "water_supply" for r in records)
+                and self.water_supply_node is not None):
+            return WATER_SUPPLY_ONE
         return None
 
     def paste_items(self, offset, data=None, constraints=None, rotation_deg=None):
@@ -9311,8 +9334,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         Returns:
             Every pasted top-level item — 2D geometry / text, each record's
-            Node (pipe end nodes are not listed), block instances and
-            gridlines. A skipped record (unknown type, missing block
+            Node (pipe end nodes are not listed), block instances,
+            gridlines and a water supply (refused while one exists, R5). A skipped record (unknown type, missing block
             definition) contributes nothing, and so does a node record that
             landed on an existing node (``find_nearby_node``) and created no
             sprinkler, pipe or pipe end node.
@@ -9382,6 +9405,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                         node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
                     if "level" in obj:
                         node1.level = obj["level"]
+                    ov = obj.get("fitting_phase_override")
+                    node1.fitting.phase_override = phase_registry.read_id(ov) if ov else None
                     # Recompute z_pos from ceiling level + offset
                     if self._level_manager:
                         lvl = self._level_manager.get(node1.ceiling_level)
@@ -9394,6 +9419,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     template = Sprinkler(None)
                     for key, meta in obj["sprinkler"].items():
                         template.set_property(key, meta["value"])
+                    template.phase = phase_registry.read_id(obj.get("sprinkler_phase"))
                     # None when the node already carries a sprinkler.
                     if self.add_sprinkler(node1, template) is not None:
                         created = True
@@ -9413,7 +9439,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                         (pipe.node1 == node2 and pipe.node2 == node1)
                         for pipe in self.sprinkler_system.pipes
                     ):
-                        self.add_pipe(node1, node2)
+                        new_pipe = self.add_pipe(node1, node2)
+                        rec = p.get("pipe")
+                        if isinstance(rec, dict):           # D-PH16 ruling: the source's fields
+                            from .network_codec import apply_pipe_record
+                            apply_pipe_record(new_pipe, rec, skip=("Mark",))
                         created = True
                 node1.fitting.update()
                 if created:
@@ -9504,6 +9534,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 self.addItem(roof)
                 self._roofs.append(roof)
                 new_items.append(roof)
+            elif obj_type == "water_supply":
+                if self.water_supply_node is not None:        # R5: one per project
+                    from .constants import WATER_SUPPLY_ONE
+                    pattern_skipped += 1
+                    skip_reason = WATER_SUPPLY_ONE
+                    continue
+                from .network_codec import deserialize_water_supply
+                ws = deserialize_water_supply(self, {**obj, "x": obj["x"] + offset.x(),
+                                                     "y": obj["y"] + offset.y()})
+                new_items.append(ws)
             elif obj_type == "design_area":
                 da_records.append(obj)              # resolved after every node is pasted
 
