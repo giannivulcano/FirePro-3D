@@ -79,3 +79,15 @@ def test_load_without_rows_is_the_factory():
         [{"id": "new", "name": "New", "graphics": {"colour": "#ff0000"}}]))
     pr.load_project_phases(None)
     assert pr.project_table().to_list() == pr.PhaseRegistry().to_list()
+
+
+def test_a_custom_row_squatting_a_builtin_name_does_not_duplicate_it():
+    """T1-M1: a custom "Existing" with another id and no built-in row -> the
+    built-in comes back and the name resolves to it, one row per name."""
+    reg = pr.PhaseRegistry.from_list([
+        {"id": "new", "name": "New"}, {"id": "demolition", "name": "Demolition"},
+        {"id": "custom-1", "name": "Existing"}])
+    names = [n.casefold() for n in reg.names()]
+    assert len(names) == len(set(names))
+    assert reg.id_for_name("Existing") == "existing"
+    assert reg.get("custom-1") is not None and reg.name_of("custom-1") != "Existing"

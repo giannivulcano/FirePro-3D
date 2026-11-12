@@ -74,7 +74,17 @@ class PhaseRegistry:
             self._rows.append(s)
         for i, fac in enumerate(factory_statuses()):
             if self.get(fac["id"]) is None:
+                clash = self.id_for_name(fac["name"])
+                if clash is not None:        # a custom row squats the built-in's name:
+                    self.get(clash)["name"] = self._free_name(fac["name"])   # keep its id
                 self._rows.insert(min(i, len(self._rows)), fac)
+
+    def _free_name(self, base: str) -> str:
+        """*base* with a numeric suffix until no row carries the name."""
+        n = 2
+        while self.id_for_name(f"{base} ({n})"):
+            n += 1
+        return f"{base} ({n})"
 
     def statuses(self) -> list[dict]:
         """Deep copies of every row, in order."""
@@ -127,7 +137,7 @@ def set_project_table(reg: PhaseRegistry) -> None:
     """Install *reg*; the unknown-id log starts over."""
     global _TABLE
     _TABLE = reg
-    _UNKNOWN_LOGGED.clear()
+    _UNKNOWN_LOGGED.clear()          # one info line per unknown id per load
 
 
 def reset_project_table() -> None:

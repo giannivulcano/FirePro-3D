@@ -14,13 +14,11 @@ _MADE: list = []      # every scene() this test built; ph1_cleanup ends them
 
 
 def scene():
-    """A Model_Space with a LevelManager (Level 1 @ 0.0) and a ScaleManager."""
+    """A Model_Space with a LevelManager (Level 1 @ 0.0)."""
     from firepro3d.level_manager import LevelManager
     from firepro3d.model_space import Model_Space
-    from firepro3d.scale_manager import ScaleManager
     ms = Model_Space()
     ms._level_manager = LevelManager()
-    ms.scale_manager = ScaleManager()
     _MADE.append(ms)
     return ms
 

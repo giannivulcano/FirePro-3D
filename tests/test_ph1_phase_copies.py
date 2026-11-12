@@ -88,6 +88,8 @@ def test_copy_paste_keeps_pipe_properties(qapp, order):
     ctl.commit_paste(QPointF(0.0, 4000.0))
     (cp,) = _copies(ms, p)
     _assert_copy(p, cp)
+    assert [s.phase for s in ms.sprinkler_system.sprinklers if s is not b.sprinkler] \
+        == ["demolition"]
     _assert_copied_override(cp)
 
 
@@ -101,6 +103,8 @@ def test_array_keeps_pipe_properties(qapp, order):
     assert ms._modify_ctl.commit_array({"count": 2, "spacing": 3000.0})
     (cp,) = _copies(ms, p)
     _assert_copy(p, cp)
+    assert [s.phase for s in ms.sprinkler_system.sprinklers if s is not b.sprinkler] \
+        == ["demolition"]
     _assert_copied_override(cp)
 
 
@@ -209,3 +213,29 @@ def test_a_pasted_and_a_duplicated_block_keep_the_source_phase(qapp):
     ms._modify_ctl.commit_duplicate(QPointF(0.0, 800.0))
     (dup,) = [b for b in ms._block_instances if b not in before]
     assert dup.phase == "demolition"
+
+
+# -- Phase 6 held minors -------------------------------------------------------------
+def test_a_mixed_paste_with_a_supply_present_refuses_only_the_supply(qapp):
+    """T8-M3: [water supply, node] with a supply present -> the supply is skipped,
+    the node pastes with its head phase, and the status keeps the R5 reason."""
+    ms = scene()
+    ws = add_water_supply(ms)
+    a, b, _p = _network(ms)
+    records = ms._clipboard_item_dicts([ws, b])
+    seen = _status(ms)
+    new = ms.paste_items(QPointF(0.0, 3000.0), data=records)
+    assert _water_supplies(ms) == [ws]
+    assert len(new) == 1 and new[0].sprinkler.phase == "demolition"
+    assert ONE_WS in seen[-1]
+
+
+def test_a_level_copy_of_a_water_supply_says_why_it_was_refused(qapp):
+    """VC9 unconfirmed: copy_items_to_level reaches paste_items; the R5 refusal is
+    not silent there."""
+    ms = scene()
+    ws = add_water_supply(ms)
+    seen = _status(ms)
+    ms.copy_items_to_level([ws], ms.active_level)
+    assert _water_supplies(ms) == [ws]
+    assert any(ONE_WS in m for m in seen)

@@ -91,3 +91,54 @@ def test_unknown_status_in_a_file_reads_new_with_one_log_line(qapp, tmp_path, ca
     out = load(path)
     assert [w.phase for w in out._walls] == ["new", "new"]
     assert len([r for r in caplog.records if "deleted-custom" in r.getMessage()]) == 1
+
+
+def test_a_legacy_load_leaves_the_scene_clean_and_a_newer_file_honours_phases(qapp, tmp_path):
+    """T6-1: loading a pre-phasing file does not dirty the scene; a file stamped
+    one version above current still loads with its phases honoured."""
+    src = tmp_path / "old.fpd"
+    shutil.copyfile(FIXTURE, src)
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    for p in raw["pipes"]:
+        p["properties"].pop("Phase", None)
+    control = tmp_path / "control.fpd"
+    control.write_text(json.dumps(raw), encoding="utf-8")
+    flags = []
+    for path in (src, control):               # load_from_file leaves the flag to MainWindow
+        ms = scene()
+        assert ms.load_from_file(str(path))
+        flags.append((ms.is_dirty(), ms._undo_pos))
+    assert flags[0] == flags[1]               # the migration adds no dirt / undo step
+    cur = scene()
+    cur.add_pipe(cur.add_node(0.0, 0.0), cur.add_node(1000.0, 0.0)).phase = "existing"
+    path, raw = save_raw(cur, tmp_path, "cur.fpd")
+    raw["version"] = Model_Space.SAVE_VERSION + 1
+    Path(path).write_text(json.dumps(raw), encoding="utf-8")
+    out = load(path)
+    assert [p.phase for p in out.sprinkler_system.pipes] == ["existing"]
+
+
+def test_an_untouched_registry_saves_equal_after_a_round_trip(qapp, tmp_path):
+    """T6-2: save -> load -> save gives the same "phases" value."""
+    rows = pr.PhaseRegistry().to_list()
+    rows[1]["graphics"]["colour"] = "#123456"
+    pr.set_project_table(pr.PhaseRegistry.from_list(rows))
+    path, first = save_raw(scene(), tmp_path, "a.fpd")
+    out = load(path)
+    _p, second = save_raw(out, tmp_path, "b.fpd")
+    assert second["phases"] == first["phases"] == rows
+
+
+def test_the_unknown_id_log_starts_over_each_load(qapp, tmp_path, caplog):
+    """T6-3: a second load of the same unknown id logs again (one line per load)."""
+    ms = scene()
+    add_wall(ms)
+    path, raw = save_raw(ms, tmp_path)
+    for w in raw["walls"]:
+        w["phase"] = "deleted-custom"
+    Path(path).write_text(json.dumps(raw), encoding="utf-8")
+    caplog.set_level(logging.INFO, logger="firepro3d.phase_registry")
+    for _ in range(2):
+        out = scene()
+        assert out.load_from_file(path)       # not load(): its reset would hide a stale set
+    assert len([r for r in caplog.records if "deleted-custom" in r.getMessage()]) == 2

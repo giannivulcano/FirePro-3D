@@ -9300,7 +9300,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "pipes": pipes,
                 })
             elif isinstance(item, WaterSupply):
-                from .network_codec import serialize_water_supply
                 data.append({"type": "water_supply", **serialize_water_supply(item)})
             elif isinstance(item, DesignArea):
                 # No to_dict: members are named by sprinkler-node position so a
@@ -9372,8 +9371,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         Returns:
             True for 2D geometry / text, node, block-instance, gridline,
             wall, room, floor-slab, roof, design-area and water-supply
-            records. False for a section's hosted-block record (``section_host``, elevation
-            parity R5).
+            records. False for a section's hosted-block record
+            (``section_host``, elevation parity R5).
         """
         if obj.get("section_host"):
             return False        # a section's hosted copy: sections only (R5)
@@ -9433,10 +9432,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         Returns:
             Every pasted top-level item — 2D geometry / text, each record's
             Node (pipe end nodes are not listed), block instances,
-            gridlines and a water supply (refused while one exists, R5). A skipped record (unknown type, missing block
-            definition) contributes nothing, and so does a node record that
-            landed on an existing node (``find_nearby_node``) and created no
-            sprinkler, pipe or pipe end node.
+            gridlines and a water supply (refused while one exists, R5). A
+            skipped record (unknown type, missing block definition)
+            contributes nothing, and so does a node record that landed on an
+            existing node (``find_nearby_node``) and created no sprinkler,
+            pipe or pipe end node.
         """
         if data is None:
             payload = self.clipboard_payload()

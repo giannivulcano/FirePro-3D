@@ -94,3 +94,36 @@ def test_vertical_split_keeps_its_phase(qapp):
     t.node1_ceiling_offset = t.node2_ceiling_offset = DEFAULT_CEILING_OFFSET_MM
     assert ms._pipe_ctl._find_or_split_vertical_at_z(QPointF(0, 0), 1500.0, t) is not None
     assert [p.phase for p in ms.sprinkler_system.pipes] == ["demolition", "demolition"]
+
+
+def test_a_saved_pipe_override_dict_is_not_the_live_one(qapp):
+    """T4-1: the record copies the overrides; a later live edit leaves it alone."""
+    from firepro3d.network_codec import pipe_record
+    pipe = add_pipe(scene())
+    pipe._display_overrides = {"color": "#00ff00"}
+    rec = pipe_record(pipe)
+    pipe._display_overrides["color"] = "#ff0000"
+    pipe._display_overrides["extra"] = 1
+    assert rec["display_overrides"] == {"color": "#00ff00"}
+
+
+def test_an_unknown_fitting_override_id_loads_as_auto(qapp, tmp_path):
+    """T4-2: an id the project no longer has is Auto, not an explicit New."""
+    import json
+    from tests._ph1_helpers import save_raw
+    ms = scene()
+    pipe = add_pipe(ms)
+    pipe.phase = "existing"
+    pipe.node1.fitting.phase_override = "existing"
+    path, raw = save_raw(ms, tmp_path)
+    for n in raw["nodes"]:
+        if n.get("fitting_phase_override"):
+            n["fitting_phase_override"] = "nonexistent"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(raw, fh)
+    out = load(path)
+    for n in out.sprinkler_system.nodes:
+        assert n.fitting.phase_override is None
+    from firepro3d import phase_registry as pr
+    (p,) = out.sprinkler_system.pipes
+    assert pr.effective_phase(p.node1.fitting) == "existing"       # derived from its pipe

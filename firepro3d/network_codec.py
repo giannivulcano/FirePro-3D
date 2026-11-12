@@ -45,7 +45,7 @@ def pipe_record(pipe) -> dict:
     phase_registry.write_element(pipe, entry)
     pipe_ovr = getattr(pipe, "_display_overrides", {})
     if pipe_ovr:
-        entry["display_overrides"] = pipe_ovr
+        entry["display_overrides"] = dict(pipe_ovr)
     if pipe.tag_block:
         entry["tag_block"] = pipe.tag_block   # SB4a D5: sparse, absent = project default
     return entry
@@ -266,7 +266,9 @@ def deserialize_node(scene, entry):
     node._fitting_display_overrides_pending = entry.get(
         "fitting_display_overrides", {})
     ov = entry.get("fitting_phase_override")
-    node.fitting.phase_override = phase_registry.read_id(ov) if ov else None
+    # An id the project no longer has loads as Auto (no override), not as New.
+    node.fitting.phase_override = (
+        ov if isinstance(ov, str) and phase_registry.project_table().get(ov) else None)
 
     node.level = entry.get("level", DEFAULT_LEVEL)
     node._room_name = entry.get("room_name", "")
