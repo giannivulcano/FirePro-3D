@@ -1,11 +1,11 @@
 import math
 from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsItem, QStyle
-from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .colour_tokens import resolve_colour
 from .cad_math import CAD_Math
 from .fitting import Fitting
+from .symbol_block import SymbolBlockItem
 from .bound_label import BoundLabelItem, TagBlockHost
 from . import phase_registry
 
@@ -13,7 +13,6 @@ from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
                         Z_CAT_PIPE, Z_CAT_SYMBOL, RISER_SYMBOL_TAG,
                         RISER_SYMBOL_SIZE_MM)
 from .displayable_item import DisplayableItemMixin
-from .assets import asset_path
 from .view_scale import scene_hit_width
 from .paper_display import shows_selection
 
@@ -28,8 +27,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     # Diameters that auto-assign as "Main" (≥ 3")
     _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
 
-    _RISER_SVG = asset_path("fitting_symbols", "riser_passthrough.svg")
-    _RISER_SIZE_MM = RISER_SYMBOL_SIZE_MM  # fixed symbol size in scene units (mm)
+    _RISER_SIZE_MM = RISER_SYMBOL_SIZE_MM  # section cut size + hit fallback before the riser block resolves
 
     # Hazen-Williams C-factor by pipe material (NFPA 13 Table 22.4.4.8)
     MATERIAL_C_FACTOR: dict[str, int] = {
@@ -127,7 +125,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         # Top-level annotation-block label (SB4a D1); added to the scene in update_label
         self.label = BoundLabelItem(self, child=False)
 
-        self._riser_symbol: QGraphicsSvgItem | None = None
+        self._riser_symbol: SymbolBlockItem | None = None
 
         self.set_pipe_display()
 
@@ -167,6 +165,35 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         return resolve_colour(self._properties["Colour"]["value"] if dc is None else dc,
                               item=self)
 
+    def effective_colour(self) -> QColor:
+        """The colour this pipe strokes in: the velocity colour when the last
+        solver run put it on the calculation path (Sprint 2 colour-coding),
+        else ``_pen_colour()`` (DM / paper colour, else the Colour property).
+        The riser symbol strokes in it too (SB4g R4)."""
+        scene = self.scene()
+        res = getattr(scene, "hydraulic_result", None) if scene is not None else None
+        if res is not None:
+            nn = res.node_numbers
+            if nn.get(self.node1) is not None and nn.get(self.node2) is not None:
+                v = res.pipe_velocity.get(self, -1)
+                if v >= 0:
+                    from .constants import (VELOCITY_HIGH_FPS, VELOCITY_WARN_FPS,
+                                            VELOCITY_COLOR_HIGH, VELOCITY_COLOR_WARN,
+                                            VELOCITY_COLOR_OK)
+                    if v > VELOCITY_HIGH_FPS:
+                        return QColor(*VELOCITY_COLOR_HIGH)
+                    if v > VELOCITY_WARN_FPS:
+                        return QColor(*VELOCITY_COLOR_WARN)
+                    return QColor(*VELOCITY_COLOR_OK)
+        return self._pen_colour()
+
+    def repaint_riser(self) -> None:
+        """Schedule a riser repaint: its stroke colour is pulled at paint (R4),
+        so a velocity / DM / paper colour change needs only this."""
+        rs = getattr(self, "_riser_symbol", None)
+        if rs is not None:
+            rs.update()
+
     def set_pipe_display(self):
         colour = self._pen_colour()
         line_weight = self.display_width_mm() * self._display_scale
@@ -184,6 +211,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         else:
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         self.setPen(pen)
+        self.repaint_riser()
 
     # --------------------------------------------
     # PIPE LABEL HELPERS
@@ -206,9 +234,9 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
                 self._riser_symbol.setVisible(False)
             return
 
-        # Vertical pipe — create symbol if needed
+        # Vertical pipe — create symbol if needed (the System "Riser" block, R7)
         if self._riser_symbol is None:
-            self._riser_symbol = QGraphicsSvgItem(self._RISER_SVG)
+            self._riser_symbol = RiserSymbolItem(self)
             self._riser_symbol.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self._riser_symbol.setAcceptHoverEvents(False)
             self._riser_symbol.setData(0, RISER_SYMBOL_TAG)   # never a snap target (SB4d)
@@ -219,17 +247,9 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
             sc.addItem(self._riser_symbol)
             self._riser_symbol.setZValue(Z_OVERLAY)
 
-        # Scale to fixed size
-        bounds = self._riser_symbol.boundingRect()
-        natural = max(bounds.width(), bounds.height())
-        if natural > 0:
-            scale = self._RISER_SIZE_MM / natural
-            self._riser_symbol.setScale(scale)
-
-        # Position at pipe XY (both endpoints share same XY for vertical pipes)
-        pos = self.node1.scenePos()
-        half = self._RISER_SIZE_MM / 2
-        self._riser_symbol.setPos(pos.x() - half, pos.y() - half)
+        # Block origin = the riser centre: position at pipe XY (both endpoints
+        # share the same XY for vertical pipes); real size, no scaling.
+        self._riser_symbol.setPos(self.node1.scenePos())
 
         # Visibility: show unless a visible endpoint has horizontal pipes
         # (horizontal pipes produce a fitting symbol that already indicates
@@ -263,6 +283,13 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         rs = getattr(self, "_riser_symbol", None)
         if rs is not None:
             rs.setZValue(self.zValue() + (Z_CAT_SYMBOL - Z_CAT_PIPE))
+
+    def riser_hit_radius(self) -> float:
+        """Hit-disk radius of a vertical pipe: the riser symbol's real extent
+        (its block, AC6), else half ``RISER_SYMBOL_SIZE_MM`` until it resolves."""
+        rs = self._riser_symbol
+        r = rs.extent_radius() if rs is not None else 0.0
+        return r if r > 0.0 else self._RISER_SIZE_MM / 2
 
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:
@@ -358,10 +385,10 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         path = QPainterPath()
 
         # Vertical pipes: zero-length line produces degenerate stroke.
-        # Use a circular hit area matching the riser symbol size.
+        # Use a circular hit area matching the riser symbol's extent.
         if ln.length() < 1.0:
             center = ln.p1()
-            r = self._RISER_SIZE_MM / 2
+            r = self.riser_hit_radius()
             path.addEllipse(center, r, r)
             return path
 
@@ -614,7 +641,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         return math.sqrt(horiz_ft ** 2 + z_diff_ft ** 2)
 
     def paint(self, painter, option, widget=None):
-        colour = self._pen_colour()
+        colour = self.effective_colour()
 
         # Pen width = Main/Branch display width in scene units (mm).
         # Non-cosmetic: the line scales with zoom just like real geometry.
@@ -638,27 +665,6 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
 
         base_pen = QPen(colour, line_weight)
         base_pen.setCapStyle(cap_style)
-
-        # Velocity color-coding — only for pipes on the hydraulic calculation path
-        scene = self.scene()
-        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
-            nn = scene.hydraulic_result.node_numbers
-            on_calc_path = (nn.get(self.node1) is not None
-                            and nn.get(self.node2) is not None)
-            if on_calc_path:
-                v = scene.hydraulic_result.pipe_velocity.get(self, -1)
-                if v >= 0:
-                    from .constants import (VELOCITY_HIGH_FPS, VELOCITY_WARN_FPS,
-                                           VELOCITY_COLOR_HIGH, VELOCITY_COLOR_WARN,
-                                           VELOCITY_COLOR_OK)
-                    if v > VELOCITY_HIGH_FPS:
-                        colour = QColor(*VELOCITY_COLOR_HIGH)
-                    elif v > VELOCITY_WARN_FPS:
-                        colour = QColor(*VELOCITY_COLOR_WARN)
-                    else:
-                        colour = QColor(*VELOCITY_COLOR_OK)
-                    base_pen = QPen(colour, line_weight)
-                    base_pen.setCapStyle(cap_style)
 
         # Collect clip regions from the fittings drawn over this pipe
         clip_regions = self._collect_clip_regions()
@@ -762,3 +768,16 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(colour))
         painter.drawPath(stroked)
+
+
+class RiserSymbolItem(SymbolBlockItem):
+    """The vertical pipe's pass-through symbol (SB4g D3 / R4 / R7): the System
+    Riser block (no per-pipe choice), stroked in its pipe's
+    ``effective_colour()`` pulled at paint -- canvas velocity / DM colour, and
+    on paper the Pipe row the pass set on the pipe. Fills stay authored."""
+
+    def __init__(self, pipe):
+        super().__init__("Riser", owner=pipe)
+
+    def stroke_tint(self):
+        return self._owner.effective_colour()

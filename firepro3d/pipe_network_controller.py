@@ -791,7 +791,7 @@ class PipeNetworkController:
             dx, dy = bx - ax, by - ay
             l2 = dx * dx + dy * dy
             if ln.length() < 1.0:
-                r = p._RISER_SIZE_MM / 2
+                r = p.riser_hit_radius()
                 if (x - ax) ** 2 + (y - ay) ** 2 > r * r:
                     continue
             else:

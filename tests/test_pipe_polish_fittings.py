@@ -400,12 +400,14 @@ def test_fitting_symbol_is_half_size_on_a_branch(scene):
     assert _side_mm(low.fitting.symbol) == pytest.approx(150.0, abs=0.5)
 
 
-def test_bare_riser_symbol_is_half_size(scene):
+def test_bare_riser_symbol_is_half_size(scene, real_system_library):
     a, b = _node(scene, 0, 0, 0.0), _node(scene, 0, 0, 3000.0)
     pipe = _pipe(scene, a, b)
     a.fitting.update(), b.fitting.update()
     assert pipe._riser_symbol.isVisible()
-    assert _side_mm(pipe._riser_symbol) == pytest.approx(150.0, abs=0.5)
+    # SB4g R14: the riser seed's centre-line extent = 2 x circle r 9.2852659 x K 7.5
+    # (riser_passthrough.svg; K = RISER_SYMBOL_SIZE_MM 150 / viewBox 20)
+    assert pipe._riser_symbol.extent_radius() * 2 == pytest.approx(2 * 9.2852659 * 7.5, abs=0.01)
 
 
 def test_branch_is_masked_inside_its_own_end_symbol(scene):

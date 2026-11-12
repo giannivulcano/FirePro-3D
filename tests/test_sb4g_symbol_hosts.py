@@ -125,3 +125,59 @@ def test_ac10_water_supply_selectable_z_kept_selection_never_plots(shown_model_v
     monkeypatch.setattr(pd, "paper_pass_active", lambda: True)
     w_paper, _ = ink_extent_mm(view, ws)
     assert w_paper == pytest.approx(w0, abs=INK_TOL)   # selection never plots
+
+
+# -- T10: riser pass-through ---------------------------------------------------
+def _riser(scene):
+    a, b = Node(0.0, 0.0, 0.0), Node(0.0, 0.0, 3000.0)
+    for n in (a, b):
+        scene.addItem(n)
+        scene.sprinkler_system.add_node(n)
+    p = scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    a.fitting.update(), b.fitting.update()
+    return p
+
+
+def test_g1_riser_draws_its_block_at_real_size(shown_model_view, real_system_library):
+    from firepro3d.constants import RISER_SYMBOL_TAG
+    view, scene = shown_model_view
+    p = _riser(scene)
+    rs = p._riser_symbol
+    assert isinstance(rs, SymbolBlockItem) and not isinstance(rs, QGraphicsSvgItem)
+    assert rs.isVisible() and rs.data(0) == RISER_SYMBOL_TAG
+    assert rs.definition().id == "system-symbols-riser"
+    assert rs.pos() == p.node1.scenePos()                    # origin-centred, no half offset
+    want = EXTENT_MM["system-symbols-riser"]
+    assert rs.extent_radius() * 2 == pytest.approx(want, abs=0.01)
+    w, h = ink_extent_mm(view, rs)
+    assert w == pytest.approx(want, abs=INK_TOL)
+    assert h == pytest.approx(want, abs=INK_TOL)
+
+
+def test_riser_hit_disk_follows_the_riser_block(shown_model_view):
+    """AC6: a 300 mm riser block widens the vertical pipe's hit disk to 150 mm.
+
+    The riser has no per-pipe choice (R7); ``set_symbol_block`` is a test seam
+    driving the same ``extent_radius`` path a System edit (Promote) of the
+    riser seed drives through ``refresh()``."""
+    view, scene = shown_model_view
+    p = _riser(scene)
+    assert p.riser_hit_radius() == pytest.approx(RISER_MM / 2)   # unresolved: today's 75
+    d = _circle_symbol(scene, 300.0, "Riser")
+    p._riser_symbol.set_symbol_block(d.id)
+    assert p.riser_hit_radius() == pytest.approx(150.0, abs=0.01)
+    assert p.shape().boundingRect().width() / 2.0 == pytest.approx(150.0, abs=0.01)
+    assert p in scene.items(QPointF(140.0, 0.0))
+
+
+def test_g8_riser_never_a_snap_target_and_pinned_above_its_pipe(shown_model_view,
+                                                                 real_system_library):
+    from firepro3d.constants import Z_CAT_PIPE, Z_CAT_SYMBOL
+    from firepro3d.snap_engine import is_snap_target
+    _view, scene = shown_model_view
+    p = _riser(scene)
+    scene._level_manager.apply_to_scene(scene)
+    rs = p._riser_symbol
+    assert not is_snap_target(rs, skip_pipes=False)
+    assert rs.zValue() == pytest.approx(p.zValue() + (Z_CAT_SYMBOL - Z_CAT_PIPE))
+    assert not rs.acceptedMouseButtons()

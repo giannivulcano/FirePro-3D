@@ -35,6 +35,7 @@ def refresh_hydraulic_overlay(scene) -> None:
     for pipe in scene.sprinkler_system.pipes:
         pipe.update_label()
         pipe.update()
+        pipe.repaint_riser()
     # Badges on major nodes only (numeric labels, AC7); values are live.
     nodes = list(scene.sprinkler_system.nodes)
     labels = getattr(scene.hydraulic_result, "node_labels", None) or {}
@@ -53,6 +54,7 @@ def clear_hydraulic_overlay(scene) -> None:
     for pipe in scene.sprinkler_system.pipes:
         pipe.update_label()
         pipe.update()
+        pipe.repaint_riser()
     for node in scene.sprinkler_system.nodes:
         node.remove_hydraulic_badge()
         node.update()
