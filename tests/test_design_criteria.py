@@ -1,7 +1,8 @@
 """tests/test_design_criteria.py — Room→DesignArea criteria inheritance."""
 import pytest
 from unittest.mock import MagicMock
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtGui import QPolygonF
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d.design_area import DesignArea
@@ -15,6 +16,10 @@ def _mock_room(name, hazard, poly_pts, system="Wet", point=(1500.0, 0.15),
     r._system_type = system
     r.level = level
     r.boundary = [QPointF(x, y) for x, y in poly_pts]
+    r.holes = []
+    # member_rooms asks the room itself (room-detection rework §2.7): a hole-less polygon.
+    r.contains_point.side_effect = lambda p: QPolygonF(r.boundary).containsPoint(
+        p, Qt.FillRule.OddEvenFill)
     r.design_point.return_value = None if point is None else point
     return r
 

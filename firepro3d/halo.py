@@ -52,8 +52,12 @@ def _halo_trace_path_local(item):
         p = QPainterPath()
         p.addEllipse(item.rect())
         return p
-    # Polygon items (Room).
+    # Polygon items (Room): the room's odd-even path -- outer ring plus every
+    # hole, so a hole is outside the trace (room-detection rework D-R4).
     if isinstance(item, QGraphicsPolygonItem):
+        rp = getattr(item, "room_path", None)
+        if callable(rp):                       # Room: outer ring + holes (D-R4)
+            return rp()
         p = QPainterPath()
         p.addPolygon(item.polygon())
         p.closeSubpath()

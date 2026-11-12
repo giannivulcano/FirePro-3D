@@ -733,17 +733,14 @@ class DesignArea(QGraphicsPathItem):
         roomless = 0
         if scene is None:
             return rooms, 0
-        polys = [(r, QPolygonF(r.boundary))
-                 for r in getattr(scene, "_rooms", [])
-                 if getattr(r, "level", "") == self.level]
+        rooms_on = [r for r in getattr(scene, "_rooms", [])
+                    if getattr(r, "level", "") == self.level]
         for spr in self._sprinklers:
             node = getattr(spr, "node", None)
             if node is None:
                 continue
             pos = node.scenePos()
-            hit = next((r for r, poly in polys
-                        if poly.containsPoint(pos, Qt.FillRule.OddEvenFill)),
-                       None)
+            hit = next((r for r in rooms_on if r.contains_point(pos)), None)
             if hit is None:
                 roomless += 1
             elif hit not in rooms:
@@ -917,13 +914,9 @@ class DesignArea(QGraphicsPathItem):
         # Walls, rooms, and sprinklers on the same level
         walls = [w for w in getattr(scene, "_walls", [])
                  if getattr(w, "level", "") == self.level]
-        room_polys = []
-        for room in getattr(scene, "_rooms", []):
-            if getattr(room, "level", "") != self.level:
-                continue
-            pts = room.boundary
-            if len(pts) >= 3:
-                room_polys.append(QPolygonF(pts))
+        level_rooms = [room for room in getattr(scene, "_rooms", [])
+                       if getattr(room, "level", "") == self.level
+                       and len(room.boundary) >= 3]
         all_sprs = [s for s in getattr(
             getattr(scene, "sprinkler_system", None), "sprinklers", [])
             if s.node and getattr(s.node, "level", "") == self.level]
@@ -971,9 +964,12 @@ class DesignArea(QGraphicsPathItem):
             # Clip to the containing room polygon — per-side distances
             # can't express slanted boundaries (diagonal walls), so a
             # rectangle corner would poke outside the room.
-            for room_poly in room_polys:
-                if room_poly.containsPoint(pos, Qt.FillRule.OddEvenFill):
-                    clipped = poly.intersected(room_poly)
+            for room in level_rooms:
+                if room.contains_point(pos):
+                    clip = QPainterPath()
+                    clip.addPolygon(poly)
+                    clip.closeSubpath()
+                    clipped = clip.intersected(room.room_path()).toFillPolygon()   # holes excluded
                     if not clipped.isEmpty():
                         poly = clipped
                     break

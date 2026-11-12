@@ -1404,14 +1404,24 @@ class AutoPopulateDialog(QDialog):
             algo_params = dlg.params()
 
         if algo_key == "grid_uniform":
-            return compute_sprinkler_grid(
+            result = compute_sprinkler_grid(
                 self._room.boundary, max_cov, max_spacing)
         elif algo_key == "voronoi_relaxation":
-            return compute_voronoi_relaxation(
+            result = compute_voronoi_relaxation(
                 self._room.boundary, max_cov, max_spacing, **algo_params)
-        # Fallback
-        return compute_sprinkler_grid(
-            self._room.boundary, max_cov, max_spacing)
+        else:
+            # Fallback
+            result = compute_sprinkler_grid(
+                self._room.boundary, max_cov, max_spacing)
+        return self._drop_hole_positions(result)
+
+    def _drop_hole_positions(self, result):
+        """Drop candidate heads that fall in one of the room's holes
+        (room-detection rework §2.7); a hole-less room's layout is unchanged."""
+        positions, sx, sy, calc_log = result
+        if not self._room.holes:
+            return result
+        return [p for p in positions if self._room.contains_point(p)], sx, sy, calc_log
 
     # ── Sprinkler table ───────────────────────────────────────────────────
 

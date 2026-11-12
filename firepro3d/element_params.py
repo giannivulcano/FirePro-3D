@@ -14,8 +14,7 @@ from dataclasses import dataclass
 from collections.abc import Collection
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QPolygonF
+from PyQt6.QtCore import QPointF
 
 from .constants import ELEMENT_ROOM_PROBE_MM
 from .format_utils import get_scale_manager
@@ -237,7 +236,7 @@ def _opening_room(op):
     for sign in (first, -first):
         p = QPointF(c.x() + sign * nx * reach, c.y() + sign * ny * reach)
         for room in getattr(sc, "_rooms", ()):
-            if QPolygonF(room.boundary).containsPoint(p, Qt.FillRule.OddEvenFill):
+            if room.contains_point(p):
                 return room
     return None
 

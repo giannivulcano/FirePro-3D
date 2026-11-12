@@ -429,11 +429,11 @@ def sort_point(item) -> tuple:
         a, b = item.node1.scenePos(), item.node2.scenePos()
         return ((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
     if isinstance(item, Room):
-        pts = list(item._boundary)
-        if not pts:
+        c = item._centroid()                     # D-R3 anchor (vertex mean unless in a hole)
+        if c is None:
             p = item.scenePos()
             return (p.x(), p.y())
-        return (sum(q.x() for q in pts) / len(pts), sum(q.y() for q in pts) / len(pts))
+        return (c.x(), c.y())
     node = getattr(item, "node", None)          # Sprinkler
     p = (node if node is not None else item).scenePos()
     return (p.x(), p.y())
