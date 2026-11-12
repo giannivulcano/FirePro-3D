@@ -119,6 +119,30 @@ class PhaseRegistry:
         """Parse a stored list; invalid / duplicate rows drop, built-ins are re-added."""
         return cls(rows if isinstance(rows, list) else None)
 
+    def copy(self) -> "PhaseRegistry":
+        """An independent copy (the Display Manager Phases tab's working copy)."""
+        return PhaseRegistry(self.to_list())
+
+    def graphics_of(self, sid) -> dict:
+        """A copy of *sid*'s graphics record ({} for an unknown id)."""
+        row = self.get(sid)
+        return dict(row["graphics"]) if row else {}
+
+    def set_graphic(self, sid, key, value) -> bool:
+        """Set one graphics slot; None = no override ("—"). False for an unknown id / key."""
+        row = self.get(sid)
+        if row is None or key not in _GRAPHIC_KEYS:
+            return False
+        row["graphics"][key] = value
+        return True
+
+    def reset_graphics_to_factory(self) -> None:
+        """Built-ins back to their D-PH10 factory graphics; names, order and custom rows kept."""
+        factory = {r["id"]: r["graphics"] for r in factory_statuses()}
+        for row in self._rows:
+            if row["id"] in factory:
+                row["graphics"] = dict(factory[row["id"]])
+
 
 # -- project-wide store (materials.py pattern) ---------------------------------
 _TABLE: PhaseRegistry | None = None
