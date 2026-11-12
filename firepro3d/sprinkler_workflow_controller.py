@@ -68,7 +68,7 @@ class SprinklerWorkflowController:
 
     def auto_populate_room(self, room, positions, sprinkler_record,
                            level, ceiling_level, sprinkler_offset,
-                           design_density="0.10"):
+                           design_density="0.10", phase="new"):
         """Place sprinkler nodes at computed positions inside a room.
 
         Parameters
@@ -85,6 +85,8 @@ class SprinklerWorkflowController:
             Offset from ceiling surface in mm (negative = below).
         design_density : str
             Design density string (gpm/ft²).
+        phase : str
+            Status id of the current sprinkler template (R7).
         """
         if not positions:
             return
@@ -135,6 +137,7 @@ class SprinklerWorkflowController:
         # Level is a Node property, not a Sprinkler property — set on node below
         temp_spr._properties["Ceiling Level"]["value"] = ceiling_level
         temp_spr._properties["Ceiling Offset"]["value"] = str(ceiling_offset)
+        temp_spr.phase = phase                    # R7: add_sprinkler copies it
 
         count = 0
         for pt in positions:

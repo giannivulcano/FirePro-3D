@@ -58,6 +58,7 @@ from firepro3d import theme as th
 from firepro3d import colour_picker
 from firepro3d import fill_types
 from firepro3d import materials
+from firepro3d import phase_registry
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,6 +223,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._sprinkler_db = SprinklerDatabase()
         self.scene = Model_Space()
         self.scene.set_sprinkler_db(self._sprinkler_db)
+        self.scene.set_sprinkler_template_source(lambda: self.current_sprinkler_template)   # R7
         # Give templates a scene reference so they can always find the
         # *current* scale_manager (survives _clear_scene resets).
         self.current_pipe_template._scene_ref = self.scene
@@ -761,6 +763,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # HF5 R9: startup = the seed set, then the display defaults.
         fill_types.reset_project_table()
         materials.reset_project_table()
+        phase_registry.reset_project_table()   # PH1: startup
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
@@ -932,6 +935,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             pipe_props = self.settings.value("template/pipe", {})
             if isinstance(pipe_props, dict):
                 for k, v in pipe_props.items():
+                    if k == phase_registry.ROW_KEY:      # a pre-PH1 "Demo" value (C2: one map)
+                        v = phase_registry.legacy_pipe_phase(v) or v
                     self.current_pipe_template.set_property(k, v)
         if self.settings.contains("template/sprinkler"):
             spr_props = self.settings.value("template/sprinkler", {})
@@ -969,6 +974,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                     mf = op["mirror_facing"]
                     tmpl.mirror_facing = (mf if isinstance(mf, bool)
                                           else str(mf).lower() in ("true", "1"))
+                if "phase" in op:              # M4: sticky like the opening's other fields
+                    tmpl.phase = phase_registry.read_id(str(op["phase"]))
         # Restore floor placement template (modes/offsets/thickness); level
         # names + absolute-Z re-seed from the active level inside the helper.
         self.scene.load_floor_template_settings(self.settings)
@@ -3568,6 +3575,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         """Apply a SprinklerRecord as the active sprinkler placement template."""
         from firepro3d.sprinkler import Sprinkler
         template = Sprinkler(None)
+        template.phase = self.current_sprinkler_template.phase   # R7: sticky across a catalog pick
         template.set_property("Manufacturer",  record.manufacturer)
         template.set_property("Model",         record.model)
         template.set_property("K-Factor",      str(record.k_factor))
@@ -4030,6 +4038,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # HF5 R9: a new project = the seed set, then the display defaults.
         fill_types.reset_project_table()
         materials.reset_project_table()
+        phase_registry.reset_project_table()   # PH1: New project
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         # LT1-3: a new project's weight table copies the template.
@@ -6003,10 +6012,12 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         if self.current_pipe_template:
             pipe_props = {k: v["value"]
                           for k, v in self.current_pipe_template._properties.items()}
+            pipe_props[phase_registry.ROW_KEY] = self.current_pipe_template.phase
             self.settings.setValue("template/pipe", pipe_props)
         if self.current_sprinkler_template:
             spr_props = {k: v["value"]
                          for k, v in self.current_sprinkler_template._properties.items()}
+            spr_props[phase_registry.ROW_KEY] = self.current_sprinkler_template.phase
             self.settings.setValue("template/sprinkler", spr_props)
         if self.current_text_template is not None:
             self.settings.setValue(
@@ -6025,6 +6036,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
                 "alignment":    t.alignment,
                 "mirror_hinge": t.mirror_hinge,
                 "mirror_facing": t.mirror_facing,
+                "phase": t.phase,
             })
         # Persist the floor placement template (modes/offsets/thickness only;
         # level names + absolute-Z are project-specific and stay out).

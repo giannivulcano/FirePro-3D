@@ -131,6 +131,7 @@ class FeaturePlacementController:
             op.alignment = tmpl.alignment
             op.mirror_hinge = tmpl.mirror_hinge
             op.mirror_facing = tmpl.mirror_facing
+            op.phase = tmpl.phase                # D-PH5
         else:
             op = WallOpening(wall=wall, feature_id=self._scene._opening_feature_id,
                              offset_along=self._offset_along_wall(wall, snapped))

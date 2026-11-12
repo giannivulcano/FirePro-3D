@@ -13,6 +13,7 @@ from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QTransform)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from . import marks
+from . import phase_registry
 from .node import Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
@@ -266,6 +267,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._editing_item = None   # TextItem currently in inline edit (read via editing_text_item)
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
+        self._sprinkler_template_source = None   # R7: MainWindow's current sprinkler template
         self._underlay_ctl = UnderlayController(self)  # underlay/import concern (slice)
         self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
@@ -3468,10 +3470,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def auto_populate_room(self, room, positions, sprinkler_record,
                            level, ceiling_level, sprinkler_offset,
-                           design_density="0.10"):
+                           design_density="0.10", phase="new"):
         return self._spr_ctl.auto_populate_room(
             room, positions, sprinkler_record, level, ceiling_level,
-            sprinkler_offset, design_density=design_density)
+            sprinkler_offset, design_density=design_density, phase=phase)
 
     # -------------------------------------------------------------------------
     # UNDERLAYS — IMPORT
@@ -5022,6 +5024,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             "bottom_mode":      tmpl._bottom_mode,
             "bottom_offset_mm": tmpl._bottom_offset_mm,
             "thickness_mm":     tmpl._thickness_mm,
+            "phase":            tmpl.phase,
         })
 
     def load_floor_template_settings(self, settings) -> None:
@@ -5066,6 +5069,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if "thickness_mm" in blob:
             tmpl._thickness_mm = max(float(blob["thickness_mm"]),
                                      MIN_FLOOR_THICKNESS_MM)
+        if "phase" in blob:                    # M4: sticky like the floor recipe (D-PH5)
+            tmpl.phase = phase_registry.read_id(str(blob["phase"]))
 
         # Re-seed project-specific parts from the active level.
         tmpl._top_level = self.active_level
@@ -7730,6 +7735,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         slab._bottom_level = tmpl._bottom_level if tmpl._bottom_level else self.active_level
         slab._bottom_offset_mm = tmpl._bottom_offset_mm
         slab._bottom_abs_z_mm = tmpl._bottom_abs_z_mm
+        slab.phase = tmpl.phase                # D-PH5 (both floor variants)
         # NOTE: no owning `.level` write — a floor's `.level` is retired for
         # geometry (visibility is pure z-range) and is NOT serialized, so it
         # would silently revert to the mixin default on reload/undo. The two
@@ -8058,6 +8064,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             roof._pitch_deg = _rtmpl._pitch_deg
             roof._eave_height_mm = _rtmpl._eave_height_mm
             roof._overhang_mm = _rtmpl._overhang_mm
+            roof.phase = _rtmpl.phase                # D-PH5 (roof polygon)
             roof.level = _rtmpl.level if _rtmpl.level else self.active_level
             roof.add_point(snapped)
             self.addItem(roof)
@@ -8167,6 +8174,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             roof._pitch_deg = _rtmpl._pitch_deg
             roof._eave_height_mm = _rtmpl._eave_height_mm
             roof._overhang_mm = _rtmpl._overhang_mm
+            roof.phase = _rtmpl.phase                # D-PH5 (roof rect)
             roof.level = _rtmpl.level if _rtmpl.level else self.active_level
             self.addItem(roof)
             self._roofs.append(roof)
@@ -8563,12 +8571,18 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Inject the shared SprinklerDatabase (called by MainWindow)."""
         self._sprinkler_db = db
 
+    def set_sprinkler_template_source(self, source) -> None:
+        """Inject a callable returning MainWindow's current sprinkler template (R7)."""
+        self._sprinkler_template_source = source
+
     def _auto_populate_room_dialog(self, room):
         """Open the auto-populate dialog for a room and place sprinklers."""
         from .auto_populate_dialog import AutoPopulateDialog
         from .sprinkler_db import SprinklerDatabase
 
         db = self._sprinkler_db or SprinklerDatabase()
+        src = self._sprinkler_template_source
+        tmpl = src() if callable(src) else None
         dlg = AutoPopulateDialog(
             room, db,
             level_manager=self._level_manager,
@@ -8585,6 +8599,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 results["ceiling_level"],
                 results["ceiling_offset"],
                 results.get("design_density", "0.10"),
+                phase=getattr(tmpl, "phase", "new"),
             )
 
     def _hide_items(self, items):

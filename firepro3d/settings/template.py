@@ -29,6 +29,7 @@ import logging
 import os
 
 from firepro3d import app_data
+from firepro3d import phase_registry
 from firepro3d.scale_manager import ScaleManager, DisplayUnit
 
 log = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ def _blank_template_payload(sm: ScaleManager | None = None) -> dict:
         # (existing saved projects keep their embedded copy — DD-5). "" = none.
         "titleblock_template_uuid": "",
         "annotation_defaults": {},   # SB3: category -> block id; new projects resolve it against the System tier
+        "phases": phase_registry.factory_statuses(),   # PD1: a template seeds the registry
     }
     for key in _BLANK_GEOMETRY_KEYS:
         payload[key] = []
@@ -215,6 +217,9 @@ def apply_template_settings(scene) -> None:
     for cat in ANNOTATION_CATEGORIES:
         scene.annotation_block(cat)
     scene.refresh_annotation_tags()
+    rows = data.get("phases")
+    if isinstance(rows, list):              # PD4: the registry overlays like the other settings
+        phase_registry.load_project_phases(rows)
     apply_template_titleblock(scene, data)
 
 
@@ -249,7 +254,7 @@ def apply_template_titleblock(scene, data: dict) -> None:
 def save_current_as_default(scene) -> str:
     """Persist *scene*'s current settings into the default template.
 
-    Captured: scale, project_info, mark_patterns and annotation_defaults.
+    Captured: scale, project_info, mark_patterns, annotation_defaults and phases.
 
     Geometry is NEVER written — only ``scale_manager.to_dict()`` and
     ``_project_info`` are captured.  A fresh blank payload is built so that the
@@ -268,6 +273,7 @@ def save_current_as_default(scene) -> str:
     payload["project_info"] = dict(getattr(scene, "_project_info", {}) or {})
     payload["mark_patterns"] = dict(getattr(scene, "mark_patterns", {}) or {})
     payload["annotation_defaults"] = dict(getattr(scene, "annotation_defaults", {}) or {})
+    payload["phases"] = phase_registry.to_list()
     # Capture the current project's linked title-block by uuid (reference, not
     # embed): "Save as default" is how the user sets which library template new
     # projects inherit (Task A).
