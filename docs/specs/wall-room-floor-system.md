@@ -1,12 +1,13 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
-last-verified: 2026-11-12  # PH1 Account: §4.4 wall template, §7.4 opening phase row, §9.1 room phase row, §11.4 floor template, §11.7 panel header row, §11.11 void panel rows, §12 phase key line only, rest not re-audited; prior 2026-11-06  # wall polish rebuild fix Account: 6.1 itemChange trigger only, rest not re-audited; prior 2026-11-06  # Materials Account: section appearance and display_overrides lines link materials.md, rest not re-audited; prior 2026-11-04  # wall-joint stops Account: s5.1-s5.3 + s5.5 stops, tee seams, Solid at 3+; s6.1 refresh_stale_stops; s6.2 seam paint rule; rest not re-audited; prior 2026-10-31  # floor-opening Account: header note, s3.1 / s3.5 FloorOpening, s7.4 / s7.8.1 / s7.16 host_type + Opening row, s11.3 missing Top Level, s11.4 shared floor-family machinery, s11.8-s11.10 cut region / holed mesh / follow-host, new s11.11 floor voids, s12.4 openings key + new s12.5; rest not re-audited; prior 2026-10-30  # wall-level-refs Account: s11.3 rename / delete pointer + open repair only, rest not re-audited; prior 2026-10-30  # miter-seam fix Account: s5.5 union-body clip skip, s6.2 operand snap, WALL_OUTLINE_SNAP constant only, rest not re-audited; prior 2026-10-30  # wall-face constraints Account: s5.4 face-join pointer only; prior 2026-10-30  # SB3b + L283 Account: s9.1 Room fields, s12.1-s12.4 serialization keys only, rest not re-audited; prior 2026-10-29   # SB3 Account: Room fields table _mark / _label_offset / _show_label pointers only; rest not re-audited; prior 2026-10-27  # Editor/Build slice 3 Account: header note, §4.5 propagation (tied-end skip), §5.4 auto-join (records, hidden walls), §12.1 uid key only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: header note (wall uid built) + 4.5 pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: Room _tag -> _mark and the wall / opening / room `mark` schema keys only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
-verified-commit: f2f0db3e   # PH1 (v0.101.0; §4.4 / §7.4 / §9.1 / §11.4 / §11.7 / §11.11 / §12 phase lines only); prior e4efdb68   # wall polish rebuild fix, main merged in (v0.94.3); prior 7e3e1829   # fix commit; prior b9ce2e00   # Materials merge on main (v0.94.0); prior 30790da0   # wall-joint stops (v0.88.0, merged to main); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior ff26e251   # wall-level-refs merge on main (s11.3 only); prior b8a0ac34   # miter-seam fix Account (s5.5 / s6.2 only); prior 43e792d4   # wall-face constraints Account (s5.4 pointer); prior 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 Account; prior f44a4c2b   # Editor/Build slice 3 Account (§4.5 / §5.4 / §12.1 only); prior db16090a   # Editor/Build slice 2 Account (pointers only); prior ceacaab4   # SB2b Account (Mark keys only); prior 58769fc5   # Editor/Build design (pointer only); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
+last-verified: 2026-11-12  # room-detection Account: s3.1 / s3.5 Room rows, s8 rewritten, s9.1 / s9.5 / s9.6 room geometry + net area + calibration + ceiling slab, s10.1 tier 2, s12.3 holes key, s13 / s14 / s15; rest not re-audited; prior 2026-11-12  # PH1 Account: §4.4 wall template, §7.4 opening phase row, §9.1 room phase row, §11.4 floor template, §11.7 panel header row, §11.11 void panel rows, §12 phase key line only, rest not re-audited; prior 2026-11-06  # wall polish rebuild fix Account: 6.1 itemChange trigger only, rest not re-audited; prior 2026-11-06  # Materials Account: section appearance and display_overrides lines link materials.md, rest not re-audited; prior 2026-11-04  # wall-joint stops Account: s5.1-s5.3 + s5.5 stops, tee seams, Solid at 3+; s6.1 refresh_stale_stops; s6.2 seam paint rule; rest not re-audited; prior 2026-10-31  # floor-opening Account: header note, s3.1 / s3.5 FloorOpening, s7.4 / s7.8.1 / s7.16 host_type + Opening row, s11.3 missing Top Level, s11.4 shared floor-family machinery, s11.8-s11.10 cut region / holed mesh / follow-host, new s11.11 floor voids, s12.4 openings key + new s12.5; rest not re-audited; prior 2026-10-30  # wall-level-refs Account: s11.3 rename / delete pointer + open repair only, rest not re-audited; prior 2026-10-30  # miter-seam fix Account: s5.5 union-body clip skip, s6.2 operand snap, WALL_OUTLINE_SNAP constant only, rest not re-audited; prior 2026-10-30  # wall-face constraints Account: s5.4 face-join pointer only; prior 2026-10-30  # SB3b + L283 Account: s9.1 Room fields, s12.1-s12.4 serialization keys only, rest not re-audited; prior 2026-10-29   # SB3 Account: Room fields table _mark / _label_offset / _show_label pointers only; rest not re-audited; prior 2026-10-27  # Editor/Build slice 3 Account: header note, §4.5 propagation (tied-end skip), §5.4 auto-join (records, hidden walls), §12.1 uid key only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: header note (wall uid built) + 4.5 pointer only, rest not re-audited; prior 2026-10-25  # SB2b Account: Room _tag -> _mark and the wall / opening / room `mark` schema keys only, rest not re-audited; prior 2026-10-24  # Editor/Build design Account: proposal pointer only, rest not re-audited; prior 2026-10-24  # wall polish Account: §4.5 grips/propagation, §5.2-§5.5 joinery (N-way pie, visible-partner pool, tee whole-span + mutual-tee guard + union body), §6.1-§6.3 cached outline/paint, §7.12/§13 invalidate_geometry; room detection (§8) unchanged; prior 2026-10-22  # paper section/plan parity Account: §6.2 + §11.8 paint order (fill, hatch, outline last; AC1) only; prior 2026-10-18  # HF1 Account: wall _colour / section-fill / DM "" pointers only (rest not re-audited); prior opening display categories Account: §7.8.1 per-Feature Door/Window/Opening rows + legacy seed; prior paper-outline-weight Account (§6.2 outline-pen note, §11.8 floor outline -> _outline_pen); prior 2026-10-01
+verified-commit: 7cdb7146   # room-detection rework (s3.1 / s3.5 / s8 / s9.1 / s9.5 / s9.6 / s10.1 / s12.3 / s13-s15 only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §7.4 / §9.1 / §11.4 / §11.7 / §11.11 / §12 phase lines only); prior e4efdb68   # wall polish rebuild fix, main merged in (v0.94.3); prior 7e3e1829   # fix commit; prior b9ce2e00   # Materials merge on main (v0.94.0); prior 30790da0   # wall-joint stops (v0.88.0, merged to main); prior 1c1e59c6   # floor-opening (v0.76.0, merged to main); prior ff26e251   # wall-level-refs merge on main (s11.3 only); prior b8a0ac34   # miter-seam fix Account (s5.5 / s6.2 only); prior 43e792d4   # wall-face constraints Account (s5.4 pointer); prior 7e5d3b15   # SB3b + L283 merge on main; prior 8be9034a   # SB3 Account; prior f44a4c2b   # Editor/Build slice 3 Account (§4.5 / §5.4 / §12.1 only); prior db16090a   # Editor/Build slice 2 Account (pointers only); prior ceacaab4   # SB2b Account (Mark keys only); prior 58769fc5   # Editor/Build design (pointer only); prior 63a86f02   # wall polish (feature/wall-polish code tip); prior dbd2e1a3   # paper section/plan parity (AC1-AC5, ff merge fix/paper-section-parity); prior 084b43e0   # HF1 Account (pointers only); prior cbfe14f Door/Window/Opening display categories; prior 4c799ee   # paper outline weight (_outline_pen); prior c8ff4f4   # scene-tools P1 Account: §11.4 floor/roof close + roof pop on close_hit + close ring (DD8 built); prior dbeb8b6   # 2026-09-26 design grill: floor/roof close rule -> pointer to 2d-geometry sec.4; prior a972466   # 2026-09-26 doc-drift sweep: wall-line + floor continuous->single-placement wording; prior 892cf76   # snap-polish: floor/roof polygon Ctrl, grip-Ctrl pointer; prior 62683b9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/wall_outline.py   # pure outline geometry (junction pie, cluster union, stroke pieces)
   - firepro3d/wall_placement_controller.py   # auto-join + endpoint propagation (§4.5, §5.4)
   - firepro3d/room.py
+  - firepro3d/room_detection.py   # room detection on wall bodies (s8): detect / refusals / holes / same-face helpers
   - firepro3d/floor_slab.py
   - firepro3d/floor_opening.py   # floor void (FloorOpening) owned by a slab (§11.11)
   - firepro3d/floor_cut.py       # pure cut-region geometry: slab minus voids, holed triangulation, cut spans (§11.11)
@@ -26,7 +27,8 @@ applies-to:
 **Complexity:** Large
 **Status:** Current
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
-**Impl note (2026-10-24):** wall joinery (§5), the cached outline and paint (§6.1-§6.3) were rebuilt by the wall-polish branch; rationale and ratified as-built deviations: [`docs/superpowers/specs/2026-10-23-wall-polish-design.md`](../superpowers/specs/2026-10-23-wall-polish-design.md). Room detection (§8) is unchanged by that branch.
+**Impl note (2026-11-12):** **room detection rewritten as-built** (`feature/room-detection`, verified `7cdb7146`; design [`docs/superpowers/specs/2026-11-12-room-detection-rework-design.md`](../superpowers/specs/2026-11-12-room-detection-rework-design.md), rulings D-R1..D-R7): the centreline graph walk is replaced by the HF4 region finder over wall bodies (`room_detection.py`), rooms gain **holes**, Room mode gets a hover preview, and the Room panel / ceiling fixes L567 / L1656 ride along. Contract: §8, §9.1, §9.5, §9.6, §12.3.
+**Impl note (2026-10-24):** wall joinery (§5), the cached outline and paint (§6.1-§6.3) were rebuilt by the wall-polish branch; rationale and ratified as-built deviations: [`docs/superpowers/specs/2026-10-23-wall-polish-design.md`](../superpowers/specs/2026-10-23-wall-polish-design.md). Room detection (§8) was unchanged by that branch and was then **rewritten 2026-11-12** (see the next note).
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
 **Impl note (2026-09-16):** wall/floor/roof/opening placement is now **single-placement** (returns to Select with the placed item selected after a completed placement) — via `Model_Space._end_placement_switch` gated on `_SINGLE_PLACEMENT_MODES` (see `2d-geometry.md §4`). Chain gestures (wall-polyline, floor-polygon) switch only when the chain completes (loop-close / Enter / close-near-first); a wall rectangle commits its 4 segments and selects them all.
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
@@ -52,7 +54,7 @@ These four entity types form the core architectural model that drives NFPA 13 sp
 | Entity | Base Classes | Module | Role |
 |--------|-------------|--------|------|
 | `WallSegment` | `DisplayableItemMixin` + `QGraphicsPathItem` | `wall.py` | Straight-segment wall with thickness, joinery, openings |
-| `Room` | `DisplayableItemMixin` + `QGraphicsPolygonItem` | `room.py` | Closed boundary from wall graph, NFPA coverage tracking |
+| `Room` | `DisplayableItemMixin` + `QGraphicsPolygonItem` | `room.py` | Closed boundary (plus hole rings) detected on wall bodies (`room_detection.py`, §8), NFPA coverage tracking |
 | `FloorSlab` | `DisplayableItemMixin` + `QGraphicsPathItem` | `floor_slab.py` | Polygon slab with thickness, occlusion masking, owned voids |
 | `FloorOpening` | `DisplayableItemMixin` + `QGraphicsPathItem` | `floor_opening.py` | Slab-hosted void polygon (§11.11) |
 | `WallOpening` | `QGraphicsPathItem` | `wall_opening.py` | Wall-hosted cutout (base class for Door/Window) |
@@ -89,7 +91,7 @@ This ordering ensures floor slabs paint first (enabling occlusion masking), room
 ```
 WallSegment ──owns──► WallOpening (lifecycle-bound)
      │
-     │ (graph walk, snapshot)
+     │ (wall-body region detection, snapshot; §8)
      ▼
    Room ──queries──► SprinklerSystem.nodes (on-demand)
      │
@@ -543,57 +545,64 @@ The pre-redesign code (`wall_opening.py`) modeled openings as **wall-owned cutou
 
 ## 8. Room Boundary Detection
 
+> **Rewritten as-built 2026-11-12** (room-detection rework; build contract and ratified rulings D-R1..D-R7: [`docs/superpowers/specs/2026-11-12-room-detection-rework-design.md`](../superpowers/specs/2026-11-12-room-detection-rework-design.md)). The centreline graph walk, its own tee rule and the alignment inset table are **retired** (`Model_Space._detect_room_boundary` is gone).
+
 ### 8.1 Overview
 
-Rooms are created by clicking inside a closed wall loop. The boundary detection algorithm walks the wall graph using the tightest-clockwise-turn heuristic to find the minimal enclosing polygon on the clicked side.
+Rooms are created by clicking inside a closed wall loop (Room mode). `firepro3d/room_detection.py` runs the one closed-region engine, the HF4 region finder ([`hatch-and-fill.md`](hatch-and-fill.md)), over the **joined plan bodies of the walls**, not their centrelines: the room face is read straight off the wall faces, so alignment (Left / Center / Right), mixed thicknesses, mitres, wedges and tee copes need no correction. A face that surrounds inner wall clusters (islands) yields a room **with holes** (§8.4).
 
-### 8.2 Graph Construction
+### 8.2 Engine and Candidates
 
-**Step 1 — Collect nodes:**
-- Wall endpoints (pt1, pt2) from all walls visible on the active level.
-- Level filtering includes multi-level walls that span through the active level.
-- T-junction face points: for each wall endpoint, check if it lands on another wall's face (not at its endpoints). Uses `nearest_face_point()` with `TOL × 3` search radius and a 5% parameter margin to avoid false detection near endpoints. This is room detection's **own** tee rule; it is deliberately not the wall tee rule of §5.5 (whole span, true centerline) — aligning them was tried by wall polish and reverted, and detection is unchanged by that branch.
+- **Candidate walls** (`Model_Space._room_walls(level)`): walls that are visible and either on the level, based on it (`_base_level`), or spanning it. A hidden wall does not bound a room.
+- **Pieces:** every candidate contributes the edges of `outline_geometry().body` as tagged pieces; `Arrangement.from_pieces` (the raw-pieces seam beside `Arrangement.build`) splits, welds (`CHAIN_WELD_MM`), prunes and links them. The arrangement window is the bodies' united bounds padded by `ROOM_DETECT_WINDOW_PAD_MM`.
+- **Openings never cut a body**, so a door or window never opens a room.
+- **`detect(walls, click, arr=None)`** returns a `RoomFace(outer, holes, area_mm2, sample)` or a `Refusal(reason, open_end)`.
 
-**Step 2 — Merge close points:**
-- Points within `TOL` (2.0 scene units) are merged into unique node indices.
-- O(n²) pairwise distance check (acceptable for typical wall counts).
+### 8.3 Refusals
 
-**Step 3 — Build directed edges:**
-- For each wall, collect all nodes along its centerline (endpoints + T-junction points on this wall).
-- Sort by parameter `t` along the wall.
-- Add bidirectional edges between consecutive nodes with precomputed angles.
+| Reason | When | Status text (`REFUSAL_TEXT`) |
+|--------|------|------------------------------|
+| `"in_wall"` | The click is inside a wall body, or the face found is a wall-body fragment (an overlap sliver) | "Click inside a room, not on a wall" |
+| `"open"` | No bounded face at the click (open loop, gap wider than the weld tolerance). `open_end` is the nearest loose wall end: the arrangement's pruned end, else the midpoint of the nearest free-end cap (`WallOutline.caps`) (D-R6) | "Not enclosed — no closed wall boundary at the click point" |
 
-### 8.3 Boundary Walk
+A refusal creates nothing and shows its text on the status bar; there is no fallback detection.
 
-1. Find the nearest wall to the click point (perpendicular projection).
-2. Determine which side of the wall was clicked (cross product of wall direction × click offset).
-3. Set start node and incoming angle accordingly.
-4. **Walk:** At each node, examine all outgoing edges. Choose the edge with the smallest clockwise turn angle from the incoming direction. A turn angle < 1e-10 is treated as 2π (prevents zero-turn loops).
-5. Track visited edges to prevent infinite loops.
-6. Terminate when returning to the start node with ≥ 3 boundary points.
-7. Iteration cap: `2 × node_count + 10` steps. Returns `None` if exceeded.
+### 8.4 Holes
 
-### 8.4 Alignment Inset
-
-The boundary walk traces wall centerlines/axes. To reach the interior room face, an inset is applied:
-
-| Dominant alignment | Inset distance | Rationale |
-|-------------------|----------------|-----------|
-| Center | avg_half_thickness | Axis at wall center → shrink by half thickness |
-| Left | avg_half_thickness × 2 | Axis at interior face → shrink by full thickness |
-| Right | 0 | Axis at exterior face → no inset needed |
-
-"Dominant alignment" is determined by majority vote across boundary walls. Average half-thickness is used — this is a simplification that works well for uniform-thickness walls but may produce slight inaccuracies for mixed-thickness boundaries.
+An island is wall geometry wholly inside the clicked face and not connected to its outer ring (a column cluster, a closed inner partition loop). Island cycles that share a wall form one cluster; the cluster's bodies are unioned (`wall_outline.cluster_union`) and each connected part's outer ring becomes one hole ring (an inner ring of the union, the island's own room, is skipped). Net area = outer ring minus every hole ring. A hole ring is the island's outer wall face.
 
 ### 8.5 Room as Snapshot
 
-Rooms are **snapshot entities**. Once created, the boundary polygon is independent of the source walls. Moving or deleting a wall does not update or invalidate existing rooms. The user must delete and re-detect to update a room boundary.
+Rooms are **snapshot entities**. Once created, the boundary polygon and hole rings are independent of the source walls. Moving or deleting a wall does not update or invalidate existing rooms. The user must delete and re-detect to update a room boundary. Wall edits never write a room's geometry. After creation it changes only by the late hole punch (§8.6, D-R1) and by the room's own rigid transforms (`translate`, used by move and paste, and `manip_rotate`), which move the outer ring and every hole together.
 
 This is a deliberate simplification. Live wall-to-room binding would couple room lifecycle to wall edits and complicate undo. See §14 Roadmap for "refresh room" enhancement.
 
-### 8.6 Duplicate Prevention
+### 8.6 Placement, Duplicate Gate and Late Hole
 
-Before creating a new room, the algorithm checks for existing rooms with substantially overlapping boundaries. Duplicate rooms at the same location are rejected.
+`Model_Space._press_room` (Room mode click):
+
+1. `detect` at the snapped click; a `Refusal` shows its status text and stops.
+2. **Same-face gate** (`_room_same_face`): a room on the active level is the same face when its net area is within `ROOM_SAME_FACE_AREA_TOL` of the detected face's (relative), it contains the face's sample point and the face contains the room's `sample_point()`. The click is refused with "Room already exists here". A room wholly **inside** another (an island's own room) is never a duplicate.
+3. Otherwise the room is created (`Room(boundary=outer, holes=holes)`), named, given its ceiling level, minted a Mark, and selected.
+4. **Late hole (D-R1, `_room_punch_late_holes`):** for each existing room R on the level that contains the click, the walls' face around R's sample point is detected again; every hole ring of it that contains the click, lies **wholly inside R's outer ring** (every vertex inside and no ring edge crossing the outer ring) and does not already match one of R's holes (`same_ring`) is added to R's holes. So placing an island's room inside an existing room punches the island out of that room.
+5. The room and any punched hole are **one undo step** (`push_undo_state` once).
+
+### 8.7 Hover Preview and Cache
+
+Room mode previews what a click would create (`_MOVE_DISPATCH["room"]` -> `_move_room`), drawn by `Model_View.drawForeground` through the shared HF4 `_pick_region_preview` (tuple `(path, open_end, enclosed, covered)`; Room mode appends a fifth `tone`):
+
+| Hover result | Preview |
+|--------------|---------|
+| Placeable face | Face path (outer + holes, odd-even), tone `"ok"` |
+| Same face already a room | Face path, tone `"warn"` |
+| Open | No fill; the open-end ring plus the shared "Not enclosed" hint |
+| In a wall | Nothing |
+
+The arrangement is cached on `Model_Space._room_arr` keyed `(active_level, _undo_pos, len(_walls))`; it is dropped on a mode change away from Room and on undo restore, and a click and the hover share it. When the last build took longer than `REGION_FINDER_DEBOUNCE_MS` the hover runs on a single-shot debounce (the HF4 form). A press clears the preview and cancels a pending hover.
+
+### 8.8 Manual Room
+
+Manual Room mode (`_press_room_manual`) places boundary points by hand and has no holes. Closing near the first point and the pop-last-vertex hit test use the shared `close_hit` helper at `CLOSE_HIT_PX` (the same helper as floor / roof placement, [`2d-geometry.md`](2d-geometry.md) §4; no Ctrl tip, so tip == cursor).
 
 ## 9. Room Properties & NFPA Coverage
 
@@ -601,7 +610,8 @@ Before creating a new room, the algorithm checks for existing rooms with substan
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `_boundary` | `list[QPointF]` | from detection | Closed polygon vertices |
+| `_boundary` | `list[QPointF]` | from detection | Closed outer-ring vertices; `polygon()` is this ring |
+| `_holes` | `list[list[QPointF]]` | `[]` | Hole rings (islands the room surrounds, §8.4); rings under 3 points are dropped on construction. Public read: `holes` (copies). Snapshot like `_boundary` (§8.5); `translate` / `manip_rotate` carry them |
 | `name` | `str` | auto-assigned | Room identifier, used for sprinkler tagging |
 | `_mark` | `str` | `""` | Instance Mark (SB2b; was `_tag`, "Room Tag"); minted from the Room pattern, rules owned by `element-parameters.md` "Marks (SB2b)". What the canvas tag shows is owned by [`system-blocks.md`](system-blocks.md) section 5 |
 | `_hazard_class` | `str` | `"Light Hazard"` | One of 8 NFPA 13 classes (§9.2) |
@@ -613,11 +623,17 @@ Before creating a new room, the algorithm checks for existing rooms with substan
 | `_ceiling_level` | `str` | — | Level reference for ceiling elevation |
 | `_ceiling_offset` | `float` | `DEFAULT_CEILING_OFFSET_MM` | mm offset from ceiling level |
 | `_color` | `QColor` | category default | Fill/stroke color |
-| `_label_offset` | `QPointF` | (0, 0) | Offset of the `BoundLabelItem` anchor from the centroid (SB3; pointer: [`system-blocks.md`](system-blocks.md) section 8) |
+| `_label_offset` | `QPointF` | (0, 0) | Offset of the `BoundLabelItem` anchor from the tag anchor base (the boundary vertex mean; for a holed room whose mean falls in a hole or outside the net area, a point inside the net area: the midpoint of the widest inside interval of the horizontal line through the mean, else `sample_point()`; D-R3) (SB3; pointer: [`system-blocks.md`](system-blocks.md) section 8) |
 | `_show_label` | `bool` | `True` | Visibility of the room's `BoundLabelItem` tag (SB3; pointer: [`system-blocks.md`](system-blocks.md) section 8) |
 | `_tag_block` | `str \| None` | `None` | This room's own tag block id; `None` = follows the project default (SB3b; semantics, Tag row and persistence owned by [`system-blocks.md`](system-blocks.md) section 8) |
 | `_display_overrides` | `dict` | `{}` | Per-instance Display-Manager overrides (L283 persists them on both serialization paths; owned by [`display-system.md`](../architecture/display-system.md) and, for Hide, [`model-browser.md`](model-browser.md)) |
 | `phase` | `str` | New | Status id (PH1), a **Phase** panel row after Mark; a room has no template and places as New ([`project-phasing.md`](project-phasing.md) D-PH5) |
+
+**Geometry accessors (room-detection rework §2):**
+
+- `room_path()` -- odd-even `QPainterPath` of the outer ring plus every hole. It is the **one geometry source** for paint (fill and dashed outline, and the selection outline), `shape()` of a holed room (D-R4: a click in a hole falls through to what sits there; a hole-less room keeps the inherited polygon shape), the HALO trace (`halo.py`) and Tier 2 sprinkler detection (§10.1). `contains_point` applies the same odd-even rule to the outer and hole `QPolygonF` rings directly (inside the outer ring and inside no hole).
+- `contains_point(pt)` -- inside the outer ring and in no hole. Consumers that asked "does this room's polygon contain the point" (design-area membership and tile clip, `element_params` Door / Window Room) call it, so a hole is outside the room.
+- `sample_point()` -- an interior point: the first outer-edge midpoint pushed `ROOM_SAMPLE_INSET_MM` into the net area; `None` for a degenerate room.
 
 ### 9.2 Hazard Classes
 
@@ -658,11 +674,11 @@ Currently stored as metadata only — not consumed by coverage calculations. Res
 
 ### 9.5 Coverage Check
 
-**Area computation:** Shoelace formula on boundary polygon. Result in mm², converted to sq ft for NFPA comparison.
+**Area computation:** net area -- shoelace of the outer ring minus every hole ring (`_compute_area_mm2`, scene units squared). The Room panel Area / Perimeter / Volume and the coverage check divide by `pixels_per_mm` squared / `pixels_per_mm` (the `element_params` source, so the panel agrees with a bound `@[Area]`; L567), then convert to sq ft for NFPA comparison. The auto-populate dialog's area label uses the same calibrated net area.
 
-**Perimeter:** Sum of boundary edge lengths.
+**Perimeter:** outer ring plus every hole ring (D-R2).
 
-**Ceiling height:** `ceiling_level.elevation - floor_level.elevation - slab_thickness + ceiling_offset`.
+**Ceiling height:** `ceiling_level.elevation - floor_level.elevation - slab_thickness + ceiling_offset`, where `slab_thickness` is the ceiling slab thickness of §9.6.
 
 **Coverage per sprinkler:** `area_sqft / sprinkler_count`.
 
@@ -672,9 +688,9 @@ Currently stored as metadata only — not consumed by coverage calculations. Res
 
 `z_range_mm()` returns `(bot_z, top_z)`:
 - `bot_z` = floor level elevation
-- `top_z` = ceiling level elevation - thickest floor slab on ceiling level + ceiling offset
+- `top_z` = ceiling level elevation - ceiling slab thickness + ceiling offset
 
-The slab thickness lookup scans `scene._floor_slabs` for slabs whose level matches `_ceiling_level`.
+The **ceiling slab** (`Room._ceiling_slab_mm`, L1656) is the thickest slab in `scene._floor_slabs` whose top sits on the ceiling level: `_top_mode == "level"` and `_top_level == _ceiling_level`, at its resolved thickness (`effective_thickness_mm()`). A slab with an absolute top, or no slab, subtracts nothing. (A slab has no owning `.level`, §11.3.)
 
 ### 9.7 Protection Criteria & Design Point (as-built 2026-07-14)
 
@@ -699,7 +715,7 @@ Sprinkler-to-room association is evaluated on demand (not cached). Two detection
 - Tagged nodes are always associated regardless of position.
 
 **Tier 2 — Spatial fallback** (untagged nodes only):
-- XY containment: `QPainterPath.contains(node.scenePos())` against room boundary polygon.
+- XY containment: `QPainterPath.contains(node.scenePos())` against `Room.room_path()` (outer ring minus holes, §9.1).
 - Z-range filter: `node.z_pos` must be within room's `z_range_mm()`.
 - Both checks must pass.
 
@@ -964,6 +980,7 @@ Openings are serialized within their parent wall's `openings` array. The wall re
 {
     "type": "room",
     "boundary": [[x1, y1], [x2, y2], ...],
+    "holes": [[[x1, y1], [x2, y2], ...]],
     "color": "#4488cc",
     "name": "Room 1",
     "mark": "",
@@ -982,6 +999,8 @@ Openings are serialized within their parent wall's `openings` array. The wall re
     "display_overrides": { }
 }
 ```
+
+`holes` (room-detection rework) is a list of rings, each a list of `[x, y]`; it is **written only when the room has holes**, so a hole-less room's record is unchanged. A missing key loads as no holes, so old files open and re-save byte-for-byte unchanged. Both serialization paths (file and undo snapshot) ride `to_dict` / `from_dict`.
 
 `tag_block` (SB3b) and `display_overrides` (L283) are **optional**: each is written only when set / non-empty, so an untouched room carries neither. A missing, non-string or empty `tag_block` loads as `None` (follows the project default; meaning owned by [`system-blocks.md`](system-blocks.md) section 8). Both ride `to_dict` / `from_dict`, i.e. the file save and the undo snapshot alike.
 
@@ -1030,7 +1049,7 @@ Nested in the host slab's `openings` array (§12.4); the host is implicit, resto
 
 ## 13. Divergences from Current Implementation
 
-All rows in this ledger are **resolved** as-built (re-verified 2026-07-14):
+All rows in this ledger are **resolved** as-built (re-verified 2026-07-14; the three room rows added 2026-11-12):
 
 | Area | Resolution |
 |------|-----------|
@@ -1040,6 +1059,9 @@ All rows in this ledger are **resolved** as-built (re-verified 2026-07-14):
 | Opening reposition | `WallSegment.invalidate_geometry()` repositions owned openings |
 | Offset clamping | `WallOpening._reposition()` clamps `_offset_along` to `[0, centerline_length]` |
 | Dead code (room.py unreachable returns) | Removed |
+| Room panel Area / Perimeter ignored `pixels_per_mm` (L567) | Resolved 2026-11-12: panel + auto-populate area label divide by the calibration (§9.5) |
+| `Room.z_range_mm()` read the retired floor `.level` (L1656) | Resolved 2026-11-12: ceiling slab matched by `_top_mode == "level"` and `_top_level` (§9.6) |
+| Room detection tee / polyline / alignment faults of the centreline walk | Resolved 2026-11-12: the walk is retired; detection runs on wall bodies (§8) |
 | `MITER_TOL` | Named constant in `constants.py` (with `MAX_MITER_FACTOR`, `AUTO_JOIN_TOLERANCE`, `TEE_TOLERANCE`), imported by `wall.py` |
 
 ## 14. Roadmap (Out of Scope)
@@ -1047,20 +1069,26 @@ All rows in this ledger are **resolved** as-built (re-verified 2026-07-14):
 Items identified during spec development, deferred to future tasks:
 
 1. **RoomSeparator entity** — zero-thickness partition lines for NFPA coverage boundaries without physical walls.
-2. **Room refresh action** — context menu action to re-run boundary detection at the room's original click point after wall edits.
+2. **Room refresh action** — context menu action to re-run boundary detection at the room's `sample_point()` after wall edits (a room stores no click point).
 3. **Explicit wall connectivity graph** — persistent neighbor references with spatial index for O(1) lookup. Replaces O(n²) proximity scan.
 4. **Alignment flip action** — grip or context menu to reverse Left/Right without redrawing.
 5. **Ceiling type → max spacing** — hydraulic solver consumes ceiling type for NFPA 13 Table 10.2.4.2.1 spacing rules.
 6. **Compartment type → design area** — hydraulic solver uses compartment type for design area selection.
-7. **Mixed-thickness boundary inset** — per-wall inset instead of average half-thickness for rooms bounded by walls of different thicknesses.
+7. ~~Mixed-thickness boundary inset~~ — retired 2026-11-12: detection reads the wall faces directly (§8), no inset exists.
 8. **Wall connectivity spatial index** — Qt scene spatial index or custom structure to limit miter scan to nearby walls.
+9. **Room follow-ups from the room-detection rework (2026-11-12, filed in `todo_open.md`):**
+   - A late hole punch (§8.6) recomputes the punched room's tag anchor while `_label_offset` is kept, so a user-dragged tag can jump; decide re-base vs accept.
+   - `Room.from_dict` raises on a malformed `holes` key (a bad key stops the room loading); `room_path()` is rebuilt per paint / shape call (cache and invalidate in `_rebuild` if measured); the auto-populate hole-drop (`_drop_hole_positions`) leaves the calc log and spacing report unadjusted.
+   - `sample_point()` takes the first outer edge: on a short mitre-step edge the pushed point can land in a wall body or outside the net area, which the same-face gate and the late punch then misjudge.
+   - Ceiling slab edges (§9.6): a level-mode slab with a non-zero top offset still subtracts its full thickness; the private `element_params._ppm` is imported by `room.py` / the dialog and divides by zero at ppm 0 (promote to a public guarded helper).
+   - Auto-populate's head grid layout and spacing label still read room scene units as mm on a calibrated scene (the area label is fixed; predates the rework).
 
 ## 15. Verification Checklist
 
 - [ ] Spec covers all four modules (wall, room, floor slab, wall opening)
 - [ ] Wall geometry defined from first principles (alignment, quad computation, thickness)
 - [ ] Joinery contract defined (Auto/Butt/Solid, proximity discovery, resolution rules)
-- [ ] Room boundary detection algorithm formalized (graph construction, tightest-CW-turn, inset)
+- [ ] Room boundary detection formalized (wall-body arrangement, refusals, holes, same-face gate, late hole, hover)
 - [ ] NFPA coverage model documented (hazard class → max coverage, pass/fail)
 - [ ] Floor slab occlusion and section-cut protocol documented
 - [ ] Wall opening lifecycle defined (positioning, reposition-on-edit, clamping)

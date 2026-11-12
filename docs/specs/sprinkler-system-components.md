@@ -1,7 +1,7 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
-verified-commit: f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-12   # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: 7cdb7146   # room-detection rework (§11.5 room clip + §11.8 membership only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/node.py                 # panel X / Y / Z + Offset rows, pick shape (pipe polish)
@@ -600,7 +600,7 @@ Each member sprinkler carries **two deliberately different values**:
 
 **Drawing (tiles)** — tessellating, wall-clipped (`_tile_extents` + `_tile_polygon`):
 - Per-side extents: half the gap to the nearest neighbour on that side (branch walk along S; perpendicular projection for L), the full distance to the first wall hit by a **ray-cast** in that direction (`_wall_distance_on_side` — any wall angle), or √(listed coverage)/2 on open sides; nearer bound wins.
-- Tiles are additionally **clipped to the containing room polygon** (when one contains the sprinkler).
+- Tiles are additionally **clipped to the containing room** (when one contains the sprinkler, by `Room.contains_point`); the clip is the room's odd-even `room_path()`, so a hole is excluded from the tile (`wall-room-floor-system.md` §9.1).
 - **Wall-segment shadow clip** (`_clip_tile_at_walls`, 2026-07-13): flat per-side extents can't express a slanted boundary, and the room clip no-ops when the stored room boundary lacks the diagonal edge (stale snapshot §8.5, unconnected/dead-end diagonal, no room). Each nearby wall segment (bbox-prefiltered, level-filtered, ends extended 10 mm to seal junction gaps) casts a **line-of-sight shadow quad** from the sprinkler's viewpoint, subtracted from the tile; the connected piece containing the sprinkler is kept. Tiles stop at physical walls regardless of room state; coverage survives past an open wall end only where the sprinkler has sight lines. Sprinklers within 1 mm of a wall line cast no shadow from it.
 - Tiles are inflated ~10 mm before `QPainterPath.united` so exactly-touching rows merge seamlessly; the union is `simplified()`.
 
@@ -625,7 +625,7 @@ The auto-populate dialog also **seeds its density/area graph from the room's Pro
 
 `DesignArea.effective_criteria()` resolves hazard / design point / system type from the rooms containing the member sprinklers and returns an **`EffectiveCriteria`** dataclass: `hazard`, `base_area_sqft`, `density`, `system_type` ("Wet" | "Dry"), `inherited`, `governing_room`, `required_area_sqft`, `drawn_area_sqft`, `warnings`.
 
-**Room membership:** `member_rooms()` → (rooms on the design area's level whose polygon contains a member sprinkler's node, plus a count of roomless member sprinklers). Point-in-polygon on `Room.boundary`; a shared internal `_effective_criteria_impl(rooms, roomless)` lets `get_properties()` and `badge_rows()` reuse one room scan per call.
+**Room membership:** `member_rooms()` → (rooms on the design area's level that contain a member sprinkler's node, plus a count of roomless member sprinklers). Containment is `Room.contains_point` (`wall-room-floor-system.md` §9.1); a shared internal `_effective_criteria_impl(rooms, roomless)` lets `get_properties()` and `badge_rows()` reuse one room scan per call.
 
 **Resolution rules (grill 2026-07-14):**
 
