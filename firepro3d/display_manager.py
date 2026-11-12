@@ -288,7 +288,7 @@ _COL_OPACITY = 4
 _COL_RESET   = 5
 
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
-_MODEL_BLOCKS_KEY = "Blocks"
+from .weight_refs import MODEL_BLOCKS_KEY as _MODEL_BLOCKS_KEY
 
 # Line Weights tab "Model (px)" column header + cell tooltip (MW-11).
 _MODEL_PX_TIP = (
@@ -2391,158 +2391,22 @@ class DisplayManager(HouseDialog):
         self._suppress = False
 
     def _weight_refs(self):
-        """Yield ``(name, (kind, ref))`` for every live by-name weight ref:
-        sheet annotations; model-plan texts; project definition text
-        primitives and stroke ``style.weight``; open Block Editors' texts and
-        styled raw items, and the project scene's styled geometry
-        (linetypes.md LT1-5 / LT2-8); placed blocks' Weight overrides and
-        definitions' nested-record Weight overrides (WM2).
-        """
-        from .stroke_style import is_named_weight
-        for sheet in getattr(self._scene, "_sheets", []) or []:
-            for ann in getattr(sheet, "annotations", []):
-                yield ann.border_weight, ("ann", ann)
-                if (getattr(ann, "leader", None) or {}).get("weight"):
-                    yield ann.leader["weight"], ("lead_ann", ann.leader)
-        scenes = [self._scene]
-        prov = getattr(self._scene, "_editor_scenes_provider", None)
-        if callable(prov):
-            scenes.extend(sc for sc in prov() if sc is not self._scene)
-        for sc in scenes:
-            for item in getattr(sc, "_texts", []) or []:
-                yield item._data.border_weight, ("item", item)
-                if (item._data.leader or {}).get("weight"):
-                    yield item._data.leader["weight"], ("lead_item", item)
-            for item in sc.items():
-                st = getattr(item, "style", None)
-                if isinstance(st, dict) and is_named_weight(st.get("weight")):
-                    yield st["weight"], ("raw", item)
-            for inst in getattr(sc, "_block_instances", []) or []:
-                w = getattr(inst, "overrides", {}).get("weight")
-                if is_named_weight(w):
-                    yield w, ("inst", inst)
-                lw = ((getattr(inst, "note", None) or {}).get("leader") or {}).get("weight")
-                if lw:
-                    yield lw, ("lead_inst", inst)      # a Note's leader weight
-                bw = ((getattr(inst, "note", None) or {}).get("style") or {}).get("border_weight")
-                if bw:
-                    yield bw, ("style_inst", inst)     # a Note's own border weight
-        reg = getattr(self._scene, "block_registry", None)
-        if reg is not None:
-            for bid in reg.ids():
-                defn = reg.get(bid)
-                for prim in getattr(defn, "primitives", []) or []:
-                    if prim.get("type") == "text" and "border_weight" in prim:
-                        yield prim["border_weight"], ("prim", (bid, prim))
-                    if (prim.get("type") == "text"
-                            and (prim.get("leader") or {}).get("weight")):
-                        yield prim["leader"]["weight"], ("lead_prim", (bid, prim["leader"]))
-                    st = prim.get("style")
-                    if isinstance(st, dict) and is_named_weight(st.get("weight")):
-                        yield st["weight"], ("sprim", (bid, st))
-                    ov = prim.get("overrides")
-                    if isinstance(ov, dict) and is_named_weight(ov.get("weight")):
-                        yield ov["weight"], ("nrec", (bid, ov))
+        """Yield ``(name, (kind, ref))`` for every live by-name weight ref
+        (delegates to :func:`weight_refs.iter_weight_refs`)."""
+        from .weight_refs import iter_weight_refs
+        return iter_weight_refs(self._scene)
 
     def _line_weight_in_use(self, name: str) -> bool:
-        """True if *name* is referenced anywhere by name.
-
-        Reference kinds: paper categories; underlays (§16.6: the per-underlay
-        default ``line_weight_name`` and per-layer
-        ``layer_overrides[layer]["line_weight"]``); sheet text annotations
-        (all sheets); model-plan texts (``_texts``); text primitives and
-        stroke ``style.weight`` of project block definitions; open Block
-        Editors' items; placed blocks' and nested records' Weight overrides
-        (WM2); the Model "Blocks" weight (LT2-6 / LT2-8). Holder
-        names are compared canonically (an alias key counts as its target).
-        """
-        from .paper_display import (canonical_weight_name,
-                                    load_paper_categories, model_blocks_weight)
-        if model_blocks_weight() == name:
-            return True
-        cats = load_paper_categories(self._settings)
-        if any(v.get("line_weight") == name for v in cats.values()):
-            return True
-        for data, _item in getattr(self._scene, "underlays", []):
-            if data.line_weight_name == name:
-                return True
-            for ov in data.layer_overrides.values():
-                if ov.get("line_weight") == name:
-                    return True
-        if any(canonical_weight_name(n) == name
-               for n, _ref in self._weight_refs()):
-            return True
-        return False
+        """True if *name* is referenced anywhere by name (delegates to
+        :func:`weight_refs.is_weight_in_use`)."""
+        from .weight_refs import is_weight_in_use
+        return is_weight_in_use(self._scene, self._settings, name)
 
     def _propagate_lw_rename(self, old: str, new: str):
-        """Follow a weight rename through every by-name reference."""
-        from .paper_display import (load_paper_categories, model_blocks_weight,
-                                    save_paper_categories,
-                                    set_model_blocks_weight)
-        if model_blocks_weight() == old:
-            # Raw: the Cancel replay writes a pre-rename (alias-key) name
-            # before the table + aliases are restored.
-            set_model_blocks_weight(new, canonical=False)
-            self._settings.setValue(
-                f"display/{_MODEL_BLOCKS_KEY}/line_weight", new)
-        cats = load_paper_categories(self._settings)
-        for cat_vals in cats.values():
-            if cat_vals.get("line_weight") == old:
-                cat_vals["line_weight"] = new
-        save_paper_categories(cats, self._settings)
-        for data, _item in getattr(self._scene, "underlays", []):
-            if data.line_weight_name == old:
-                data.line_weight_name = new
-            for ov in data.layer_overrides.values():
-                if ov.get("line_weight") == old:
-                    ov["line_weight"] = new
-        touched_defs = set()
-        for cur, (kind, ref) in list(self._weight_refs()):
-            if cur != old:
-                continue
-            if kind == "lead_ann":
-                ref["weight"] = new         # a sheet text's leader record
-            elif kind == "lead_item":
-                ref._data.leader["weight"] = new
-                ref.update()
-            elif kind == "lead_inst":
-                ref.note["leader"]["weight"] = new
-                ref.note_changed()
-            elif kind == "style_inst":
-                ref.note["style"]["border_weight"] = new
-                ref.note_changed()
-            elif kind == "lead_prim":
-                bid, rec = ref
-                rec["weight"] = new
-                touched_defs.add(bid)
-            elif kind == "ann":
-                ref.border_weight = new     # live paper TextItems alias this data
-            elif kind == "item":
-                ref._data.border_weight = new
-                ref.update()
-            elif kind == "raw":
-                ref.style["weight"] = new
-                ref.update()
-            elif kind == "sprim":
-                bid, st = ref
-                st["weight"] = new
-                touched_defs.add(bid)
-            elif kind == "inst":
-                # Raw, like the Blocks weight: the Cancel replay writes a
-                # pre-rename (alias-key) name before the aliases are restored.
-                ref.set_overrides({**ref.overrides, "weight": new},
-                                  canonical=False)
-            elif kind == "nrec":
-                bid, ov = ref
-                ov["weight"] = new
-                touched_defs.add(bid)
-            else:
-                bid, prim = ref
-                prim["border_weight"] = new
-                touched_defs.add(bid)
-        reg = getattr(self._scene, "block_registry", None)
-        for bid in touched_defs:
-            reg.invalidate(bid)
+        """Follow a weight rename through every by-name reference
+        (delegates to :func:`weight_refs.retarget_weight_refs`)."""
+        from .weight_refs import retarget_weight_refs
+        retarget_weight_refs(self._scene, self._settings, {old: new})
 
     def _on_lw_cell_changed(self, row, col):
         if self._suppress or row >= len(self._lw_defs):
