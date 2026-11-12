@@ -1955,6 +1955,56 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             self._show_status(notice, 10000)
         return rid
 
+    def symbol_block(self, category: str, chosen_id: str | None = None):
+        """The ``BlockDefinition`` that draws *category*'s symbol (SB4g D4).
+
+        Chain: *chosen_id* (an element's own pick) when it resolves -- the
+        project copy, else the System tier / library roots through
+        :meth:`ensure_system_block`, embedding a hit outside undo -- and is
+        ``eligible_symbol``; else ``SYMBOL_DEFAULTS[category]`` the same way.
+        A chosen id that missed is noticed once per (category, id): one log
+        line + one status-bar message (R8; ``_annot_notified`` outlives memo
+        clears). The element keeps its id -- this method never writes it.
+        Memoised in ``_annot_memo`` (cleared on ``blockDefinitionsChanged``).
+
+        Returns:
+            The definition, or None when not even the System default resolves.
+        """
+        from .system_blocks import SYMBOL_DEFAULTS, eligible_symbol
+        key = ("symbol", category, chosen_id or "")
+        if key in self._annot_memo:
+            rid = self._annot_memo[key]
+            return self._block_registry.get(rid) if rid else None
+
+        def accept(d):
+            return eligible_symbol(d, category)
+
+        rid = None
+        # S5: keep the flag up for the whole resolve (an embed emits
+        # blockDefinitionsChanged -> refresh chain -> a nested resolve) and
+        # RESTORE the caller's value (a nested call inside an annotation
+        # resolve must not drop the outer flag).
+        prev_resolving = self._annot_resolving
+        self._annot_resolving = True
+        try:
+            for bid in (chosen_id, SYMBOL_DEFAULTS.get(category, "")):
+                if not bid:
+                    continue
+                d = self.ensure_system_block(bid, accept=accept)
+                if d is not None and eligible_symbol(d, category):
+                    rid = bid
+                    break
+        finally:
+            self._annot_resolving = prev_resolving
+        self._annot_memo[key] = rid
+        if chosen_id and rid != chosen_id and key not in self._annot_notified:
+            self._annot_notified.add(key)
+            notice = (f"{category} symbol block {chosen_id!r} is missing or not "
+                      f"eligible -- drawing the System default")
+            log.warning(notice)
+            self._show_status(notice, 10000)
+        return self._block_registry.get(rid) if rid else None
+
     def instance_count(self, block_id: str) -> int:
         """Number of placed BlockInstances referencing *block_id*."""
         return sum(1 for i in self._block_instances if i.block_id == block_id)

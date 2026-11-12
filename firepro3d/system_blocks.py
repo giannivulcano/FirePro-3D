@@ -51,3 +51,22 @@ NOTE_BLOCK_ID = "system-annotations-note"
 # ``BlockDefinition.symbol_for`` and the Block Editor "Symbol for" row. Riser is
 # not an element category (D2: hence not ``host_category``).
 SYMBOL_CATEGORIES: tuple[str, ...] = ("Sprinkler", "Water Supply", "Riser")
+
+
+# SB4g D4: category -> the frozen id of its shipped System symbol (concept F4:
+# the seed file's id, never minted here). The fallback of every element whose
+# chosen block is None, missing or not eligible (R8).
+SYMBOL_DEFAULTS: dict[str, str] = {
+    "Sprinkler": "system-symbols-sprinkler0",
+    "Water Supply": "system-symbols-watersupply",
+    "Riser": "system-symbols-riser",
+}
+
+
+def eligible_symbol(defn, category: str) -> bool:
+    """True when *defn* may draw *category*'s symbol (SB4g D4 / R10): a
+    real-size block whose ``symbol_for`` is *category*. Anything else -- an
+    annotative block, an unflagged or other-category one -- is treated as
+    missing by the resolver (R8)."""
+    return (defn is not None and getattr(defn, "scale_mode", "") == "real_size"
+            and getattr(defn, "symbol_for", "") == category)
