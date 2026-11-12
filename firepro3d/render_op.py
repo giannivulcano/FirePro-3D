@@ -435,14 +435,19 @@ def stroke_op(item, painter, ops, i, op, pose, pen, xf=None, path=None) -> None:
             xf.unposed()
 
 
-def paint_fill_op(item, painter, pose, op) -> None:
+def paint_fill_op(item, painter, pose, op, colour=None) -> None:
     """Fill / pattern op: boundary posed; pattern stamped in the pose's
     rotation / mirror frame, never its scale (D-A11; lifted from
-    ``BlockInstance._paint_fill_op``)."""
+    ``BlockInstance._paint_fill_op``). *colour* (a QColor) replaces the op's
+    own colour -- the symbol Fill tint (SB4g D8 / R9) -- except on a
+    ``keep_colour`` op; the op's alpha is kept."""
     from . import hatch_render as _hr
     from .colour_tokens import resolve_colour
     from .constants import FILL_LEGACY_COLOUR
-    col = resolve_colour(op.colour or FILL_LEGACY_COLOUR, item=item)
+    if colour is not None and not op.keep_colour:
+        col = QColor(colour)
+    else:
+        col = resolve_colour(op.colour or FILL_LEGACY_COLOUR, item=item)
     col.setAlpha(op.alpha)
     if op.kind == FILL:
         _hr.paint_fill(painter, pose.map(op.path), scene=item.scene(),
@@ -457,7 +462,7 @@ def paint_fill_op(item, painter, pose, op) -> None:
 
 
 def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=None,
-              end_ops=frozenset(), ends=None) -> None:
+              end_ops=frozenset(), ends=None, fill_override=None) -> None:
     """Paint *ops* of a block with no linetype refs (every stroke solid) --
     the pre-LT3 loop lifted from ``BlockInstance._paint_plain_ops`` (SB3
     D-A: one op painter for a placed instance and a ``BoundLabelItem``).
@@ -472,6 +477,8 @@ def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=N
     drew the op with its ends); with *ends* None or *end_ops* empty (every
     legacy block, every label) none of that runs and the loop is the pre-LT5
     one. The canvas width is reused while consecutive ops share a weight.
+    *fill_override* (QColor) colours FILL / PATTERN ops instead of their own
+    colour (the symbol Fill tint, SB4g D8); *override* stays stroke / text only.
     """
     from . import theme as _theme
     from .colour_tokens import paint_resolver
@@ -490,7 +497,7 @@ def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=N
             clip.enter(op.clip_out)
         if op.kind in (FILL, PATTERN):
             xf.unposed()
-            paint_fill_op(item, painter, pose, op)
+            paint_fill_op(item, painter, pose, op, fill_override)
             continue
         if op.kind == TEXT:
             xf.unposed()
