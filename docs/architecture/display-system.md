@@ -43,7 +43,7 @@ Categories are defined in `_CATEGORIES` in `display_manager.py`, organized into 
 | Fitting | `#44cc44` | -- | |
 | Water Supply | `#00cccc` | `#2b2b2e` | |
 | Node | `#888888` | -- | |
-| Hydraulic Badge | `#ffffff` | `#2b2b2b` | |
+| Hydraulic Badge | `#ffffff` | `#2b2b2b` | Visible + Opacity only; the badge draws in its System block's colours ([`system-blocks.md`](../specs/system-blocks.md) section 8f) |
 
 **Architecture:**
 

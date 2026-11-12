@@ -1,13 +1,14 @@
 ---
-status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d (view-marker heads: cardinal elevation head, placed-section head, detail callout) BUILT 2026-11-04; SB4f (sheet viewport view title as a System block, plus the viewport Number the section / detail heads cite) BUILT 2026-11-04; SB4e (remaining intrinsic labels), placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-05  # paper polish Account: paper hooks note only, rest not re-audited; prior 2026-11-05  # section piping Account: s8a section label note only, rest not re-audited; prior 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: f58a79a8  # paper polish on main (v0.92.0); prior 539eda40  # section piping on main (v0.91.0); prior dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d (view-marker heads: cardinal elevation head, placed-section head, detail callout) BUILT 2026-11-04; SB4f (sheet viewport view title as a System block, plus the viewport Number the section / detail heads cite) BUILT 2026-11-04; SB4e (hydraulic node badge as a System block) BUILT 2026-11-11; placed tags (phase 6) and sheet tags (phase 7) are not built
+last-verified: 2026-11-11  # SB4e Account: new s8f (hydraulic node badge), header / applies-to / s1 / s2 / s3 / s4 / s7 / s8d not-built line / s10 / build order re-audited against e991da71; rest not re-audited; prior 2026-11-05  # paper polish Account: paper hooks note only, rest not re-audited; prior 2026-11-05  # section piping Account: s8a section label note only, rest not re-audited; prior 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: e991da71  # SB4e (v0.100.0); prior f58a79a8  # paper polish on main (v0.92.0); prior 539eda40  # section piping on main (v0.91.0); prior dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, OutlinedLabel (SB4c), TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/section_scene.py        # SB4c: ElevGridlineItem bubbles, LevelDatumHead / ElevDatumItem, SectionScene.annotation_block + refresh_annotation_tags (the block side; the section projection is section-view-subsystem.md)
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
   - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK
-  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble + LevelDatum + ElevationHead + SectionHead + DetailCallout + ViewTitle .fpdb (SB4f: SectionHead / DetailCallout bind Number)
+  - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble + LevelDatum + ElevationHead + SectionHead + DetailCallout + ViewTitle + HydraulicNode .fpdb (SB4f: SectionHead / DetailCallout bind Number; SB4e: HydraulicNode)
+  - firepro3d/hydraulic_node_badge.py # SB4e: HydraulicNodeBadge(OutlinedLabel) block side only (when / where / click: hydraulic-solver-and-reporting.md 11.1)
   - firepro3d/view_title_label.py     # SB4f: ViewTitleLabel(OutlinedLabel) (the sheet viewport's title + composite line, hit forwarding), extent_below_box (the drop clamp)
   - firepro3d/view_marker_head.py     # SB4d: ViewMarkerHead(OutlinedLabel), enclosing_radius (the marker heads; marker geometry stays with section-view-subsystem.md)
   - firepro3d/section_marker.py       # SB4d: head / head_a / head_b, R_k-sized wedge + triangle (rest under section-view-subsystem.md)
@@ -26,8 +27,9 @@ applies-to:
   - firepro3d/settings/template.py    # annotation_defaults in the .fpdt
   - firepro3d/paper_display.py        # the tag through _apply_block
   - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
-  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1); Elevation / Section / Detail Marker rows: line-only, same shape (SB4d)
+  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1); Elevation / Section / Detail Marker rows: line-only, same shape (SB4d); Hydraulic Badge row: Visible + Opacity only (SB4e)
 source-tasks:
+  - "SB4e -- Convert the hydraulic node badge to a System block (todo_closed.md; rulings R1-R8 / S1-S4 in the run's Phase 2 record)"
   - "SB4f -- Convert the sheet viewport view title to a System block, with a per-viewport show/hide toggle for the title (todo_closed.md; design record superpowers/specs/2026-11-04-sb4f-view-title-design.md)"
   - "SB4d -- Convert the elevation-marker head and the detail-callout bubble to System blocks + the annotation band (todo_closed.md; design record superpowers/specs/2026-11-03-sb4d-view-marker-heads-design.md)"
   - "SB4c -- Convert the elevation gridline bubble + level datum head to System blocks (todo_closed.md; design record superpowers/specs/2026-11-03-sb4c-elev-bubble-datum-design.md)"
@@ -47,8 +49,8 @@ source-tasks:
 > on 2026-10-29; that document is kept as **history** (the grill Q1-Q16, the
 > architecture F1-F8, the not-yet-built phases 4-7). The slice's own design record is
 > [`2026-10-28-sb3-room-tag-slice-design.md`](../superpowers/specs/2026-10-28-sb3-room-tag-slice-design.md)
-> (ratified decisions Q1-Q13, D-A..D-E). Not built: the remaining intrinsic labels
-> (SB4e), placed tags (concept F7, Tag tool), sheet-scoped tags. **SB3b (built
+> (ratified decisions Q1-Q13, D-A..D-E). Not built: placed tags (concept F7, Tag tool),
+> sheet-scoped tags. **SB3b (built
 > 2026-10-30)** adds the per-room tag block (`Room.tag_block`, sections 3 / 8) and the
 > shared picker list that also widens the Annotation pane to the user library (section 7).
 > **SB4a (built 2026-11-01)** converts the pipe label (section 8a): a top-level
@@ -76,6 +78,9 @@ source-tasks:
 > reversed). Its design record is
 > [`2026-11-04-sb4f-view-title-design.md`](../superpowers/specs/2026-11-04-sb4f-view-title-design.md) (G1-G12, D1-D6; the contract now lives here and in
 > [`paper-space.md`](paper-space.md) 5.2 / 9.9).
+> **SB4e (built 2026-11-11)** draws the hydraulic node badge with a System block (section 8f); when a
+> badge exists, where it sits and what a click does stay with
+> [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) 11.1.
 
 ## Ownership (Rule A)
 
@@ -103,10 +108,10 @@ checkpoint. It links, never restates:
 
 An **intrinsic label** is owned by its element, automatic, toggled per element, and
 needs no persisted reference: it is drawn by a `BoundLabelItem` the host owns (a child
-for Gridline, Level, the view-marker heads and the sheet viewport's view title, a top-level item for Pipe and (since SB4d, so it clears model items at any elevation -- `view-relationships.md` 7.3) Room -- section 2).
+for Gridline, Level, the view-marker heads and the sheet viewport's view title, a top-level item for Pipe, the hydraulic node badge (SB4e) and (since SB4d, so it clears model items at any elevation -- `view-relationships.md` 7.3) Room -- section 2).
 A **placed tag** is a standalone hosted instance (concept F7) and is **not built**.
-Both are drawn by blocks authored in the one Block Editor. Today eight categories
-are converted: `Room`, `Pipe`, `Gridline`, `Level`, `Elevation`, `Section`, `Detail` and `View Title` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level", "Elevation", "Section", "Detail", "View Title")`; the three before the last are section 8d, `View Title` is section 8e).
+Both are drawn by blocks authored in the one Block Editor. Today nine categories
+are converted: `Room`, `Pipe`, `Gridline`, `Level`, `Elevation`, `Section`, `Detail`, `View Title` and `Hydraulic Node` (`system_blocks.ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level", "Elevation", "Section", "Detail", "View Title", "Hydraulic Node")`; `Elevation` / `Section` / `Detail` are section 8d, `View Title` is section 8e, `Hydraulic Node` is section 8f).
 
 ## 2. `BoundLabelItem` (`bound_label.py`)
 
@@ -115,7 +120,7 @@ A lightweight `QGraphicsItem`, **not** a `BlockInstance` subclass (SB3 D-A: no
 block-instance list).
 
 - **Host and data.** `BoundLabelItem(host, *, child=True, parent=None)`: a child of the host by
-  default (Gridline, the datum head, the view-marker heads); `child=False` makes a **top-level** item (Pipe, SB4a D1; Room, SB4d D5 -- the room syncs it from its `itemChange`, so the tag sits in the annotation band, `view-relationships.md` 7.3);
+  default (Gridline, the datum head, the view-marker heads); `child=False` makes a **top-level** item (Pipe, SB4a D1; Room, SB4d D5 -- the room syncs it from its `itemChange`, so the tag sits in the annotation band, `view-relationships.md` 7.3; the hydraulic node badge, SB4e, synced the same way by its `Node`);
   a given `parent` is the graphics parent while `host` stays the data source (SB4c D1: an
   elevation bubble is a child of its `ElevGridlineItem` and reads the PLAN gridline). Either way
   `host` is the explicit `_host`, never `parentItem()`. The host is the data
@@ -144,8 +149,8 @@ block-instance list).
   **only** when the scene has a resolver **and** the host has a label to lose
   (`LABEL_FIELD[category]` present with a non-None raw value); a nameless room with no
   resolvable block draws nothing (ratified 2026-10-28, checkpoint contradiction (a)).
-- **Not** selectable, movable or snappable; invisible to HALO, snaps, the level filter
-  and the block-instance list; **never serialized** (the host owns `show_label`,
+- **Not** selectable, movable or snappable; invisible to HALO (except where the scene resolves
+  it to its host -- Subclasses, below), snaps, the level filter and the block-instance list; **never serialized** (the host owns `show_label`,
   `label_offset` and `tag_block`).
 - **Paper hooks.** `_paper_scale`, `_paper_pen_width`, `_paper_pen_color` are set by
   `paper_display._apply_block` during a viewport pass (section 8). `ViewTitleLabel` is the exception: no
@@ -166,7 +171,11 @@ block-instance list).
   the screen-only rings stroked round the outline after the ops, none during a paper pass.
 - **Subclasses.** A host may subclass the label for category-specific behaviour:
   `GridlineBubble(OutlinedLabel)` (section 8b, 8c) adds the duplicate flag and its rings;
-  `LevelDatumHead(OutlinedLabel)` (section 8c) adds the datum's selection ring.
+  `LevelDatumHead(OutlinedLabel)` (section 8c) adds the datum's selection ring;
+  `ViewMarkerHead` (section 8d) and `ViewTitleLabel` (section 8e); `HydraulicNodeBadge(OutlinedLabel)`
+  (section 8f) adds its own placement beside the node and the node's selection ring. A label whose
+  scene resolves it to its host in `_halo_resolve` (the gridline bubbles, the node badge) is picked
+  as that host, never itself.
 - **One implementation of bound text and op painting.** `block_attributes.bound_text_ops`
   and `render_op.paint_ops` were lifted from `BlockInstance`; `BlockInstance` wraps them.
   Guard: the AC10 ops/render digests (`tests/test_sb3_parity.py`).
@@ -209,8 +218,8 @@ The resolver step lives in `Model_Space._resolve_mapped`. Its result is memoised
 `_annot_memo`, keyed `(category, mapped id, fallback)` -- the same id resolves differently
 as a per-element id (`fallback=False`) and as the project default (`fallback=True`) -- and
 cleared on `blockDefinitionsChanged` (`_on_block_definitions_changed`); the same handler
-re-shapes every intrinsic label (room tags, pipe labels, plan gridline bubbles, and every open
-section's elevation bubbles and datum heads) through `refresh_annotation_tags()`, except while `_annot_resolving`
+re-shapes every intrinsic label (room tags, pipe labels, plan gridline bubbles, hydraulic node
+badges (SB4e), and every open section's elevation bubbles and datum heads) through `refresh_annotation_tags()`, except while `_annot_resolving`
 (the resolver itself embedding a file) -- the memo clear always runs. `refresh_annotation_tags` ends by emitting
 `Model_Space.annotationLabelsChanged`; the live `PaperSpaceWidget` connects it to `PaperScene.refresh_annotation_tags`,
 so every sheet view title re-shapes with the rest (section 8e).
@@ -231,10 +240,10 @@ Known gap, filed: the notice is lost when no window has a status bar yet.
 
 `system_blocks.SYSTEM_DEFAULTS` (`"Room"` -> `"system-tags-roomtag"`, `"Pipe"` ->
 `"system-tags-pipelabel"`, `"Gridline"` -> `"system-tags-gridlinebubble"`, `"Level"` ->
-`"system-tags-leveldatum"`, plus the SB4d heads (section 8d) and `"View Title"` -> `"system-tags-viewtitle"`, SB4f) guarantees a fallback for every converted category. Shipped ids are frozen **slugs**
+`"system-tags-leveldatum"`, plus the SB4d heads (section 8d), `"View Title"` -> `"system-tags-viewtitle"`, SB4f, and `"Hydraulic Node"` -> `"system-tags-hydraulicnode"`, SB4e) guarantees a fallback for every converted category. Shipped ids are frozen **slugs**
 (`system-<series>-<name>`, minted by `system_promote`; a re-promote keeps the id), **not
 uuids** -- the concept's F4 wording "frozen uuids" is corrected by this pointer.
-`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`, `"Level"` -> `"Level.Name"`, the SB4d heads (section 8d), `"View Title"` -> `"Scale"`; a pipe's Diameter is never
+`LABEL_FIELD` (`"Room"` -> `"Name"`, `"Pipe"` -> `"Diameter"`, `"Gridline"` -> `"Mark"`, `"Level"` -> `"Level.Name"`, the SB4d heads (section 8d), `"View Title"` -> `"Scale"`, `"Hydraulic Node"` -> `"NodeNumber"`; a pipe's Diameter is never
 `None`, so a pipe whose block resolves nowhere draws the red placeholder) names the host field whose empty raw value means
 "nothing to show". `PAINT_WHEN_BLANK` (`frozenset({"Gridline", "Elevation", "Section", "Detail"})`; the last two since SB4f, section 8d) lists the categories whose static geometry still draws when every host-bound field is blank (section 2); `"Level"` is not listed, because `Level.Elevation` is never `None`, so a datum head never has every field blank. The shipped System file is never written by the app outside the
 dev-gated Promote path (`block-system.md`).
@@ -314,7 +323,7 @@ through `_compute_rect`.
   project's eligible blocks, labelled "(Project)" (or "(System)" when the embedded block's
   library is System), then eligible shipped blocks the project has not embedded,
   "(System)", then eligible user-library `.fpdb` files the project has not embedded,
-  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)", the Level row (labelled "Level tag") "LevelDatum (System)" (the project default only: the datum has no per-level Tag row, section 8c). The View Title row (labelled "View Title tag") reads "ViewTitle (System)" (SB4f; the project default only, section 8e). A current mapping that is
+  "(Library)" (SB3b). The Room default row reads "RoomTag (System)", the Pipe row "PipeLabel (System)", the Gridline row "GridlineBubble (System)", the Level row (labelled "Level tag") "LevelDatum (System)" (the project default only: the datum has no per-level Tag row, section 8c). The View Title row (labelled "View Title tag") reads "ViewTitle (System)" (SB4f; the project default only, section 8e). The Hydraulic Node row (labelled "Hydraulic Node tag") reads "HydraulicNode (System)" (SB4e; the project default only, section 8f). A current mapping that is
   missing or ineligible is kept as an extra "(missing)" / "(not eligible)" entry appended
   by the shared list. A "(Library)" pick is embedded outside history by the resolver
   (section 3) when the mapping is applied; the pane's apply stays non-undoable.
@@ -646,8 +655,7 @@ are in [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026
   `Z_DETAIL_MARKER`, `Z_LABEL_ABOVE_PIPE`, and the Display Manager Fill / Font / Scale reads for the
   marker rows.
 - **Not built (filed):** the per-marker Tag row, a `{a}` letter token, a per-sheet pick if
-  multi-placement returns, the node-badge block conversion (SB4e; the badge is only moved into the
-  band here).
+  multi-placement returns. (The node badge was only moved into the band here; SB4e converted it, section 8f.)
 
 ## 8e. The sheet viewport view title (SB4f)
 
@@ -700,6 +708,48 @@ block-side contract. The decisions G1-G12, D1-D6 and the acceptance criteria are
   this mechanism (a host-bound label on a paper item, never a paper `BlockInstance`); a per-viewport title block
   pick.
 
+## 8f. The hydraulic node badge (SB4e)
+
+The badge beside each numbered node after a hydraulic solve is a System block. When a badge exists (after a
+solve, numbered nodes only, none after Clear), the values it can show (Q = the largest |pipe flow| at the node),
+Badge Position, stacking, the node panel rows, the click and the undo rule are owned by
+[`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) 11.1 / 11.5; the key rows by
+[`element-parameters.md`](element-parameters.md); the z by `view-relationships.md` 7.3 (Rule A: not restated
+here). This section holds the block-side contract. The rulings R1-R8 / S1-S4 were ratified in the SB4e run
+(2026-11-11).
+
+- **Category and seed.** `ANNOTATION_CATEGORIES` gains **Hydraulic Node** (one Annotation-pane row, "Hydraulic
+  Node tag"; the project default only -- no per-node Tag row). `SYSTEM_DEFAULTS["Hydraulic Node"] =
+  "system-tags-hydraulicnode"`; `LABEL_FIELD["Hydraulic Node"] = "NodeNumber"`; the category is **not** in
+  `PAINT_WHEN_BLANK` (a node with no number shows nothing). The shipped
+  `firepro3d/system_blocks/Tags/HydraulicNode.fpdb` is Annotative, host category Hydraulic Node, origin at the
+  hexagon centre: a filled `#2b2b2b` hexagon and one bound text `@[NodeNumber]` in white bold, fixed colours
+  (today's look; the sizes were set at the SB4e smoke -- verify against the file before relying on numbers). The
+  other four keys (RequiredPressure, Pressure, Flow, TotalFlow) are bindable from a block copy.
+- **Ownership.** `HydraulicNodeBadge(OutlinedLabel)` (`hydraulic_node_badge.py`) is a `child=False` (top-level)
+  label whose data host is its `Node` (`element_params.category_of(Node) == "Hydraulic Node"`); the node creates,
+  moves, hides and removes it from `Node.itemChange`. It is never selectable; HALO and the Select-mode press loop
+  resolve it to its node. Its one overlay (`overlay_pens`) is the screen-only ring while the node is selected
+  (section 2: none during a paper pass).
+- **Placement.** `place()` anchors the block origin at the node plus a side offset and a stack shift in authored
+  paper mm times k (`HYD_BADGE_OFFSET_MM`, `HYD_BADGE_STACK_STEP_MM`); `refresh()` re-places, because k moves with
+  the drawing scale and the mapped block. The side and stack index come from `layout_badges` (rule: the hydraulic
+  spec 11.1).
+- **Refresh.** `refresh_annotation_tags` (section 3) re-shapes every node badge, so a mapping change, a
+  `blockDefinitionsChanged`, a units or a drawing-scale change reaches it.
+- **Display Manager.** The "Hydraulic Badge" row sets **Visible + Opacity only**: its colour and fill chips are
+  dimmed (`display_manager._VIS_OPACITY_ONLY`) and it is in `_NO_SCALE_CATEGORIES`; the badge draws in the block's
+  authored colours. An old file's saved colour / fill / scale for the row are kept in the file, not applied. Show
+  all hidden returns a badge to its node's visibility.
+- **Paper.** The paper walk calls `_apply_block` on the badge (as authored: the block's colours; As Authored off:
+  the paper row colour, like the other annotation blocks) and re-places it at the paper k; the restore puts the
+  canvas hooks back and re-places it. `paper-space.md` 9.9 owns the pass.
+- **Retired:** the SVG badge (`graphics/sprinkler_graphics/hydraulic_node.svg`, deleted), its hand-painted
+  number, its own selection and Properties rows (they moved to the node, hydraulic spec 11.1), `_centre_on_offset`
+  and `_parent_node`. No retired-strings guard file was added for this conversion.
+- **Not built (filed):** the badge's Display Manager Visible / Opacity is replaced by the node's on a re-solve and
+  on a node opacity change; the stack layout is not re-run when a stacked node is deleted or moved.
+
 ## 9. Performance (G6)
 
 Bar (Q7): at most 0.25 ms per labelled room on a full-view headless render (200 rooms
@@ -746,6 +796,7 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB4f load: the D2 head swap, edited-copy notice, library without the seed, stable after save / load | `test_sb4f_load.py` |
 | SB4f live refresh through `annotationLabelsChanged`; export paints / hides the title | `test_sb4f_refresh_export.py` |
 | SB4f retired title strings | `test_sb4f_retired_strings.py` |
+| SB4e node badge: keys equal the solver result, category offered to the Block Editor, seed resolves as the default, no badge before a solve, numbered nodes get a top-level bound badge and Clear removes all, stack follows the top node, fixed position survives re-solve + save / load, node panel rows (badged nodes only, hidden in a pipe's NODE sections, one undo step + modified), click with and without hover selects the node, placement-mode click acts on the pipe, DM row Visible / Opacity only + dimmed chips, paper through `_apply_block`, refresh / `blockDefinitionsChanged` re-shape, clipboard drops the rows, undo keeps / clears the solve | `test_sb4e_node_badge.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
 
 **Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**
@@ -792,6 +843,6 @@ Contradictions found during the build, and their resolution:
 
 Phase 3 (this slice) is **done**, as is SB3b (per-room tag style, library-folder picker;
 2026-10-30). Phase 4 is the follow-up per remaining intrinsic
-conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; SB4b, the plan gridline bubble, 2026-11-03; SB4c, the elevation / section gridline bubbles + level datum head, 2026-11-03; todo lines; each user-designed and visually gated, G7). Phases 5-7
+conversion, SB4a-e (SB4a, the pipe label, is built 2026-11-01; SB4b, the plan gridline bubble, 2026-11-03; SB4c, the elevation / section gridline bubbles + level datum head, 2026-11-03; SB4d, the view-marker heads, 2026-11-04; SB4e, the hydraulic node badge, 2026-11-11; todo lines; each user-designed and visually gated, G7). Phases 5-7
 (uids and hosting, placed tags, sheet tags) are gated on phase 4 and described in the
 concept.

@@ -1,11 +1,13 @@
 ---
 status: current          # code-verified as-built; divergence ledger in §12
-last-verified: 2026-11-05   # pipe polish Account: §10.2 only (three through-riser types), rest not re-audited; prior 2026-11-01   # SB4a Account: §11.4 only
-verified-commit: ff2b8636   # pipe polish merge on main (v0.90.0; §10.2 only); prior 0924bcd6   # SB4a (§11.4 only); prior 1228ef5
+last-verified: 2026-11-11   # SB4e Account: §8.4, §11.1 (rewritten: System-block badge, top-level, Q, stacking, Badge Position, click), §11.3, new §11.5 (results across undo / redo), D6 note re-audited against e991da71; rest not re-audited; prior 2026-11-05   # pipe polish Account: §10.2 only (three through-riser types), rest not re-audited; prior 2026-11-01   # SB4a Account: §11.4 only
+verified-commit: e991da71   # SB4e (v0.100.0; §8.4 / §11 / D6 only); prior ff2b8636   # pipe polish merge on main (v0.90.0; §10.2 only); prior 0924bcd6   # SB4a (§11.4 only); prior 1228ef5
 applies-to:
   - firepro3d/hydraulic_solver.py
   - firepro3d/hydraulic_report.py
-  - firepro3d/hydraulic_node_badge.py
+  - firepro3d/hydraulic_node_badge.py   # SB4e: when a badge exists, layout_badges, click (the block side: system-blocks.md 8f)
+  - firepro3d/sprinkler_workflow_controller.py   # refresh_hydraulic_overlay / clear_hydraulic_overlay only
+  - firepro3d/model_space.py            # SB4e: _network_signature / _carry_hydraulic_result (§11.5) only
 ---
 
 # Hydraulic Solver & Reporting Specification
@@ -333,7 +335,7 @@ Only nodes on paths from supply to design sprinklers are numbered. For each desi
 
 ### 8.4 Overlap Handling
 
-Nodes at the same XY position (vertical drops — detected by rounding scene position) share a position label. Badges stack vertically using `stack_index` / `stack_total`.
+Nodes at the same plan XY position (vertical drops — detected by rounding scene position) share one badge side and their badges stack; the stacking rule is §11.1.
 
 ---
 
@@ -454,13 +456,16 @@ The equivalent length table is viewable as `EquivalentLengthDialog` — accessib
 
 ### 11.1 Node Badges
 
-Major nodes (numeric labels only) display `HydraulicNodeBadge` child items showing:
-- Node number (label)
-- Required pressure (psi) — **primary display value**
-- Flow out (gpm) — if sprinkler node: `K × √P_actual`
-- Actual pressure (psi) — secondary
+*SB4e (2026-11-11): the badge is drawn by a System block.* The block side (category "Hydraulic Node", the shipped seed, the Annotation-pane row, the Display Manager row, the paper pass) is owned by [`system-blocks.md`](system-blocks.md) section 8f; the keys it binds by [`element-parameters.md`](element-parameters.md); its z by `view-relationships.md` 7.3. This section owns when a badge exists, where it sits and what clicking it does.
 
-Badge position: auto-selected by `best_position_for_node()` to avoid overlap with pipes. Nodes at the same XY position (vertical drops) stack badges vertically.
+- **Item.** `HydraulicNodeBadge` (`hydraulic_node_badge.py`) is an `OutlinedLabel` whose host is its `Node`. It is a **top-level** item in the annotation band (not a child of the node); the node adds it to its scene, moves it, hides it, sets its opacity and removes it from `Node.itemChange` (`create_hydraulic_badge` / `remove_hydraulic_badge`).
+- **When.** Only after a solve, and only on major nodes (a `node_labels` value that is all digits; minor "3a" nodes get none). There is no badge before a solve, and Clear (§11.3) removes every badge. Both paths go through `sprinkler_workflow_controller.refresh_hydraulic_overlay` / `clear_hydraulic_overlay`.
+- **What it shows.** The shipped seed shows the node number only (`@[NodeNumber]` in a hexagon). The values are live from `scene.hydraulic_result` through the "Hydraulic Node" keys: node number, required pressure (**primary**), actual pressure, q (`K × √P_actual` at a sprinkler node, none at any other node) and Q. **Q is the largest |pipe flow| of the node's pipes**: the solver is tree-only (§12 D1), so that is the flow into the node. A block copy may bind any of the five keys.
+- **Node panel.** A node that has a badge shows, on its own panel (and on its sprinkler's panel), a **Badge Position** enum row and read-only rows Node Number, Required P, Actual P, Flow Out q, Total Flow Q (formatted per `units-and-formatting.md`; "-" when blank). A node without a badge shows none of these rows; nor does the NODE section of a pipe's panel (`node.HYDRAULIC_ROW_KEYS`).
+- **Badge Position.** Saved on the node, not the badge: `Node.badge_position`, one of Auto (default) / Above / Below / Left / Right. Auto re-picks the side with `best_position_for_node()` (of Right / Left / Above / Below, the side whose smallest angle to a pipe leaving the node is largest; a tie goes to the earlier side in that order, and a node with no pipes gets Right) at each layout; a fixed side survives a re-solve. It is written as a sparse `badge_position` key on the node record (only when not Auto; a file without the key loads Auto), on both the file and the undo paths (`network_codec.serialize_node`). A panel commit re-lays every badge and pushes one undo step. These rows are never copied with a sprinkler's rows (save, undo snapshot, clipboard: `HYDRAULIC_ROW_KEYS` are stripped).
+- **Placement and stacking** (`layout_badges`). Badged nodes are grouped by plan XY (scene position rounded to the mm). A group's side is the Badge Position of its **highest-elevation** node (`z_pos`; Auto -> that node's `best_position_for_node`). Its badges stack in node order, centred on the node: a **row** for Above / Below, a **column** for Left / Right. A fixed side on any other node of the stack is kept but has no effect while stacked. The offset from the node and the stack step are authored paper mm (`HYD_BADGE_OFFSET_MM`, `HYD_BADGE_STACK_STEP_MM` in `constants.py`) times the annotative factor k, so they follow the drawing scale on screen and 1 / S in a paper pass.
+- **Click.** In Select mode a click on a badge selects its node (HALO resolves the badge to the node, `Model_Space._halo_resolve`; the press loop does the same, ahead of a pipe under the badge). The badge itself is never selected. In a drawing or placement mode the click acts on what is under the badge. While the node is selected a screen-only cyan ring is stroked round the badge outline; it never plots.
+- **Known gaps (filed, not built):** the stack layout is not re-run when a node of a stack is deleted or moved (the badge follows its own node only); a new badge (a re-solve) and the node's opacity sync take the node's visibility / opacity alone, so the Display Manager "Hydraulic Badge" row's Visible / Opacity is lost until the row is applied again (Display Manager Apply or a load).
 
 ### 11.2 Pipe Friction Loss Heatmap
 
@@ -476,11 +481,18 @@ Thresholds are relative (normalized to system max hf), not absolute. This ensure
 
 ### 11.3 Clear
 
-`Model_Space.clear_hydraulics()` removes all badges, resets pipe display to default colors, and clears `hydraulic_result`.
+`Model_Space.clear_hydraulics()` removes all badges, resets pipe display to default colors, and clears `hydraulic_result`. An undo / redo that changes a hydraulic input clears the same way (§11.5).
 
 ### 11.4 Pipe Labels
 
 The pipe label is drawn by the PipeLabel System block ([`system-blocks.md`](system-blocks.md) section 8a); after a solve it shows flow and friction loss lines **only for pipes carrying flow** (`pipe_flows[pipe] > 0`): the Pipe `Flow` / `Velocity` / `FrictionLoss` host keys read `None` at zero flow ([`element-parameters.md`](element-parameters.md) E7) and the block's *Hide when empty* texts drop and close up. Zero-flow tree pipes outside the design-area calc path stay unlabelled instead of cluttering the drawing with "0.0 gpm / 0.00 psi".
+
+### 11.5 Results across undo / redo (SB4e, 2026-11-11)
+
+An edit does not clear the result (stale until cleared or re-run, [`element-parameters.md`](element-parameters.md) E7). An undo or redo (`Model_Space._restore_network`) rebuilds the network's nodes and pipes, so it decides explicitly:
+
+- **Kept** only when the restored network's every hydraulic input is unchanged: `Model_Space._network_signature()` -- the undo snapshot's node / pipe / water-supply / design-area records (`_network_records`, the one builder behind both the snapshot and this test) minus Badge Position (display only) and a design area's derived `Area` row, sprinkler rows compared by value -- equals the signature taken before the restore. The result's node and pipe keys are then re-pointed to the rebuilt objects, each design area gets its hydraulic snapshot back, and `refresh_hydraulic_overlay` redraws the badges, the velocity colours and the label values.
+- **Otherwise cleared**, exactly as Clear (§11.3): `hydraulic_result = None` and `clear_hydraulic_overlay`. A restore that fails part way also drops the result.
 
 ---
 
@@ -493,7 +505,7 @@ The pipe label is drawn by the PipeLabel System block ([`system-blocks.md`](syst
 | ~~D3~~ | ~~Hose stream allowance~~ | ~~P1~~ | **Resolved 2026-04-29.** Hose stream consumed in Phase 3 supply check (`Q_check = total_demand + hose_stream_allowance`). Report shows separate Sprinkler Demand / Hose Stream / Total Demand line items (hose stream omitted when 0). Graph shows origin marker, red sprinkler demand marker, and red total demand marker with dashed connecting lines (total marker omitted when hose = 0). `hose_stream_gpm` field on `HydraulicResult`. | | |
 | D4 | Velocity → pressure heatmap | P2 | **Report side resolved 2026-07-10** (3-tab consolidation): velocity is a plain informational column in the Node Summary, all velocity color-coding/status removed from report + exports. Scene pipes still color-coded by velocity thresholds; solver still warns at 20 fps. | Replace scene velocity coloring with friction loss heatmap (§11.2); remove velocity warning messages from solver | Add pipe hf overlay to scene (§11.2). Remove velocity warning messages from solver. |
 | D5 | Supply node proximity | P2 | WaterSupply found by nearest Manhattan distance to any Node; warns (in display units) if >50 scene units | WaterSupply placed directly on a Node (same placement model as sprinklers) | Change to on-node placement. Solver reads `supply_ws.parentItem()` or stored node ref instead of proximity search. |
-| ~~D6~~ | ~~Required pressure not exposed~~ | ~~P1~~ | **Resolved 2026-04-29.** `required_node_pressures` field added to `HydraulicResult`. Node badges show "Required P (psi)" as primary and "Actual P (psi)" as secondary in PropertyManager. | | |
+| ~~D6~~ | ~~Required pressure not exposed~~ | ~~P1~~ | **Resolved 2026-04-29.** `required_node_pressures` field added to `HydraulicResult`. Node badges show "Required P (psi)" as primary and "Actual P (psi)" as secondary in PropertyManager (since SB4e these rows are on the badged node's own panel, §11.1). | | |
 | ~~D7~~ | ~~Report structure~~ | ~~P2~~ | **Resolved 2026-07-10.** Report consolidated to 3 tabs (Summary / Node Summary Table / Hydraulic Graph) per §9, driven by shared `_summary_sections()` / `_node_summary_rows()` data assembly. New: G6 guard (§7.1), `node_parent_pipe`/`calc_date` result fields (§6), WaterSupply Test Date property, 14-column node table (velocity plain), PDF embeds graph image, exports WYSIWYG on minors toggle, HC Reports default export folder. Sprinkler Schedule / Pipe Schedule dropped (follow-ups: sprinkler legend → paper space; pipe takeoff → future BOM). Also fixed: PDF export used PyQt5 APIs and had never worked at runtime. | | |
 | ~~D8~~ | ~~Uncalibrated scale~~ | ~~P1~~ | **Withdrawn 2026-04-30.** Scene scale is always 1 px = 1 mm; `is_calibrated` refers to underlay calibration, not scene geometry. Pipes drawn directly on the scene have correct lengths regardless. The default `pixels_per_mm = 1.0` produces correct conversions. A scale guard would block valid calculations on projects without underlays. **Pre-existing bug:** `Pipe.get_length_ft()` returns 0.0 when `is_calibrated` is False, even though `pixels_per_mm = 1.0` gives the correct result. | | |
 | D9 | Multi-system export | P3 | One system per project; one calculation; one report | Per-system hydraulic calculations with combined multi-system PDF export | Depends on sprinkler spec D8. Report generates per-system sections with system identification. |

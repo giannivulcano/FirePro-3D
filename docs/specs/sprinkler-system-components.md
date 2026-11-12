@@ -1,7 +1,7 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
-verified-commit: ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/node.py                 # panel X / Y / Z + Offset rows, pick shape (pipe polish)
@@ -694,7 +694,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.1 Node Serialization
 
-**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, `room_name`, sprinkler properties (if sprinkler present). `z_offset` is no longer written (removed 2026-05-03); the per-item layer field is gone (layer system removed).
+**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, `room_name`, sprinkler properties (if sprinkler present; the node's hydraulic badge rows are stripped, `node.HYDRAULIC_ROW_KEYS`), a sparse `badge_position` (SB4e, only when not Auto; [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §11.1). `z_offset` is no longer written (removed 2026-05-03); the per-item layer field is gone (layer system removed).
 
 **Load migration:**
 1. Read `ceiling_level` and `ceiling_offset_mm` (current format)

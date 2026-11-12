@@ -1,7 +1,7 @@
 ---
 status: current          # documents as-built behaviour plus the bugs still open (§16.1)
-last-verified: 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
-verified-commit: 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
+last-verified: 2026-11-11  # SB4e Account: §2.2 Node panel rows pointer to the hydraulic badge rows and §11.1 sparse badge_position note only, rest not re-audited; prior 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
+verified-commit: e991da71  # SB4e (v0.100.0; §2.2 / §11.1 notes only); prior 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
 applies-to:
   - firepro3d/pipe.py
   - firepro3d/node.py
@@ -102,7 +102,7 @@ On the template panel the offset rows read **N1 Offset** / **N2 Offset** (meta `
 | **X**, **Y** | length, mm | Moves the node's whole riser stack (§6.4). **Y is up-positive** on the panel: scene Y is down-positive and `CAD_Math.flip_y` is the one conversion ([`units-and-formatting.md`](units-and-formatting.md) §4.2) |
 | **Z** | length, mm | Absolute elevation. Typing solves the **Offset** against the node's **kept** Ceiling Level and moves **this node only** (attached pipes slope; no level change). A no-change commit does nothing |
 
-X / Y / Z carry `single_only`: they show on a single selection and are skipped on a multi-selection and in a Pipe's inline "Node 1 / Node 2" sections ([`property-panel.md`](property-panel.md) §3.1). A committed edit requests one undo step (`request_undo_push`). The read-only **Absolute Elev.** row survives only in the Pipe's Node 1 / Node 2 sections.
+X / Y / Z carry `single_only`: they show on a single selection and are skipped on a multi-selection and in a Pipe's inline "Node 1 / Node 2" sections ([`property-panel.md`](property-panel.md) §3.1). A committed edit requests one undo step (`request_undo_push`). The read-only **Absolute Elev.** row survives only in the Pipe's Node 1 / Node 2 sections. A node that carries a hydraulic badge (after a solve) also shows Badge Position and the read-only hydraulic value rows; they are owned by [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §11.1 and never show in a Pipe's Node 1 / Node 2 sections.
 
 ### 2.3 Fitting (`firepro3d/fitting.py`)
 
@@ -677,6 +677,8 @@ Where: Q = flow (gpm), C = C-factor, d = inner diameter (inches), L = length (ft
   "display_overrides": { ... }
 }
 ```
+
+A sparse `badge_position` key (the node's hydraulic badge side) is written only when it is not Auto ([`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §11.1).
 
 **Pipe serialization:**
 ```json
