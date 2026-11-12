@@ -384,6 +384,32 @@ def text_path(op, pose_rot: float) -> QPainterPath:
     return t.map(op.path)
 
 
+def ops_path(ops, pose_rot: float = 0.0) -> QPainterPath:
+    """Combined path of *ops* in their own frame: TEXT ops as paint draws
+    them (``text_path`` under *pose_rot*, DD6). One implementation for a
+    placed block's bounds (``BlockInstance._local_path``) and a symbol
+    item's (SB4g D3)."""
+    combined = QPainterPath()
+    for op in ops:
+        combined.addPath(text_path(op, pose_rot) if op.kind == TEXT else op.path)
+    return combined
+
+
+def ops_bounding_rect(ops, pose_rot: float = 0.0) -> QRectF:
+    """Geometry bounds of *ops* (``ops_path``): the centre-line extent.
+    Strokes are named / By Linetype weights (cosmetic on canvas, SB4g R14),
+    so no stroke pad is added; callers add their own pen margin."""
+    return ops_path(ops, pose_rot).boundingRect()
+
+
+def ops_shape(ops, pose_rot: float = 0.0) -> QPainterPath:
+    """Hit area of *ops*: their paths with a winding fill, so closed shapes
+    are solid (SB4g D3)."""
+    path = ops_path(ops, pose_rot)
+    path.setFillRule(Qt.FillRule.WindingFill)
+    return path
+
+
 def paper_op_width(item, weight) -> float:
     """Non-cosmetic paper width for a stroke op's resolved *weight* (LT2-5;
     lifted from ``BlockInstance._paper_op_width``): a named weight plots at

@@ -49,7 +49,8 @@ from .render_op import (STROKE, FILL, PATTERN, TEXT, RenderOp, apply_overrides,
                         ClipRun, PoseXf as _PoseXf, keep_frame, keep_path, ops_mask,
                         paint_fill_op as _paint_fill_op_fn, paint_ops as _paint_ops,
                         paper_op_width as _paper_op_width_fn,
-                        stroke_op as _stroke_op_fn, text_path as _text_path_fn)
+                        stroke_op as _stroke_op_fn, text_path as _text_path_fn,
+                        ops_path as _ops_path_fn)
 from .scale_manager import ScaleManager
 from .view_scale import scene_hit_width
 from .stroke_style import (BY_CATEGORY, BY_LINETYPE, NO_ENDS, NONE,
@@ -972,9 +973,7 @@ class BlockInstance(QGraphicsObject):
                     combined = pose_matrix(0.0, 0.0, 0.0, self._pose_mirrored,
                                            self._pose_scale).map(combined)
             return combined
-        for op in ops:
-            combined.addPath(self._text_path(op) if op.kind == TEXT else op.path)
-        return combined
+        return _ops_path_fn(ops, self._pose_rot)       # shared with SymbolBlockItem (SB4g)
 
     def _posed_path(self, ops=None) -> QPainterPath:
         """Pose-mapped combined path, memoised on (compiled ops, pose).
