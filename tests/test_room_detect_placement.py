@@ -154,6 +154,27 @@ def test_g3_late_island_punches_hole_in_one_undo_step(plan):
     assert back.holes == [] and area(xy(back.boundary)) == pytest.approx(76.44e6, abs=1.0)
 
 
+def test_g3_late_punch_skips_room_the_island_straddles(plan):
+    """VC9 I1: a manual room (500,500)-(3500,7500) overlaps the island's ring 2400..4600 x
+    2900..5100 without containing it, so it gets no hole: net area stays its shoelace area
+    3000 * 7000 = 21.0e6, and the strip x 3500..4600 outside it (e.g. (4000,4000)) is not room."""
+    from firepro3d.room import Room
+    view, scene = plan
+    rect_walls(scene, 0, 0, 10000, 8000)
+    rect_walls(scene, 2500, 3000, 4500, 5000)
+    manual = Room(boundary=[QPointF(500, 500), QPointF(3500, 500),
+                            QPointF(3500, 7500), QPointF(500, 7500)])
+    manual.level = scene.active_level
+    scene.addItem(manual)
+    scene._rooms.append(manual)
+    scene.set_mode("room")
+    island = _place(view, scene, (3000, 4000), statuses(scene))
+    assert island is not manual and island.holes == []
+    assert manual.holes == []
+    assert manual._compute_area_mm2() == pytest.approx(21.0e6, abs=2.0)
+    assert not manual.room_path().contains(QPointF(4000, 4000))
+
+
 def test_undo_drops_stale_room_arrangement_walls(plan):
     """Undo rebuilds every wall object (_restore_network); the cached arrangement must not keep
     the pre-undo, detached walls even though its (level, _undo_pos, len(_walls)) key matches."""

@@ -3735,6 +3735,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         # The Room-mode arrangement caches wall objects that die below (the
         # key can survive undo of the creating step): drop it.
         self._room_arr = None
+        if self.mode == "room":
+            self._pick_region_preview = None      # the overlay was built on the pre-undo scene
         levels_restored = False
         # VC9 I1: a solved result survives an undo/redo whose restored network
         # matches the one being replaced; capture the old objects first.
@@ -6853,8 +6855,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             res = self._room_detect(s) if s is not None else None
             if not isinstance(res, RoomFace):
                 continue
+            outer = r._boundary
+            segs = [QLineF(outer[i], outer[(i + 1) % len(outer)]) for i in range(len(outer))]
+
+            def _inside_outer(ring) -> bool:
+                # Wholly inside: every vertex inside (odd-even) and no ring edge meets the
+                # outer ring (covers a concave outer whose notch the vertices alone miss).
+                if not all(ring_contains(outer, p) for p in ring):
+                    return False
+                return not any(QLineF(ring[i], ring[(i + 1) % len(ring)]).intersects(sg)[0]
+                               == QLineF.IntersectionType.BoundedIntersection
+                               for i in range(len(ring)) for sg in segs)
+
             new = [ring for ring in res.holes
                    if ring_contains(ring, click)
+                   and _inside_outer(ring)
                    and not any(same_ring(ring, h) for h in r._holes)]
             if new:
                 r._holes.extend([QPointF(p) for p in ring] for ring in new)

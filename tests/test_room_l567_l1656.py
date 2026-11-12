@@ -31,6 +31,21 @@ def test_l567_panel_area_perimeter_volume_coverage_calibrated(qapp, make_model_s
     assert ep.host_values(r)["Area"].raw == pytest.approx(6.0e6)                       # AC12 parity
 
 
+def test_l567_panel_area_perimeter_net_of_hole_calibrated(qapp, make_model_space):
+    """Hole x calibration (VC9 M4): 6000 x 4000 outer with a 2000 x 1000 hole at ppm 2.
+    Area = (24.0e6 - 2.0e6) / 4 = 5.5e6 mm2; perimeter = (20000 + 6000) / 2 = 13000 mm."""
+    ms = make_model_space()
+    ms.scale_manager.set_pixels_per_mm(2.0)
+    hole = [QPointF(1000, 1000), QPointF(3000, 1000), QPointF(3000, 2000), QPointF(1000, 2000)]
+    r = Room(list(RECT), holes=[hole])
+    ms.addItem(r)
+    ms._rooms.append(r)
+    props = r.get_properties()
+    sm = ms.scale_manager
+    assert props["Area"]["value"] == sm.format_area_mm2(5.5e6)
+    assert props["Perimeter"]["value"] == sm.format_length(13000.0)
+
+
 def test_l567_auto_populate_area_label_calibrated(qapp, make_model_space, tmp_path):
     import os
     from firepro3d.auto_populate_dialog import AutoPopulateDialog

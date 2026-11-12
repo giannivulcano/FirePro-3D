@@ -138,6 +138,21 @@ def test_press_cancels_pending_debounced_hover(tee):
     assert scene._pick_region_preview is None
 
 
+def test_undo_clears_room_hover_preview(tee):
+    """VC9 M1: a hover overlay built before an undo describes the pre-undo scene (here an amber
+    'already a room' face over a room the undo removes); it is dropped, not left until the
+    next mouse move."""
+    view, scene = tee
+    click_room(view, QPointF(1500, 2000))
+    assert len(scene._rooms) == 1
+    frame(view, QPointF(3000, 2000), 0.1)
+    move(view, QPointF(1500, 2500))
+    assert scene._pick_region_preview is not None and scene._pick_region_preview[4] == "warn"
+    scene.undo()
+    assert scene._rooms == [] and scene.mode == "room"      # premise: undone, still in Room mode
+    assert scene._pick_region_preview is None
+
+
 def test_hover_open_marks_nearest_free_end(qapp):
     """Gap 1 (D-R6): U (0,4000)->(0,0)->(6000,0)->(6000,4000) via the wall tool;
     free-end caps centred on (0,4000) and (6000,4000); from (1000,2000) the nearer is (0,4000)."""
