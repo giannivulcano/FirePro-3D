@@ -513,6 +513,14 @@ REGION_FINDER_ISLAND_SAMPLE_MM = 0.05
 # consecutive vertices of one curve (small circles stayed faceted otherwise).
 REGION_FINDER_MIN_CHORD_MM = 2 * CHAIN_WELD_MM
 
+# ── Room detection on wall bodies (room-detection rework design §1, §3) ─────
+# Padding (mm) of the arrangement window around the candidate walls' united body bounds.
+ROOM_DETECT_WINDOW_PAD_MM = 1000.0
+# Same-face duplicate test: |area - face area| within this fraction of the face's area.
+ROOM_SAME_FACE_AREA_TOL = 0.01
+# Inward push (mm) of a room's interior sample point off its outer ring's edge midpoint.
+ROOM_SAMPLE_INSET_MM = 1.0
+
 # UP1 two-layer fill: legacy {type, color, opacity} record defaults (fill_layers).
 FILL_LEGACY_COLOUR = "#888888"       # unset legacy fill colour (the old default grey)
 FILL_LEGACY_OPACITY = 0.45           # legacy record without an opacity key
