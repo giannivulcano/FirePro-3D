@@ -376,7 +376,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         if untagged_nodes and len(self._boundary) >= 3:
             path = self.room_path()                    # holes excluded (§2.2)
 
-            zr =self.z_range_mm()
+            zr = self.z_range_mm()
             if zr is not None:
                 z_bot, z_top = min(zr), max(zr)
             else:
