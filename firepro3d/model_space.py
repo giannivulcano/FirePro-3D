@@ -3732,6 +3732,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             self._mirror_axis = None
             for v in self.views():
                 v.viewport().update()
+        # The Room-mode arrangement caches wall objects that die below (the
+        # key can survive undo of the creating step): drop it.
+        self._room_arr = None                     # FP6-C M1: undo/redo restore
         levels_restored = False
         # VC9 I1: a solved result survives an undo/redo whose restored network
         # matches the one being replaced; capture the old objects first.
@@ -6862,6 +6865,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         from .room_detection import REFUSAL_TEXT, Refusal
         res = self._room_detect(snapped)
         self._pick_region_preview = None          # the next move re-evaluates
+        self._room_pending = None                 # a debounced hover must not redraw after a press
+        if self._room_timer is not None:
+            self._room_timer.stop()               # FP6-C M2: cancel the queued hover
         for v in self.views():
             v.viewport().update()
         if isinstance(res, Refusal):

@@ -1,7 +1,10 @@
 """G5 (AC9, AC6 hover): Room-mode hover through posted mouse moves on a shown view.
 Assertions: the preview tuple (path, open_end, enclosed, covered, tone), the painted tint's
-red-minus-green shift (amber warn > 0, green ok < 0 for both theme variants: dark ok #6FBE93 /
-warn #D9A24A, light ok #2f9e63 / warn #b46500 -- theme.py), and a viewport repaint."""
+red-minus-green shift (amber warn > 0, green ok < 0), and a viewport repaint after a debounced
+hover fire. Only the theme current under the test harness is exercised (the dark/light token
+values are not parametrized here). The immediate-hover repaint is not asserted: mouseMoveEvent
+repaints after every handler, so the debounced-fire test is the real guard of the hover repaint
+line. Mode-exit teardown, undo cache reset and press-cancels-pending are guarded below."""
 import pytest
 from PyQt6.QtCore import QEvent, QObject, QPointF
 from PyQt6.QtGui import QColor
@@ -59,9 +62,7 @@ def test_hover_placeable_face_is_ok_green_and_repaints(tee):
     view, scene = tee
     _px(view, SAMPLE)                                    # discard the first-paint grab
     before = _px(view, SAMPLE)
-    paints = _Paints(view.viewport())
     move(view, QPointF(1500, 2500))
-    assert paints.n > 0
     path, open_end, enclosed, covered, tone = scene._pick_region_preview
     assert enclosed and not covered and open_end is None and tone == "ok"
     assert path.contains(SAMPLE) and not path.contains(QPointF(4500, 2000))
@@ -100,6 +101,40 @@ def test_hover_in_wall_shows_nothing(tee):
     view, scene = tee
     move(view, QPointF(1500, 2500))
     move(view, QPointF(3000, 0))                          # bottom wall centreline: inside its body
+    assert scene._pick_region_preview is None
+
+
+def test_mode_exit_tears_down_room_hover_state(tee):
+    """Design §1.5 / §4: leaving Room mode clears the preview, the cached arrangement, the
+    slow flag and the pending debounced hover (timer stopped). The preview half is also cleared
+    by the pick_region teardown, so the cache / slow / pending / timer carry the guard."""
+    view, scene = tee
+    move(view, QPointF(1500, 2500))
+    assert scene._pick_region_preview is not None and scene._room_arr is not None
+    scene._room_slow = True                              # premise: the slow (debounced) path
+    move(view, QPointF(4500, 2500))
+    assert scene._room_timer.isActive() and scene._room_pending is not None
+    scene.set_mode("select")
+    assert scene._pick_region_preview is None
+    assert scene._room_arr is None
+    assert scene._room_slow is False
+    assert scene._room_pending is None
+    assert not scene._room_timer.isActive()
+    QTest.qWait(REGION_FINDER_DEBOUNCE_MS + 200)
+    assert scene._pick_region_preview is None            # the stopped timer never fires
+
+
+def test_press_cancels_pending_debounced_hover(tee):
+    """A press on a slow scene cancels the queued hover: the preview stays cleared after the
+    debounce interval instead of being redrawn at the pre-click point."""
+    view, scene = tee
+    move(view, QPointF(1500, 2500))
+    scene._room_slow = True                              # premise: the slow (debounced) path
+    move(view, QPointF(4500, 2500))                      # queues a hover at the right bay
+    assert scene._room_timer.isActive()
+    click_room(view, QPointF(1500, 2000))
+    assert len(scene._rooms) == 1 and scene._pick_region_preview is None
+    QTest.qWait(REGION_FINDER_DEBOUNCE_MS + 200)
     assert scene._pick_region_preview is None
 
 

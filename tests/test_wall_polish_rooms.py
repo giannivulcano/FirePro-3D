@@ -25,7 +25,7 @@ def _add(s, p1, p2, align):
 
 
 @pytest.mark.parametrize("align", [ALIGN_LEFT, ALIGN_RIGHT])
-def test_room_polygon_with_tee_unchanged(qapp, align):
+def test_room_polygon_with_tee_exact_faces(qapp, align):
     from firepro3d import room_detection
     from firepro3d.model_space import Model_Space
     s = Model_Space()
@@ -37,6 +37,7 @@ def test_room_polygon_with_tee_unchanged(qapp, align):
         w.invalidate_geometry()                      # joins see every neighbour
     face = room_detection.detect(s._room_walls(s.active_level), QPointF(1500, 2000))
     assert isinstance(face, room_detection.RoomFace), "scenario must detect a real room"
+    assert face.holes == []                          # a tee is not an island
     xs = [p.x() for p in face.outer]
     ys = [p.y() for p in face.outer]
     (x0, y0, x1, y1), want = _EXPECTED[align]

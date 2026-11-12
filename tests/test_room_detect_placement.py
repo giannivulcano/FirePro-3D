@@ -154,6 +154,24 @@ def test_g3_late_island_punches_hole_in_one_undo_step(plan):
     assert back.holes == [] and area(xy(back.boundary)) == pytest.approx(76.44e6, abs=1.0)
 
 
+def test_undo_drops_stale_room_arrangement_walls(plan):
+    """Undo rebuilds every wall object (_restore_network); the cached arrangement must not keep
+    the pre-undo, detached walls even though its (level, _undo_pos, len(_walls)) key matches."""
+    view, scene = plan
+    rect_walls(scene, 0, 0, 6000, 4000)
+    scene.set_mode("room")
+    log = statuses(scene)
+    _place(view, scene, (3000, 2000), log)
+    scene.undo()
+    assert scene._rooms == []
+    assert scene.mode == "room"
+    walls, _arr = scene._room_arrangement()       # what the next hover / click would use
+    live = {id(w) for w in scene._walls}
+    assert len(walls) == 4 and all(id(w) in live for w in walls)
+    click_room(view, QPointF(3000, 2000))
+    assert len(scene._rooms) == 1                 # and the placement still works
+
+
 def test_g4_click_in_wall_thickness_refused(plan):
     view, scene = plan
     rect_walls(scene, 0, 0, 6000, 4000)
