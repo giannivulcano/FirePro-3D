@@ -46,3 +46,8 @@ SYSTEM_DEFAULTS: dict[str, str] = {
 # The shipped Note block (design 2026-11-04-text-leader-annotations D8). Kept out of
 # SYSTEM_DEFAULTS: it is not an intrinsic-label category, so no Annotation row.
 NOTE_BLOCK_ID = "system-annotations-note"
+
+# SB4g D7 / R10: the categories a real-size symbol block may draw. Values of
+# ``BlockDefinition.symbol_for`` and the Block Editor "Symbol for" row. Riser is
+# not an element category (D2: hence not ``host_category``).
+SYMBOL_CATEGORIES: tuple[str, ...] = ("Sprinkler", "Water Supply", "Riser")

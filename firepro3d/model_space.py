@@ -326,7 +326,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         # Block Editor authored definition fields (SB1a S4): attributes /
         # host_category / scale_mode / annotative_screen (SB1c D2). Always a
         # dict (empty defaults off-editor).
-        self.block_meta: dict = {"attributes": [], "host_category": "",
+        self.block_meta: dict = {"attributes": [], "host_category": "", "symbol_for": "",
                                  "scale_mode": "real_size",
                                  "annotative_screen": "scale"}
         self.show_sample_values = True   # view flag (A6), not in the undo snapshot
@@ -1700,6 +1700,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         from .block_attributes import normalise_attr
         new = {"attributes": [normalise_attr(a) for a in meta.get("attributes", [])],
                "host_category": str(meta.get("host_category", "")),
+               "symbol_for": str(meta.get("symbol_for", "") or ""),
                "scale_mode": str(meta.get("scale_mode", "real_size")),
                "annotative_screen": ("fixed" if meta.get("annotative_screen") == "fixed"
                                      else "scale")}
@@ -3424,6 +3425,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         defn.attributes = list(meta.get("attributes", []))   # setter normalises
         defn.host_category = str(meta.get("host_category", ""))
         defn.scale_mode = str(meta.get("scale_mode", "real_size"))
+        # SB4g R10: only a real-size block is a symbol; an annotative one drops it.
+        defn.symbol_for = (str(meta.get("symbol_for", "") or "")
+                           if defn.scale_mode == "real_size" else "")
         defn.annotative_screen = ("fixed" if meta.get("annotative_screen") == "fixed"
                                   else "scale")
 

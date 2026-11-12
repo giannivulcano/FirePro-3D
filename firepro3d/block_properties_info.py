@@ -7,7 +7,8 @@ selected entity only.
 """
 from __future__ import annotations
 
-from .element_params import NONE_LABEL, WARN_MARK, category_choice
+from .element_params import NONE_LABEL, WARN_MARK, category_choice, unknown_label
+from .system_blocks import SYMBOL_CATEGORIES
 
 _SCALE_LABELS = {"real_size": "Real size", "annotative": "Annotative"}
 _SCALE_MODES = {v: k for k, v in _SCALE_LABELS.items()}
@@ -69,6 +70,15 @@ class BlockPropertiesInfo:
                                       "warn_options": warn}
             props["Scale mode"] = {"type": "enum", "options": ["Real size", "Annotative"],
                                    "value": _SCALE_LABELS.get(meta["scale_mode"], "Real size")}
+            if meta["scale_mode"] == "real_size":
+                # SB4g R10: which element's symbol this block may draw.
+                cur = meta.get("symbol_for", "")
+                opts, warn = [NONE_LABEL, *SYMBOL_CATEGORIES], []
+                if cur and cur not in SYMBOL_CATEGORIES:     # kept from a file (E9)
+                    cur = unknown_label(cur, "symbol category")
+                    opts, warn = opts + [cur], [cur]
+                props["Symbol for"] = {"type": "enum", "options": opts,
+                                       "value": cur or NONE_LABEL, "warn_options": warn}
             if meta["scale_mode"] == "annotative" and self._screen_row_free():
                 from .end_render import SCREEN_FIXED
                 from .linetype_render import SCREEN_LABELS
@@ -123,6 +133,13 @@ class BlockPropertiesInfo:
                 return
             self._scene.set_block_meta({**self._scene.block_meta,
                                         "host_category": "" if value == NONE_LABEL else value})
+            return
+        if key == "Symbol for":
+            value = str(value)
+            if value.startswith(WARN_MARK):         # the kept unknown entry
+                return
+            self._scene.set_block_meta({**self._scene.block_meta,
+                                        "symbol_for": "" if value == NONE_LABEL else value})
             return
         if key == "Sample values":
             self._scene.set_show_sample_values(bool(value))    # view toggle, no undo

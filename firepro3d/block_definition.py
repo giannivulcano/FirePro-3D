@@ -388,6 +388,7 @@ class BlockDefinition:
                  constraints: list | None = None, tile: dict | None = None,
                  repeat: dict | None = None, end: dict | None = None,
                  kind: str = "block", host_category: str = "",
+                 symbol_for: str = "",
                  base_version: int | None = None,
                  annotative_screen: str = SCREEN_SCALE,
                  text_sizing: str | None = None,
@@ -421,6 +422,10 @@ class BlockDefinition:
         # Host category (SB1a S1): which host kind supplies source=host values.
         # Additive key -- absent => "" (no schema bump).
         self.host_category: str = str(host_category)
+        # SB4g D7: the element category this real-size block may draw a symbol
+        # for ("Sprinkler" / "Water Supply" / "Riser"); "" = none. Additive,
+        # sparse key -- written only when set (byte-identical plain blocks).
+        self.symbol_for: str = str(symbol_for or "")
         self.primitives = list(primitives)
         # Sketch constraint records (parametric-constraint-system.md §6.3);
         # additive key, absent => [] (no schema bump).
@@ -1074,6 +1079,8 @@ class BlockDefinition:
             d["text_sizing"] = self.text_sizing     # sparse: absent = real size (N9)
         if self.text_scale is not None:
             d["text_scale"] = self.text_scale       # sparse, same rule
+        if self.symbol_for:
+            d["symbol_for"] = self.symbol_for       # sparse: absent = none (SB4g)
         return d
 
     @classmethod
@@ -1095,6 +1102,7 @@ class BlockDefinition:
             end=data.get("end"),
             kind=data.get("kind", "block"),
             host_category=data.get("host_category", ""),
+            symbol_for=data.get("symbol_for", ""),
             base_version=data.get("base_version"),
             text_sizing=data.get("text_sizing"),
             text_scale=data.get("text_scale"),
