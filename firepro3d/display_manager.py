@@ -187,11 +187,6 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     item.setSharedRenderer(renderer)
     item._renderer = renderer  # prevent garbage collection
 
-    # Re-centre after renderer change
-    if hasattr(item, "_centre_on_node"):
-        item._centre_on_node()
-    elif hasattr(item, "_centre_on_origin"):
-        item._centre_on_origin()
     item.update()
 
 
@@ -503,7 +498,6 @@ def apply_display_to_item(item, color: str | None, scale: float,
     elif isinstance(item, WaterSupply):
         _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
-        item._centre_on_origin()
     elif isinstance(item, HydraulicNodeBadge):
         # SB4e R7: the badge draws in its block's colours; the row sets
         # Visible + Opacity only. Top-level (SB4d D5): hidden with a hidden node.
@@ -1054,8 +1048,6 @@ class DisplayManager(HouseDialog):
                 _set_svg_tint(item, snap.get("display_color"),
                               snap.get("display_fill_color"))
                 item._display_scale = snap.get("display_scale", 1.0)
-                if not isinstance(item, Sprinkler):
-                    item._centre_on_origin()
             # A node badge restores Visible + Opacity only (SB4e R7), above.
 
         for it, attrs, overrides, vis, opa in getattr(self, "_section_snapshot", ()):

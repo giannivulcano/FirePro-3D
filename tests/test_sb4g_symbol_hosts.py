@@ -91,3 +91,37 @@ def test_unresolved_head_falls_back_to_node_radius(shown_model_view):
     # shape()/boundingRect() clamp to RADIUS on their own; the selection halo
     # in paint() (radius * 0.95) does not, so pin the fallback it reads.
     assert node._symbol_radius() == pytest.approx(Node.RADIUS)
+
+
+def test_g1_water_supply_draws_its_block_at_real_size(shown_model_view, real_system_library):
+    from firepro3d.water_supply import WaterSupply
+    view, scene = shown_model_view
+    ws = WaterSupply(0.0, 0.0)
+    scene.addItem(ws)
+    assert isinstance(ws, SymbolBlockItem) and not isinstance(ws, QGraphicsSvgItem)
+    assert ws.definition().id == "system-symbols-watersupply"
+    want = EXTENT_MM["system-symbols-watersupply"]
+    assert ws.extent_radius() * 2 == pytest.approx(want, abs=0.01)
+    w, h = ink_extent_mm(view, ws)
+    assert w == pytest.approx(want, abs=INK_TOL)
+    assert h == pytest.approx(want, abs=INK_TOL)
+
+
+def test_ac10_water_supply_selectable_z_kept_selection_never_plots(shown_model_view,
+                                                                   real_system_library,
+                                                                   monkeypatch):
+    from firepro3d.constants import Z_WATER_SUPPLY
+    from firepro3d import paper_display as pd
+    from firepro3d.water_supply import WaterSupply
+    view, scene = shown_model_view
+    ws = WaterSupply(0.0, 0.0)
+    scene.addItem(ws)
+    assert ws.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+    assert ws.zValue() == Z_WATER_SUPPLY
+    w0, _ = ink_extent_mm(view, ws)
+    ws.setSelected(True)
+    w_sel, _ = ink_extent_mm(view, ws)
+    assert w_sel > w0                               # canvas selection outline drawn
+    monkeypatch.setattr(pd, "paper_pass_active", lambda: True)
+    w_paper, _ = ink_extent_mm(view, ws)
+    assert w_paper == pytest.approx(w0, abs=INK_TOL)   # selection never plots

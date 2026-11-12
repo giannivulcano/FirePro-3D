@@ -3,7 +3,8 @@ WaterSupply
 ===========
 Represents the water main connection point on the drawing.
 
-Rendered as an SVG symbol (water_supply.svg) placed on a network node.
+Rendered from the "Water Supply" symbol block (SB4g; System default
+system-symbols-watersupply) placed on a network node.
 The hydraulic solver reads the static pressure, residual pressure,
 and test flow from this item to build the supply curve.
 
@@ -14,35 +15,23 @@ Usage
     scene.water_supply_node = ws
 """
 
-import os
-
-from PyQt6.QtWidgets import QGraphicsItem, QStyle
-from PyQt6.QtCore import Qt, QRectF
-from PyQt6.QtGui import QTransform, QPainterPath
-from PyQt6.QtSvgWidgets import QGraphicsSvgItem
+from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPainterPath, QPen
 from .constants import DEFAULT_LEVEL, Z_WATER_SUPPLY
 from . import phase_registry
-from .paper_display import paper_pass_active
-from PyQt6.QtSvg import QSvgRenderer
+from .paper_display import shows_selection
+from .symbol_block import SymbolBlockItem
 
 
-class WaterSupply(QGraphicsSvgItem):
+class WaterSupply(SymbolBlockItem):
     """Water supply / connection node -- placed once per drawing on a pipe node."""
 
-    SVG_PATH = os.path.join(
-        os.path.dirname(__file__),
-        "graphics", "sprinkler_graphics", "water_supply.svg",
-    )
-    SVG_NATURAL_PX = 30.0               # natural SVG bounding-box width (px)
-    TARGET_MM      = 24.0 * 25.4        # desired symbol diameter in mm (24 inches)
-    SCALE          = TARGET_MM / SVG_NATURAL_PX
-
     def __init__(self, x: float = 0, y: float = 0):
-        super().__init__()
+        super().__init__("Water Supply")
         self.setPos(x, y)
         self._display_overrides: dict = {}  # per-instance display overrides
-        self._display_scale: float = 1.0    # display scale multiplier
-        self._display_fill_color: str | None = None
+        self._display_scale: float = 1.0    # DM scale column retired; not read for size
         self.phase: str = phase_registry.PHASE_NEW
 
         self._properties: dict = {
@@ -66,35 +55,25 @@ class WaterSupply(QGraphicsSvgItem):
         self.setZValue(Z_WATER_SUPPLY)
         self.level: str = DEFAULT_LEVEL
 
-        # Load SVG
-        self._svg_source_path = os.path.abspath(self.SVG_PATH)
-        renderer = QSvgRenderer(self.SVG_PATH)
-        self.setSharedRenderer(renderer)
-        self._renderer = renderer          # prevent garbage collection
-        self._centre_on_origin()
-
-    # -------------------------------------------------------------------------
-    # SVG scaling / centering
-
-    def _centre_on_origin(self):
-        """Centre the SVG on (0,0) at TARGET_MM scale."""
-        from .displayable_item import centre_svg_on_origin
-        centre_svg_on_origin(self, self.TARGET_MM, self.SCALE,
-                              self._display_scale)
-
     def rescale(self, sm=None):
-        """Called after scale calibration -- just re-centre."""
-        self._centre_on_origin()
+        """Scale calibration: the block is real size, so only repaint."""
+        self.update()
 
     def paint(self, painter, option, widget=None):
-        # Qt's default selection outline must not plot (wall polish D11, L42).
-        if paper_pass_active():
-            option.state &= ~QStyle.StateFlag.State_Selected
         super().paint(painter, option, widget)
+        # The selection outline QGraphicsSvgItem drew (Qt's dashed box on the
+        # bounds), canvas only: selection never plots (wall polish D11, L42).
+        if shows_selection(self):
+            r = self.boundingRect()
+            if not r.isEmpty():
+                pen = QPen(option.palette.windowText().color(), 0, Qt.PenStyle.DashLine)
+                pen.setCosmetic(True)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(r)
 
     def shape(self) -> QPainterPath:
-        """Return full bounding rect as shape so clicking anywhere on the
-        symbol selects it (not just the SVG path outlines)."""
+        """Full bounding rect, as before SB4g (clicks anywhere on the symbol)."""
         path = QPainterPath()
         path.addRect(self.boundingRect())
         return path

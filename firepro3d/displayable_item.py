@@ -20,7 +20,7 @@ interfering with the Qt graphics item constructor chain.  Call
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPen, QTransform
+from PyQt6.QtGui import QColor, QPen
 from .constants import DEFAULT_LEVEL
 
 _SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
@@ -82,29 +82,6 @@ def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
                colour=pat if pat is not None else _SECTION_HATCH_COLOR,
                scale=p.scale if p is not None else 1.0,
                line_width_px=line_width, to_scene=to_scene)
-
-
-def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,
-                          display_scale: float = 1.0, *, reset_pos: bool = False):
-    """Scale and centre an SVG item so its visual centre maps to local (0, 0).
-
-    Parameters
-    ----------
-    item :          QGraphicsSvgItem (or any item with boundingRect)
-    target_mm :     Desired size in scene units (mm).
-    fallback_scale: Scale to use if the SVG has zero natural size.
-    display_scale:  Extra multiplier from Display Manager.
-    reset_pos :     If True, also call ``item.setPos(0, 0)`` (for child items).
-    """
-    bounds = item.boundingRect()
-    center = bounds.center()
-    svg_natural = max(bounds.width(), bounds.height())
-    s = target_mm / svg_natural if svg_natural > 0 else fallback_scale
-    s *= display_scale
-    t = QTransform(s, 0, 0, s, -s * center.x(), -s * center.y())
-    item.setTransform(t)
-    if reset_pos:
-        item.setPos(0, 0)
 
 
 def display_overrides_to_dict(item, d: dict) -> dict:

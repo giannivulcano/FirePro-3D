@@ -37,6 +37,7 @@ def whites(img):
 
 TINT_CASES = [
     ("Sprinkler", lambda ms: head(ms)[1], SPR0_FILL),
+    ("Water Supply", water_supply, WS_FILL),
 ]
 
 
