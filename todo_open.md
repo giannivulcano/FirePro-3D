@@ -156,6 +156,13 @@
     - (16) `docs/specs/pipe-placement-methodology.md` Step 2 still says `pipe.user_layer` (removed) and the file has no frontmatter (cf. DOCS-REVIEW.md pipe-placement split).
       - +1 occurrence 2026-11-01 (SB4a Account): `user_layer` still in that spec's §2 and serialization example; Account left it (out of scope).
       - +1 occurrence 2026-11-11 (SB4e Account): `pipe-placement-methodology.md` s11.1 node and pipe JSON examples still show the removed `z_offset` and `user_layer`; SB4e added only the sparse `badge_position` note.
+      - +1 occurrence 2026-11-12 (PH1 Account): s11.1 is still headed "version 9" (13 since PH1); s2.1 attribute table and s7 step 2 still name `user_layer`; s16.1 B8 / tolerance table cite `model_space.py:<line>` locations.
+  - +1 occurrence 2026-11-12 (PH1 Account report-only hits, pre-existing, not fixed; findings `.todo/account_ph1.md` in the p1-31 worktree):
+    - (17) `scene-io.md` s2 top-level key list omits `fill_types` and `materials`, both saved before PH1.
+    - (18) `sprinkler-system-components.md` s4.4 places auto-populate in `model_space.py` (it is `SprinklerWorkflowController.auto_populate_room`); s10.1 cites an "80 LOC" count (Rule A).
+    - (19) `wall-room-floor-system.md`: s4.4 wall template list omits `material_id`; s12.1 / s12.4 JSON examples omit the `material` key; the applies-to comment points template persistence at s11.9 (3D Mesh; floor template persistence lives in `property-panel.md` s3.7); s3.1 says `WallOpening` is not a `DisplayableItemMixin` (it is since Phase A). The s11.7 header's missing Building Material row was fixed in passing at PH1.
+    - (20) `underlay-workflow.md` s9.4 describes a "Properties" dialog reached from a right-click entry the s9.3 menu list does not have; s16.8 says Duplicate's record copy carries all fields (`underlay_context_menu` builds the new Underlay field by field).
+    - (21) `block-system.md` `place_kwargs` field list omits `note`, `layer_height`, `opaque` and `constraint_points_off`.
 - [ ] [type:maint] Doc reorg execution — `docs/specs/`→`docs/design/`, archive superpowers, backfill frontmatter [P2] [subject:Documentation]
   - Details: `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`.
 
