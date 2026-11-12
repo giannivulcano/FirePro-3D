@@ -9,7 +9,8 @@ files not embedded ("(Library)" -- picked, the Room row embeds them through
 ``blocks_browser.ensure_block_loaded``; the pane's resolver embeds outside
 history), then, when *current* is none of these, one "(missing)" /
 "(not eligible)" entry so a kept id is still shown (SB3 Q6). Eligibility is
-``bound_label.eligible_definition``.
+``bound_label.eligible_definition`` (labels) or ``system_blocks.eligible_symbol``
+(SB4g symbols, ``symbol_choices``).
 """
 from __future__ import annotations
 
@@ -133,27 +134,30 @@ def kept_label(scene, category: str, block_id: str, shipped: dict | None = None,
 
 
 def choices(scene, category: str, *, shipped: dict | None = None,
-            library: list | None = None, current: str | None = None) -> list[Choice]:
+            library: list | None = None, current: str | None = None,
+            eligible=eligible_definition) -> list[Choice]:
     """The pickable blocks for *category*, in picker order. Pass *shipped* /
     *library* (``shipped_defs()`` / ``library_defs(scene)``) when listing
     several categories (one disk walk). *current* = the id the picker must be
-    able to show even when it is not pickable (appended last)."""
+    able to show even when it is not pickable (appended last). *eligible* =
+    the ``(defn, category)`` predicate (default: intrinsic labels,
+    ``bound_label.eligible_definition``; SB4g symbols pass ``eligible_symbol``)."""
     if shipped is None:
         shipped = shipped_defs()
     if library is None:
         library = library_defs(scene)
     out: list[Choice] = []
     for bid, d in scene._block_definitions.items():
-        if eligible_definition(d, category):
+        if eligible(d, category):
             tier = "System" if d.library == block_library.SYSTEM_LIBRARY else "Project"
             out.append(Choice(f"{d.name} ({tier})", bid))
     seen = {c.block_id for c in out}
     for bid, d in shipped.items():
-        if bid not in seen and eligible_definition(d, category):
+        if bid not in seen and eligible(d, category):
             out.append(Choice(f"{d.name} (System)", bid))
             seen.add(bid)
     for bid, d, path in library:
-        if bid not in seen and eligible_definition(d, category):
+        if bid not in seen and eligible(d, category):
             out.append(Choice(f"{d.name} ({LIBRARY_TIER})", bid, path))
             seen.add(bid)
     if current and current not in seen:
@@ -168,3 +172,13 @@ def default_label(scene, category: str) -> str:
     fn = getattr(scene, "annotation_block", None)
     d = fn(category) if callable(fn) else None
     return f"{PROJECT_DEFAULT_PREFIX} ({d.name if d is not None else 'none'})"
+
+
+def symbol_choices(scene, category: str, current: str | None = None) -> list[Choice]:
+    """The Symbol row's list for *category* (SB4g D7): the shipped System
+    symbols, then user-library blocks that pass ``system_blocks.eligible_symbol``
+    (real size + ``symbol_for``), then a kept *current* id as "(missing)" /
+    "(not eligible)". Same tiers, disk-walk caches and Library embed as the
+    annotation pickers (one list, one rule)."""
+    from .system_blocks import eligible_symbol
+    return choices(scene, category, current=current, eligible=eligible_symbol)
