@@ -221,6 +221,59 @@ def save_line_weights(defs: list[LineWeightDef],
     settings.sync()
 
 
+_SETTINGS_SCHEMA_KEY = "paper/line_weight_schema"
+# Non-category QSettings keys holding a weight name (LW-DC-9): the Model
+# Blocks weight (current + "Set as Default") and the ribbon's current weight.
+_SETTINGS_WEIGHT_KEYS = ("display/Blocks/line_weight",
+                         "display/Blocks/default_line_weight",
+                         "template/geometry/weight")
+
+
+def migrate_settings_weights(settings: QSettings) -> bool:
+    """One-time LW-DC-9 migration of the app-wide weight names.
+
+    Runs the LW-DC-8 merge-by-width over the new-project template
+    (``paper/line_weights``: read raw, before ``load_line_weights`` could
+    replace a legacy factory template) and rewrites every stored weight name
+    through its mapping -- each ``paper/categories/*/line_weight``, the Model
+    Blocks weight (current and default) and the ribbon current weight -- so
+    paper output is unchanged. The mapping is the template's merged with
+    ``_STATIC_LEGACY_MAP`` for names the template lacks. Stamps
+    ``paper/line_weight_schema`` = 2; a later call is a no-op.
+
+    Args:
+        settings: The app QSettings (tests pass an isolated one).
+
+    Returns:
+        True if a migration ran, False if the store was already schema 2.
+    """
+    try:
+        done = int(settings.value(_SETTINGS_SCHEMA_KEY, 0) or 0) >= LINE_WEIGHT_SCHEMA
+    except (TypeError, ValueError):
+        done = False
+    if done:
+        return False
+    raw = settings.value("paper/line_weights")
+    defs = None
+    if raw is not None:
+        try:
+            defs = _parse_weight_list(json.loads(raw) if isinstance(raw, str) else raw)
+        except (json.JSONDecodeError, TypeError):
+            defs = None
+    new_defs, mapping = legacy_weight_migration(defs or [])
+    if defs is not None:
+        save_line_weights(new_defs, settings)
+    keys = [f"paper/categories/{k}/line_weight" for k in _CATEGORY_KEYS]
+    for key in (*keys, *_SETTINGS_WEIGHT_KEYS):
+        cur = settings.value(key)
+        if cur is not None and str(cur) in mapping and mapping[str(cur)] != str(cur):
+            settings.setValue(key, mapping[str(cur)])
+    settings.setValue(_SETTINGS_SCHEMA_KEY, LINE_WEIGHT_SCHEMA)
+    settings.sync()
+    _clear_hatch_mm()
+    return True
+
+
 def validate_line_weight_name(name: str,
                               existing: list[LineWeightDef]) -> bool:
     """Return True if *name* is valid (non-empty, unique, not reserved).
