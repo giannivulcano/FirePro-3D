@@ -75,3 +75,18 @@ def test_kept_current_is_shown_missing_or_not_eligible(qapp, real_system_library
 def test_room_choices_unchanged_by_the_predicate_parameter(qapp, real_system_library):
     """choices() without eligible= is the SB3b list: no symbol block leaks into it."""
     assert all("symbols" not in c.block_id for c in ac.choices(_scene(), "Room"))
+
+
+def test_project_embedded_non_symbols_never_listed(qapp, real_system_library):
+    ms = _scene()
+    for bid, name, sf, sm in [("proj-plain", "PPlain", "", "real_size"),
+                              ("proj-annot", "PAnnot", "Sprinkler", "annotative"),
+                              ("proj-ws", "PWs", "Water Supply", "real_size"),
+                              ("proj-ok", "POk", "Sprinkler", "real_size")]:
+        d = BlockDefinition.new(name=name, library="Heads", series="Mine", origin=(0.0, 0.0),
+                                primitives=[CircleItem(QPointF(0.0, 0.0), 150.0).to_dict()])
+        d.id, d.scale_mode, d.symbol_for = bid, sm, sf
+        ms.register_block_definition(d)                 # the scene's real embed registry
+    ids = [b for _l, b, _p in _labels(ms, "Sprinkler")]
+    assert "proj-ok" in ids
+    assert not {"proj-plain", "proj-annot", "proj-ws"} & set(ids)
