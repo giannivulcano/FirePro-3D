@@ -58,7 +58,7 @@ class _MultilineEdit(QPlainTextEdit):
         super().focusOutEvent(event)
         self.editingFinished.emit()
 
-from .node import Node
+from .node import Node, HYDRAULIC_ROW_KEYS
 from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_db import SprinklerDatabase
@@ -703,6 +703,8 @@ class PropertyManager(QWidget):
                 for nkey, nmeta in node_props.items():
                     if nmeta.get("single_only") or nkey == phase_registry.FITTING_ROW_KEY:
                         continue        # the fitting override is a node-panel picker (I1)
+                    if nkey in HYDRAULIC_ROW_KEYS:
+                        continue    # edited on the node's own panel (SB4e S1)
                     ntype = nmeta.get("type", "string")
                     nwidget = None
 

@@ -41,7 +41,7 @@ def test_guard1_every_annotation_draws_above_every_model_item_in_sub_order(qapp)
         pipe.update_label()
         node = pipe.node1
         node.add_sprinkler()
-        node.create_hydraulic_badge(1, 50.0, 40.0, 10.0, 10.0)
+        node.create_hydraulic_badge()
         gl = GridlineItem(QPointF(-1000.0, -1000.0), QPointF(-1000.0, 9000.0), label="1")
         ms._gridlines.append(gl)
         ms.addItem(gl)

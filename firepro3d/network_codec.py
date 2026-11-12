@@ -28,8 +28,11 @@ from . import phase_registry
 
 def sprinkler_props(spr) -> dict:
     """A head's stored panel rows for the node entry / clipboard, minus Phase
-    (written once as ``sprinkler_phase``, PD1)."""
-    return {k: v for k, v in spr.get_properties().items() if k != phase_registry.ROW_KEY}
+    (written once as ``sprinkler_phase``, PD1) and minus the node's badge rows
+    (Badge Position + solver values are the node's, never copied -- SB4e I2)."""
+    from .node import HYDRAULIC_ROW_KEYS
+    return {k: v for k, v in spr.get_properties().items()
+            if k != phase_registry.ROW_KEY and k not in HYDRAULIC_ROW_KEYS}
 
 
 def pipe_record(pipe) -> dict:
@@ -64,6 +67,8 @@ def serialize_node(node, node_id: dict) -> dict:
         "room_name":         getattr(node, "_room_name", ""),
         "sprinkler":         sprinkler_props(node.sprinkler) if node.has_sprinkler() else None,
     }
+    if getattr(node, "badge_position", "Auto") != "Auto":
+        entry["badge_position"] = node.badge_position      # SB4e R3: sparse, absent = Auto
     node_ovr = getattr(node, "_display_overrides", {})
     if node_ovr:
         entry["display_overrides"] = node_ovr
@@ -265,6 +270,7 @@ def deserialize_node(scene, entry):
 
     node.level = entry.get("level", DEFAULT_LEVEL)
     node._room_name = entry.get("room_name", "")
+    node.badge_position = entry.get("badge_position", "Auto")
     node.ceiling_level = entry.get("ceiling_level", node.level)
     if "ceiling_offset_mm" in entry:
         node.ceiling_offset = entry["ceiling_offset_mm"]

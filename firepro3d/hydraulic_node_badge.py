@@ -1,41 +1,25 @@
-"""
-hydraulic_node_badge.py
-=======================
-Selectable TOP-LEVEL badge of a Node (SB4d D5: the annotation band's tag
-sub-band; Qt child z would be local to the node) that displays the
-hydraulic node number using the hydraulic_node.svg graphic.  The node adds
-it to its scene, moves, hides and removes it.  Clicking it shows read-only
-hydraulic properties (P, q, Q) in the PropertyManager.
+"""hydraulic_node_badge.py -- a Node's hydraulic badge, drawn by the System
+block mapped for the "Hydraulic Node" category (SB4e; system-blocks.md).
+
+Top-level in the tag band (SB4d D5), synced by its node's ``itemChange``.
+Not selectable and takes no clicks: HALO resolves a hit on it to the node
+(``Model_Space._halo_resolve``), and the node's selection rings it on screen.
 """
 
 from __future__ import annotations
 
 import math
-import os
-from PyQt6.QtWidgets import QGraphicsItem, QStyle
-from PyQt6.QtSvgWidgets import QGraphicsSvgItem
-from PyQt6.QtSvg import QSvgRenderer
-from PyQt6.QtCore import Qt, QPointF, QRectF
-from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QTransform, QFont
 
-from .constants import Z_ANNOT_TAG
-from .paper_display import shows_selection
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QColor, QPen
 
-_SVG_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "graphics", "sprinkler_graphics", "hydraulic_node.svg",
-)
+from .bound_label import OutlinedLabel
+from .constants import HYD_BADGE_OFFSET_MM, HYD_BADGE_STACK_STEP_MM, Z_ANNOT_TAG
 
-# Badge sizing — same as existing pressure badge (30-inch diameter)
-_BADGE_DIAMETER_MM = 30.0 * 25.4        # 762 mm
-_OFFSET_MM = 15.0 * 25.4 * 2.2          # 838.2 mm centre-to-centre
-
-_POSITION_OFFSETS = {
-    "Right":  QPointF( _OFFSET_MM, 0),
-    "Left":   QPointF(-_OFFSET_MM, 0),
-    "Above":  QPointF(0, -_OFFSET_MM),
-    "Below":  QPointF(0,  _OFFSET_MM),
-}
+BADGE_SIDES = ("Above", "Below", "Left", "Right")
+BADGE_POSITION_OPTIONS = ("Auto",) + BADGE_SIDES       # R3: Auto = re-picked each layout
+_SIDE_VECTORS = {"Right": (1.0, 0.0), "Left": (-1.0, 0.0),
+                 "Above": (0.0, -1.0), "Below": (0.0, 1.0)}
 
 # Preferred order when auto-placing
 _AUTO_ORDER = ["Right", "Left", "Above", "Below"]
@@ -91,113 +75,65 @@ def best_position_for_node(node) -> str:
     return best
 
 
-class HydraulicNodeBadge(QGraphicsSvgItem):
-    """Selectable SVG badge showing the hydraulic node number.
+def layout_badges(nodes) -> None:
+    """Place every badge among *nodes* (R8): badge-bearing nodes group by plan
+    XY (rounded mm); a group's side is its highest-elevation node's Badge
+    Position (Auto -> ``best_position_for_node`` of that node; the first such
+    node wins a tie); members stack in *nodes* order, a row for Above / Below
+    and a column for Left / Right (S2: a non-top node's fixed side is kept
+    but unused while stacked)."""
+    groups: dict[tuple, list] = {}
+    for n in nodes:
+        if getattr(n, "_hydraulic_badge", None) is None:
+            continue
+        sp = n.scenePos()
+        groups.setdefault((round(sp.x()), round(sp.y())), []).append(n)
+    for members in groups.values():
+        lead = max(members, key=lambda m: m.z_pos)
+        side = (lead.badge_position if lead.badge_position in BADGE_SIDES
+                else best_position_for_node(lead))
+        for i, n in enumerate(members):
+            n._hydraulic_badge.set_layout(side, i, len(members))
 
-    Created by Node (top-level, synced by it) when hydraulic results are available.
-    """
 
-    def __init__(self, parent_node, node_number: int,
-                 pressure: float, required_pressure: float,
-                 flow_out: float, total_flow: float,
-                 position: str = "Right", stack_index: int = 0,
-                 stack_total: int = 1, node_label: str = ""):
-        super().__init__(_SVG_PATH)          # top-level (SB4d D5); the node syncs it
-        self._svg_source_path = os.path.abspath(_SVG_PATH)
-        self._display_overrides: dict = {}  # per-instance display overrides
-        self._display_scale: float = 1.0
-        self._display_fill_color: str | None = None
-        self._parent_node = parent_node
-        self._node_number = node_number
-        self._node_label = node_label or str(node_number)
-        self._pressure = pressure
-        self._required_pressure = required_pressure
-        self._flow_out = flow_out
-        self._total_flow = total_flow
-        self._badge_position = position
-        self._stack_index = stack_index      # 0-based stack offset
-        self._stack_total = stack_total      # total badges at this position
+class HydraulicNodeBadge(OutlinedLabel):
+    """The block mapped for "Hydraulic Node", bound to its node (the host)."""
 
+    def __init__(self, node):
+        super().__init__(node, child=False)            # top-level (SB4d D5)
+        self._display_overrides: dict = {}             # DM row Visible (R7)
+        self._side = "Right"
+        self._stack_index = 0
+        self._stack_total = 1
         self.setZValue(Z_ANNOT_TAG)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
-        # Scale and centre the SVG
-        self._centre_on_offset()
+    @property
+    def side(self) -> str:
+        return self._side
 
-        # Properties for PropertyManager
-        self._properties = {
-            "Node Number":              {"type": "label", "value": self._node_label},
-            "Required P (psi)":         {"type": "label", "value": f"{required_pressure:.1f}"},
-            "Actual P (psi)":           {"type": "label", "value": f"{pressure:.1f}"},
-            "Flow Out q (gpm)":         {"type": "label", "value": f"{flow_out:.1f}"},
-            "Total Flow Q (gpm)":       {"type": "label", "value": f"{total_flow:.1f}"},
-            "Badge Position":           {"type": "enum",  "value": position,
-                                         "options": ["Above", "Below", "Left", "Right"]},
-        }
+    def set_layout(self, side: str, index: int, total: int) -> None:
+        self._side, self._stack_index, self._stack_total = side, index, total
+        self.place()
 
-    # ------------------------------------------------------------------
-    # Layout
+    def place(self) -> None:
+        """Anchor = node + side offset + stack shift, authored paper mm x k
+        (k follows the drawing scale on the canvas and 1 / S in a paper pass)."""
+        k = self._k(None, self.definition())
+        vx, vy = _SIDE_VECTORS.get(self._side, _SIDE_VECTORS["Right"])
+        shift = (self._stack_index - (self._stack_total - 1) / 2.0) * HYD_BADGE_STACK_STEP_MM * k
+        off = QPointF(vx * HYD_BADGE_OFFSET_MM * k, vy * HYD_BADGE_OFFSET_MM * k)
+        off += QPointF(shift, 0.0) if self._side in ("Above", "Below") else QPointF(0.0, shift)
+        self.set_anchor(self.host.scenePos() + off)
 
-    def _centre_on_offset(self):
-        """Scale SVG to badge size and position at the current offset."""
-        from .displayable_item import centre_svg_on_origin
-        centre_svg_on_origin(self, _BADGE_DIAMETER_MM)
+    def refresh(self) -> None:
+        super().refresh()
+        self.place()                  # k may have moved with the drawing scale / mapping
 
-        offset = QPointF(_POSITION_OFFSETS.get(self._badge_position, QPointF(0, 0)))
-
-        # Center-aligned stacking: midpoint of stack aligns with the node
-        center_shift = self._stack_index - (self._stack_total - 1) / 2.0
-        if self._badge_position in ("Above", "Below"):
-            # Horizontal stacking for Above/Below
-            offset += QPointF(center_shift * _BADGE_DIAMETER_MM, 0)
-        else:
-            # Vertical stacking for Right/Left
-            offset += QPointF(0, center_shift * _BADGE_DIAMETER_MM)
-
-        self.setPos(self._parent_node.scenePos() + offset)   # top-level: scene coords
-
-    # ------------------------------------------------------------------
-    # Property API  (matches Sprinkler / Pipe / Node pattern)
-
-    def get_properties(self) -> dict:
-        return self._properties.copy()
-
-    def set_property(self, key: str, value):
-        if key == "Badge Position" and value in _POSITION_OFFSETS:
-            self._badge_position = value
-            self._properties["Badge Position"]["value"] = value
-            self._centre_on_offset()
-
-    # ------------------------------------------------------------------
-    # Paint — overlay node number text on the SVG hexagon
-
-    def paint(self, painter, option, widget=None):
-        # Suppress QGraphicsSvgItem's default selection rectangle BEFORE the
-        # SVG paints (it would otherwise plot on paper -- wall polish D11)
-        option.state &= ~QStyle.StateFlag.State_Selected
-        # Draw SVG background
-        super().paint(painter, option, widget)
-
-        # Draw node number centred in the badge
-        rect = self.boundingRect()
-        font = painter.font()
-        font.setPixelSize(max(1, int(rect.height() * 0.45)))
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(QPen(Qt.GlobalColor.white, 0))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._node_label)
-
-        # Selection highlight
-        if shows_selection(self):
-            pen = QPen(QColor("cyan"), 2)
-            pen.setCosmetic(True)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            r = max(rect.width(), rect.height()) / 2.0
-            painter.drawEllipse(rect.center(), r, r)
-
-    def shape(self) -> QPainterPath:
-        """Full bounding rect as clickable area."""
-        path = QPainterPath()
-        path.addRect(self.boundingRect())
-        return path
+    def overlay_pens(self) -> list:
+        """Screen-only ring while the node is selected (AC5); never plots."""
+        from .paper_display import shows_selection    # lazy: paper_display imports this module
+        if not shows_selection(self.host):
+            return []
+        pen = QPen(QColor("cyan"), 2)
+        pen.setCosmetic(True)
+        return [pen]

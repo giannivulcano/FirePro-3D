@@ -22,7 +22,8 @@ from .format_utils import get_scale_manager
 from .scale_manager import ScaleManager
 
 CATEGORIES = ("Room", "Pipe", "Sprinkler", "Wall", "Door", "Window", "Opening",
-              "Gridline", "Level", "Elevation", "Section", "Detail", "View Title")
+              "Gridline", "Level", "Elevation", "Section", "Detail", "View Title",
+              "Hydraulic Node")
 TIER_NAMES = {1: "Stored", 2: "Geometry", 3: "Hydraulic", 4: "Related"}
 KINDS = ("text", "number", "length", "area", "volume", "area_sqft", "pressure",
          "flow", "velocity", "pipe_id", "angle", "diameter")
@@ -272,6 +273,24 @@ def _spr_flow(s):
     return float(_prop(s, "K-Factor")) * math.sqrt(pr)
 
 
+def _node_flow(n):
+    """q at a sprinkler node: the Sprinkler Flow rule (K x sqrt P); None at any
+    other node (SB4e AC1)."""
+    s = getattr(n, "sprinkler", None)
+    return _spr_flow(s) if s is not None else None
+
+
+def _node_total_flow(n):
+    """Q: the largest |pipe flow| at the node -- the solver is tree-only, so this
+    is the flow into it (SB4e fact, hydraulic_solver.py tree solve). None before
+    a solve or when the solve reached none of its pipes."""
+    hr = _hr(n)
+    if hr is None:
+        return None
+    flows = [abs(hr.pipe_flows[p]) for p in n.pipes if p in hr.pipe_flows]
+    return max(flows) if flows else None
+
+
 def _spr_room(s, attr):
     r = _room_named(s, getattr(s.node, "_room_name", ""), getattr(s.node, "level", None))
     return getattr(r, attr) if r is not None else None
@@ -428,6 +447,16 @@ _TABLE = {
         _P("Title", "text", 1, lambda v: v.display_title()),
         _P("Scale", "text", 1, _view_scale),
     ],
+    # SB4e: a sprinkler-network node hosts its hydraulic badge (all tier 3,
+    # None before a solve -- E7).
+    "Hydraulic Node": [
+        _P("NodeNumber", "text", 3, lambda n: _hr_get(n, "node_labels", n), "Node number"),
+        _P("RequiredPressure", "pressure", 3,
+           lambda n: _hr_get(n, "required_node_pressures", n), "Required pressure"),
+        _P("Pressure", "pressure", 3, lambda n: _hr_get(n, "node_pressures", n)),
+        _P("Flow", "flow", 3, _node_flow),
+        _P("TotalFlow", "flow", 3, _node_total_flow, "Total flow"),
+    ],
 }
 
 PARAMS: dict[str, dict[str, ParamSpec]] = {
@@ -441,6 +470,7 @@ def category_of(item) -> Optional[str]:
     an elevation / section level datum is "Level", SB4c D3).
     No candidate class subclasses another today; put a new subclass first."""
     from .gridline import GridlineItem
+    from .node import Node
     from .pipe import Pipe
     from .room import Room
     from .section_scene import ElevDatumItem
@@ -463,7 +493,7 @@ def category_of(item) -> Optional[str]:
         return "Opening"      # a floor void shares the Opening sequence (floor-opening A8)
     for cls, cat in ((Room, "Room"), (Pipe, "Pipe"), (Sprinkler, "Sprinkler"),
                      (WallSegment, "Wall"), (GridlineItem, "Gridline"),
-                     (ElevDatumItem, "Level")):
+                     (ElevDatumItem, "Level"), (Node, "Hydraulic Node")):
         if isinstance(item, cls):
             return cat
     return None

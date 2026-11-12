@@ -35,6 +35,8 @@ EXPECTED = {
     "Section": [("Mark", 1), ("Number", 4), ("Sheet", 4)],
     "Detail": [("Mark", 1), ("Number", 4), ("Sheet", 4)],
     "View Title": [("Number", 1), ("Title", 1), ("Scale", 1)],
+    "Hydraulic Node": [("NodeNumber", 3), ("RequiredPressure", 3), ("Pressure", 3),
+                       ("Flow", 3), ("TotalFlow", 3)],      # SB4e AC1
 }
 _OPENING = [("Mark", 1), ("Family", 1), ("Type", 1), ("Width", 1), ("Height", 1), ("Sill", 1),
             ("Wall.Mark", 4), ("Wall.Name", 4), ("Room.Name", 4), ("Room.Mark", 4),
@@ -46,7 +48,7 @@ for _c in ("Door", "Window", "Opening"):
 def test_registry_matches_key_table():
     assert ep.CATEGORIES == ("Room", "Pipe", "Sprinkler", "Wall", "Door", "Window",
                              "Opening", "Gridline", "Level", "Elevation", "Section", "Detail",
-                             "View Title")
+                             "View Title", "Hydraulic Node")
     for cat in ep.CATEGORIES:
         got = [(k, s.tier) for k, s in ep.PARAMS[cat].items()]
         assert got == EXPECTED[cat], cat
@@ -233,7 +235,7 @@ def test_category_of_every_class_and_unrelated(qapp, make_model_space):
     assert ep.category_of(_room(ms)) == "Room"
     assert ep.category_of(GridlineItem(QPointF(0, 0), QPointF(0, 10), "1")) == "Gridline"
     n = Node(0, 0)
-    assert ep.category_of(n) is None                         # bare node: not a category (Q2)
+    assert ep.category_of(n) == "Hydraulic Node"             # SB4e AC1 retires Q2: a node is a category
     assert ep.category_of(object()) is None
     assert ep.host_values(object()) == {}
 

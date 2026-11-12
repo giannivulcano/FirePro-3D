@@ -1,0 +1,245 @@
+{
+  "schema": 1,
+  "id": "system-tags-hydraulicnode",
+  "version": 1,
+  "name": "HydraulicNode",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [
+    {
+      "key": "NodeNumber",
+      "label": "Node number",
+      "type": "text",
+      "source": "host",
+      "host_key": "NodeNumber",
+      "default": "",
+      "prefix": "",
+      "suffix": "",
+      "precision": 0,
+      "placeholder": "-"
+    }
+  ],
+  "host_category": "Hydraulic Node",
+  "primitives": [
+    {
+      "type": "draw_filled_region",
+      "loops": [
+        [
+          {
+            "type": "draw_line",
+            "pt1": [
+              2.3329521523757077e-16,
+              -3.81
+            ],
+            "pt2": [
+              -3.2995567884187116,
+              -1.9049999999999998
+            ],
+            "uid": "70630c5fe7b049c5975699dc7603b9fa",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "#2b2b2b"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -3.2995567884187116,
+              -1.9049999999999998
+            ],
+            "pt2": [
+              -3.299556788418711,
+              1.9050000000000005
+            ],
+            "uid": "653356dd58d14488a7fd3e373669ebd5",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "#2b2b2b"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -3.299556788418711,
+              1.9050000000000005
+            ],
+            "pt2": [
+              -6.998856457127123e-16,
+              3.81
+            ],
+            "uid": "02129c214b734ed2ac6a90d9c01f3837",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "#2b2b2b"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              -6.998856457127123e-16,
+              3.81
+            ],
+            "pt2": [
+              3.2995567884187103,
+              1.9050000000000018
+            ],
+            "uid": "51a37f1cbf104c99b1558c8307aedbcb",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "#2b2b2b"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              3.2995567884187103,
+              1.9050000000000018
+            ],
+            "pt2": [
+              3.299556788418711,
+              -1.905
+            ],
+            "uid": "aae3436293bf4b529f247eca1076ffa1",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "#2b2b2b"
+            }
+          },
+          {
+            "type": "draw_line",
+            "pt1": [
+              3.299556788418711,
+              -1.905
+            ],
+            "pt2": [
+              2.3329521523757077e-16,
+              -3.81
+            ],
+            "uid": "e1777e74c3834cf7b215c5c3ef7abc9d",
+            "style": {
+              "linetype": "continuous",
+              "weight": "by_linetype",
+              "start": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "finish": {
+                "end": "by_linetype",
+                "visible": true
+              },
+              "colour": "#2b2b2b"
+            }
+          }
+        ]
+      ],
+      "outline": true,
+      "uid": "da9539f46ac74d1e904cfa68329c974a",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#2b2b2b"
+      },
+      "fill": {
+        "background": {
+          "color": "#2b2b2b",
+          "opacity": 1.0
+        }
+      }
+    },
+    {
+      "type": "text",
+      "text": "@[NodeNumber]",
+      "x": -6.895556154054308,
+      "y": -4.406980433328714,
+      "height_mm": 3.2,
+      "wrap_width_mm": 13.791112308106653,
+      "box_height_mm": 8.813960866666665,
+      "font_family": "Consolas",
+      "bold": true,
+      "italic": false,
+      "underline": false,
+      "color": "#ffffff",
+      "align": "C",
+      "valign": "M",
+      "fill_color": "",
+      "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0,
+      "border": false,
+      "border_weight": "Thinner",
+      "border_line_type": "solid",
+      "border_corner": "round",
+      "border_corner_radius_mm": 1.0,
+      "angle": 0.0,
+      "wrap": false,
+      "shrink": true,
+      "uid": "b95b3357522046bea0a38cc8091e1c5e"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {
+    "Thinner": 0.25
+  }
+}

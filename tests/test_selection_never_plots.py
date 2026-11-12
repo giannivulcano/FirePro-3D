@@ -121,11 +121,10 @@ def _detail(s):
     return d
 
 def _badge(s):
-    from firepro3d.hydraulic_node_badge import HydraulicNodeBadge
     n = _node(s)
-    b = HydraulicNodeBadge(n, 1, 50.0, 40.0, 10.0, 100.0)
-    s.addItem(b)                  # SB4d D5: top-level, no longer rides in with the node
-    return b
+    s.hydraulic_result = SimpleNamespace(node_labels={n: "1"})   # a numbered node: the badge has ink
+    n.create_hydraulic_badge()    # SB4d D5: top-level, joins the node's scene
+    return n._hydraulic_badge
 
 def _region(s):
     from firepro3d.filled_region import FilledRegionItem
@@ -221,23 +220,44 @@ def sheet(qapp, paper_env):
 
 
 @pytest.mark.parametrize("kind", list(_KINDS))
-def test_selection_never_plots(sheet, kind, monkeypatch):
+def test_selection_never_plots(sheet, kind, monkeypatch, request):
     # The manipulator frame (a model-only overlay) suppresses the per-item
     # highlight of the shared stroke paths; with it off the highlight runs.
     import firepro3d.filled_region as fr
     import firepro3d.geometry_2d as g2
     monkeypatch.setattr(g2, "_manip_wraps", lambda item: False)
     monkeypatch.setattr(fr, "_manip_wraps", lambda item: False)
+    blocked = []
+    if kind == "hydraulic_badge":
+        # SB4e (review M1): the shipped seed, not the orphan placeholder, and
+        # the paper pass must reach the badge through the block path.
+        request.getfixturevalue("real_system_library")
+        from firepro3d import paper_display as pd
+        real_apply = pd._apply_block
+
+        def _spy(inst, *a, **kw):
+            blocked.append(inst)
+            return real_apply(inst, *a, **kw)
+        monkeypatch.setattr(pd, "_apply_block", _spy)
     item = _KINDS[kind](sheet.model)
-    assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, \
+    if kind == "hydraulic_badge":
+        assert item.definition() is not None \
+            and item.definition().id == "system-tags-hydraulicnode"
+    # SB4e R2: the badge is never itself selected; its node's selection rings it.
+    sel = item.host if kind == "hydraulic_badge" else item
+    assert sel.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, \
         f"{kind} is not selectable -- drop it with a note, do not force it"
-    item.setSelected(False)
+    sel.setSelected(False)
     canvas_off, paper_off = _digest(_canvas(sheet.model)), _digest(_paper(sheet.paper))
     item.setVisible(False)
     paper_none = _digest(_paper(sheet.paper))
     item.setVisible(True)
     assert paper_off != paper_none, f"{kind} does not plot at all (vacuous)"
-    item.setSelected(True)
+    if kind == "hydraulic_badge":
+        assert item in blocked, "the paper pass skipped the badge's block path"
+    sel.setSelected(True)
+    if kind == "hydraulic_badge":
+        assert item.overlay_pens(), "the selected node no longer rings its badge"
     assert _digest(_canvas(sheet.model)) != canvas_off, \
         f"{kind}: selection no longer shows on the canvas"
     assert _digest(_paper(sheet.paper)) == paper_off, \

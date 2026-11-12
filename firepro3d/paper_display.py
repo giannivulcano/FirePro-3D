@@ -1335,6 +1335,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                       _l._paper_scale)
             elif isinstance(item, GridlineItem):
                 entry["gridline"] = _save_gridline_state(item)
+            elif isinstance(item, HydraulicNodeBadge):
+                entry["tag_paper"] = (item._paper_pen_width, item._paper_pen_color,
+                                      item._paper_scale)
             elif cat_key in ("Elevation Marker", "Section Marker"):
                 entry["marker"] = _save_marker_state(item, "_marker_color")
                 entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
@@ -1384,7 +1387,12 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         _apply_block(b, cat, authored, lw_mm, paper_scale)
                         b.setOpacity(1.0)
                 item.prepareGeometryChange()               # the trim moves with k
-            elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
+            elif isinstance(item, HydraulicNodeBadge):
+                # SB4e AC9: an annotation block -- the row's As Authored keeps
+                # its colours, OFF forces the row colour; re-placed at paper k.
+                _apply_block(item, cat, authored, lw_mm, paper_scale)
+                item.place()
+            elif isinstance(item, (Sprinkler, WaterSupply)):
                 if not authored:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
                 else:
@@ -1639,7 +1647,16 @@ def restore_model_display(saved: list[dict]):
             item.prepareGeometryChange()
             item.update()
 
-        elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
+        elif isinstance(item, HydraulicNodeBadge):
+            if "tag_paper" in entry:
+                if _is_annot(item.definition()):
+                    item.prepareGeometryChange()     # SB1c D6
+                (item._paper_pen_width, item._paper_pen_color,
+                 item._paper_scale) = entry["tag_paper"]
+                item.place()                         # back to the canvas k
+            item.update()
+
+        elif isinstance(item, (Sprinkler, WaterSupply)):
             _set_svg_tint(item, entry["display_color"],
                           entry.get("display_fill_color"))
             item.update()

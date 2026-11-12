@@ -61,6 +61,7 @@ from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
 from .bound_label import BoundLabelItem, eligible_definition, resolve_annotation_block
+from .hydraulic_node_badge import HydraulicNodeBadge
 from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
@@ -1829,7 +1830,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             self.refresh_annotation_tags()
 
     def refresh_annotation_tags(self) -> None:
-        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, and every open section's elevation bubbles, SB4c D1): its bounds
+        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, node badges (SB4e), and every open section's elevation bubbles, SB4c D1): its bounds
         rect is cached, so a mapping, registry, units or scale change needs
         ``refresh()``."""
         labels = [r._tag for r in list(self._rooms)]
@@ -1837,6 +1838,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                    if isinstance(getattr(p, "label", None), BoundLabelItem)]
         for gl in list(self._gridlines):
             labels += [gl.bubble1, gl.bubble2]
+        labels += [n._hydraulic_badge for n in list(self.sprinkler_system.nodes)
+                   if n._hydraulic_badge is not None]
         for lab in labels:
             try:
                 lab.refresh()
@@ -3558,9 +3561,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # -------------------------------------------------------------------------
     # UNDO / REDO
 
-    def _capture_network(self) -> dict:
-        """Serialize nodes/pipes/annotations to a dict (no underlays/scale)."""
-        import copy
+    def _network_records(self) -> tuple:
+        """``(nodes, pipes, water_supply, design_areas)`` snapshot records.
+
+        The one builder behind both the undo snapshot and the hydraulic
+        result's same-network test (node order = ``sprinkler_system.nodes``;
+        pipes with a missing node are skipped).
+        """
         node_list = list(self.sprinkler_system.nodes)
         node_id = {n: i for i, n in enumerate(node_list)}
         nodes_data = [serialize_node(node, node_id) for node in node_list]
@@ -3571,16 +3578,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
             pipes_data.append(serialize_pipe(pipe, node_id))
-        annotations_data = []
-        for note in self.annotations.notes:
-            annotations_data.append(serialize_note(note))
         ws = self.water_supply_node
         ws_data = serialize_water_supply(ws) if ws is not None else None
-        # Design areas
         da_data = [
             serialize_design_area(da, node_id, self.active_design_area)
             for da in self.design_areas
         ]
+        return nodes_data, pipes_data, ws_data, da_data
+
+    def _capture_network(self) -> dict:
+        """Serialize nodes/pipes/annotations to a dict (no underlays/scale)."""
+        import copy
+        nodes_data, pipes_data, ws_data, da_data = self._network_records()
+        annotations_data = []
+        for note in self.annotations.notes:
+            annotations_data.append(serialize_note(note))
         sec_mgr = getattr(self, "_section_manager", None)
         extra = {}
         if sec_mgr is not None and hasattr(sec_mgr, "to_list"):
@@ -3630,6 +3642,64 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             **extra,
         }
 
+    def _network_pipes(self, node_list) -> list:
+        """Pipes in snapshot order: those whose both nodes are in ``node_list``."""
+        known = set(node_list)
+        return [p for p in self.sprinkler_system.pipes
+                if p.node1 is not None and p.node2 is not None
+                and p.node1 in known and p.node2 in known]
+
+    @staticmethod
+    def _row_values(rows):
+        """Sprinkler rows reduced to their values (the codec stores the live row
+        dicts, whose enum ``options`` lists differ between live and restored)."""
+        if not rows:
+            return rows
+        return {k: (v.get("value") if isinstance(v, dict) else v)
+                for k, v in rows.items()}
+
+    def _network_signature(self) -> tuple:
+        """Every hydraulic input as the undo snapshot serializes it.
+
+        Badge Position is excluded (a pure display choice), as is a design
+        area's derived ``Area`` row (lazily computed, "0" until a restore
+        recomputes it, so it would differ without any edit).
+        """
+        nodes, pipes, ws, das = self._network_records()
+        nodes = [{k: (self._row_values(v) if k == "sprinkler" else v)
+                  for k, v in e.items() if k != "badge_position"}
+                 for e in nodes]
+        das = [dict(d, properties={k: v for k, v in d["properties"].items()
+                                   if k != "Area"}) for d in das]
+        return nodes, pipes, ws, das
+
+    def _carry_hydraulic_result(self, old_nodes, old_pipes, old_das, old_snaps,
+                                old_sig):
+        """After a restore: keep the solve on an unchanged network, else clear it."""
+        from .sprinkler_workflow_controller import (
+            clear_hydraulic_overlay, refresh_hydraulic_overlay)
+        new_nodes = list(self.sprinkler_system.nodes)
+        new_pipes = self._network_pipes(new_nodes)
+        if self._network_signature() != old_sig:
+            self.hydraulic_result = None
+            clear_hydraulic_overlay(self)
+            return
+        for da, snap in zip(self.design_areas, old_snaps):
+            da.set_hydraulic_snapshot(snap)        # the rebuilt area keeps its summary
+        import dataclasses
+        mapping = dict(zip(old_nodes, new_nodes))
+        mapping.update(zip(old_pipes, new_pipes))
+        res = self.hydraulic_result
+        for f in dataclasses.fields(res):
+            val = getattr(res, f.name)
+            if isinstance(val, dict):
+                setattr(res, f.name, {mapping.get(k, k): mapping.get(v, v)
+                                      for k, v in val.items()})
+        sup = self._supply_network_node
+        if sup is not None:
+            self._supply_network_node = mapping.get(sup, sup)
+        refresh_hydraulic_overlay(self)
+
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
         self._note_ctl.discard_overlay()      # a live Note overlay's host dies below
@@ -3647,6 +3717,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             for v in self.views():
                 v.viewport().update()
         levels_restored = False
+        # VC9 I1: a solved result survives an undo/redo whose restored network
+        # matches the one being replaced; capture the old objects first.
+        old_net = None
+        if self.hydraulic_result is not None:
+            old_nodes = list(self.sprinkler_system.nodes)
+            old_pipes = self._network_pipes(old_nodes)
+            old_das = list(self.design_areas)
+            old_net = (old_nodes, old_pipes, old_das,
+                       [da._hyd_snapshot for da in old_das],
+                       self._network_signature())
+        restored = False
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
@@ -3998,9 +4079,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             # Re-apply level visibility
             if self._level_manager:
                 self._level_manager.apply_to_scene(self)
+            restored = True
 
         finally:
             self._in_undo_restore = False
+            if not restored:
+                self.hydraulic_result = None    # half-restored: its keys are dead
+        if old_net is not None:
+            self._carry_hydraulic_result(*old_net)
         if levels_restored:
             self.last_level_rename = level_rename
             try:
@@ -5239,13 +5325,16 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Resolve a hit child item to its selectable parent entity.
 
         Sprinklers resolve to their owning Node; a DesignAreaBadge to its
-        parent DesignArea; a gridline label child to its GridlineItem. Anything
-        else is returned unchanged.
+        parent DesignArea; a hydraulic node badge to its Node (SB4e AC5); a
+        gridline label child to its GridlineItem. Anything else is returned
+        unchanged.
         """
         if isinstance(item, Sprinkler):
             return item.node
         if isinstance(item, DesignAreaBadge):
             return item.parentItem()
+        if isinstance(item, HydraulicNodeBadge):     # SB4e AC5: the badge picks its node
+            return item.host
         parent = item.parentItem() if hasattr(item, "parentItem") else None
         if isinstance(parent, GridlineItem):
             return parent
@@ -6386,6 +6475,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             selection = selection.node
         else:
             selection = next((i for i in items if isinstance(i, Node)), None)
+        if selection is None and self.mode in (None, "select"):
+            # A hydraulic node badge resolves to its node (SB4e AC5); it is
+            # drawn above pipes, so it wins over a pipe under it. Select mode
+            # only: placement modes act on the pipe under it (T6 ruling).
+            selection = next((i.host for i in items
+                              if isinstance(i, HydraulicNodeBadge)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
         # Also check for walls, floors, roofs, view markers, design-area
@@ -8640,8 +8735,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if hasattr(item, "_display_overrides"):
                 if item._display_overrides.get("visible") is False:
                     item._display_overrides.pop("visible", None)
-                    # A top-level node badge follows its node (SB4d D5).
-                    pn = getattr(item, "_parent_node", None)
+                    # A top-level node badge follows its node (SB4d D5 / SB4e).
+                    pn = item.host if isinstance(item, HydraulicNodeBadge) else None
                     item.setVisible(pn.isVisible() if pn is not None else True)
         # Also clear fitting overrides (Fitting is not a QGraphicsItem)
         ss = getattr(self, "sprinkler_system", None)
@@ -9184,6 +9279,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         for item in items:
             if isinstance(item, Node):
                 from .network_codec import pipe_record, sprinkler_props
+                # sprinkler_props drops Phase (PD1) and the node's badge rows
+                # (Badge Position + solver values -- SB4e review I2).
                 sprinkler = sprinkler_props(item.sprinkler) if item.has_sprinkler() else None
                 pipes = []
                 for p in item.pipes:
