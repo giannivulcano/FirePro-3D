@@ -146,13 +146,21 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         if ceil_lvl is None:
             top_z = bot_z + 3048.0  # 10ft default
         else:
-            # Subtract ceiling slab thickness
-            slab_thickness = 0.0
-            for slab in getattr(sc, "_floor_slabs", []):
-                if getattr(slab, "level", None) == self._ceiling_level:
-                    slab_thickness = max(slab_thickness, slab._thickness_mm)
-            top_z = ceil_lvl.elevation - slab_thickness + self._ceiling_offset
+            # Subtract the ceiling slab's resolved thickness (L1656)
+            top_z = ceil_lvl.elevation - self._ceiling_slab_mm() + self._ceiling_offset
         return (bot_z, top_z)
+
+    def _ceiling_slab_mm(self) -> float:
+        """Thickest slab whose top sits on the ceiling level (L1656): a
+        level-topped slab naming ``_ceiling_level``, at its resolved thickness."""
+        sc = self.scene()
+        best = 0.0
+        for slab in (getattr(sc, "_floor_slabs", []) if sc is not None else []):
+            if getattr(slab, "_top_mode", None) == "level" and getattr(slab, "_top_level", None) == self._ceiling_level:
+                t = slab.effective_thickness_mm()
+                if t is not None:
+                    best = max(best, t)
+        return best
 
     # ── Grip protocol (drawn by Model_View like all other geometry) ────
 
@@ -339,12 +347,8 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         ceil_lvl = lm.get(self._ceiling_level)
         if floor_lvl is None or ceil_lvl is None:
             return 0.0
-        # Find the thickest floor slab on the ceiling level
-        slab_thickness = 0.0
-        for slab in getattr(sc, "_floor_slabs", []):
-            if getattr(slab, "level", None) == self._ceiling_level:
-                slab_thickness = max(slab_thickness, slab._thickness_mm)
-        return ceil_lvl.elevation - floor_lvl.elevation - slab_thickness + self._ceiling_offset
+        return (ceil_lvl.elevation - floor_lvl.elevation - self._ceiling_slab_mm()
+                + self._ceiling_offset)
 
     # ── Sprinkler detection ──────────────────────────────────────────────
 
@@ -482,8 +486,10 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
     # ── Properties API ───────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
-        area_mm2 = self._compute_area_mm2()
-        perim_mm = self._compute_perimeter_mm()
+        from .element_params import _ppm
+        ppm = _ppm(self)                       # L567: scene units -> mm (element_params source)
+        area_mm2 = self._compute_area_mm2() / ppm ** 2
+        perim_mm = self._compute_perimeter_mm() / ppm
         ceil_h = self._ceiling_height_mm()
         vol_mm3 = area_mm2 * ceil_h if ceil_h > 0 else 0.0
 

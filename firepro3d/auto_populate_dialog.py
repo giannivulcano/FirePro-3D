@@ -1199,7 +1199,8 @@ class AutoPopulateDialog(QDialog):
         # ── Room info (inherited from room properties) ─────────────────────
         g_room = QGroupBox("Room Information")
         fl = QFormLayout(g_room)
-        area_mm2 = self._room._compute_area_mm2()
+        from .element_params import _ppm
+        area_mm2 = self._room._compute_area_mm2() / _ppm(self._room) ** 2   # L567: calibrated, net
         area_sqft = area_mm2 / SQFT_TO_MM2
         self._room_area_sqft = area_sqft
         fl.addRow("Room Name:", QLabel(self._room.name or "(unnamed)"))
