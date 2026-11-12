@@ -332,3 +332,19 @@ class TestRebuild:
         region = FilledRegionItem.from_pieces(loops)
         assert len(region._loops) == 2
         assert region.path().contains(QPointF(30, 0)) and not region.path().contains(QPointF(0, 0))
+
+
+class TestFromPieces:
+    def test_raw_pieces_build_the_same_face_as_build(self, qapp):
+        """from_pieces (room detection's seam, rework design §1.1) on hand-made pieces of a
+        100 mm square finds the 100*100 face; build() still flattens items to the same face."""
+        from firepro3d.region_finder import Arrangement, Piece, Tag
+        corners = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+        pieces = [Piece(*corners[i], *corners[(i + 1) % 4], Tag(None, i, "line", None, 0.0, 1.0))
+                  for i in range(4)]
+        win = QRectF(-10, -10, 120, 120)
+        face = Arrangement.from_pieces(pieces, win).face_at(QPointF(50, 50))
+        assert face is not None and not face.islands
+        assert face.area == pytest.approx(100 * 100)          # hand: 100 x 100 square
+        built = Arrangement.build(_square(0, 0, 100), win).face_at(QPointF(50, 50))
+        assert built is not None and built.area == pytest.approx(face.area)

@@ -459,12 +459,18 @@ class Arrangement:
 
     # -- construction ------------------------------------------------------
     @classmethod
-    def build(cls, candidates, window: QRectF) -> "Arrangement":
-        """Flatten, split, weld, prune and link the *candidates* inside *window*."""
-        pieces = _split_all(_flatten(candidates, window), window)
+    def from_pieces(cls, pieces: list, window: QRectF) -> "Arrangement":
+        """Split, weld, prune and link raw tagged *pieces* (room detection
+        feeds wall-body edges; *window* only sizes the crossing bucket grid)."""
+        pieces = _split_all(pieces, window)
         verts, edges = _weld(pieces, CHAIN_WELD_MM)
         edges, open_ends = _prune(verts, edges)
         return cls(verts, edges, open_ends)
+
+    @classmethod
+    def build(cls, candidates, window: QRectF) -> "Arrangement":
+        """Flatten, split, weld, prune and link the *candidates* inside *window*."""
+        return cls.from_pieces(_flatten(candidates, window), window)
 
     # -- queries -----------------------------------------------------------
     def _walk(self, h0: int):
