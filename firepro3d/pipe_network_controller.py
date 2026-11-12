@@ -525,6 +525,8 @@ class PipeNetworkController:
         else:
             existing.node2 = end_node
         end_node.pipes.append(existing)
+        if template is not None:                  # PH1 ruling: the merged pipe takes the template phase (AC3)
+            existing.phase = getattr(template, "phase", existing.phase)
         existing.update_geometry()
         existing.set_pipe_display()
         existing.update_label()

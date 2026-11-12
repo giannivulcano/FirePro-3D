@@ -93,3 +93,31 @@ def test_underlay_duplicate_keeps_the_phase(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(ucm.QMenu, "exec", _pick_duplicate)
     ucm.UnderlayContextMenu.show(ms, data, ms.underlays[0][1], QPoint(0, 0))
     assert [r.phase for r in seen] == ["demolition"]
+
+
+def test_underlay_pick_new_position_keeps_the_phase(qapp, tmp_path):
+    """VC9 F1: Modify > "Pick new position" builds a fresh record and carries the
+    management fields (underlay_controller._UNDERLAY_MGMT_FIELDS); phase rides with them."""
+    import ezdxf
+    from PyQt6.QtCore import QPointF
+    from firepro3d.model_space import Model_Space
+    from firepro3d.underlay import Underlay
+    from tests.test_underlay_modify_flow import _StubParams, _build_underlay_group, _cleanup_worker
+    dxf_file = tmp_path / "pick.dxf"
+    doc = ezdxf.new()
+    doc.layers.add("A-WALL")
+    doc.modelspace().add_line((0, 0), (100, 100), dxfattribs={"layer": "A-WALL"})
+    doc.saveas(str(dxf_file))
+    ms = Model_Space()
+    record = Underlay(type="dxf", path="old.dxf", x=5.0, y=5.0)
+    record.phase = "existing"
+    ms.underlays.append((record, _build_underlay_group(ms, x=5.0, y=5.0)))
+    params = _StubParams(file_type="dxf", file_path=str(dxf_file), selected_layers=["A-WALL"],
+                         geom_list=[{"kind": "line", "layer": "A-WALL",
+                                     "x1": 0, "y1": 0, "x2": 10, "y2": 10}])
+    ms.begin_replace_underlay_placement(record, params)
+    ms._commit_place_import(QPointF(200, 300))
+    fresh = [d for d, _ in ms.underlays]
+    assert len(fresh) == 1 and fresh[0] is not record
+    assert fresh[0].phase == "existing"
+    _cleanup_worker(ms)

@@ -166,3 +166,21 @@ def test_floor_template_phase_persists_with_the_floor_recipe(qapp, tmp_path):
     b = scene()
     b.load_floor_template_settings(s)
     assert b._get_floor_template().phase == "demolition"
+
+
+def test_collinear_extension_takes_the_template_phase(qapp, shown_model_view):
+    """VC9 F2 ruling (2026-11-11): drawing straight on from an Existing pipe's free end
+    merges into that pipe (pipe_network_controller._try_extend_collinear), and the
+    merged pipe takes the template's phase, so the new work is not recorded as Existing."""
+    view, sc = shown_model_view
+    t = _pipe_template()
+    t.set_property("Phase", "Existing")
+    sc.set_mode("pipe", t)
+    click(view, QPointF(0, 0)); click(view, QPointF(1000, 0))
+    t2 = _pipe_template()
+    t2.set_property("Phase", "New")
+    sc.set_mode("pipe", t2)
+    click(view, QPointF(1000, 0)); click(view, QPointF(2000, 0))
+    pipes = list(sc.sprinkler_system.pipes)
+    assert len(pipes) == 1                       # the collinear merge ran
+    assert pipes[0].phase == "new"

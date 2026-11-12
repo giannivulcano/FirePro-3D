@@ -799,6 +799,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if len(selected) == 1:
             found = self.find_underlay_for_item(selected[0])
             if found is not None:
+                found[0]._scene_ref = self     # R6 on the canvas route too (VC9 F3)
                 self.requestPropertyUpdate.emit(found[0])
         for v in self.views():
             v.viewport().update()
@@ -2849,7 +2850,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              scale: float = 1.0, level_offset_mm: float = 0.0,
                              host: dict | None = None, note: dict | None = None,
                              layer_height: int = 0, opaque: bool | None = None,
-                             constraint_points_off: bool = False, phase: str = "new"):
+                             constraint_points_off: bool = False, phase: str = phase_registry.PHASE_NEW):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -3470,7 +3471,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def auto_populate_room(self, room, positions, sprinkler_record,
                            level, ceiling_level, sprinkler_offset,
-                           design_density="0.10", phase="new"):
+                           design_density="0.10", phase=phase_registry.PHASE_NEW):
         return self._spr_ctl.auto_populate_room(
             room, positions, sprinkler_record, level, ceiling_level,
             sprinkler_offset, design_density=design_density, phase=phase)
@@ -8599,7 +8600,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 results["ceiling_level"],
                 results["ceiling_offset"],
                 results.get("design_density", "0.10"),
-                phase=getattr(tmpl, "phase", "new"),
+                phase=getattr(tmpl, "phase", phase_registry.PHASE_NEW),
             )
 
     def _hide_items(self, items):

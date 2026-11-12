@@ -25,7 +25,7 @@ from .pipe import Pipe
 from .water_supply import WaterSupply
 from .design_area import DesignArea
 from .display_manager import apply_category_defaults
-from .constants import DEFAULT_LEVEL, DESIGN_AREA_HL_RADIUS_PX, Z_OVERLAY
+from .constants import DEFAULT_LEVEL, DESIGN_AREA_HL_RADIUS_PX, PHASE_NEW, Z_OVERLAY
 
 
 class SprinklerWorkflowController:
@@ -68,7 +68,7 @@ class SprinklerWorkflowController:
 
     def auto_populate_room(self, room, positions, sprinkler_record,
                            level, ceiling_level, sprinkler_offset,
-                           design_density="0.10", phase="new"):
+                           design_density="0.10", phase=PHASE_NEW):
         """Place sprinkler nodes at computed positions inside a room.
 
         Parameters

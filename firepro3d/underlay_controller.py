@@ -1210,6 +1210,7 @@ class UnderlayController:
     _UNDERLAY_MGMT_FIELDS = (
         "opacity", "locked", "colour", "line_weight", "snap", "visible",
         "hidden_layers", "layer_overrides", "line_weight_name",
+        "phase",                                  # PH1: re-placement keeps the phase (VC9 F1)
     )
 
     def begin_replace_underlay_placement(self, record: Underlay, params):

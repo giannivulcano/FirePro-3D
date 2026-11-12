@@ -143,3 +143,24 @@ def test_auto_populate_heads_take_the_template_phase(main_window, monkeypatch):
     sc._auto_populate_room_dialog(room)                 # the real entry (model_space.py:8564)
     heads = list(sc.sprinkler_system.sprinklers)
     assert len(heads) == 2 and {h.phase for h in heads} == {"demolition"}
+
+
+def test_underlay_phase_edit_from_a_canvas_selection_marks_the_project_unsaved(main_window, tmp_path):
+    """VC9 F3: R6 holds on the canvas route too (model_space._on_selection_changed ->
+    requestPropertyUpdate), not only through the Model Browser."""
+    from firepro3d.underlay import Underlay
+    w = main_window
+    data = Underlay(type="dxf", path=str(tmp_path / "no_such.dxf"))
+    w.scene._create_underlay_placeholder(data)
+    item = next(it for d, it in w.scene.underlays if d is data)
+    w._modified = False
+    w.scene._dirty = False
+    pos = w.scene._undo_pos
+    w.scene.clearSelection()
+    item.setSelected(True)                               # selectionChanged -> the canvas route
+    w.scene._on_selection_changed()
+    w.prop_manager._prop_widgets["Phase"].setCurrentText("Existing")
+    assert data.phase == "existing"
+    assert w._modified is True
+    assert w.scene.is_dirty()
+    assert w.scene._undo_pos == pos
