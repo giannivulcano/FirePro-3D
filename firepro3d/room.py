@@ -24,6 +24,7 @@ from . import phase_registry
 from .bound_label import BoundLabelItem, TagBlockHost
 from .colour_tokens import resolve_colour
 from .constants import DEFAULT_LEVEL, Z_ANNOT_TAG
+from .floor_cut import signed_area
 
 if TYPE_CHECKING:
     from .scale_manager import ScaleManager
@@ -51,6 +52,13 @@ COMPARTMENT_TYPES = [
     "Attic", "Concealed Space",
 ]
 
+
+def _ring_length(pts) -> float:
+    """Closed-ring edge-length sum (scene units)."""
+    n = len(pts)
+    return sum(math.hypot(pts[(i + 1) % n].x() - pts[i].x(),
+                          pts[(i + 1) % n].y() - pts[i].y()) for i in range(n))
+
 # ── Room class ──────────────────────────────────────────────────────────
 
 
@@ -65,9 +73,13 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
     _TAG_CATEGORY = "Room"
 
     def __init__(self, boundary: list[QPointF] | None = None,
-                 color: str | QColor = "#4488cc"):
+                 color: str | QColor = "#4488cc", *,
+                 holes: list[list[QPointF]] | None = None):
         super().__init__()
         self._boundary: list[QPointF] = list(boundary) if boundary else []
+        # Hole rings (room-detection rework §2.1): islands this room surrounds.
+        # polygon() stays the outer ring; holes are a snapshot like it (§8.5).
+        self._holes: list[list[QPointF]] = [list(h) for h in (holes or []) if len(h) >= 3]
         self._color = QColor(color) if isinstance(color, str) else QColor(color)
 
         # Shared display-manager attributes
@@ -145,12 +157,17 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
     # ── Grip protocol (drawn by Model_View like all other geometry) ────
 
     def _centroid(self) -> QPointF | None:
-        """Vertex mean of the boundary -- the tag anchor's base; None without one."""
+        """Tag anchor base (D-R3): the boundary's vertex mean; for a room with
+        holes, a point inside the net area when the mean is not (Gap 2: hole-less
+        rooms are unchanged). None without a boundary."""
         if not self._boundary:
             return None
         n = len(self._boundary)
-        return QPointF(sum(p.x() for p in self._boundary) / n,
+        mean = QPointF(sum(p.x() for p in self._boundary) / n,
                        sum(p.y() for p in self._boundary) / n)
+        if not self._holes or self.contains_point(mean):
+            return mean
+        return self._inside_point(mean)
 
     def grip_points(self) -> list[QPointF]:
         """One grip at the tag anchor (centroid + label_offset).
@@ -192,6 +209,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
             return
         poly = QPolygonF(self._boundary)
         self.setPolygon(poly)
+        self.update()        # setPolygon skips an equal polygon: a punched hole must repaint
         self._update_label()
 
     def _update_label(self):
@@ -236,34 +254,79 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
     def boundary(self) -> list[QPointF]:
         return list(self._boundary)
 
+    @property
+    def holes(self) -> list[list[QPointF]]:
+        """Copies of the hole rings (room-detection rework §2.1)."""
+        return [[QPointF(p) for p in h] for h in self._holes]
+
+    def room_path(self) -> QPainterPath:
+        """Odd-even path of the outer ring plus every hole (§2.2): the one
+        geometry source for paint, shape, the HALO trace, sprinkler detection
+        and :meth:`contains_point`."""
+        path = QPainterPath()
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        if len(self._boundary) < 3:
+            return path
+        for ring in [self._boundary] + self._holes:
+            path.addPolygon(QPolygonF(ring))
+            path.closeSubpath()
+        return path
+
+    def contains_point(self, pt: QPointF) -> bool:
+        """True when *pt* is inside the outer ring and in no hole (§2.2)."""
+        if len(self._boundary) < 3:
+            return False
+        if not QPolygonF(self._boundary).containsPoint(pt, Qt.FillRule.OddEvenFill):
+            return False
+        return not any(QPolygonF(h).containsPoint(pt, Qt.FillRule.OddEvenFill)
+                       for h in self._holes)
+
+    def sample_point(self) -> QPointF | None:
+        """Interior sample point (Gap 3): the first outer-edge midpoint pushed
+        ``ROOM_SAMPLE_INSET_MM`` into the net area; None for a degenerate room."""
+        from .room_detection import edge_sample
+        return edge_sample(self._boundary, self.contains_point)
+
+    def _inside_point(self, mean: QPointF) -> QPointF:
+        """D-R3 fallback anchor: the midpoint of the widest inside interval of
+        the horizontal line through *mean* (crossings with the outer ring and
+        every hole, sorted and paired; the first interval wins a tie); with no
+        interval, :meth:`sample_point`; else *mean*."""
+        y = mean.y()
+        xs: list[float] = []
+        for ring in [self._boundary] + self._holes:
+            n = len(ring)
+            for i in range(n):
+                a, b = ring[i], ring[(i + 1) % n]
+                if (a.y() > y) != (b.y() > y):
+                    xs.append(a.x() + (y - a.y()) * (b.x() - a.x()) / (b.y() - a.y()))
+        xs.sort()
+        best = None
+        for i in range(0, len(xs) - 1, 2):
+            width = xs[i + 1] - xs[i]
+            if width > 0.0 and (best is None or width > best[0]):
+                best = (width, (xs[i] + xs[i + 1]) / 2.0)
+        if best is not None:
+            return QPointF(best[1], y)
+        s = self.sample_point()
+        return s if s is not None else mean
+
     # ── Area / perimeter calculations ────────────────────────────────────
 
     def _compute_area_mm2(self) -> float:
-        """Polygon area via shoelace formula (scene units = mm²)."""
+        """Net area (§2.3): |outer| minus every hole (shoelace; scene units squared)."""
         pts = self._boundary
-        n = len(pts)
-        if n < 3:
+        if len(pts) < 3:
             return 0.0
-        area = 0.0
-        for i in range(n):
-            j = (i + 1) % n
-            area += pts[i].x() * pts[j].y()
-            area -= pts[j].x() * pts[i].y()
-        return abs(area) / 2.0
+        return max(0.0, abs(signed_area(pts)) - sum(abs(signed_area(h)) for h in self._holes))
 
     def _compute_perimeter_mm(self) -> float:
-        """Sum of edge lengths (scene units = mm)."""
+        """Outer ring plus every hole ring (D-R2; scene units)."""
         pts = self._boundary
-        n = len(pts)
-        if n < 2:
+        if len(pts) < 2:
             return 0.0
-        total = 0.0
-        for i in range(n):
-            j = (i + 1) % n
-            dx = pts[j].x() - pts[i].x()
-            dy = pts[j].y() - pts[i].y()
-            total += math.hypot(dx, dy)
-        return total
+        total = _ring_length(pts)
+        return total + sum(_ring_length(h) for h in self._holes)
 
     def _ceiling_height_mm(self) -> float:
         """Compute ceiling height from level elevations, accounting for
@@ -311,11 +374,9 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
 
         # For untagged nodes, fall back to XY polygon + Z range check
         if untagged_nodes and len(self._boundary) >= 3:
-            path = QPainterPath()
-            path.addPolygon(QPolygonF(self._boundary))
-            path.closeSubpath()
+            path = self.room_path()                    # holes excluded (§2.2)
 
-            zr = self.z_range_mm()
+            zr =self.z_range_mm()
             if zr is not None:
                 z_bot, z_top = min(zr), max(zr)
             else:
@@ -373,14 +434,16 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         br = super().boundingRect()
         return br.united(self.childrenBoundingRect())
 
-    # NOTE: shape() intentionally NOT overridden. A previous version
-    # returned only the room-tag label area so that clicking inside the
-    # polygon would fall through to walls/floors — but Qt used that
-    # restricted shape in its viewport-paint path, causing the room fill
-    # to vanish whenever the label scrolled off-screen. Fall back to the
-    # inherited QGraphicsPolygonItem.shape() (the full polygon) so the
-    # fill renders whenever any part of the polygon is visible.
-    # Side effect: clicks inside the polygon now hit the room.
+    # NOTE: hole-less rooms keep the inherited QGraphicsPolygonItem.shape()
+    # (the full polygon) -- a shape restricted to the label once made the fill
+    # vanish when the label scrolled off-screen. A room with holes returns
+    # room_path() (D-R4): the hole is not the room for picking, so a click in
+    # it falls through to whatever sits there (the inner room).
+    def shape(self) -> QPainterPath:
+        """Inherited polygon shape, or the odd-even room path when holed (D-R4)."""
+        if not self._holes:  # D-R4: hole-less rooms keep the inherited shape
+            return super().shape()
+        return self.room_path()
 
     # ── Paint ────────────────────────────────────────────────────────────
 
@@ -405,7 +468,8 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
             if not getattr(self, "_paper_fill_opaque", False):
                 fill_col.setAlpha(50)
             painter.setBrush(QBrush(fill_col))
-        painter.drawPolygon(self.polygon())
+        path = self.room_path()
+        painter.drawPath(path)                        # fill + dashed outline
 
         # Selection highlight
         if shows_selection(self):
@@ -413,7 +477,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(self.polygon())
+            painter.drawPath(path)                    # selection outline: outer + hole rings
 
     # ── Properties API ───────────────────────────────────────────────────
 
@@ -547,6 +611,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
 
     def translate(self, dx: float, dy: float):
         self._boundary = [QPointF(p.x() + dx, p.y() + dy) for p in self._boundary]
+        self._holes = [[QPointF(p.x() + dx, p.y() + dy) for p in h] for h in self._holes]
         self._rebuild()
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
@@ -556,6 +621,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         from .cad_math import CAD_Math
         self._boundary = [CAD_Math.rotate_point(p, pivot, -angle_deg)
                           for p in self._boundary]
+        self._holes = [[CAD_Math.rotate_point(p, pivot, -angle_deg) for p in h] for h in self._holes]
         self._rebuild()
 
     # ── Serialization ────────────────────────────────────────────────────
@@ -579,6 +645,8 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
             "ceiling_type":     self._ceiling_type,
             "label_offset":     [self._label_offset.x(), self._label_offset.y()],
         }
+        if self._holes:                                   # sparse key (§2.6)
+            d["holes"] = [[[p.x(), p.y()] for p in h] for h in self._holes]
         if self._tag_block is not None:
             d["tag_block"] = self._tag_block          # SB3b: absent = project default
         phase_registry.write_element(self, d)
@@ -587,7 +655,8 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
     @classmethod
     def from_dict(cls, data: dict) -> "Room":
         pts = [QPointF(p[0], p[1]) for p in data.get("boundary", [])]
-        room = cls(boundary=pts, color=data.get("color", "#4488cc"))
+        holes = [[QPointF(p[0], p[1]) for p in h] for h in data.get("holes", [])]
+        room = cls(boundary=pts, color=data.get("color", "#4488cc"), holes=holes)
         room.name = data.get("name", "")
         room._mark = data.get("mark", data.get("tag", ""))
         room._show_label = data.get("show_label", True)
