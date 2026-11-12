@@ -147,8 +147,7 @@ def build_arrangement(walls) -> Arrangement | None:
 def nearest_open_end(walls, arr, pt: QPointF) -> QPointF | None:
     """The loose wall end nearest *pt* (Gap 1 / D-R6): the arrangement's pruned
     end, else the midpoint of the nearest free-end cap (``WallOutline.caps``)
-    -- wall bodies are closed loops, so the prune alone never records one
-    (plan probe P4-1)."""
+    -- wall bodies are closed loops, so the prune alone never records one."""
     if arr is not None:
         end = arr.nearest_open_end(pt)
         if end is not None:
