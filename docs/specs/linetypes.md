@@ -2196,6 +2196,57 @@ residual with LT8).
 - A hand-edited non-preset Model scale (e.g. 37.5) displays rounded and a
   re-pick writes the rounded value.
 
+## LW-DC — Line Weights Defaults / Custom (ratified 2026-11-12; unbuilt)
+
+> Ratified in the 2026-11-12 LW-DC grill (Q1–Q11 + summary approval). End
+> goal: a fixed standard vocabulary every project shares, plus user extras.
+> Supersedes MW-4's factory table and amends MW-3 (distinctness), MW-6
+> (factory-name resolution), LT1-4 (library merge) and MW-11 (tab UI) — the
+> amendment pointers land at Account.
+
+- **LW-DC-1 Factory Defaults** (Q2, Q9). Extra Thin 0.13 / Thin 0.18 / Fine
+  0.25 / Medium 0.35 / Wide 0.50 / Thick 0.70 / Extra Thick 1.00 mm, shipped
+  Model px 1 / 2 / 3 / 4 / 5 / 6 / 8 (all distinct; Thin..Wide draw 1 px
+  heavier than today's same-mm rows).
+- **LW-DC-2 Defaults lock** (Q3, Q4). A Default's name is read-only and the
+  row is never deleted; Width and Model px are editable. A cell differing
+  from factory paints in the accent colour; a per-row ↺ / right-click "Reset
+  to default" restores factory width + px. The dialog-wide Reset restores all
+  seven and keeps Custom rows.
+- **LW-DC-3 Custom.** Fully editable (name / width / px / delete); + adds to
+  Custom; a Custom name may not equal a Default name.
+- **LW-DC-4 Rename** keeps LT2-8 (every holder follows; Cancel restores).
+- **LW-DC-5 Delete in use** (Q8). Deleting an in-use Custom weight opens a
+  modal: "'X' (w mm) is used by N references", a picker of every other weight
+  (sorted by width), preselected = nearest width (tie → thinner, as MW-5);
+  Replace & Delete moves every reference (each LT1-5 / LT2-8 holder) to the
+  pick and removes X; Cancel changes nothing; the DM's Cancel restores all.
+  An unused weight deletes with no prompt.
+- **LW-DC-6 Layout** (Q10). One table, DEFAULTS and CUSTOM group-header rows
+  (the DM's existing group-header look), each sorted by width; +/− and the
+  Model blocks picker unchanged.
+- **LW-DC-7 Pickers** (Q11). Every Weight dropdown lists Defaults (by width),
+  a separator, then Custom (by width).
+- **LW-DC-8 Old projects** (Q5). On open, a factory-named row (MW or pre-MW
+  set) whose mm equals a Default merges into it (its references renamed);
+  every other row becomes Custom, a Default-name clash suffixed " (old)".
+  Paper output identical.
+- **LW-DC-9 App-wide settings** (Q6). One-time migration with the LW-DC-8
+  merge of QSettings names: Paper-tab category weights, Model Blocks weight,
+  ribbon current weight, new-project template. Paper output unchanged.
+- **LW-DC-10 Libraries** (Q7). A bundled `{name: mm}` whose mm differs from
+  the project row of that name sends its references to the row with that
+  exact mm; with no such row it is added as Custom with " (old)". Blocks look
+  as authored.
+- **LW-DC-11 Out of scope.** `phase_registry` graphics carry a `weight` slot
+  with no reader / writer today; when phase weights ship they join LT1-5
+  in-use and LT2-8 rename.
+- **Guards (as planned).** Factory table + lock refusals; per-row reset;
+  delete-with-replace per holder kind + preselect + Cancel; old-project open
+  (MW, pre-MW, custom "Thin 0.30") paper widths unchanged; settings migration
+  (Wall "Thin" 0.35 still prints 0.35); library {Thin: 0.35} draws 0.35;
+  picker order.
+
 ## Acceptance Criteria
 
 - [x] Collinear lines sharing a linetype are indistinguishable from one line (D-L9) — LT3 G1 (`tests/test_lt3_primitive_paint.py`), 2026-10-05.
