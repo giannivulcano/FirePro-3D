@@ -3556,9 +3556,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # -------------------------------------------------------------------------
     # UNDO / REDO
 
-    def _capture_network(self) -> dict:
-        """Serialize nodes/pipes/annotations to a dict (no underlays/scale)."""
-        import copy
+    def _network_records(self) -> tuple:
+        """``(nodes, pipes, water_supply, design_areas)`` snapshot records.
+
+        The one builder behind both the undo snapshot and the hydraulic
+        result's same-network test (node order = ``sprinkler_system.nodes``;
+        pipes with a missing node are skipped).
+        """
         node_list = list(self.sprinkler_system.nodes)
         node_id = {n: i for i, n in enumerate(node_list)}
         nodes_data = [serialize_node(node, node_id) for node in node_list]
@@ -3569,16 +3573,21 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
             pipes_data.append(serialize_pipe(pipe, node_id))
-        annotations_data = []
-        for note in self.annotations.notes:
-            annotations_data.append(serialize_note(note))
         ws = self.water_supply_node
         ws_data = serialize_water_supply(ws) if ws is not None else None
-        # Design areas
         da_data = [
             serialize_design_area(da, node_id, self.active_design_area)
             for da in self.design_areas
         ]
+        return nodes_data, pipes_data, ws_data, da_data
+
+    def _capture_network(self) -> dict:
+        """Serialize nodes/pipes/annotations to a dict (no underlays/scale)."""
+        import copy
+        nodes_data, pipes_data, ws_data, da_data = self._network_records()
+        annotations_data = []
+        for note in self.annotations.notes:
+            annotations_data.append(serialize_note(note))
         sec_mgr = getattr(self, "_section_manager", None)
         extra = {}
         if sec_mgr is not None and hasattr(sec_mgr, "to_list"):
@@ -3636,24 +3645,42 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 and p.node1 in known and p.node2 in known]
 
     @staticmethod
-    def _network_signature(node_list, pipe_list) -> tuple:
-        """Geometry/topology identity of a network, as the codec serializes it."""
-        idx = {n: i for i, n in enumerate(node_list)}
-        nodes = tuple((round(n.scenePos().x(), 6), round(n.scenePos().y(), 6),
-                       round(n.z_pos, 6)) for n in node_list)
-        pipes = tuple((idx[p.node1], idx[p.node2]) for p in pipe_list)
-        return nodes, pipes
+    def _row_values(rows):
+        """Sprinkler rows reduced to their values (the codec stores the live row
+        dicts, whose enum ``options`` lists differ between live and restored)."""
+        if not rows:
+            return rows
+        return {k: (v.get("value") if isinstance(v, dict) else v)
+                for k, v in rows.items()}
 
-    def _carry_hydraulic_result(self, old_nodes, old_pipes, old_sig):
+    def _network_signature(self) -> tuple:
+        """Every hydraulic input as the undo snapshot serializes it.
+
+        Badge Position is excluded (a pure display choice), as is a design
+        area's derived ``Area`` row (lazily computed, "0" until a restore
+        recomputes it, so it would differ without any edit).
+        """
+        nodes, pipes, ws, das = self._network_records()
+        nodes = [{k: (self._row_values(v) if k == "sprinkler" else v)
+                  for k, v in e.items() if k != "badge_position"}
+                 for e in nodes]
+        das = [dict(d, properties={k: v for k, v in d["properties"].items()
+                                   if k != "Area"}) for d in das]
+        return nodes, pipes, ws, das
+
+    def _carry_hydraulic_result(self, old_nodes, old_pipes, old_das, old_snaps,
+                                old_sig):
         """After a restore: keep the solve on an unchanged network, else clear it."""
         from .sprinkler_workflow_controller import (
             clear_hydraulic_overlay, refresh_hydraulic_overlay)
         new_nodes = list(self.sprinkler_system.nodes)
         new_pipes = self._network_pipes(new_nodes)
-        if self._network_signature(new_nodes, new_pipes) != old_sig:
+        if self._network_signature() != old_sig:
             self.hydraulic_result = None
             clear_hydraulic_overlay(self)
             return
+        for da, snap in zip(self.design_areas, old_snaps):
+            da.set_hydraulic_snapshot(snap)        # the rebuilt area keeps its summary
         import dataclasses
         mapping = dict(zip(old_nodes, new_nodes))
         mapping.update(zip(old_pipes, new_pipes))
@@ -3691,8 +3718,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if self.hydraulic_result is not None:
             old_nodes = list(self.sprinkler_system.nodes)
             old_pipes = self._network_pipes(old_nodes)
-            old_net = (old_nodes, old_pipes,
-                       self._network_signature(old_nodes, old_pipes))
+            old_das = list(self.design_areas)
+            old_net = (old_nodes, old_pipes, old_das,
+                       [da._hyd_snapshot for da in old_das],
+                       self._network_signature())
+        restored = False
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
@@ -4044,9 +4074,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             # Re-apply level visibility
             if self._level_manager:
                 self._level_manager.apply_to_scene(self)
+            restored = True
 
         finally:
             self._in_undo_restore = False
+            if not restored:
+                self.hydraulic_result = None    # half-restored: its keys are dead
         if old_net is not None:
             self._carry_hydraulic_result(*old_net)
         if levels_restored:

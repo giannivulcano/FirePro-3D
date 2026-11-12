@@ -481,6 +481,16 @@ def test_g11_undo_redo_of_a_badge_position_commit_keeps_the_solve(qapp, tree):
     n = nodes[2]
     auto_side = n._hydraulic_badge.side
     assert auto_side != "Below"                       # else the guard proves nothing
+    da = ms._ensure_editing_da(resume_spr=nodes[2].sprinkler)
+    da.toggle_sprinkler(nodes[2].sprinkler)
+    da.toggle_sprinkler(nodes[5].sprinkler)
+    solve(ms)                                         # again: the design area now has members
+    snap = dict(da._hyd_snapshot)
+    assert snap["total_demand_gpm"] > 0
+    vel_pipe = next(p for p in ms.sprinkler_system.pipes
+                    if p in ms.hydraulic_result.pipe_velocity)
+    idx = list(ms.sprinkler_system.pipes).index(vel_pipe)
+    label_before = {k: v.text for k, v in vel_pipe.label.host_values().items()}
     ms.push_undo_state()                              # baseline (Auto)
     _commit_badge_position(ms, n, "Below")            # pushes the Below snapshot
     assert n._hydraulic_badge.side == "Below"
@@ -493,6 +503,11 @@ def test_g11_undo_redo_of_a_badge_position_commit_keeps_the_solve(qapp, tree):
     assert m._hydraulic_badge.side == auto_side
     dy = m._hydraulic_badge.pos().y() - m.scenePos().y()
     assert (dy > 0) == (auto_side == "Below")
+    da2 = ms.design_areas[0]
+    assert da2 is not da and da2._hyd_snapshot == snap     # summary survives (M3)
+    pipe2 = list(ms.sprinkler_system.pipes)[idx]
+    assert pipe2 is not vel_pipe
+    assert {k: v.text for k, v in pipe2.label.host_values().items()} == label_before  # M2
     ms.redo()
     m2 = list(ms.sprinkler_system.nodes)[2]
     _assert_badges_live(ms, count)
@@ -514,3 +529,51 @@ def test_g12_undo_to_a_different_network_clears_the_solve(qapp, tree):
     live = list(ms.sprinkler_system.nodes)
     assert _badges(live) == {}
     assert not [i for i in ms.items() if type(i).__name__ == "HydraulicNodeBadge"]
+
+
+def _edit_pipe_diameter(ms, nodes):
+    for p in ms.sprinkler_system.pipes:
+        p.set_property("Diameter", '4"Ø')
+
+
+def _edit_k_factor(ms, nodes):
+    # Replace the row dict: serialize_node stores the live row dict, so an
+    # in-place set_property would also rewrite the undo snapshot (filed).
+    spr = nodes[2].sprinkler
+    spr._properties["K-Factor"] = dict(spr._properties["K-Factor"], value="8.0")
+
+
+def _edit_water_supply(ms, nodes):
+    ms.water_supply_node.set_property("Static Pressure", "95")
+
+
+@pytest.mark.parametrize("edit", [_edit_pipe_diameter, _edit_k_factor,
+                                  _edit_water_supply],
+                         ids=["diameter", "k_factor", "water_supply"])
+def test_g13_undo_of_a_hydraulic_input_edit_clears_the_solve(qapp, tree, edit):
+    ms, nodes = tree
+    ms.push_undo_state()                              # baseline
+    edit(ms, nodes)
+    ms.push_undo_state()
+    solve(ms)
+    assert _badges(nodes)
+    ms.undo()
+    assert ms.hydraulic_result is None
+    assert _badges(list(ms.sprinkler_system.nodes)) == {}
+    assert not [i for i in ms.items() if type(i).__name__ == "HydraulicNodeBadge"]
+
+
+def test_m1_a_failed_restore_leaves_no_dead_result(qapp, tree, monkeypatch):
+    from firepro3d import network_codec
+    ms, nodes = tree
+    solve(ms)
+    ms.push_undo_state()
+    ms.push_undo_state()
+
+    def boom(*a, **k):
+        raise RuntimeError("restore failed")
+    monkeypatch.setattr(network_codec, "deserialize_pipe", boom)
+    with pytest.raises(RuntimeError, match="restore failed"):
+        ms.undo()
+    assert ms.hydraulic_result is None
+    assert ms._in_undo_restore is False
