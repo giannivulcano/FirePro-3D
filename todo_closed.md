@@ -2,6 +2,16 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Project phasing -- PH1 phasing data model -- 2026-11-12
+
+- [x] [type:feature] PH1 — Phasing data model: project status registry (`"phases"`), `phase` on every phased kind + panel row (pipe `Phase` folded in), next free SAVE_VERSION migration (13 at the 2026-11-06 check), `effective_phase`, fitting derivation + override, template phase committed at every placement site [P1] [subject:Architecture] [done:2026-11-12]
+  - Details: concept PD1 + PD4 templates; D-PH3–D-PH6, D-PH16. AC1–AC4, AC12. Guards: per-kind save/load round-trip; pre-phasing fixture with pipe `Demo` loads per D-PH6; fitting rule over the 4 junction cases; placing through each tool commits the template phase. Sprinkler phase is an explicit node-entry key; fitting `phase_override` beside `fitting_display_overrides`.
+  - Built (0.101.0, branch feature/ph1-phasing-data-model): plan `docs/superpowers/plans/2026-11-11-ph1-phasing-data-model.md` (local), tasks T0-T9 + VC9 fixes + Phase 6 fix round. `phase_registry.py` status registry + `effective_phase`; `phase` on walls, openings, floors, floor openings, roofs, rooms, pipes, sprinklers, water supply, block placements and underlays; SAVE_VERSION 13 with pre-phasing migration (D-PH6); fitting derivation + "Fitting Phase" node-panel row; template phase at every placement site, sticky across catalog pick / auto-populate (R7); template-less kinds place as New. Rulings: R5 water-supply paste refused while one exists; R6 underlay Phase edit marks unsaved, no undo; D-PH5 collinear extend merges and takes the template phase. Smoke passed 2026-11-12 (9 rows). Full suite waived by the user; keep-green 125 files 2725 passed; d18 drag-frame perf bar and underlay pixmap test proved pre-existing at base ff87c36d and filed.
+- [x] [type:bug] Pasted pipes lose all their properties (Diameter, Material, Show Label, Tag, display overrides) [P2] [subject:CAD] [done:2026-11-12]
+  - Details: SB4a Phase 3 probe 2026-10-31 — `Model_Space._clipboard_item_dicts` records a node's pipes as the far end's `{"x","y"}` only, and `paste_items` re-creates each with a bare `add_pipe(node1, node2)`, so every pasted pipe is a default pipe. Fix: carry the pipe record (`network_codec.serialize_pipe` minus node ids) and apply it on paste. SB4a's G5 covers `.fpd` + undo only because of this.
+  - +1 occurrence 2026-11-06 (project phasing landing, PD4): PH7 needs pipe paste to keep the source's properties, Phase included; fixing this bug delivers that half of PH7.
+  - Fixed in PH1 (0e7a6733 + 1fb92156): paste / duplicate / array carry the pipe record and keep phase and fitting overrides. The node ceiling-offset loss on the same path stays open as its own P2.
+
 ## Block System -- SB4e hydraulic node badge as a System block -- 2026-11-11
 
 - [x] [type:feature] SB4e — Convert the hydraulic node badge to a System block [subject:Hydraulic Calculator] [P1] [done:2026-11-11]
