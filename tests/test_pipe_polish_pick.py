@@ -82,12 +82,13 @@ def test_plain_node_shape_is_the_pick_disk(shown_model_view, zoom):
     assert a.shape().boundingRect().width() / 2.0 == pytest.approx(12.0 / zoom)
 
 
-def test_sprinkler_node_picks_by_symbol(shown_model_view):
+def test_sprinkler_node_picks_by_symbol(shown_model_view, real_system_library):
     view, scene = shown_model_view
     a, _b, _pipe = _run(scene)
     a.add_sprinkler()
     _zoom(view, 3.0)
-    r = a.sprinkler.TARGET_MM / 2.0 * a.sprinkler._display_scale
+    r = a.sprinkler.extent_radius()
+    assert r == pytest.approx(9.51192 * 24.0 * 25.4 / 20.0, abs=0.01)   # sprinkler0.svg circle r x K (R14 centre line)
     assert _top(scene, view, QPointF(r * 0.8, r * 0.5)) is a
 
 

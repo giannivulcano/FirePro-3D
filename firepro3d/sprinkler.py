@@ -1,34 +1,22 @@
-import os
+from PyQt6.QtWidgets import QGraphicsItem
+from PyQt6.QtGui import QPainterPath
 
-from PyQt6.QtWidgets import QGraphicsItem, QStyle
-from PyQt6.QtGui import QTransform, QPainterPath, QPen, QColor
-from PyQt6.QtSvgWidgets import QGraphicsSvgItem
-from PyQt6.QtSvg import QSvgRenderer
-from PyQt6.QtCore import Qt
-
-from .assets import asset_path
 from .constants import DEFAULT_LEVEL, Z_SPRINKLER
 from . import phase_registry
 
 from .displayable_item import DisplayableItemMixin
+from .symbol_block import SymbolBlockItem
 
 
-class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
-    GRAPHICS = {
-        "Sprinkler0": asset_path("sprinkler_graphics", "sprinkler0.svg"),
-        "Sprinkler1": asset_path("sprinkler_graphics", "sprinkler1.svg"),
-        "Sprinkler2": asset_path("sprinkler_graphics", "sprinkler2.svg"),
-    }
-
-    SVG_NATURAL_PX = 30.0    # natural SVG bounding-box width (px)
-    TARGET_MM = 24.0 * 25.4  # desired symbol diameter in mm (24 inches)
-    SCALE = TARGET_MM / SVG_NATURAL_PX  # scene-unit scale factor
+class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
+    """A sprinkler head: a child of its Node, drawn from a "Sprinkler" symbol
+    block at real size (SB4g D3; ``symbol_block`` None = the System default)."""
 
     def __init__(self, node):
-        super().__init__()
+        SymbolBlockItem.__init__(self, "Sprinkler", owner=node)
         self.node = node
         self.init_displayable()
-        self._display_scale: float = 1.0
+        self._display_scale: float = 1.0       # DM scale column retired; not read for size
         self.phase: str = phase_registry.PHASE_NEW
         self._properties = {
             "Mark":            {"type": "string", "value": ""},
@@ -42,7 +30,6 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
             "Min Pressure":    {"type": "label",  "value": "7"},
             "Temperature":     {"type": "label",  "value": "155°F"},
             "Design Density":  {"type": "string", "value": "0.10"},
-            "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
             "Ceiling Level":   {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Offset":  {"type": "string", "value": "-50.8"},
         }
@@ -54,48 +41,20 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         if node is not None:
             self.setParentItem(node)
             self.setZValue(Z_SPRINKLER)
-            # No ItemIgnoresTransformations — symbol scales with zoom (real-world size)
-            self._load_graphic(self.GRAPHICS[self._properties["Graphic"]["value"]])
+            # No ItemIgnoresTransformations — the block is real size (scales with zoom)
 
     # -------------------------------------------------------------------------
     # Internal helpers
 
-    def _load_graphic(self, svg_path: str):
-        """Load an SVG file into this item and re-centre it on the node."""
-        # Resolve relative to this module's directory (not CWD)
-        if not os.path.isabs(svg_path):
-            svg_path = os.path.join(os.path.dirname(__file__), svg_path)
-        self._svg_source_path = os.path.abspath(svg_path)
-        renderer = QSvgRenderer(svg_path)
-        self.setSharedRenderer(renderer)
-        self._renderer = renderer  # prevent garbage collection
-        # Zoom-independent: always use fixed screen-pixel scale
-        self._centre_on_node()
-
     def rescale(self, sm=None) -> None:
-        """Re-centre the sprinkler at real-world scale."""
-        self._centre_on_node()
-
-    def _centre_on_node(self):
-        """Centre the item on the parent node's origin (0, 0)."""
-        from .displayable_item import centre_svg_on_origin
-        centre_svg_on_origin(self, self.TARGET_MM, self.SCALE,
-                              self._display_scale, reset_pos=True)
+        """Scale calibration: the block is real size, so only repaint."""
+        self.update()
 
     def shape(self) -> QPainterPath:
-        """Return full bounding rect as shape so clicking anywhere on the
-        sprinkler graphic selects it (not just the SVG path outlines)."""
+        """Full bounding rect, as before SB4g (clicks anywhere on the symbol)."""
         path = QPainterPath()
         path.addRect(self.boundingRect())
         return path
-
-    def paint(self, painter, option, widget=None):
-        """Draw the SVG, then overlay a blue glow circle when the parent
-        node is selected.  Colour tinting is done at the SVG level via
-        _set_svg_tint (no QPainter composition needed)."""
-        # Suppress default selection dashes
-        option.state &= ~QStyle.StateFlag.State_Selected
-        super().paint(painter, option, widget)
 
     # -------------------------------------------------------------------------
     # Public property API
@@ -150,11 +109,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
             return
         self._properties[key]["value"] = value
 
-        if key == "Graphic" and self.node is not None:
-            svg_path = self.GRAPHICS.get(value)
-            if svg_path:
-                self._load_graphic(svg_path)
-        elif key == "Level" and self.node is not None:
+        if key == "Level" and self.node is not None:
             self.node.level = str(value)
         elif key == "Ceiling Level" and self.node is not None:
             self.node.ceiling_level = str(value)

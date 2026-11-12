@@ -157,7 +157,7 @@ def _gridline_and_sprinkler_scene(colour):
     ("token:accent", (0.18, 0.62, 0.39)),
 ], ids=["auto", "accent"])
 def test_i2_latched_dm_categories_plot_paper_colour_on_full_colour(
-        qapp, tmp_path, force_theme, colour, rgb, real_system_library):   # SB4b: the shipped GridlineBubble block
+        qapp, tmp_path, force_theme, colour, rgb, real_system_library):   # SB4b: the shipped GridlineBubble block (also the head symbol, SB4g)
     """A gridline and a sprinkler symbol whose category is Automatic/Accent
     latch the CANVAS colour; the Full Colour pass must re-resolve them."""
     from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
@@ -172,7 +172,7 @@ def test_i2_latched_dm_categories_plot_paper_colour_on_full_colour(
     assert strokes & {rgb}, (strokes, fills)              # gridline + symbol
     assert not (strokes | fills) & canvas, (strokes, fills)
     assert gl._grid_color.name() == canvas_grid           # model colour restored
-    # The sprinkler SVG plots as a raster: sample the pixels around it
+    # The sprinkler symbol (block ops, SB4g) plots as vectors; sample the pixels
     # (paper x 105 mm, y 54 mm -- model (0, -800) at 1:50).
     import fitz
     mm = 72.0 / 25.4
@@ -183,9 +183,21 @@ def test_i2_latched_dm_categories_plot_paper_colour_on_full_colour(
     finally:
         doc.close()
     want = tuple(round(v * 255) for v in rgb)
+    # SB4g: the symbol's stroke is a thin By-Linetype hairline (anti-aliased, never a
+    # solid raster), so an exact-colour count is ~0. Count pixels that lie on the
+    # white -> paper-colour blend line (t = how far along it, residual = distance
+    # off it): a canvas-tinted stroke blends along a different line.
+    wv = tuple(w - 255 for w in want)
+    vv = sum(c * c for c in wv)
+
+    def _on_blend(px):
+        u = tuple(p - 255 for p in px)
+        t = sum(a * b for a, b in zip(u, wv)) / vv
+        res = sum((a - t * b) ** 2 for a, b in zip(u, wv)) ** 0.5
+        return t > 0.35 and res < 25
     hits = sum(1 for x in range(pm.width) for y in range(pm.height)
-               if all(abs(a - b) <= 10 for a, b in zip(pm.pixel(x, y), want)))
-    assert hits > 100, hits       # canvas ink / accent would leave ~0 solid hits
+               if _on_blend(pm.pixel(x, y)))
+    assert hits > 20, hits        # canvas ink / accent would leave ~0
     for canvas_rgb in ((0xe6, 0xe9, 0xec), (0x63, 0xbe, 0x8b)):   # dark-theme ink / accent
         stale = sum(1 for x in range(pm.width) for y in range(pm.height)
                     if all(abs(a - b) <= 3 for a, b in zip(pm.pixel(x, y), canvas_rgb)))
@@ -220,7 +232,7 @@ def test_i3_token_override_under_hex_category_relatches_on_theme_switch(
 
 # ── I4: live switch flips latched DM consumers (gridline pen, sprinkler tint) ─
 
-def test_i4_live_switch_flips_latched_gridline_and_sprinkler(qapp, force_theme):
+def test_i4_live_switch_flips_latched_gridline_and_sprinkler(qapp, force_theme, real_system_library):
     from firepro3d.display_manager import (
         _apply_to_scene_items, _read_category_from_settings)
     from firepro3d.gridline import GridlineItem

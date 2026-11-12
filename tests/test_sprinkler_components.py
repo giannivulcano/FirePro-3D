@@ -662,10 +662,18 @@ class TestSprinklerProperties:
         spr.set_property("NonExistent", "value")
         assert "NonExistent" not in spr._properties
 
-    def test_sprinkler_graphic_options(self, qapp):
-        """All graphic options should have a file path in GRAPHICS."""
-        for name in ("Sprinkler0", "Sprinkler1", "Sprinkler2"):
-            assert name in Sprinkler.GRAPHICS
+    def test_sprinkler_has_no_graphic_row(self, qapp):
+        """SB4g R3/R6: the Symbol row replaces Graphic; a legacy value is ignored."""
+        spr = Sprinkler(None)
+        assert "Graphic" not in spr.get_properties()
+        spr.set_property("Graphic", "Sprinkler2")       # legacy file value
+        assert "Graphic" not in spr._properties
+
+    def test_sprinkler_is_a_symbol_block_item(self, qapp):
+        from firepro3d.symbol_block import SymbolBlockItem
+        spr = Sprinkler(None)
+        assert isinstance(spr, SymbolBlockItem) and spr.category == "Sprinkler"
+        assert spr.symbol_block is None                  # System default
 
     def test_sprinkler_ceiling_offset_syncs_to_node(self, qapp, scene):
         node = Node(0, 0)
@@ -688,11 +696,6 @@ class TestSprinklerProperties:
         props = spr.get_properties()
         assert "Ceiling Level" in props
         assert "Ceiling Offset" in props
-
-    def test_sprinkler_scale_constants(self):
-        assert Sprinkler.SVG_NATURAL_PX == 30.0
-        assert Sprinkler.TARGET_MM == pytest.approx(24.0 * 25.4)
-        assert Sprinkler.SCALE == pytest.approx(Sprinkler.TARGET_MM / Sprinkler.SVG_NATURAL_PX)
 
     def test_template_sprinkler_no_node(self, qapp):
         """A Sprinkler with node=None should not crash (template mode)."""

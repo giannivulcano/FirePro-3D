@@ -30,7 +30,7 @@ def _seed_stale_values(ms, spr, marker, detail):
 
 
 @pytest.fixture()
-def scene(qapp):
+def scene(qapp, real_system_library):
     from firepro3d.detail_view import DetailMarker
     from firepro3d.section_marker import SectionMarker
     ms = Model_Space()
@@ -45,7 +45,6 @@ def scene(qapp):
 
 def _factory_width(spr):
     spr._display_scale = 1.0
-    spr._centre_on_node()
     return spr.sceneBoundingRect().width()
 
 
@@ -61,12 +60,15 @@ def _assert_factory(spr, marker, detail, factory_w):
     assert _CATEGORY_MAP["Elevation Marker"]["font"] is None
 
 
-def test_positive_control_a_scale_does_change_the_rendered_size(scene):
+def test_a_stale_scale_never_changes_the_symbol_size(scene):
+    """SB4g: the symbol is its block's real size; DM's retired scale column
+    (``_display_scale``) is not read for it."""
     ms, spr, marker, detail = scene
     w1 = _factory_width(spr)
+    assert w1 > 500.0                                   # resolved seed (~584 mm with R14 centre lines), not vacuous
     spr._display_scale = _BAD_SCALE
-    spr._centre_on_node()
-    assert spr.sceneBoundingRect().width() == pytest.approx(w1 * _BAD_SCALE)
+    spr.update()
+    assert spr.sceneBoundingRect().width() == pytest.approx(w1)
 
 
 @pytest.mark.parametrize("path", ["saved", "project", "default"])

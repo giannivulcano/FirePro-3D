@@ -237,7 +237,7 @@ def _sprinkler_scene():
     (TOKEN_AUTO, "#123456", ("#000000", "#123456")), # token colour -> black, hex fill kept
     ("#ff4444", "#000000", None),                    # no token: no re-tint (canvas tint plots)
 ])
-def test_ac8_svg_tokens_re_resolve_on_paper(qapp, monkeypatch, colour, fill, want):
+def test_ac8_svg_tokens_re_resolve_on_paper(qapp, monkeypatch, colour, fill, want, real_system_library):
     from firepro3d import display_manager as dm
     from firepro3d.colour_tokens import resolve_colour
     s = QSettings("GV", "FirePro3D")
@@ -341,13 +341,13 @@ def _sprinkler_paper_pixels(colour, fill):
             for x in range(200) for y in range(200)}, ms
 
 
-def test_ac8_pixels_token_fill_plots_white(qapp):
+def test_ac8_pixels_token_fill_plots_white(qapp, real_system_library):
     names, _ms = _sprinkler_paper_pixels("#ff4444", TOKEN_BG)
     assert "#ffffff" in names          # Background fill -> white on paper
     assert "#ff4444" in names          # hex colour keeps its canvas value
 
 
-def test_ac8_pixels_token_colour_plots_black(qapp):
+def test_ac8_pixels_token_colour_plots_black(qapp, real_system_library):
     names, _ms = _sprinkler_paper_pixels(TOKEN_AUTO, "#123456")
     assert "#000000" in names          # Automatic stroke -> black on paper
     assert "#123456" in names          # hex fill keeps its canvas value

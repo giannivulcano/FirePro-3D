@@ -156,8 +156,13 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     *color*      → ``stroke`` on the top-level ``<g>`` element.
     *fill_color* → ``fill``   on the top-level ``<g>`` element.
     Falls back to the original SVG when both are None/default.
-    Requires ``_svg_source_path`` on the item.
+    Requires ``_svg_source_path`` on an SVG item; a ``SymbolBlockItem`` (SB4g)
+    takes ``set_tint`` (stroke / fill override at paint).
     """
+    from .symbol_block import SymbolBlockItem
+    if isinstance(item, SymbolBlockItem):          # SB4g D8: block-drawn symbol
+        item.set_tint(color, fill_color)           # stores _display_color / _display_fill_color + repaints
+        return
     item._display_color = color
     item._display_fill_color = fill_color
     if is_token(color):
@@ -490,8 +495,7 @@ def apply_display_to_item(item, color: str | None, scale: float,
     elif isinstance(item, Sprinkler):
         _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
-        item._centre_on_node()
-        # Invalidate parent Node geometry so shape()/boundingRect() reflect new scale
+        # Invalidate parent Node geometry so shape()/boundingRect() follow the symbol
         if item.node is not None:
             item.node.prepareGeometryChange()
     elif isinstance(item, Fitting):
@@ -1050,9 +1054,7 @@ class DisplayManager(HouseDialog):
                 _set_svg_tint(item, snap.get("display_color"),
                               snap.get("display_fill_color"))
                 item._display_scale = snap.get("display_scale", 1.0)
-                if isinstance(item, Sprinkler):
-                    item._centre_on_node()
-                else:
+                if not isinstance(item, Sprinkler):
                     item._centre_on_origin()
             # A node badge restores Visible + Opacity only (SB4e R7), above.
 

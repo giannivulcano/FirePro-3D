@@ -220,7 +220,7 @@ def sheet(qapp, paper_env):
 
 
 @pytest.mark.parametrize("kind", list(_KINDS))
-def test_selection_never_plots(sheet, kind, monkeypatch, request):
+def test_selection_never_plots(sheet, kind, monkeypatch, request, real_system_library):
     # The manipulator frame (a model-only overlay) suppresses the per-item
     # highlight of the shared stroke paths; with it off the highlight runs.
     import firepro3d.filled_region as fr

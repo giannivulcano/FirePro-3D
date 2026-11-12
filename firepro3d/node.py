@@ -270,6 +270,12 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     def has_sprinkler(self):
         return self.sprinkler is not None
 
+    def _symbol_radius(self) -> float:
+        """The sprinkler symbol's real half-size (SB4g R2); ``RADIUS`` while
+        nothing resolves (off-scene, or no System block installed)."""
+        e = self.sprinkler.extent_radius()
+        return e if e > 0.0 else float(self.RADIUS)
+
     # -------------------------------------------------------------------------
     # Fitting helpers    
     def has_fitting(self):
@@ -445,7 +451,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     def boundingRect(self) -> QRectF:
         """Expand bounding rect to encompass selection highlight and coverage overlay."""
         if self.has_sprinkler():
-            r = self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale * 1.15
+            r = self._symbol_radius() * 1.15
         else:
             r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
         r = max(r, self.RADIUS + 4)
@@ -496,8 +502,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         """Expand clickable area to encompass the sprinkler graphic so
         clicking anywhere on the sprinkler selects the node."""
         if self.has_sprinkler():
-            r = max(self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale,
-                    self.RADIUS)
+            r = max(self._symbol_radius(), self.RADIUS)
         else:
             r = self._plain_pick_radius()
         path = QPainterPath()
@@ -514,7 +519,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
                 # Sprinkler node: draw highlight behind the sprinkler graphic.
                 # Drawn here (Node Z=10) so it appears under the Sprinkler (Z=100)
                 # and isn't clipped by the Sprinkler's smaller boundingRect.
-                r = self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale * 0.95
+                r = self._symbol_radius() * 0.95
             else:
                 # Plain node
                 r = 14.0 * 25.4 / 2.0  # 177.8 mm
