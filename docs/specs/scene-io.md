@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-11-10  # sheet-linked doc Account: s2 sheets linked_document key paragraph only, rest not re-audited; prior 2026-11-06  # notes on schematics Account: SAVE_VERSION sentence, rest not re-audited; prior 2026-11-04  # data-loss Account: s2 backups + atomic write, s3 load failure contract + marker drop, acceptance lines only (verified at db3c357b), rest not re-audited; prior 2026-10-30  # SB3b + L283 Account: s2 additive keys paragraph + s5 undo-capture note only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
-verified-commit: f1dcede4  # feature/sheet-linked-doc close (0.96.0; linked_document key only); prior bfe51a30  # notes merge on main (v0.93.0; SAVE_VERSION sentence); prior db3c357b  # data-loss merge on main (save / load failure clauses only); prior 7e5d3b15   # SB3b + L283 merge on main; prior db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
+last-verified: 2026-11-12  # PH1 Account: s2 SAVE_VERSION sentence + phasing keys paragraph, s3 load order only, rest not re-audited; prior 2026-11-10  # sheet-linked doc Account: s2 sheets linked_document key paragraph only, rest not re-audited; prior 2026-11-06  # notes on schematics Account: SAVE_VERSION sentence, rest not re-audited; prior 2026-11-04  # data-loss Account: s2 backups + atomic write, s3 load failure contract + marker drop, acceptance lines only (verified at db3c357b), rest not re-audited; prior 2026-10-30  # SB3b + L283 Account: s2 additive keys paragraph + s5 undo-capture note only, rest not re-audited; prior 2026-10-27  # Editor/Build slice 2 Account: `constraints` key / load / checklist lines only (verified at db16090a), rest not re-audited; prior 2026-10-25  # SB2b Account: Marks payload keys + undo snapshot levels paragraph only (verified at ceacaab4), rest not re-audited; prior 2026-10-22  # gridline-hosted blocks Account: additive `host` / gridline `uid` keys + orphan-host drop (pointer only; verified at d44b0e11); prior 2026-10-20 HF3 Account: filled_regions key (loose-geometry list + C8 drop) pointer only (verified at 66880197); prior 2026-10-19 UP1 Account: fill-record no-version-bump pointer only (verified at 902c5c0e); prior 2026-10-18 HF1 Account: SAVE_VERSION 11 + colour_migration pointer; prior 2026-09-17  # + 2026-10-08 SV1 Account: `kind` sentence only (verified at b851b1aa) — rest not re-audited; + 2026-10-03 HF2 Account: §4 legacy-hatch sentence only (clean-dropped, hatch-and-fill H12; verified at 53e1773) — rest not re-audited
+verified-commit: f2f0db3e  # PH1 (v0.101.0; s2 SAVE_VERSION + phasing keys, s3 load order only); prior f1dcede4  # feature/sheet-linked-doc close (0.96.0; linked_document key only); prior bfe51a30  # notes merge on main (v0.93.0; SAVE_VERSION sentence); prior db3c357b  # data-loss merge on main (save / load failure clauses only); prior 7e5d3b15   # SB3b + L283 merge on main; prior db16090a  # Editor/Build slice 2 Account (constraints key only); prior ceacaab4  # SB2b Account (Marks keys only); prior d44b0e11  # gridline-hosted blocks Account (host / uid keys only); prior 66880197 HF3 Account (filled_regions key only); prior 902c5c0e UP1 Account (fill pointer only); prior 084b43e0 HF1 Account (SAVE_VERSION sentence only); prior 6a36206
 applies-to:
   - firepro3d/scene_io.py
   - firepro3d/project_backup.py
@@ -49,7 +49,7 @@ design areas) or on each item's `to_dict`/`from_dict` (geometry, walls, blocks�
 ### §2 — Save
 
 `save_to_file` writes a single JSON object (`payload`) with `version` =
-`Model_Space.SAVE_VERSION` (12 since the notes run: below it, `schematic_scene.migrate_old_schematics` turns old schematics Printed at the end of load, once per file, notes design N13; 11 since HF1 — **version-gated**: `colour_migration.migrate_project_payload`
+`Model_Space.SAVE_VERSION` (13 since PH1 project phasing: below it, `phase_registry.migrate_payload` runs on the raw payload before any deserializer and turns a pipe's `properties["Phase"]` text into the sparse `"phase"` id, rule owned by [`project-phasing.md`](project-phasing.md) D-PH6; 12 since the notes run: below it, `schematic_scene.migrate_old_schematics` turns old schematics Printed at the end of load, once per file, notes design N13; 11 since HF1 — **version-gated**: `colour_migration.migrate_project_payload`
 runs on the raw payload before any `from_dict` when `version < 11`, converting legacy default colours to
 `token:auto`; `.fpdb` files carry a `colour_tokens: 1` marker instead of a version — rules owned by
 [`hatch-and-fill.md` "HF1 build design"](hatch-and-fill.md). The 2D-shape `fill` record (UP1 two layers) adds **no** version bump or marker — a single read-time reader normalises the legacy record, see [`2026-10-18-up1-two-layer-fill-design.md`](../superpowers/specs/2026-10-18-up1-two-layer-fill-design.md) D1. 10 since LT2 was informational; primitive migration is
@@ -102,6 +102,15 @@ and paste. Meaning of the overrides: [`display-system.md`](../architecture/displ
 The undo snapshot carries the same Marks data through the same `to_dict` / codec paths, and now also the
 level list (`levels`), `plan_views`, `active_level` and per-underlay `underlay_levels`;
 network_codec's load and undo paths add pipes and sprinklers with `mint=False`, so neither re-mints a Mark.
+PH1 project phasing (SAVE_VERSION 13) adds a top-level `phases` key (the project status registry,
+`phase_registry.to_list()`) and a sparse `"phase"` status id, written only when not New, on `walls`
+(and their nested `openings`), `floor_slabs` (and their nested openings), `roofs`, `rooms`, `pipes`,
+`water_supply`, `blocks` and `underlays`. A pipe's `properties` map no longer carries `"Phase"`, and a
+node's `sprinkler` record drops its Phase row: the node entry carries a sparse `sprinkler_phase` instead,
+plus a sparse `fitting_phase_override` beside `fitting_display_overrides`. The undo snapshot carries
+the element keys through the same `to_dict` / `network_codec` paths; the `phases` registry and
+underlays are file-path only (underlays are never in the undo snapshot). Meaning of the ids and the override:
+[`project-phasing.md`](project-phasing.md) D-PH3, D-PH4.
 
 **Backups and atomic write** (`project_backup.py`): a Save first copies the existing file to
 `Backups/<stem> <YYYY-MM-DD HHMMSS><ext>` beside it, keeping the newest `PROJECT_BACKUP_KEEP` per
@@ -116,8 +125,10 @@ return a bool, so a cancelled or failed save also stops a Close.
 
 ### §3 — Load
 
-`load_from_file` reads `version` (default 1), runs `migrate_project_payload` (HF1) on the payload, calls `_clear_scene()`, then
-restores each section. Node ids are temp integers assigned at save and
+`load_from_file` reads `version` (default 1), runs `migrate_project_payload` (HF1) and then
+`phase_registry.migrate_payload` (PH1, §2) on the payload, calls `_clear_scene()`, then
+restores each section; the `phases` registry is installed with the fill-type and material tables,
+before any element reads a status id. Node ids are temp integers assigned at save and
 rehydrated into a `id → Node` map that pipes/design-areas reference. Constraints
 reference geometry by index into the same ordered `_all_geometry_items()` list.
 Load is **best-effort on migrations** (title-block field migration failures log

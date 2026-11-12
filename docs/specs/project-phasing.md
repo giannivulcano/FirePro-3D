@@ -1,8 +1,9 @@
 ---
-status: proposal          # concept ratified 2026-10-20 (grill Q1-Q19 + brainstorm sections 1-5); unbuilt -- slices PH1-PH8
-last-verified: 2026-11-06
-verified-commit: da92c5c4
+status: partial           # concept ratified 2026-10-20 (grill Q1-Q19 + brainstorm sections 1-5); PH1 data model built 2026-11-12 (v0.101.0); PH2-PH8 unbuilt
+last-verified: 2026-11-12
+verified-commit: f2f0db3e  # PH1 (v0.101.0; status, D-PH4, D-PH5, AC1-AC4, AC12, edge cases); prior da92c5c4
 applies-to:
+  - firepro3d/phase_registry.py
   - firepro3d/displayable_item.py
   - firepro3d/paper_display.py
   - firepro3d/paper_space.py
@@ -20,14 +21,17 @@ applies-to:
   - firepro3d/model_browser.py
   - firepro3d/underlay_manager.py
   - firepro3d/settings/template.py
-  # new: phase_registry.py, phase_display.py
+  # new (PH3): phase_display.py
 source-tasks: ["Project phasing -- assign a phase (New / Existing / Demolition; custom phases later) to every model element; sheet views display by phase (2026-10-20)"]
 ---
 
 # Project Phasing -- Design Spec
 
-> **Status: proposal.** Nothing below exists in code yet except the pipe `Phase`
-> property (`pipe.py`, enum New / Existing / Demo), which nothing renders. This spec
+> **Status: partial (PH1 built 2026-11-12, v0.101.0).** The data model is in code:
+> `phase_registry.py` holds the status registry (saved as `"phases"`), the shared Phase
+> panel row, the D-PH6 migration (`SAVE_VERSION` 13), the D-PH4 fitting derivation and
+> `effective_phase`; every D-PH3 kind carries `phase`, and placement, paste, duplicate and
+> array carry it. Nothing renders by phase yet (PH3), and the hydraulics ignore it (PH6). This spec
 > owns the *what* (decisions D-PH1...D-PH20). The *how* and the build slices PH1-PH8 are
 > owned by [`../superpowers/specs/2026-10-20-project-phasing-concept-design.md`](../superpowers/specs/2026-10-20-project-phasing-concept-design.md).
 > Promote each decision to "as built" here as its slice lands.
@@ -61,8 +65,8 @@ Each row was ratified at a human gate (grill question or approved design section
 | D-PH1 | End goal: Demo plan + New-work plan from one model (retrofit). | Q1 |
 | D-PH2 | A phase is a **status label** (one status per element), not a Revit timeline (no created/demolished stages). | Q2: fits demo + new plans; simplest to assign and read |
 | D-PH3 | Phased kinds: walls, openings, floors, roofs, rooms, pipes, sprinklers, water supply, block placements, underlays. Datum/annotation items (gridlines, level datums, view/detail markers, text, dimensions, design areas, hydraulic badges) carry none and always plot normally. 2D drafting takes its block placement's phase (model space holds no loose geometry, containment C1/C8). | Q3 + section 1 |
-| D-PH4 | Fittings derive their phase from all connected pipes: any New -> New; else any Existing -> Existing; else Demolition. A per-fitting override is allowed. Ruled 2026-11-11 (PH1): the override is a **Fitting Phase** row on the node's panel, `Auto (<derived>)` plus each status; picking Auto clears the override. | Q4 + PH1 FP1 |
-| D-PH5 | New elements default to New. The pre-placement property-panel template has a Phase field, committed on placement, sticky like the template's other fields. Ruled 2026-11-11 (PH1): kinds with no pre-placement template today (room, floor opening, water supply, block placement) always place as New; giving them templates is a follow-up. | Q5 (user's own answer) + PH1 FP1 |
+| D-PH4 | Fittings derive their phase from all connected pipes: any New -> New; else any Existing -> Existing; else Demolition. A per-fitting override is allowed. Ruled 2026-11-11 (PH1): the override is a **Fitting Phase** row on the node's panel, `Auto (<derived>)` plus each status; picking Auto clears the override. A saved override id the project no longer has loads as Auto (built PH1). | Q4 + PH1 FP1 |
+| D-PH5 | New elements default to New. The pre-placement property-panel template has a Phase field, committed on placement, sticky like the template's other fields. Ruled 2026-11-11 (PH1): kinds with no pre-placement template today (room, floor opening, water supply, block placement) always place as New; giving them templates is a follow-up. Ruled 2026-11-11 (PH1, Phase 5): drawing a pipe straight on from a free pipe end still merges into that pipe, and the merged pipe takes the template's phase. The template Phase stays set across a sprinkler catalog pick and Auto-populate (R7). | Q5 (user's own answer) + PH1 FP1 + PH1 Phase 5 ask |
 | D-PH6 | Legacy projects: saved pipe phases are honoured (Demo -> Demolition), every other element loads New, and viewports saved before phasing load with Phasing **off**, so old sheets plot identically. | Q6: old sheets must not change until opted in |
 | D-PH7 | The phase-display setting lives on each **sheet viewport** now. View-level defaults (inherited by viewports) are left to the view-templates spec session. | Q7: one plan view per level today; no view duplication needed |
 | D-PH8 | Viewport control: a **Phasing** master tick plus one **Show <status>** tick per status. Off = plots exactly as today. Plan, detail, elevation and section viewports, never schematic viewports (section added 2026-11-06: cardinal elevations are section views since the section subsystem shipped). | Q8 + Q19 |
@@ -83,10 +87,10 @@ Each row was ratified at a human gate (grill question or approved design section
 
 AC1-AC14 as ratified in Phase 2, AC15 added 2026-11-06 (task lines in `todo_open.md`, "## Project phasing"):
 
-- [ ] AC1 every phased kind (D-PH3) has a Phase, editable in the property panel.
-- [ ] AC2 fitting derivation + override (D-PH4).
-- [ ] AC3 template Phase committed on placement through every placement tool (D-PH5).
-- [ ] AC4 legacy load per D-PH6; a pre-phasing sheet renders pixel-identical.
+- [x] AC1 every phased kind (D-PH3) has a Phase, editable in the property panel (PH1). An underlay Phase edit marks the project unsaved with no undo step, as underlay edits do (R6).
+- [x] AC2 fitting derivation + override (D-PH4) (PH1).
+- [x] AC3 template Phase committed on placement through every placement tool (D-PH5) (PH1).
+- [ ] AC4 legacy load per D-PH6; a pre-phasing sheet renders pixel-identical. Load half built in PH1 (v12 fixture guard); the render half lands with PH3.
 - [ ] AC5 viewport Phasing + Show ticks (D-PH8).
 - [ ] AC6 Phases tab with factory graphics (D-PH10, D-PH9).
 - [ ] AC7 phase graphics round-trip in the project file (D-PH11).
@@ -94,7 +98,7 @@ AC1-AC14 as ratified in Phase 2, AC15 added 2026-11-06 (task lines in `todo_open
 - [ ] AC9 Demolition dashing coverage (D-PH13).
 - [ ] AC10 hydraulic exclusion + report line (D-PH14).
 - [ ] AC11 bulk editing tools (D-PH15).
-- [ ] AC12 parent/child + copy rules (D-PH16).
+- [ ] AC12 parent/child + copy rules (D-PH16). PH1 built the copy rules: paste, duplicate and array keep each element's phase and the fitting override, and pipes keep their whole record. A water-supply paste is refused while the project has one (R5). Still to build: the opening-in-a-demolished-wall warning (PH7) and block children resolving through `effective_phase` at render time (PH3).
 - [ ] AC13 hide semantics (D-PH17).
 - [ ] AC14 PDF/print = sheet (D-PH18).
 - [ ] AC15 a Material pattern keeps its pattern under a phase override (D-PH10, added 2026-11-06).
@@ -116,3 +120,4 @@ AC1-AC14 as ratified in Phase 2, AC15 added 2026-11-06 (task lines in `todo_open
 | Edit hides the current selection on a phased tab | the item disappears; status bar notice (D-PH17) |
 | Status renamed | every picker, row and Show tick relabels; ids never change |
 | File without a `phase` key | element is New |
+| Saved status id the project does not have | element reads New (one info log line); a fitting override reads Auto |

@@ -1,8 +1,9 @@
 ---
-status: proposal          # concept ratified 2026-10-20 (brainstorm sections 1-5, approach A); unbuilt -- slices PH1-PH8
-last-verified: 2026-11-06
-verified-commit: da92c5c4
+status: partial           # concept ratified 2026-10-20 (brainstorm sections 1-5, approach A); PH1 built 2026-11-12 (v0.101.0); PH2-PH8 unbuilt
+last-verified: 2026-11-12
+verified-commit: f2f0db3e  # PH1 (v0.101.0; PD1, PD4, build slices PH1 + PH7 rows); prior da92c5c4
 applies-to:
+  - firepro3d/phase_registry.py
   - firepro3d/displayable_item.py
   - firepro3d/paper_display.py
   - firepro3d/paper_space.py
@@ -24,7 +25,7 @@ applies-to:
   - firepro3d/property_manager.py
   - firepro3d/settings/template.py
   - firepro3d/feature_placement_controller.py
-  # new: phase_registry.py, phase_display.py
+  # new (PH3): phase_display.py
 source-tasks: ["Project phasing (2026-10-20)"]
 ---
 
@@ -91,19 +92,26 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
   - Each kind's explicit serializer writes `"phase"`: `to_dict` / `from_dict`, or
     `serialize_pipe` / `serialize_water_supply` in `network_codec.py`.
   - Pipe: the existing `_properties["Phase"]` row becomes this field (no second key).
-  - Sprinkler: an explicit `"phase"` key in the node entry (`serialize_node` / `deserialize_node`).
-  - Fitting: `phase_override` (None = derived), stored in the node entry next to
-    `fitting_display_overrides`. `Fitting` has no panel rows, so the override is a
+  - Sprinkler: an explicit key in the node entry (`serialize_node` / `deserialize_node`),
+    built PH1 as the sparse `"sprinkler_phase"`; the sprinkler's own property rows drop Phase.
+  - Fitting: `Fitting.phase_override` (None = derived), stored in the node entry as
+    `"fitting_phase_override"` next to `fitting_display_overrides` (built PH1; an id the
+    project lacks loads as None). `Fitting` has no panel rows, so the override is a
     "Fitting Phase" row on the node's panel (`Auto (<derived>)` + each status; Auto
     clears it; D-PH4 ruling 2026-11-11).
-  - Panel row: no shared row helper exists today (each kind hand-codes its rows); PH1 adds
-    one Phase row helper on the `materials.py` `property_row` / `set_from_row` model.
+  - Panel row: built PH1 as `phase_registry.property_row` / `set_from_row` (on the
+    `materials.py` model); a panel change requests one undo step, while placement, load and
+    paste assign `phase` directly. Serializers write `"phase"` only when it is not `new`,
+    so a New-only project saves the element records unchanged.
 - **Migration**: the next free `SAVE_VERSION` (12 is taken by Printed schematics; 13 at the
   2026-11-06 check), as its own step in the `scene_io` load beside `migrate_old_schematics`.
   `migrate_project_payload` is HF1 colour-only and returns early from v11, so it cannot hold
   this. Below that version, pipe `Phase` values map to ids (`Demo` -> `demolition`), the `"phases"` registry is seeded
   with factory graphics, and every `SheetViewData` gets `phase_display.enabled = False`
-  (D-PH6). A missing `phase` key always reads as `new`.
+  (D-PH6). A missing `phase` key always reads as `new`. Built PH1: `SAVE_VERSION` 13 and
+  `phase_registry.migrate_payload` on the raw payload before any deserializer (pipes only;
+  a missing `"phases"` key seeds factory). The `SheetViewData` half lands with
+  `PhaseDisplay` in PH3.
 - **`effective_phase(item)`** is the single reader for render, hydraulics, quantities and
   the browser. Block contents resolve to the outermost instance, elevation proxies to their
   `_ROLE_SOURCE` element, and fittings to the override or else the D-PH4 rule over all
@@ -166,10 +174,13 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
   `set_properties`; wall, floor (`_apply_floor_template_fields`), roof and opening copy field
   by field, so each gets an explicit `phase` line. Room, floor opening, water supply and
   block placement have no template object and place as `"new"` (D-PH5 ruling 2026-11-11;
-  templates for them are a follow-up).
-- **Template persistence**: `apply_template_settings` copies only scale, project info,
-  mark patterns, annotation defaults and title block, so the `"phases"` registry needs its
-  own overlay there.
+  templates for them are a follow-up). Built PH1, plus two rulings: the collinear pipe
+  extend (`_try_extend_collinear`) still merges, and the merged pipe takes the template
+  phase; the sprinkler template keeps its phase across a catalog pick and Auto-populate
+  (R7).
+- **Template persistence**: `apply_template_settings` copied only scale, project info,
+  mark patterns, annotation defaults and title block. Built PH1: `"phases"` is in the
+  blank template payload, overlaid on apply and captured on save.
 - **Set Phase**: a right-click submenu, one undoable command through the model undo
   snapshot; non-phased items in a selection are skipped.
 - **Model Browser**: a "Group by: Level | Phase" toggle plus a status filter.
@@ -182,7 +193,11 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
   `paste_items` stores only endpoints and calls `add_pipe(node1, node2)`: the open P2 bug
   "Pasted pipes lose all their properties"), and water supply joins `paste_items`. Sprinkler paste carries `phase`. Walls, floors,
   roofs and rooms paste through their own `from_dict` branches in `paste_items`, so the
-  `to_dict` key carries.
+  `to_dict` key carries. Built PH1: paste, duplicate and array carry each pipe's record
+  (properties, phase) and each copied node's fitting override; a water-supply paste is
+  refused while the project has one (R5), and the count status keeps the refusal reason.
+  An underlay re-placed through "Pick new position" keeps its phase; an underlay Phase
+  edit marks the project unsaved with no undo (R6).
 - **Hydraulics**: `HydraulicSolver` filters `system.pipes` (read in `_build_adjacency` and
   in `solve`'s pipe count) and the design heads by `effective_phase != "demolition"` (PH8: the registry's
   `include_in_calc`). Fitting types for the calc derive from the non-demolished pipes at
@@ -201,13 +216,13 @@ waiting on WM3 (colour cascade) or a port of the Qt-pen classes to the linetype 
 
 | Slice | Delivers | Depends on | VC3 guards (real path -> ground truth) |
 |---|---|---|---|
-| **PH1 Data model** | registry + `"phases"`; `phase` on every kind + panel row; pipe `Phase` folded in; migration step; `effective_phase`; fitting derivation + override; template copy at every placement site (AC1-AC4, AC12) | -- | save/load round-trip of each kind's phase; pre-phasing fixture with a pipe `Demo` loads per D-PH6; fitting rule over the four junction cases; placing through each tool commits the template's phase |
+| **PH1 Data model** (built 2026-11-12, v0.101.0) | registry + `"phases"`; `phase` on every kind + panel row; pipe `Phase` folded in; migration step; `effective_phase`; fitting derivation + override; template copy at every placement site (AC1-AC4, AC12) | -- | save/load round-trip of each kind's phase; pre-phasing fixture with a pipe `Demo` loads per D-PH6; fitting rule over the four junction cases; placing through each tool commits the template's phase |
 | **PH2 Phases tab** | Display Manager Phases tab; OK / Cancel / Reset All; project-saved, template-seeded (AC6, AC7) | PH1 | tab edit, then OK, then save/load keeps graphics; Cancel leaves the registry untouched |
 | **PH3 Sheet phasing** | `PhaseDisplay` on viewports + panel rows; paper hide / colour / fill / weight / opacity in every colour mode; host labels follow (AC5, AC9 minus dash, AC13 paper, AC14, AC15) | PH1, PH2 | offscreen sheet render and PDF export: Existing pixels grey, hidden status absent, Phasing-off render pixel-identical to the pre-phasing base |
 | **PH4 Demolition linetype** | pass linetype ref; blocks via a transient WM2 override (nested too); Qt-pen classes via `_outline_pen` dash in paper mm (AC9) | PH3, LT7 | sampled pixels along a Demolition wall, pipe and nested-block stroke show gaps at the linetype's paper-mm period |
 | **PH5 Canvas tabs** | plan, elevation + section `PhaseDisplay`; visibility through `_set_level_vis` on plan tabs, proxy build on section tabs; not pickable or snappable; status-bar notice (AC8, AC13) | PH1 | shown plan tab scrolled off the origin: a hidden element is not drawn, is no snap candidate, and a click does not select it (first step: P4 pick probe) |
 | **PH6 Hydraulics** | solver excludes Demolition; fitting types from the remaining pipes; report line (AC10) | PH1 | a network with a demolished branch solves equal to the same network with the branch deleted; the report lists the exclusion |
-| **PH7 Editing tools** | Set Phase (undoable); Model Browser group/filter; Underlay Manager column; opening warning; pipe paste keeps properties (AC11, AC12) | PH1 | each driven through its real entry point (menu action, browser click, manager cell) |
+| **PH7 Editing tools** | Set Phase (undoable); Model Browser group/filter; Underlay Manager column; opening warning; property-panel multi-edit (D-PH15 ruling 2026-11-11); pipe paste moved to PH1 (AC11, AC12) | PH1 | each driven through its real entry point (menu action, browser click, manager cell) |
 | **PH8 Custom statuses** | D-PH19 | PH2-PH5 | (designed at its own run) |
 
 Order: PH1 -> PH2 -> PH3 -> PH5 -> PH6 -> PH7; PH4 once LT7 has shipped. PH6 and PH7 need

@@ -1,7 +1,7 @@
 ---
 status: current          # documents as-built behaviour plus the bugs still open (§16.1)
-last-verified: 2026-11-11  # SB4e Account: §2.2 Node panel rows pointer to the hydraulic badge rows and §11.1 sparse badge_position note only, rest not re-audited; prior 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
-verified-commit: e991da71  # SB4e (v0.100.0; §2.2 / §11.1 notes only); prior 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
+last-verified: 2026-11-12  # PH1 Account: §2.1 Phase row, §2.2 Fitting Phase row, §3.3 / §4.2 collinear extend phase, §7 add_pipe step 3, §11.1 pipe JSON + phase keys, §12.2 template row only, rest not re-audited; prior 2026-11-11  # SB4e Account: §2.2 Node panel rows pointer to the hydraulic badge rows and §11.1 sparse badge_position note only, rest not re-audited; prior 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
+verified-commit: f2f0db3e  # PH1 (v0.101.0; §2.1 / §2.2 / §3.3 / §4.2 / §7 / §11.1 / §12.2 phase lines only); prior e991da71  # SB4e (v0.100.0; §2.2 / §11.1 notes only); prior 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
 applies-to:
   - firepro3d/pipe.py
   - firepro3d/node.py
@@ -68,8 +68,9 @@ These rules govern the entire pipe placement system:
 | Material | enum | `"Galvanized Steel"` | Galvanized Steel, Stainless Steel, Black Steel, PVC |
 | Line Type | enum | `"Branch"` | Branch (75 mm width), Main (150 mm width) |
 | Colour | enum | `"Red"` | Black, White, Red, Blue, Grey |
-| Phase | enum | `"New"` | New, Existing, Demo |
 | Show Label | enum | `"True"` | True, False |
+
+**Phase** is not in `_properties` (PH1): `pipe.phase` holds a project status id (default New), shown as a **Phase** panel row after Colour and saved as a sparse `"phase"` key (§11.1). Statuses and rules: [`project-phasing.md`](project-phasing.md) D-PH3, D-PH5, D-PH6.
 
 **Auto-assignment rule:** Diameters ≥ 3" automatically set Line Type to `"Main"`.
 
@@ -101,6 +102,7 @@ On the template panel the offset rows read **N1 Offset** / **N2 Offset** (meta `
 | **Offset** (key `"Ceiling Offset"`) | length | Recomputes `z_pos`; this node only. The old key, `"Elevation"`, `"Elevation Offset"` and the label `"Offset"` are all accepted by `set_property` (file load, aliases) |
 | **X**, **Y** | length, mm | Moves the node's whole riser stack (§6.4). **Y is up-positive** on the panel: scene Y is down-positive and `CAD_Math.flip_y` is the one conversion ([`units-and-formatting.md`](units-and-formatting.md) §4.2) |
 | **Z** | length, mm | Absolute elevation. Typing solves the **Offset** against the node's **kept** Ceiling Level and moves **this node only** (attached pipes slope; no level change). A no-change commit does nothing |
+| **Fitting Phase** | enum | `Auto (<derived>)` plus each status; sets or clears `fitting.phase_override` (PH1). Shown on the node's own panel only, not in a Pipe's Node 1 / Node 2 sections. Rule: [`project-phasing.md`](project-phasing.md) D-PH4 |
 
 X / Y / Z carry `single_only`: they show on a single selection and are skipped on a multi-selection and in a Pipe's inline "Node 1 / Node 2" sections ([`property-panel.md`](property-panel.md) §3.1). A committed edit requests one undo step (`request_undo_push`). The read-only **Absolute Elev.** row survives only in the Pipe's Node 1 / Node 2 sections. A node that carries a hydraulic badge (after a solve) also shows Badge Position and the read-only hydraulic value rows; they are owned by [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §11.1 and never show in a Pipe's Node 1 / Node 2 sections.
 
@@ -276,6 +278,7 @@ User clicks second point
     │   ├─ If yes:
     │   │   ├─ Reconnect existing pipe: replace start_node with end_node
     │   │   ├─ Remove orphaned start_node from scene
+    │   │   ├─ With a template: the merged pipe takes template.phase (PH1)
     │   │   └─ Return True (skip creating new pipe)
     │   └─ If no: Return False → create new pipe normally
     │   NOTE: applies to vertical pipes too — risers passing through
@@ -363,6 +366,7 @@ placement are byte-identical, and commit reuses the mouse's post-snap body
 1. Reconnect the existing pipe's endpoint from `start_node` → `end_node`
 2. Remove the now-orphaned `start_node`
 3. Result: one longer pipe instead of two pipes with a pass-through node
+4. With a template, the merged pipe takes the template's phase; its other properties stay its own ([`project-phasing.md`](project-phasing.md) D-PH5)
 
 **Guards:**
 - Node must not have a sprinkler (sprinklers require a dedicated node)
@@ -516,7 +520,7 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
 **Sequence:**
 1. Create `Pipe(n1, n2)` — registers pipe in both `n1.pipes` and `n2.pipes`
 2. Set `pipe.user_layer = active_user_layer`
-3. If template provided: `pipe.set_properties(template)` (copies all properties)
+3. If template provided: `pipe.set_properties(template)` (copies all properties and the phase)
 4. Set `pipe.level = active_level` (display level, NOT ceiling level)
 5. Register in `sprinkler_system.pipes`
 6. Add to scene (`addItem`)
@@ -689,11 +693,13 @@ A sparse `badge_position` key (the node's hydraulic badge side) is written only 
     "Diameter": "2\"Ø", "Schedule": "Sch 40",
     "C-Factor": "120", "Material": "Galvanized Steel",
     "Line Type": "Branch", "Colour": "Red",
-    "Phase": "New", "Show Label": "True"
+    "Show Label": "True"
   },
   "display_overrides": {}
 }
 ```
+
+PH1 (SAVE_VERSION 13): a sparse `"phase"` status id beside `properties`, written only when not New; a pre-13 file's `properties["Phase"]` text is migrated on load (Demo -> Demolition). A node entry carries a sparse `sprinkler_phase` and a sparse `fitting_phase_override`. Keys: [`scene-io.md`](scene-io.md) §2; rules: [`project-phasing.md`](project-phasing.md) D-PH4, D-PH6.
 
 A sparse `tag_block` key (the per-pipe label block id) is written only when set; a legacy `Label Size` property key is dropped on load ([`system-blocks.md`](system-blocks.md) section 8a).
 
@@ -718,7 +724,7 @@ A `Pipe(None, None)` instance — never added to the scene — that stores the u
 | Pipe tool activated | Template passed to `scene.set_mode("pipe", template)` |
 | First click (new node) | Template elevation → node |
 | First click (existing node) | Node elevation → template |
-| Pipe created | `pipe.set_properties(template)` copies all properties |
+| Pipe created | `pipe.set_properties(template)` copies all properties and the phase |
 | Chain continuation | End node elevation → template Node 1 |
 | Application exit | Save to `QSettings` |
 

@@ -1,7 +1,7 @@
 ---
 status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
-last-verified: 2026-11-10  # sheet-linked doc Account: §4.2 shared-path pointer, §8.5 pdf_raster pointer, applies-to rows only, rest not re-audited; prior 2026-11-07  # HF7 Account: §10.5 HATCH / SOLID rows, cache version 6, child data-slot map (data(8) mask), §13.1 item 14 -- pointers to the HF7 design only, rest not re-audited; prior 2026-11-03  # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only; prior 2026-10-18  # HF1 Account: cache version 5 / ACI 7 -> Automatic pointer only (rest not re-audited); prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-01 scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
-verified-commit: f1dcede4   # feature/sheet-linked-doc close (0.96.0; pointers only); prior 462c22d0   # HF7 branch head (ff to main, v0.95.0; pointers only); prior 6c03cd1c   # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only (ff to main); prior 084b43e0   # HF1 Account (pointer only); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c8ff4f4 feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
+last-verified: 2026-11-12  # PH1 Account: §3.2 phase field, §3.3 phase default row, §9.3 panel Phase note, §10.7 preserved fields only, rest not re-audited; prior 2026-11-10  # sheet-linked doc Account: §4.2 shared-path pointer, §8.5 pdf_raster pointer, applies-to rows only, rest not re-audited; prior 2026-11-07  # HF7 Account: §10.5 HATCH / SOLID rows, cache version 6, child data-slot map (data(8) mask), §13.1 item 14 -- pointers to the HF7 design only, rest not re-audited; prior 2026-11-03  # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only; prior 2026-10-18  # HF1 Account: cache version 5 / ACI 7 -> Automatic pointer only (rest not re-audited); prior MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior 2026-10-01 scene-tools P1 Account: §10.5.1 additive "straight" record key (no cache bump) + closed periodic DXF SPLINE path (DD7); prior 2026-09-28  # batch A dead-code sweep; prior 2026-09-26  # 2026-09-26 (b): Relink lives only in the Underlay Manager (5.4 + 9.3 table). 2026-09-26 (a): 2026-09-26 doc-drift sweep: levels are dialog-authored (import + Modify) with the Manager as post-import editor (3.2, 7.3, 7.4). Prior 2026-09-23  # 2026-09-23 (block polish): §10.14 import-preview frame — crop mapped into the preview group's local frame via the shared `dwg_converter.geom_rep_points` rule, free pan (padded scene rect), re-fit only on geometry change / rotation, fixed (0,0) preview pivot with source-coord base picks, rotation no longer sticky; §10.10 preview-pivot clause corrected. PdfImportWorker gained the same `preserve_curves` flag (default False → underlay path unchanged); the curve-import CONTRACT stays in `2d-geometry.md §3.5.3` (Rule A). Prior: 2026-09-18 C7 ribbon rework (`8c887aa`); 2026-09-15 DXF `preserve_curves`; §10.7 2026-09-08.
+verified-commit: f2f0db3e   # PH1 (v0.101.0; §3.2 / §3.3 / §9.3 / §10.7 phase lines only); prior f1dcede4   # feature/sheet-linked-doc close (0.96.0; pointers only); prior 462c22d0   # HF7 branch head (ff to main, v0.95.0; pointers only); prior 6c03cd1c   # DM chrome revision Account: shared eye painter pointer (ui_kit paint_eye) only (ff to main); prior 084b43e0   # HF1 Account (pointer only); prior 736cf5e3 MW Account (feat/mw-model-weights: MW pointers / superseded clauses); prior c8ff4f4 feat/scene-tools-p1-batch; prior d34aeb0   # batch A dead-code sweep; prior 7629311
 related-contract: reference-graphic-model.md   # target architecture (Underlay = special-case Block, C4); mechanics stay owned here (Rule A)
 applies-to:
   - firepro3d/settings/panes.py        # §17.1 ImportPane PDF DPI/mode defaults
@@ -162,6 +162,8 @@ class Underlay:
     # Display name (Import Dialog Polish v2). Blank → falls back to
     # basename(path) at every display site via _record_name (§10.11).
     name: str = ""
+    # Project phasing (PH1): status id; see project-phasing.md D-PH3.
+    phase: str = PHASE_NEW
 ```
 
 > **Removed field:** `hidden_in_views: list[str]` — per-view underlay exclusion is removed from the record. Per-view visibility is a property of the VIEW, to be re-homed onto PlanView/DetailView/SheetViewport as a future drafting-overrides/view-templates feature (cross-ref `view-relationships.md §7.4`). Interim: an underlay shows in every view of its assigned levels (paper viewports included). Any old `.fpd` files containing `hidden_in_views` silently ignore the key on load.
@@ -194,6 +196,7 @@ class Underlay:
 | `layout` | `""` | — |
 | `import_bounds` | `None` | — |
 | `name` | `""` | Blank display name; sites fall back to `basename(path)` (§10.11) |
+| `phase` | New | PH1: written only when not New (sparse), so a New underlay's record is unchanged |
 
 `hidden_in_views` is **not** emitted by `to_dict()` and is silently ignored by `from_dict()` (stale key from pre-56c8148 files). The old `level: str` key is also dropped from `to_dict()` output; `from_dict()` reads `levels` first and, if absent, falls back to the legacy `level` string to produce a single-element list.
 
@@ -404,6 +407,8 @@ Browser underlay nodes are **navigation-only**. Level readout shows the `levels`
 | Missing file node | — | Remove (Relink is in the Underlay Manager — §16.6) |
 
 **Remove confirmation:** The "Remove" action shows a confirmation dialog ("Remove underlay '{filename}'? This cannot be undone.") since underlay removal is not undoable and re-importing requires effort.
+
+**Property panel (PH1):** an underlay's panel rows are read-only labels except **Phase**. A Phase edit, from the browser node or a canvas selection, marks the project unsaved and adds no undo step, like every underlay edit ([`project-phasing.md`](project-phasing.md) AC1).
 
 ### 9.4 Properties dialog
 
@@ -634,7 +639,7 @@ On confirm, `Model_Space.replace_underlay` OVERWRITES only geometry and placemen
 `path / page / dpi / scale / rotation / base / selected_layers / layout / import_bounds / import_mode / levels / scale_verified / name`
 
 It PRESERVES the management fields:
-`colour / line_weight_name / layer_overrides (by layer name) / hidden_layers / visible / snap / locked / opacity`
+`colour / line_weight_name / layer_overrides (by layer name) / hidden_layers / visible / snap / locked / opacity / phase`
 
 > **`levels` is dialog-authored placement, not a preserved management field**
 > (§10.1 "Levels re-added"): the Placement panel's Levels multi-select authors

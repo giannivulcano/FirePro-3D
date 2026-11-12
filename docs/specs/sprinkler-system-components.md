@@ -1,7 +1,7 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
-verified-commit: e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/node.py                 # panel X / Y / Z + Offset rows, pick shape (pipe polish)
@@ -197,6 +197,7 @@ Full-featured manager dialog with two tabs:
 | — | — | Graphic | User-selected SVG variant |
 | — | — | Ceiling Level / Ceiling Offset | From parent Node. The panel row for `Ceiling Offset` is labelled **Offset** (meta `label`); the key is unchanged in `_properties`, files and `set_property`, which also accepts `"Offset"` |
 | — | — | X / Y / Z | Editable panel rows from the parent Node (`Node.position_rows()`), shown only when the sprinkler has a node. X, Y in mm, **Y up-positive** (`CAD_Math.flip_y`); Z is absolute elevation. `Sprinkler.set_property("X" / "Y" / "Z")` forwards to `node.set_property`: X / Y move the node (and its riser stack), Z solves the node's Offset against its kept Ceiling Level and moves that node only. The rows carry `single_only` (not on a multi-selection). A node-less template sprinkler shows no position rows, and `set_properties(template)` skips them, so a template never moves a node. Semantics: [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §2.2 |
+| — | — | Phase | Panel row, not a `_properties` entry: `sprinkler.phase` (status id, PH1). `set_properties(template)` copies it; "Use as Template" keeps the template's current phase. Rules: [`project-phasing.md`](project-phasing.md) D-PH5 |
 
 **Path note (verified 2026-07-14):** Two template application paths exist — auto-populate (`model_space.py`, sets `_properties[key]["value"]` directly) and the Sprinkler Manager "Use as Template" (`main.py::_apply_sprinkler_template_from_record`, via `set_property`). Both now transfer all seven mapped fields with correct keys (the former `"Temp Rating"`/`"Type"` wrong-key bug is fixed — §14 D9 resolved).
 
@@ -283,7 +284,7 @@ Material options: Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC.
 | Material | enum | Galvanized Steel | Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC |
 | Line Type | enum | Branch | Branch, Main |
 | Colour | enum | Red | Black, White, Red, Blue, Grey |
-| Phase | enum | New | New, Existing, Demo |
+| Phase | enum (panel row) | New | the project's statuses; not a `_properties` entry since PH1 (`pipe.phase`, a status id; [`project-phasing.md`](project-phasing.md) D-PH3) |
 | Show Label | enum | True | True, False |
 | Tag | enum (panel row) | Project default | per-pipe label block; not a `_properties` entry ([`system-blocks.md`](system-blocks.md) section 8a) |
 
@@ -520,6 +521,8 @@ Physical network endpoint representing the water main connection (`firepro3d/wat
 | Hose Stream Allowance | enum | 250 GPM | 100 GPM, 250 GPM, 500 GPM |
 | Domestic Water Allowance | string | 0 | gpm — **informational this task** (shown on the design-criteria badge, §11.10); adding it to solver demand is a planned follow-up (grill 2026-07-14) |
 
+`get_properties()` also returns a **Phase** panel row (`ws.phase`, a status id, PH1); it is not in `_properties`, and the file record carries it as a sparse `"phase"` key. A water supply places as New and can be pasted or duplicated, but a paste or duplicate of only a water supply is refused while the project already has one ([`project-phasing.md`](project-phasing.md) D-PH5, D-PH16).
+
 ### 10.3 Visual
 
 Same scaling pattern as Sprinkler:
@@ -666,6 +669,8 @@ Template properties saved to / restored from `QSettings("GV", "FirePro3D")`:
 - Key: `template/sprinkler` — dict of property key → value
 - Key: `template/pipe` — dict of property key → value
 
+Both dicts also carry `"Phase"` → the template's status id (PH1); a pre-PH1 pipe value `"Demo"` reads as Demolition.
+
 Survives application restarts.
 
 ### 12.3 Update Sources
@@ -674,14 +679,14 @@ Survives application restarts.
 |---|---|---|
 | Sprinkler Manager "Use as Template" | Yes | `_apply_sprinkler_template_from_record(record)` |
 | Property panel edit on placed sprinkler | No | Only modifies the placed instance |
-| Auto-populate dialog | No | Uses SprinklerRecord directly for batch placement |
+| Auto-populate dialog | No | Uses SprinklerRecord directly for batch placement; the placed heads take the current template's phase (PH1) |
 
 ### 12.4 Placement Flow
 
 1. User clicks sprinkler mode button → `scene.set_mode("sprinkler", template)`
 2. User clicks on a node → sprinkler added to that node. "On a node" means the item under the click is the Node (press priority Sprinkler, then Node, then Pipe): a plain node's hit disk is 12 screen px at any zoom (`NODE_PICK_PX`), so a click within 12 px of a node lands on it. A node that already has a sprinkler refuses the click
 3. User clicks on a pipe (further than that from every node) → pipe split at the click's projection onto it, new intermediate node created, sprinkler added. A click on empty space creates a node (`add_node`, which merges into a node within the fixed `SNAP_RADIUS`, 10 scene units)
-4. `sprinkler.set_properties(template)` copies all template property values to the new instance
+4. `sprinkler.set_properties(template)` copies all template property values and the phase to the new instance
 5. Fitting auto-updates on affected nodes
 
 ### 12.5 Mode Persistence
@@ -694,7 +699,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.1 Node Serialization
 
-**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, `room_name`, sprinkler properties (if sprinkler present; the node's hydraulic badge rows are stripped, `node.HYDRAULIC_ROW_KEYS`), a sparse `badge_position` (SB4e, only when not Auto; [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §11.1). `z_offset` is no longer written (removed 2026-05-03); the per-item layer field is gone (layer system removed).
+**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, `room_name`, sprinkler properties (if sprinkler present; the node's hydraulic badge rows and the Phase row are stripped, `network_codec.sprinkler_props`), a sparse `sprinkler_phase` and a sparse `fitting_phase_override` (PH1; [`scene-io.md`](scene-io.md) §2), a sparse `badge_position` (SB4e, only when not Auto; [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) §11.1). `z_offset` is no longer written (removed 2026-05-03); the per-item layer field is gone (layer system removed).
 
 **Load migration:**
 1. Read `ceiling_level` and `ceiling_offset_mm` (current format)
@@ -704,7 +709,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.2 Pipe Serialization
 
-**Saved fields:** node references (by index into node list), all `_properties` values, per-node ceiling fields (`node1_ceiling_level`, etc.).
+**Saved fields:** node references (by index into node list), all `_properties` values, a sparse `"phase"` (PH1; a pre-13 file's `"Phase"` property is migrated on load), per-node ceiling fields (`node1_ceiling_level`, etc.).
 
 **Backward compat:** Old save files containing pipe-level `ceiling_level`/`ceiling_offset_mm` fields are silently ignored on load; all ceiling data is read from endpoint Node attributes.
 
