@@ -110,7 +110,7 @@ def preview_painter(scene):
         from PyQt6.QtGui import QColor, QPen
         from . import stroke_style as ss
         from . import theme as th
-        from .constants import END_PREVIEW_PX_PER_MM
+        from .constants import END_PREVIEW_PX_PER_MM, END_PREVIEW_WEIGHTS
         from .end_render import end_trims, paint_ends
         from .path_walk import Seg, to_path, trim_pieces
         f = scene.capability_frame_item()
@@ -123,7 +123,7 @@ def preview_painter(scene):
         ink = QColor(th.detect().ink)
         painter.save()
         try:
-            for frac, weight in ((1.0 / 3.0, "Thin"), (2.0 / 3.0, "Heavy")):
+            for frac, weight in zip((1.0 / 3.0, 2.0 / 3.0), END_PREVIEW_WEIGHTS):
                 y = rect.top() + rect.height() * frac
                 pieces = (Seg(x0, y, x1, y),)
                 pen = QPen(ink, ss.canvas_px(weight))

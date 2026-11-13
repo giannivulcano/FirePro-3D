@@ -113,3 +113,13 @@ def test_load_template_mw_or_legacy_factory_becomes_defaults():
             (d.name, d.width_mm, d.model_px) for d in pd.DEFAULT_LINE_WEIGHTS]
     s.setValue("paper/line_weights", json.dumps([{"name": "Solo", "width_mm": .4}]))
     assert [d.name for d in pd.load_line_weights(s)] == ["Solo"]
+
+
+def test_end_preview_sample_lines_use_distinct_default_weights():
+    """F7: the End-type swatch's two sample lines name live Defaults that
+    print at visibly different widths (0.18 / 0.50 mm per LW-DC-1)."""
+    from firepro3d.constants import END_PREVIEW_WEIGHTS
+    thin, heavy = END_PREVIEW_WEIGHTS
+    assert thin in pd.weight_names() and heavy in pd.weight_names()
+    assert pd.resolve_line_weight_mm(thin) == 0.18
+    assert pd.resolve_line_weight_mm(heavy) == 0.50
