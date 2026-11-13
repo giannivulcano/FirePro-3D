@@ -142,6 +142,63 @@ class SymbolBlockItem(QGraphicsItem):
         ops = self._ops() if self.scene() is not None else []
         return ops_shape(ops) if ops else QPainterPath()
 
+    # -- Symbol row (SB4g D7; the TagBlockHost._tag_row pattern) ---------------
+    def _symbol_scene(self):
+        """The scene that lists / embeds choices: the item's own, else a
+        template's ``_scene_ref`` (MainWindow sets it on placement templates)."""
+        sc = self.scene()
+        return sc if sc is not None else getattr(self, "_scene_ref", None)
+
+    def symbol_row(self) -> dict:
+        """The Symbol enum row: the System symbols of this category, then
+        flagged user-library blocks (``annotation_choices.symbol_choices``); a
+        kept missing / ineligible id is listed so the row can show it. None
+        (= the System default) shows as the default block's entry. Enum rows
+        carry strings, so the label -> Choice map is kept for the setter;
+        with no scene the row shows the stored / default id alone."""
+        from . import annotation_choices as ac
+        from .system_blocks import SYMBOL_DEFAULTS
+        want = self.symbol_block or SYMBOL_DEFAULTS[self.category]
+        self._symbol_choices = {}
+        sc = self._symbol_scene()
+        if sc is not None and hasattr(sc, "_block_definitions"):
+            for c in ac.symbol_choices(sc, self.category, current=self.symbol_block):
+                self._symbol_choices.setdefault(c.label, c)
+        value = next((lbl for lbl, c in self._symbol_choices.items()
+                      if c.block_id == want), None)
+        if value is None:                      # off-scene template: nothing to list
+            value = want
+            self._symbol_choices[want] = ac.Choice(want, want)
+        return {"type": "enum", "value": value, "options": list(self._symbol_choices)}
+
+    def set_symbol_from_row(self, label: str) -> None:
+        """Apply a Symbol row pick (D7): the label maps through the row's
+        choice map (rebuilt when unknown); "< mixed >" and stale labels are
+        no-ops (property-panel.md 3.5). Picking the category's System default
+        stores None (sparse, D6). A "(Library)" pick embeds first; embed +
+        assignment are ONE undo step (``deferred_undo_push``), as the Tag row."""
+        import contextlib
+        from .annotation_choices import pick_block_id
+        from .system_blocks import SYMBOL_DEFAULTS
+        if label not in getattr(self, "_symbol_choices", {}):
+            self.symbol_row()
+        choice = self._symbol_choices.get(label)
+        if choice is None:
+            return
+        sc = self._symbol_scene()
+        cm = getattr(sc, "deferred_undo_push", None) if sc is not None else None
+        with (cm() if callable(cm) else contextlib.nullcontext()):
+            ok, bid = pick_block_id(sc, choice)
+            if not ok:
+                return
+            if bid == SYMBOL_DEFAULTS[self.category]:
+                bid = None
+            if bid == self.symbol_block:
+                return
+            self.set_symbol_block(bid)
+            if self.scene() is not None and hasattr(sc, "request_undo_push"):
+                sc.request_undo_push()          # an on-scene pick IS an undo step (AC3)
+
     # -- tint + paint ---------------------------------------------------------
     def set_tint(self, stroke: str | None, fill: str | None) -> None:
         """Store the DM / paper tint pair and repaint (tokens resolve per paint,

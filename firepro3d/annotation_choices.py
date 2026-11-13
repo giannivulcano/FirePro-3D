@@ -33,6 +33,24 @@ class Choice:
     path: str | None = None
 
 
+def pick_block_id(sc, choice) -> tuple[bool, str | None]:
+    """The block id a picker *choice* assigns (shared by the Tag row, SB3b,
+    and the Symbol row, SB4g D7). A "(Library)" entry embeds its file first
+    (``blocks_browser.ensure_block_loaded``); returns ``(False, None)`` when
+    that load failed (its message is shown), else ``(True, id)`` -- ``None``
+    for a ``None`` choice (the Tag row's project default)."""
+    if choice is None:
+        return True, None
+    bid = choice.block_id
+    if choice.path and sc is not None:
+        from .blocks_browser import ensure_block_loaded
+        name = choice.label.removesuffix(f" ({LIBRARY_TIER})")   # bare block name
+        bid = ensure_block_loaded(sc, choice.block_id, choice.path, name, parent=None)
+        if bid is None:
+            return False, None
+    return True, bid
+
+
 _parsed: dict[str, tuple[tuple[int, int], object]] = {}   # path -> ((mtime_ns, size), BlockDefinition | None)
 
 

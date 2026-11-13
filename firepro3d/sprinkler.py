@@ -60,7 +60,12 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
     # Public property API
 
     def get_properties(self) -> dict:
-        props = self._properties.copy()
+        from .system_blocks import SYMBOL_ROW_KEY
+        props = {}
+        for k, v in self._properties.items():      # the Symbol row takes Graphic's old slot
+            if k == "Ceiling Level":
+                props[SYMBOL_ROW_KEY] = self.symbol_row()
+            props[k] = v
         # Sync ceiling properties from the parent node
         if self.node is not None:
             props["Ceiling Level"] = dict(props["Ceiling Level"])
@@ -90,6 +95,10 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
         return props
 
     def set_property(self, key: str, value):
+        from .system_blocks import SYMBOL_ROW_KEY
+        if key == SYMBOL_ROW_KEY:
+            self.set_symbol_from_row(value)
+            return
         if key == "Badge Position":
             if self.node is not None:
                 self.node.set_property(key, value)

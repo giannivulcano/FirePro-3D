@@ -444,17 +444,10 @@ class TagBlockHost:
         sc = self.scene()
         cm = getattr(sc, "deferred_undo_push", None) if sc is not None else None
         with (cm() if callable(cm) else contextlib.nullcontext()):
-            bid = None
-            if choice is not None:
-                bid = choice.block_id
-                if choice.path and sc is not None:
-                    from .blocks_browser import ensure_block_loaded
-                    from .annotation_choices import LIBRARY_TIER
-                    name = choice.label.removesuffix(f" ({LIBRARY_TIER})")   # bare block name
-                    bid = ensure_block_loaded(sc, choice.block_id, choice.path,
-                                              name, parent=None)
-                    if bid is None:
-                        return                      # load failed (message shown); nothing assigned
+            from .annotation_choices import pick_block_id
+            ok, bid = pick_block_id(sc, choice)
+            if not ok:
+                return                              # load failed (message shown); nothing assigned
             if bid == self._tag_block:
                 return
             self._tag_block = bid

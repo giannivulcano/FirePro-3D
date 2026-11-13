@@ -82,12 +82,17 @@ class WaterSupply(SymbolBlockItem):
     # Property API (compatible with PropertyManager)
 
     def get_properties(self) -> dict:
+        from .system_blocks import SYMBOL_ROW_KEY
         props = self._properties.copy()
+        props[SYMBOL_ROW_KEY] = self.symbol_row()                         # SB4g D7 / R7
         props[phase_registry.ROW_KEY] = phase_registry.property_row(self)   # PD1
         return props
 
     def set_property(self, key: str, value: str):
-        if key == phase_registry.ROW_KEY:
+        from .system_blocks import SYMBOL_ROW_KEY
+        if key == SYMBOL_ROW_KEY:
+            self.set_symbol_from_row(value)
+        elif key == phase_registry.ROW_KEY:
             phase_registry.set_from_row(self, value)
         elif key in self._properties:
             self._properties[key]["value"] = str(value)
