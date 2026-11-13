@@ -17,6 +17,32 @@
 - [ ] [type:bug] `project_backup._prune` matches the extension case-sensitively, so `.fpd` and `.FPD` saves prune apart [P4] [subject:Architecture]
   - Details: `_prune` builds its pattern from the saved name's own extension, so the same project saved under both spellings on Windows keeps up to 10 of each. Match on `re.IGNORECASE`.
 
+## Project tables (open / new / save)
+
+- [ ] [type:maint] One `project_tables` module owns migrating, installing and saving the project tables on open, New, startup and Save, so callers no longer have to know the ordering [P2] [subject:Architecture]
+  - Details: architecture review 2026-11-13, candidate 1, grilled the same day (all 11 rulings user-agreed). Term: **project tables** (`GLOSSARY.md`): line weights and aliases, fill types, materials, phases, Display Manager rows and paper categories. Land it before PH3 adds phase graphics.
+    - **Problem.** The "migrate, then install, then read" order is spread over:
+      - `scene_io.load_from_file`: `migrate_project_payload`, `phase_registry.migrate_payload`, `apply_project_weights(stash=True)`, fill types, materials, `load_project_phases`, `pending_weight_mapping` + `migrate_underlay_entry`, then `apply_pending_weight_migration` at the end
+      - `main._apply_loaded_file`: `apply_project_display_settings` / `apply_saved_display_settings`, `apply_paper_display_from_project` (installs the weight table a second time)
+      - the module global `paper_display._PENDING_LW_MIGRATION`
+      - `apply_pending_weight_migration` changes the `_loaded_paper_display` / `_loaded_display_settings` payloads in place for the later re-apply
+      - the reset sequence for New and startup, repeated word for word at `main.py` ~770 and ~4048 (fill types, materials, phases, `apply_default_display_settings`, `reset_project_line_weights`, then `apply_template_settings`, which loads phases again)
+      - Commits F3-F6 (LW-DC) were all bugs in this ordering.
+    - **Rulings:**
+      - **Q1 scope:** every project table plus its migration (HF1 colour, D-PH6 phases, LW-DC-8 weights and aliases, fill types, materials, DM rows, paper categories). OUT: QSettings migrations that run at app start (`migrate_settings_weights`, `_migrate_display_keys`).
+      - **Q2 weight migration:** a load-session object replaces `_PENDING_LW_MIGRATION`. Beginning the load returns the session, which carries the underlay map. Finishing it runs the live-holder retarget (`weight_refs.retarget_weight_refs`, scratch QSettings) and fixes the payload. The LW-DC-8 rule that the mapping is computed when it is used, after the block-library merge (`_merge_bundled_weights`), stays as it is. Do NOT rewrite the payload before parse.
+      - **Q4 fully styled open:** the session's finish applies the DM rows (QSettings fallback included) and the paper categories, so `load_from_file` returns a fully styled scene. `main._apply_loaded_file` keeps only `_refresh_weight_canvases` (window re-pen).
+      - **Q5 fresh projects:** a fresh entry point (seed set + template) replaces the duplicated New/startup sequence.
+      - **Q8 shape:** `project_tables` orchestrates. Each table module keeps its storage and its load/migrate functions as internal seams that only `project_tables` calls. No single stored `ProjectTables` value.
+      - **Q9 save:** saving goes through it too (`get_paper_display_for_save`, fill types, materials, phases, display settings), so the module round-trips: file data in, saved data out, identical.
+      - **Q10 undo:** `_restore_network` stays OUT (see the DM Ctrl+Z bug, which carries a cross-reference).
+    - **Q6 gate (do this first):** write characterisation tests before moving any code:
+      - Open each of: a pre-LT1 file with no weight table, a schema-1 file with a table, a schema-2 file, the template clone, crash recovery, and New.
+      - Snapshot the resolved tables, every holder's weight name, and the bytes of an immediate re-save; these must match exactly after the change.
+      - Then rewrite the tests that read `pd._PENDING_LW_MIGRATION` or monkeypatch `apply_pending_weight_migration` (`tests/test_lwdc_open_migration.py`, the F8 MainWindow test) against the module's interface.
+    - **Q11 spec:** add a new "Project tables" section in `docs/specs/scene-io.md` that owns the order (migrate, install, build, finish) and the three entry points (from file, fresh, save). `linetypes.md` LW-DC-8, `project-phasing.md` D-PH6, `hatch-and-fill.md` R9 and `materials.md` link to it instead of restating their step. Add a `SPEC-INDEX.md` applies-to line for `project_tables.py`.
+    - Files: `firepro3d/scene_io.py`, `main.py`, `firepro3d/paper_display.py`, `firepro3d/display_manager.py`, `firepro3d/phase_registry.py`, `firepro3d/colour_migration.py`, `firepro3d/fill_types.py`, `firepro3d/materials.py`, `firepro3d/settings/template.py`, `firepro3d/weight_refs.py`.
+
 ## Paper-space sheet output
 
 - [ ] [type:feature] "New sheets from document…" in the sheet list: one sheet per page of a linked document in one go [P4] [subject:Paper]
@@ -560,6 +586,8 @@
   - Details: `Model_Space._network_signature` includes the sparse `symbol_block` (through `network_codec.sprinkler_props`), so a Symbol pick (display only) invalidates the solve. Not a regression (the old `Graphic` did the same). Exclude it like Badge Position; guard: solve, pick a Symbol, assert `hydraulic_result` survives.
 - [ ] [type:maint] `hydraulic_report.py` calls `ws.get_properties()` with the Symbol row, one user-library disk walk per report build (SB4g VC9 fix-round Minor, 2026-11-12) [P4] [subject:Hydraulics]
   - Details: pass `with_symbol_row=False` as `network_codec.sprinkler_props` does since 5efde87f (I1: 300 heads 667 ms -> 19 ms on the serialize paths). Grep the other `get_properties()` callers on non-panel paths at the same time.
+- [ ] [type:bug] Section / elevation views still draw sprinkler heads as a hard-coded 30 mm ellipse coloured by orientation, not the head's symbol block (architecture review 2026-11-13) [P3] [subject:CAD]
+  - Details: `SectionScene._project_sprinklers` (`section_scene.py`) builds an `_ElevProxyEllipse` of radius 30 mm with a cosmetic 1.5 px pen in #ff3232 Pendent / #32c832 Sidewall / #3264ff otherwise, ignoring the head's `symbol_block`, DM Sprinkler row and paper overrides. Since SB4g the plan view draws the head from `SymbolBlockItem` (`symbol_block.py`). Grill first: what a head looks like in a cut (the plan symbol rotated into the section plane? an elevation symbol on the block? a DM-driven proxy?) and whether `view_3d._extract_sprinklers` needs the same treatment. ref: system-blocks.md s8g, section-view-subsystem.md (via SPEC-INDEX). Related: the review's "per-element view projection" candidate, in which each element type supplies its own section and 3D projection.
 - [ ] [type:feature] Per-marker Tag row for the Elevation / Section / Detail marker categories (project default only today) [P3] [subject:CAD]
   - Details: SB4d Phase 2 Q10 ruling 2026-11-03 (project default only; filed per the design doc). Room and Gridline carry a per-element Tag row; the three marker categories resolve the Annotation pane default only. Add the `TagBlockHost` row to `SectionMarker` / `DetailMarker` `get_properties` and the per-instance swap (`annotation_block` resolver already takes an instance override). ref: system-blocks.md s8d. `section_marker.py`, `detail_view.py`.
 - [ ] [type:feature] Marks `{a}` letter pattern token (A, B, ..., AA) for Section / Detail marks [P3] [subject:CAD]
@@ -1216,6 +1244,7 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 - [ ] [type:bug] A model Ctrl+Z flips Display Manager category settings to the user's "Set as Default" values [P3] [subject:UX]
   - Details: PROVEN PRE-EXISTING at `8ee2ad3` (LT2 G-B fix round probe `D:\Scratch\fp3d_tmp\probe_cat_undo.py`): user default `display/2D Geometry/default_color` red, project opens/edits the category to blue, `push_undo_state` x2 + `undo()` -> colour back to red. Cause: `_restore_network` -> `apply_saved_display_settings` applies `default_*` keys on every undo restore. LT2 fixed the same flaw for its new Model "Blocks" weight (`_apply_model_blocks_weight(use_user_default=False)`) -- generalise that to the categories. Related: categories' QSettings-as-live-store flaw (filed under Paper-space sheet output). ref: linetypes.md LT2 H-e.
   - +1 occurrence (SB4g T12 review, 2026-11-12; VC7-proven by the orchestrator 2026-11-12: base 28039a0c and HEAD 06ab2deb both give a fresh head (None, None) -> ('#ff4444', 'token:bg') after `apply_saved_display_settings`): with NO saved DM Sprinkler row, a fresh head draws authored (#2e2e2e fill / #ffffff stroke, R9-correct) because `apply_category_defaults` skips SVG categories with nothing saved, but the first undo or file open runs `apply_saved_display_settings`, which writes the factory row (`_CATEGORIES` Sprinkler #ff4444 / TOKEN_BG) to QSettings and tints every head -- so later new heads are factory-tinted too. Fix with the same rule: never materialise factory defaults on restore.
+  - Cross-ref (architecture review 2026-11-13): the `project_tables` task under "Project tables (open / new / save)" leaves undo restore out of scope (Q10). Once it lands, fix this bug by restoring the categories from the project tables, not from QSettings.
 - [ ] [type:maint] Spec drift: `text-annotation-system.md` says `border_weight` defaults to "Light"; code default is "Medium" [P4] [subject:Documentation]
   - Details: found at the LT2 Account (2026-10-04, pre-existing -- not introduced by LT2). `text_item.TextAnnotationData.border_weight = "Medium"` (and its `from_dict` default) vs the spec's field table. Decide which is intended (LT1 polish leftover (f) notes the Medium default bundles `weights: {Medium}` into most `.fpdb`s), then reconcile spec or code.
 - [ ] [type:maint] LT1 polish leftovers (reviews, inert) [P4] [subject:UX]
