@@ -21,6 +21,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QPainterPath
 from PyQt6.QtCore import Qt, QPointF
 
 from . import phase_registry
+from . import element_uid
 from .bound_label import BoundLabelItem, TagBlockHost
 from .colour_tokens import resolve_colour
 from .constants import DEFAULT_LEVEL, Z_ANNOT_TAG
@@ -76,6 +77,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
                  color: str | QColor = "#4488cc", *,
                  holes: list[list[QPointF]] | None = None):
         super().__init__()
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self._boundary: list[QPointF] = list(boundary) if boundary else []
         # Hole rings (room-detection rework §2.1): islands this room surrounds.
         # polygon() stays the outer ring; holes are a snapshot like it (§8.5).
@@ -655,6 +657,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
             d["holes"] = [[[p.x(), p.y()] for p in h] for h in self._holes]
         if self._tag_block is not None:
             d["tag_block"] = self._tag_block          # SB3b: absent = project default
+        element_uid.uid_to_dict(self, d)
         phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283
 
@@ -663,6 +666,7 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         pts = [QPointF(p[0], p[1]) for p in data.get("boundary", [])]
         holes = [[QPointF(p[0], p[1]) for p in h] for h in data.get("holes", [])]
         room = cls(boundary=pts, color=data.get("color", "#4488cc"), holes=holes)
+        element_uid.uid_from_dict(room, data)
         room.name = data.get("name", "")
         room._mark = data.get("mark", data.get("tag", ""))
         room._show_label = data.get("show_label", True)

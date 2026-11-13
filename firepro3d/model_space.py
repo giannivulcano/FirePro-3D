@@ -66,6 +66,7 @@ from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
+from . import element_uid
 from .floor_opening import FloorOpening, drop_carried_voids
 from .feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
@@ -9550,7 +9551,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     wall.setVisible(False)      # L283: the category apply re-showed a carried Hide
                 marks.mint(self, wall)
                 for op_data in obj.get("openings", []):
-                    op = WallOpening.from_dict(op_data, wall=wall)
+                    op = WallOpening.from_dict(element_uid.without_uid(op_data), wall=wall)
                     op.level = wall.level
                     wall.openings.append(op)
                     self.addItem(op)
@@ -9558,7 +9559,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     marks.mint(self, op)
                 new_items.append(wall)
             elif obj_type == "room":
-                room = Room.from_dict(obj)
+                room = Room.from_dict(element_uid.without_uid(obj))   # a copy mints (SB5 D4)
                 self._retarget_level_refs(room, obj.get("level"), "_ceiling_level")
                 room.level = self.active_level
                 room._scale_manager_ref = self.scale_manager
@@ -9568,7 +9569,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 marks.mint(self, room)
                 new_items.append(room)
             elif obj_type == "floor_slab":
-                slab = FloorSlab.from_dict(obj)     # pure z-range: refs naming the source retarget
+                slab = FloorSlab.from_dict({        # a copy mints, voids too (SB5 D4)
+                    **element_uid.without_uid(obj),
+                    "openings": [element_uid.without_uid(o) for o in obj.get("openings", [])]})
+                # pure z-range: refs naming the source retarget
                 self._retarget_level_refs(slab, obj.get("source_level"),
                                           "_top_level", "_bottom_level")
                 slab.translate(offset.x(), offset.y())   # carries its voids (A2)
@@ -9579,7 +9583,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     marks.mint(self, op)   # a pasted void gets a fresh Mark (A2)
                 new_items.append(slab)
             elif obj_type == "roof":
-                roof = RoofItem.from_dict(obj)
+                roof = RoofItem.from_dict(element_uid.without_uid(obj))   # a copy mints (SB5 D4)
                 roof.level = self.active_level      # its only level ref (eave level)
                 roof._scale_manager_ref = self.scale_manager
                 roof.translate(offset.x(), offset.y())
@@ -9593,7 +9597,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     skip_reason = WATER_SUPPLY_ONE
                     continue
                 from .network_codec import deserialize_water_supply
-                ws = deserialize_water_supply(self, {**obj, "x": obj["x"] + offset.x(),
+                ws = deserialize_water_supply(self, {**element_uid.without_uid(obj),
+                                                     "x": obj["x"] + offset.x(),
                                                      "y": obj["y"] + offset.y()})
                 new_items.append(ws)
             elif obj_type == "design_area":

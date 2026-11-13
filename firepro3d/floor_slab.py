@@ -76,6 +76,7 @@ def _scene_hit_width(item) -> float:
 from .displayable_item import DisplayableItemMixin
 from . import materials
 from . import phase_registry
+from . import element_uid
 from .paper_display import shows_selection
 
 
@@ -92,6 +93,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def __init__(self, points: list[QPointF] | None = None,
                  color: str | QColor = "#8888cc"):
         super().__init__()
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self._points: list[QPointF] = [QPointF(p) for p in (points or [])]
         self._color = QColor(color) if isinstance(color, str) else QColor(color)
 
@@ -582,6 +584,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         }
         if self.openings:               # only when non-empty: void-less files unchanged (AC7)
             d["openings"] = [op.to_dict() for op in self.openings]
+        element_uid.uid_to_dict(self, d)
         materials.write_element(self, d)
         phase_registry.write_element(self, d)
         # Per-instance Display-Manager overrides: the shared mixin helper (L283).
@@ -591,6 +594,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def from_dict(cls, data: dict) -> "FloorSlab":
         points = [QPointF(p[0], p[1]) for p in data.get("points", [])]
         slab = cls(points=points, color=data.get("color", "#8888cc"))
+        element_uid.uid_from_dict(slab, data)
         slab.name = data.get("name", "")
         if "top_mode" in data:                      # new schema
             slab._top_mode = data["top_mode"]

@@ -140,4 +140,5 @@ class TestPersistence:
         out = tmp_path / "resaved.fpd"
         scene.save_to_file(str(out))
         new = json.loads(out.read_text(encoding="utf-8"))
-        assert new["rooms"][0] == old["rooms"][0]          # byte-identical room record (§2.6)
+        assert len(new["rooms"][0].pop("uid")) == 32        # SB5 D2: first save of a legacy room mints a uid
+        assert new["rooms"][0] == old["rooms"][0]          # otherwise byte-identical room record (§2.6)

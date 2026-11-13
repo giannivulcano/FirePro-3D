@@ -20,6 +20,7 @@ from PyQt6.QtGui import QColor, QPainterPath, QPainterPathStroker, QPen, QPolygo
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QStyle
 
 from . import phase_registry
+from . import element_uid
 from .colour_tokens import resolve_colour
 from .constants import Z_OPENING_ABOVE_HOST
 from .displayable_item import DisplayableItemMixin
@@ -56,6 +57,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
     def __init__(self, points: list[QPointF], host: "FloorSlab",
                  feature_id: str = DEFAULT_FLOOR_OPENING_FEATURE, mark: str = ""):
         QGraphicsPathItem.__init__(self)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self.init_displayable()
         self.feature_id: str = feature_id
         self._points: list[QPointF] = [QPointF(p) for p in points]
@@ -164,12 +166,13 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
     # -- Serialisation (nested in the host slab's record) ---------------------
 
     def to_dict(self) -> dict:
-        """``{"feature_id", "points", "mark", "display_overrides"?}`` (spec A2)."""
+        """``{"feature_id", "points", "mark", "uid", "display_overrides"?}`` (spec A2)."""
         d = {
             "feature_id": self.feature_id,
             "points": [[p.x(), p.y()] for p in self._points],
             "mark": self._mark,
         }
+        element_uid.uid_to_dict(self, d)
         phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)
 
@@ -180,6 +183,7 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
                  host=host,
                  feature_id=data.get("feature_id", DEFAULT_FLOOR_OPENING_FEATURE),
                  mark=data.get("mark", ""))
+        element_uid.uid_from_dict(op, data)
         op.display_overrides_from_dict(data)
         phase_registry.read_element(op, data)
         return op

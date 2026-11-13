@@ -26,6 +26,7 @@ from .gridline import BUBBLE_RADIUS_MM
 from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .paper_display import shows_selection
 from .view_marker_head import ViewMarkerHead
+from . import element_uid
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -55,6 +56,7 @@ class DetailMarker(QGraphicsPathItem):
     def __init__(self, name: str, rect: QRectF, level_name: str = DEFAULT_LEVEL,
                  parent: QGraphicsItem | None = None):
         super().__init__(parent)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self._name = name
         self._level_name = level_name
         self._crop_rect = rect.normalized()
@@ -470,6 +472,7 @@ class DetailMarker(QGraphicsPathItem):
         # Always written, "" included (SB4d D3, Phase 5 ruling): an absent key is
         # the pre-SB4d signal that adopts the name token on load (Q20), so a
         # deliberately blank Mark must stay blank (M7).
+        element_uid.uid_to_dict(self, d)
         d["mark"] = self._mark
         if self._view_height is not None:
             d["view_height"] = self._view_height
@@ -486,6 +489,7 @@ class DetailMarker(QGraphicsPathItem):
             rect=rect,
             level_name=data.get("level_name", DEFAULT_LEVEL),
         )
+        element_uid.uid_from_dict(marker, data)
         bp = data.get("bubble_pos")
         if bp:
             marker._set_bubble_pos(QPointF(bp["x"], bp["y"]))
@@ -731,6 +735,7 @@ class DetailViewManager:
             rect = QRectF(cr["x"], cr["y"], cr["w"], cr["h"])
             level = d.get("level_name", DEFAULT_LEVEL)
             marker = self.create_detail(name, rect, level, mint=False)
+            element_uid.uid_from_dict(marker, d)    # SB5 D2: the saved uid (marker already in the scene)
             from .marks import name_token
             marker._mark = d["mark"] if "mark" in d else name_token(name)   # Q20: adopt once
             marker.refresh_heads()                  # the head was built before the Mark was set
