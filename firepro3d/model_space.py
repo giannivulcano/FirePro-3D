@@ -734,6 +734,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._uid_miss.clear()
         self._uid_gen += 1
         super().clear()
+        self._uid_gen += 1              # re-bump: a miss memoized during clear() is stale
 
     def addItem(self, item) -> None:
         """Qt add, then register *item* and its descendants in the uid index
@@ -754,30 +755,40 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         except RuntimeError:            # a C++-deleted wrapper
             return False
 
-    def _uid_register_one(self, it) -> None:
+    def _uid_register_one(self, it) -> bool:
         """Index *it* under its uid. A uid a different live item already holds
-        re-mints the incoming item (Q6: the first holder keeps it)."""
+        re-mints the incoming item (Q6: the first holder keeps it).
+
+        Returns:
+            True when the index changed (an entry added or re-minted).
+        """
         uid = getattr(it, "_uid", None)
         if not isinstance(uid, str) or not uid:
-            return
+            return False
         held = self._uid_index.get(uid)
         if held is not None and held is not it and self._uid_live(held, uid):
             it._uid = element_uid.new_uid()
             self._uid_repairs += 1
             uid = it._uid
         self._uid_index[uid] = it
+        return True
 
     def _uid_register(self, item) -> None:
+        changed = False
         for it in _uid_tree(item):
-            self._uid_register_one(it)
-        self._uid_gen += 1
+            changed = self._uid_register_one(it) or changed
+        if changed:                     # uid-less preview items must not drop the miss memo
+            self._uid_gen += 1
 
     def _uid_unregister(self, item) -> None:
+        changed = False
         for it in _uid_tree(item):
             uid = getattr(it, "_uid", None)
             if isinstance(uid, str) and self._uid_index.get(uid) is it:
                 del self._uid_index[uid]
-        self._uid_gen += 1
+                changed = True
+        if changed:
+            self._uid_gen += 1
 
     def _uid_reindex(self, item, uid: str) -> None:
         """Give in-scene *item* the saved / transferred *uid* (the

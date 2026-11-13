@@ -100,3 +100,21 @@ def test_saved_uids_applied_after_addItem_reach_the_index(qapp, tmp_path):
     assert out._uid_rebuilds == n0                      # every hit came from the index, no rebuild
     assert out._uid_repairs == 0
     assert all(it.scene() is out for it in out._uid_index.values())
+
+
+def test_uid_less_add_remove_keeps_the_miss_memo_but_a_uid_item_drops_it(qapp):
+    """Preview items (no uid) are added / removed every mouse move; they must
+    not invalidate a memoized dangling-host miss."""
+    from PyQt6.QtWidgets import QGraphicsLineItem
+    ms = scene()
+    missing = "0" * 32
+    assert ms.element_by_uid(missing) is None
+    n0 = ms._uid_rebuilds
+    line = QGraphicsLineItem(0, 0, 10, 10)               # plain item, no _uid
+    ms.addItem(line)
+    ms.removeItem(line)
+    assert ms.element_by_uid(missing) is None
+    assert ms._uid_rebuilds == n0                        # memo survived
+    add_room(ms)                                         # carries a uid
+    assert ms.element_by_uid(missing) is None
+    assert ms._uid_rebuilds == n0 + 1                    # the uid item did rebuild
