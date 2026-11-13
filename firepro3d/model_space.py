@@ -3544,10 +3544,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def auto_populate_room(self, room, positions, sprinkler_record,
                            level, ceiling_level, sprinkler_offset,
-                           design_density="0.10", phase=phase_registry.PHASE_NEW):
+                           design_density="0.10", phase=phase_registry.PHASE_NEW,
+                           symbol_block=None):
         return self._spr_ctl.auto_populate_room(
             room, positions, sprinkler_record, level, ceiling_level,
-            sprinkler_offset, design_density=design_density, phase=phase)
+            sprinkler_offset, design_density=design_density, phase=phase,
+            symbol_block=symbol_block)
 
     # -------------------------------------------------------------------------
     # UNDERLAYS — IMPORT
@@ -8613,6 +8615,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 results["ceiling_offset"],
                 results.get("design_density", "0.10"),
                 phase=getattr(tmpl, "phase", phase_registry.PHASE_NEW),
+                symbol_block=getattr(tmpl, "symbol_block", None),   # SB4g R3: the template's symbol
             )
 
     def _hide_items(self, items):
@@ -9438,10 +9441,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                             node1.z_pos = obj["elevation"]
 
                 if obj.get("sprinkler"):
-                    template = Sprinkler(None)
-                    for key, meta in obj["sprinkler"].items():
-                        template.set_property(key, meta["value"])
-                    template.phase = phase_registry.read_id(obj.get("sprinkler_phase"))
+                    from .network_codec import sprinkler_template
+                    template = sprinkler_template(obj["sprinkler"], obj.get("sprinkler_phase"))
                     # None when the node already carries a sprinkler.
                     if self.add_sprinkler(node1, template) is not None:
                         created = True

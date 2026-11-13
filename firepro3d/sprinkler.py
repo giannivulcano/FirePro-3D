@@ -138,9 +138,12 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
                     self._properties["Ceiling Offset"]["value"] = str(parsed_mm)
 
     def set_properties(self, template: "Sprinkler"):
-        """Copy all property values (and the phase, D-PH5) from a template Sprinkler."""
+        """Copy all property values, the phase (D-PH5) and the symbol choice
+        (SB4g R3) from a template Sprinkler."""
+        from .system_blocks import SYMBOL_ROW_KEY
         for key, meta in template.get_properties().items():
-            if meta.get("single_only") or key == phase_registry.ROW_KEY:
-                continue       # position rows never move this node; phase copied below
+            if meta.get("single_only") or key in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY):
+                continue       # position rows never move this node; phase + symbol copied below
             self.set_property(key, meta["value"])
         self.phase = getattr(template, "phase", phase_registry.PHASE_NEW)
+        self.set_symbol_block(getattr(template, "symbol_block", None))

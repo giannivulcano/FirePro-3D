@@ -26,13 +26,44 @@ from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 from . import phase_registry
 
 
+SYMBOL_KEY = "symbol_block"   # SB4g D6: sparse per-element symbol id, absent = System default
+
+
+def read_symbol_id(value):
+    """A stored symbol id, or None (absent / non-str / empty -> the default)."""
+    return value if isinstance(value, str) and value else None
+
+
 def sprinkler_props(spr) -> dict:
     """A head's stored panel rows for the node entry / clipboard, minus Phase
-    (written once as ``sprinkler_phase``, PD1) and minus the node's badge rows
-    (Badge Position + solver values are the node's, never copied -- SB4e I2)."""
+    (written once as ``sprinkler_phase``, PD1), minus the node's badge rows
+    (Badge Position + solver values are the node's, never copied -- SB4e I2)
+    and minus the Symbol row (its label is a view of ``symbol_block``, which
+    is written sparsely beside the rows -- SB4g D6)."""
     from .node import HYDRAULIC_ROW_KEYS
-    return {k: v for k, v in spr.get_properties().items()
-            if k != phase_registry.ROW_KEY and k not in HYDRAULIC_ROW_KEYS}
+    from .system_blocks import SYMBOL_ROW_KEY
+    rec = {k: v for k, v in spr.get_properties().items()
+           if k not in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY)
+           and k not in HYDRAULIC_ROW_KEYS}
+    if spr.symbol_block:
+        rec[SYMBOL_KEY] = spr.symbol_block
+    return rec
+
+
+def sprinkler_template(record: dict, phase=None):
+    """An off-scene template Sprinkler from a stored head record (file, undo
+    or clipboard): rows replayed through ``set_property`` (a legacy key such
+    as ``Graphic`` is no row any more and is ignored -- SB4g R6), the sparse
+    symbol id and the phase (PD1). ``add_sprinkler`` copies it onto the head."""
+    from .sprinkler import Sprinkler
+    template = Sprinkler(None)
+    for key, value in record.items():
+        if key == SYMBOL_KEY:
+            continue
+        template.set_property(key, value["value"] if isinstance(value, dict) else value)
+    template.symbol_block = read_symbol_id(record.get(SYMBOL_KEY))
+    template.phase = phase_registry.read_id(phase)
+    return template
 
 
 def pipe_record(pipe) -> dict:
@@ -120,6 +151,8 @@ def serialize_water_supply(ws) -> dict:
         "properties": {k: v["value"] for k, v in ws._properties.items()},
     }
     phase_registry.write_element(ws, entry)
+    if ws.symbol_block:
+        entry[SYMBOL_KEY] = ws.symbol_block      # SB4g D6: sparse
     ws_ovr = getattr(ws, "_display_overrides", {})
     if ws_ovr:
         entry["display_overrides"] = ws_ovr
@@ -227,6 +260,7 @@ def deserialize_water_supply(scene, entry):
     for key, value in entry.get("properties", {}).items():
         ws.set_property(key, value)
     phase_registry.read_element(ws, entry)
+    ws.set_symbol_block(read_symbol_id(entry.get(SYMBOL_KEY)))
     ws._display_overrides = entry.get("display_overrides", {})
     return ws
 
@@ -245,21 +279,14 @@ def deserialize_node(scene, entry):
     entry["id"].
     """
     from .node import Node
-    from .sprinkler import Sprinkler
     node = Node(entry["x"], entry["y"])
     scene.addItem(node)
     scene.sprinkler_system.add_node(node)
     node._display_overrides = entry.get("display_overrides", {})
 
     if entry.get("sprinkler"):
-        template = Sprinkler(None)
-        for key, value in entry["sprinkler"].items():
-            if isinstance(value, dict):
-                template.set_property(key, value["value"])
-            else:
-                template.set_property(key, value)
-        template.phase = phase_registry.read_id(entry.get("sprinkler_phase"))  # set_properties copies it
-        scene.add_sprinkler(node, template, mint=False)
+        template = sprinkler_template(entry["sprinkler"], entry.get("sprinkler_phase"))
+        scene.add_sprinkler(node, template, mint=False)   # set_properties copies phase + symbol
         node.sprinkler._display_overrides = entry.get(
             "sprinkler_display_overrides", {})
 

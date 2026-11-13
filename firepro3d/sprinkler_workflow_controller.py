@@ -100,7 +100,8 @@ class SprinklerWorkflowController:
 
     def auto_populate_room(self, room, positions, sprinkler_record,
                            level, ceiling_level, sprinkler_offset,
-                           design_density="0.10", phase=PHASE_NEW):
+                           design_density="0.10", phase=PHASE_NEW,
+                           symbol_block=None):
         """Place sprinkler nodes at computed positions inside a room.
 
         Parameters
@@ -119,6 +120,8 @@ class SprinklerWorkflowController:
             Design density string (gpm/ft²).
         phase : str
             Status id of the current sprinkler template (R7).
+        symbol_block : str | None
+            Symbol block id of the current sprinkler template (SB4g R3).
         """
         if not positions:
             return
@@ -170,6 +173,7 @@ class SprinklerWorkflowController:
         temp_spr._properties["Ceiling Level"]["value"] = ceiling_level
         temp_spr._properties["Ceiling Offset"]["value"] = str(ceiling_offset)
         temp_spr.phase = phase                    # R7: add_sprinkler copies it
+        temp_spr.symbol_block = symbol_block      # SB4g R3: add_sprinkler copies it
 
         count = 0
         for pt in positions:

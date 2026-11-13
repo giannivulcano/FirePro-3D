@@ -52,6 +52,8 @@ NOTE_BLOCK_ID = "system-annotations-note"
 # not an element category (D2: hence not ``host_category``).
 SYMBOL_CATEGORIES: tuple[str, ...] = ("Sprinkler", "Water Supply", "Riser")
 
+SYMBOL_ROW_KEY = "Symbol"   # SB4g D7: the per-element Symbol panel row (never serialized)
+
 
 # SB4g D4: category -> the frozen id of its shipped System symbol (concept F4:
 # the seed file's id, never minted here). The fallback of every element whose
