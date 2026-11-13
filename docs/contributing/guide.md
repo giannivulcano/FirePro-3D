@@ -85,19 +85,15 @@ def z_range_mm(self) -> tuple[float, float] | None:
 Use Google-style docstrings with `Args:` and `Returns:` sections:
 
 ```python
-def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,
-                          display_scale: float = 1.0, *, reset_pos: bool = False):
-    """Scale and centre an SVG item so its visual centre maps to local (0, 0).
+def ops_bounding_rect(ops, pose_rot: float = 0.0) -> QRectF:
+    """Geometry bounds of render ops: the centre-line extent.
 
     Args:
-        item: QGraphicsSvgItem (or any item with boundingRect).
-        target_mm: Desired size in scene units (mm).
-        fallback_scale: Scale to use if the SVG has zero natural size.
-        display_scale: Extra multiplier from Display Manager.
-        reset_pos: If True, also call item.setPos(0, 0) for child items.
+        ops: The compiled render ops of a block definition.
+        pose_rot: Rotation applied to text ops, in degrees.
 
     Returns:
-        None. The item's transform is modified in-place.
+        The bounding rect of the ops' combined path, with no stroke pad.
     """
 ```
 

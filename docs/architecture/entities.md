@@ -5,7 +5,8 @@
 - `firepro3d/displayable_item.py` -- Mixin providing display-manager attributes
 - `firepro3d/node.py` -- Junction points in the piping network
 - `firepro3d/pipe.py` -- Pipe segments connecting nodes
-- `firepro3d/sprinkler.py` -- SVG-based sprinkler symbols
+- `firepro3d/sprinkler.py` -- Sprinkler head (`Sprinkler`, drawn from a System symbol block)
+- `firepro3d/symbol_block.py` -- `SymbolBlockItem`, the base of the sprinkler, water supply and riser symbols
 - `firepro3d/fitting.py` -- Pipe fittings: elbows, tees, caps
 - `firepro3d/design_area.py` -- Hydraulic design areas (`DesignArea`, `DesignAreaBadge`)
 - `firepro3d/water_supply.py` -- Water-supply node (`WaterSupply`)
@@ -73,8 +74,7 @@ classDiagram
     class Sprinkler {
         +node: Node
         +_properties: dict
-        +GRAPHICS: dict
-        +_load_graphic(svg_path)
+        +symbol_block: str
         +rescale()
     }
 
@@ -154,9 +154,9 @@ Pipe stores nominal OD and inner diameter lookup tables used by the hydraulic so
 
 ### Sprinkler
 
-`Sprinkler(DisplayableItemMixin, QGraphicsSvgItem)` renders as an SVG symbol parented to a Node. Properties include manufacturer, model, orientation (upright/pendent/sidewall), K-factor, coverage area, design density, and temperature rating.
+`Sprinkler(DisplayableItemMixin, SymbolBlockItem)` is drawn from a System symbol block and parented to a Node. Properties include manufacturer, model, orientation (upright/pendent/sidewall), K-factor, coverage area, design density, and temperature rating.
 
-The SVG is scaled to `TARGET_MM = 24 * 25.4` mm (24 inches) diameter in scene coordinates. Three graphic styles are available (Sprinkler0, Sprinkler1, Sprinkler2).
+The symbol is a block drawn at real size; which block, the shipped variants and the Symbol row are owned by [`sprinkler-system-components.md`](../specs/sprinkler-system-components.md) section 8 and [`system-blocks.md`](../specs/system-blocks.md) section 8g.
 
 Selection is handled by the parent Node -- the sprinkler itself is not independently selectable.
 

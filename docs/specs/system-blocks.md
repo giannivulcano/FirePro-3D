@@ -1,12 +1,15 @@
 ---
 status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d (view-marker heads: cardinal elevation head, placed-section head, detail callout) BUILT 2026-11-04; SB4f (sheet viewport view title as a System block, plus the viewport Number the section / detail heads cite) BUILT 2026-11-04; SB4e (hydraulic node badge as a System block) BUILT 2026-11-11; placed tags (phase 6) and sheet tags (phase 7) are not built
-last-verified: 2026-11-12  # PH1 Account: s8a pipe copy/paste carries the record line only, rest not re-audited; prior 2026-11-11  # SB4e Account: new s8f (hydraulic node badge), header / applies-to / s1 / s2 / s3 / s4 / s7 / s8d not-built line / s10 / build order re-audited against e991da71; rest not re-audited; prior 2026-11-05  # paper polish Account: paper hooks note only, rest not re-audited; prior 2026-11-05  # section piping Account: s8a section label note only, rest not re-audited; prior 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: f2f0db3e  # PH1 (v0.101.0; s8a pipe paste line only); prior e991da71  # SB4e (v0.100.0); prior f58a79a8  # paper polish on main (v0.92.0); prior 539eda40  # section piping on main (v0.91.0); prior dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+last-verified: 2026-11-13  # SB4g Account: new s8g (symbol blocks), header / ownership / applies-to / source-tasks / s4 pointer / s10 guard row re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # PH1 Account: s8a pipe copy/paste carries the record line only, rest not re-audited; prior 2026-11-11  # SB4e Account: new s8f (hydraulic node badge), header / applies-to / s1 / s2 / s3 / s4 / s7 / s8d not-built line / s10 / build order re-audited against e991da71; rest not re-audited; prior 2026-11-05  # paper polish Account: paper hooks note only, rest not re-audited; prior 2026-11-05  # section piping Account: s8a section label note only, rest not re-audited; prior 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior f2f0db3e  # PH1 (v0.101.0; s8a pipe paste line only); prior e991da71  # SB4e (v0.100.0); prior f58a79a8  # paper polish on main (v0.92.0); prior 539eda40  # section piping on main (v0.91.0); prior dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, OutlinedLabel (SB4c), TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/section_scene.py        # SB4c: ElevGridlineItem bubbles, LevelDatumHead / ElevDatumItem, SectionScene.annotation_block + refresh_annotation_tags (the block side; the section projection is section-view-subsystem.md)
   - firepro3d/annotation_choices.py   # SB3b: the one shared picker list (pane + Room Tag row), disk-walk / parse caches
-  - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK
+  - firepro3d/system_blocks.py        # SYSTEM_DEFAULTS, ANNOTATION_CATEGORIES, LABEL_FIELD, PAINT_WHEN_BLANK; SB4g: SYMBOL_CATEGORIES, SYMBOL_DEFAULTS, SYMBOL_ROW_KEY, eligible_symbol
+  - firepro3d/symbol_block.py         # SB4g: SymbolBlockItem (the sprinkler / water supply / riser symbol item), Symbol row (section 8g)
+  - firepro3d/system_blocks/Symbols/  # SB4g: the shipped Sprinkler0 / Sprinkler1 / Sprinkler2 / Water Supply / Riser .fpdb (real size, symbol_for set)
+  - tools/convert_symbol_svgs.py      # SB4g: the dev script that produced the five Symbols seeds from the retired plan SVGs
   - firepro3d/system_blocks/Tags/     # the shipped RoomTag + PipeLabel + GridlineBubble + LevelDatum + ElevationHead + SectionHead + DetailCallout + ViewTitle + HydraulicNode .fpdb (SB4f: SectionHead / DetailCallout bind Number; SB4e: HydraulicNode)
   - firepro3d/hydraulic_node_badge.py # SB4e: HydraulicNodeBadge(OutlinedLabel) block side only (when / where / click: hydraulic-solver-and-reporting.md 11.1)
   - firepro3d/view_title_label.py     # SB4f: ViewTitleLabel(OutlinedLabel) (the sheet viewport's title + composite line, hit forwarding), extent_below_box (the drop clamp)
@@ -29,6 +32,7 @@ applies-to:
   - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
   - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1); Elevation / Section / Detail Marker rows: line-only, same shape (SB4d); Hydraulic Badge row: Visible + Opacity only (SB4e)
 source-tasks:
+  - "SB4g -- Convert the sprinkler, water supply and riser symbols to System symbol blocks (todo_closed.md; design record superpowers/specs/2026-11-12-sb4g-symbol-blocks-design.md, rulings R1-R14)"
   - "SB4e -- Convert the hydraulic node badge to a System block (todo_closed.md; rulings R1-R8 / S1-S4 in the run's Phase 2 record)"
   - "SB4f -- Convert the sheet viewport view title to a System block, with a per-viewport show/hide toggle for the title (todo_closed.md; design record superpowers/specs/2026-11-04-sb4f-view-title-design.md)"
   - "SB4d -- Convert the elevation-marker head and the detail-callout bubble to System blocks + the annotation band (todo_closed.md; design record superpowers/specs/2026-11-03-sb4d-view-marker-heads-design.md)"
@@ -81,13 +85,17 @@ source-tasks:
 > **SB4e (built 2026-11-11)** draws the hydraulic node badge with a System block (section 8f); when a
 > badge exists, where it sits and what a click does stay with
 > [`hydraulic-solver-and-reporting.md`](hydraulic-solver-and-reporting.md) 11.1.
+> **SB4g (built 2026-11-13)** adds a second kind of System block that is not a label: the sprinkler, water supply and
+> riser **symbols**, drawn at real size by `SymbolBlockItem` from five shipped `Symbols` blocks, with a per-element
+> Symbol row and a `Symbol for` block field (section 8g). Design record
+> [`2026-11-12-sb4g-symbol-blocks-design.md`](../superpowers/specs/2026-11-12-sb4g-symbol-blocks-design.md) (history).
 
 ## Ownership (Rule A)
 
 - The shipped Note block (`system_blocks/Annotations/Note.fpdb`, a view-owned note, no host category): [text leaders design D8](../superpowers/specs/2026-11-04-text-leader-annotations-design.md).
 
 This spec owns: the `BoundLabelItem` contract, the annotation-block resolver and its
-fallback chain, `annotation_defaults` (model, persistence, pane), `SYSTEM_DEFAULTS`,
+fallback chain, the symbol-block mechanism (`SymbolBlockItem`, `symbol_block` resolver, `Symbol for` field, section 8g), `annotation_defaults` (model, persistence, pane), `SYSTEM_DEFAULTS`,
 the Room tag's behaviour (incl. the per-room `tag_block` semantics and the shared picker
 list `annotation_choices`), the hug rule for host-bound text, and the SB3 reassessment
 checkpoint. It links, never restates:
@@ -103,6 +111,7 @@ checkpoint. It links, never restates:
 - Pipe fields, geometry and the placement preview: [`pipe-placement-methodology.md`](pipe-placement-methodology.md).
 - Gridline fields, geometry, grips, lock and the Display Manager line tint: [`grid-system.md`](grid-system.md).
 - Selection: [`selection-mode.md`](selection-mode.md). Z-order: `view-relationships.md` 7.3 + `constants.py`.
+- The sprinkler, water supply and riser symbols' element behaviour (rows, size, persistence keys): [`sprinkler-system-components.md`](sprinkler-system-components.md) 8 / 10.3 / 13.3 and [`pipe-placement-methodology.md`](pipe-placement-methodology.md) 9.1. This spec owns the symbol-block mechanism (section 8g).
 
 ## 1. Two kinds of annotation, one graphic source
 
@@ -237,6 +246,8 @@ the end of a file load (`scene_io.load_from_file`), a template apply or a pane a
 Known gap, filed: the notice is lost when no window has a status bar yet.
 
 ## 4. `SYSTEM_DEFAULTS` and ids
+
+(The symbol blocks' own `SYMBOL_DEFAULTS` map is section 8g; it is not part of `SYSTEM_DEFAULTS`.)
 
 `system_blocks.SYSTEM_DEFAULTS` (`"Room"` -> `"system-tags-roomtag"`, `"Pipe"` ->
 `"system-tags-pipelabel"`, `"Gridline"` -> `"system-tags-gridlinebubble"`, `"Level"` ->
@@ -751,6 +762,106 @@ here). This section holds the block-side contract. The rulings R1-R8 / S1-S4 wer
 - **Not built (filed):** the badge's Display Manager Visible / Opacity is replaced by the node's on a re-solve and
   on a node opacity change; the stack layout is not re-run when a stacked node is deleted or moved.
 
+## 8g. Symbol blocks: sprinkler, water supply and riser (SB4g)
+
+Three element symbols are System blocks drawn at **real size** (not annotative, not a label): the sprinkler head
+(three variants), the water supply, and the vertical-pipe riser pass-through. They are not intrinsic labels:
+no `BoundLabelItem`, no `host_category`, no bound text, and they are absent from `ANNOTATION_CATEGORIES`
+(section 1). What each element does with its symbol is owned by [`sprinkler-system-components.md`](sprinkler-system-components.md)
+8 / 10.3 and [`pipe-placement-methodology.md`](pipe-placement-methodology.md) 9.1 (Rule A: not restated here); the
+z of the supply and riser by `view-relationships.md` 7.3. Design record:
+[`2026-11-12-sb4g-symbol-blocks-design.md`](../superpowers/specs/2026-11-12-sb4g-symbol-blocks-design.md)
+(kept as history: where it differs from this section, this section is the as-built contract; D5 / D9 / AC1 / AC11 /
+G1 / G9 are amended or retired by R14 and the corrections listed below).
+
+- **Categories, defaults, eligibility.** `system_blocks.SYMBOL_CATEGORIES == ("Sprinkler", "Water Supply", "Riser")`
+  (the values `BlockDefinition.symbol_for` may hold; Riser is not an element category, so it is never a
+  `host_category`). `SYMBOL_DEFAULTS` maps each to its frozen slug: `system-symbols-sprinkler0`,
+  `system-symbols-watersupply`, `system-symbols-riser`. `eligible_symbol(defn, category)` is true for a block whose
+  `scale_mode` is `real_size` and whose `symbol_for` equals the category; anything else (an annotative block, an
+  unflagged or other-category one) is treated as missing. `SYMBOL_ROW_KEY = "Symbol"` is the per-element panel row
+  (never serialized). These live in `system_blocks.py` beside `SYSTEM_DEFAULTS`.
+- **The `Symbol for` field.** `BlockDefinition.symbol_for: str` is authored in the Block Editor's block panel
+  (`block_properties_info.py` "Symbol for" enum row: `None` + `SYMBOL_CATEGORIES`, an unknown file value kept in the
+  warn colour). The row shows only while Scale mode is **Real size**; `Model_Space._apply_block_meta` stores
+  `symbol_for` only for a real-size block (an Annotative one drops it). It is a sparse key in the `.fpdb` / `.fpd`
+  record: written as `"symbol_for"` only when non-empty, read back as `""` (`BlockDefinition.to_dict` / `from_dict`,
+  `block_meta["symbol_for"]`). The field is the whole eligibility rule: the Block Editor flags a block, the pickers
+  and the resolver read the flag.
+- **Resolver.** `Model_Space.symbol_block(category, chosen_id=None)` returns the `BlockDefinition` that draws the
+  category. Chain: *chosen_id* when it resolves (the project copy, else the System tier / library roots through
+  `ensure_system_block(bid, accept=...)`, embedding a hit outside undo) **and** is eligible; else
+  `SYMBOL_DEFAULTS[category]` the same way; `None` only when not even the System default resolves. A chosen id that
+  missed is noticed once per (category, id): one log warning plus one status-bar message
+  (`_annot_notified`, which outlives memo clears). The element keeps its id; the resolver never writes it. It is
+  memoised in `_annot_memo` under `("symbol", category, chosen_id or "")`, cleared on `blockDefinitionsChanged`, and
+  it holds `_annot_resolving` up (saving and restoring the caller's value) through an embed, so the embed's
+  `blockDefinitionsChanged` does not re-enter the refresh chain. A scene without the resolver (paper, section
+  scenes) resolves nothing.
+- **`SymbolBlockItem(category, parent=None, *, owner=None)`** (`symbol_block.py`; the `BoundLabelItem` precedent, not
+  a `BlockInstance`: never selectable by itself, never serialized, no level). It resolves through the scene's
+  `symbol_block`, caches the definition and its centre-line bounds, and paints the definition's shared compiled ops
+  (`render_ops_variant(False, 1.0)`) with `render_op.paint_ops`. `Sprinkler` and `WaterSupply` subclass it;
+  the riser is `pipe.RiserSymbolItem` (a top-level scene item owned by its pipe). Geometry:
+  `render_op.ops_bounding_rect` / `ops_shape` (promoted from `BlockInstance`) give the plain **centre-line** extent
+  (no stroke pad); `boundingRect()` adds `PEN_MARGIN` (2 mm) to it; `extent_radius()` is the largest absolute
+  ops-rect coordinate from the origin (the symbol's real half-size; 0.0 when nothing resolves) and is never the
+  bounding rect. `refresh()` drops the definition and bounds and announces the **owner's**
+  `prepareGeometryChange()` before the drop (Qt reads the old bounds at that call), then the item's own; a refresh
+  raised by the item's own resolve is ignored. A new scene re-resolves.
+- **Tint.** `stroke_tint()` / `fill_tint()` are the paint-time hooks `paint` passes to `paint_ops`
+  (`override=` stroke / text, `fill_override=` fills). Stroke None, empty or `#ffffff` = authored; the Fill tint
+  recolours FILL / PATTERN ops except a `keep_colour` op and keeps the op's alpha (`render_op.paint_fill_op`).
+  `display_manager._set_svg_tint` dispatches a `SymbolBlockItem` to `set_tint(stroke, fill)` (tokens resolve per
+  paint, on the surface painted). `RiserSymbolItem` overrides `stroke_tint()` to return its pipe's
+  `Pipe.effective_colour()` (velocity, else DM / paper colour, else Colour), so there is no per-site re-tint.
+- **Weight.** The seeds' strokes are named `By Linetype` weights (the value `stroke_style.default_style` writes), so a
+  symbol follows the Display Manager "Blocks" weight like every other block; a thick SVG stroke became a thin centre
+  line, and on-screen line width no longer scales with zoom (design R14, which retires D5 "Real size..." weight,
+  AC11 and G9). The Block Editor has no "Real size..." entry and Explode is unchanged. On a sheet the paper pass
+  sets `_paper_scale` / `_paper_pen_width` on the head and the supply, and on the riser symbol (from the Pipe row),
+  and restores them (`paper_display`), so named weights plot in mm / scale.
+- **The Symbol row** (the `TagBlockHost` Tag-row pattern; sprinkler and water supply only; the riser has none, R7).
+  `SymbolBlockItem.symbol_row()` is an enum row listing `annotation_choices.symbol_choices(scene, category)`: the
+  shipped System symbols of the category, then user-library blocks that pass `eligible_symbol`, then a kept
+  current id. Labels are the shared `annotation_choices.choices` labels: `"<name> (System)"`, `"<name> (Library)"`,
+  `"<id> (missing)"`, `"<name> (not eligible)"`; `None` shows as the default block's own System entry and picking it
+  stores None (sparse). `set_symbol_from_row` maps the label through the row's choice map, embeds a "(Library)"
+  pick first (`annotation_choices.pick_block_id`, shared with the Tag row), and makes embed + assignment one undo
+  step; `< mixed >` and stale labels are no-ops. The row never writes during serialize / undo / signature paths
+  (`get_properties(with_symbol_row=False)`), because building it walks the symbol library on disk. An off-scene
+  template lists through its `_scene_ref`.
+- **Persistence.** One sparse key, `symbol_block` (`network_codec.SYMBOL_KEY`): on a sprinkler record beside its
+  rows (node entry, clipboard), top level on the water-supply entry, absent = the System default. The row is a view
+  of it and is stripped (`sprinkler_props`). `network_codec.sprinkler_template(record, phase)` builds the template for
+  file load, undo and paste (a legacy `Graphic` key is ignored); `auto_populate_room(..., symbol_block=)` and the
+  placement template carry it, and the template persists it in `QSettings` `template/sprinkler`. Rows and keys:
+  `sprinkler-system-components.md` 13.3.
+- **Seeds and conversion.** Five System files under `firepro3d/system_blocks/Symbols/` (Library `System`, Series
+  `Symbols`, `scale_mode` real size, `symbol_for` set, `host_category` empty, version 1): `Sprinkler0.fpdb`,
+  `Sprinkler1.fpdb`, `Sprinkler2.fpdb`, `Water Supply.fpdb`, `Riser.fpdb`, centred on the origin with Qt Y-down
+  primitives (**no Y flip**: scene = (SVG v - 10) x K, K = 609.6 / 20 for the heads and the supply, 150 / 20 for the
+  riser). They were produced from the retired plan SVGs by `tools/convert_symbol_svgs.py` (committed, deterministic
+  uuid5 uids, kept in the repo's unshipped dev-script folder). The water-supply disc fill is `#2b2b2e`. The
+  conformance guard walks `system_blocks/` with `os.walk`, so the new folder is covered with no edit.
+- **Size moved in by half a stroke.** Seeds are centre-line geometry at real size; the drawn outer edge sits half
+  a stroke outside it. The per-symbol centre-line extents are owned by the element specs
+  ([`sprinkler-system-components.md`](sprinkler-system-components.md) section 8,
+  [`pipe-placement-methodology.md`](pipe-placement-methodology.md) section 9.1). The Node ring, shape and halo and the riser hit
+  disk follow the extent. Faithfulness is a geometry check (circles, lines, anchors), not a pixel match; the
+  parity golden `tests/test_paper_as_authored_parity.py` masks the head's box (U2 ratified; the goldens are
+  never regenerated).
+- **Refresh.** `Model_Space.refresh_symbol_items()` re-resolves every head, the supply and every riser symbol; it is
+  called from `refresh_annotation_tags` (so a System edit, Reload, Promote, mapping or definition change reaches
+  them). Dispatch and Display Manager: the sprinkler / water-supply rows set colour / fill (-> `set_tint`),
+  Opacity and Visible; the Scale column no longer sizes either symbol.
+- **Retired.** `Sprinkler.GRAPHICS`, `_load_graphic`, `_centre_on_node`, `WaterSupply._centre_on_origin`, the
+  `Graphic` row, `displayable_item.centre_svg_on_origin`, `display_manager._set_svg_tint`'s re-centre tail, and the
+  plan use of `sprinkler0/1/2.svg`, `water_supply.svg` and `riser_passthrough.svg`. The SVG files remain on disk;
+  `riser_passthrough.svg` is still the **fitting** symbol's art (`pipe-placement-methodology.md` 2.3).
+- **Not changed.** The water supply keeps its dashed selection box (canvas only, never plots); the sprinkler is
+  still selected through its node; `Sprinkler.shape()` / `WaterSupply.shape()` stay the full bounding rect.
+
 ## 9. Performance (G6)
 
 Bar (Q7): at most 0.25 ms per labelled room on a full-view headless render (200 rooms
@@ -798,6 +909,7 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB4f live refresh through `annotationLabelsChanged`; export paints / hides the title | `test_sb4f_refresh_export.py` |
 | SB4f retired title strings | `test_sb4f_retired_strings.py` |
 | SB4e node badge: keys equal the solver result, category offered to the Block Editor, seed resolves as the default, no badge before a solve, numbered nodes get a top-level bound badge and Clear removes all, stack follows the top node, fixed position survives re-solve + save / load, node panel rows (badged nodes only, hidden in a pipe's NODE sections, one undo step + modified), click with and without hover selects the node, placement-mode click acts on the pipe, DM row Visible / Opacity only + dimmed chips, paper through `_apply_block`, refresh / `blockDefinitionsChanged` re-shape, clipboard drops the rows, undo keeps / clears the solve | `test_sb4e_node_badge.py` |
+| SB4g symbol blocks: render-op bounds / shape / fill override (`test_sb4g_render_ops.py`); `symbol_for` sparse key + Block Editor row (`test_sb4g_symbol_for.py`); the five seeds, centre-line extents from the raw SVG (`test_sb4g_symbol_seeds.py`); resolver chain, memo, once-per-id notice, re-entry flag (`test_sb4g_symbol_resolver.py`); choice list + eligibility (`test_sb4g_symbol_choices.py`); `SymbolBlockItem` geometry, S4 owner announce, refresh (`test_sb4g_symbol_item.py`); sprinkler / water supply / riser host behaviour, node shape follows the extent, riser hit disk, snap / z (`test_sb4g_symbol_hosts.py`); tint hooks incl. the riser pipe colour, the paper row colour / fill and the paper named weight (`test_sb4g_symbol_tint.py`); Symbol row + one-undo embed (`test_sb4g_symbol_row.py`); sparse persistence, template, paste (`test_sb4g_symbol_persistence.py`); System-edit refresh (`test_sb4g_symbol_refresh.py`); VC9 fixes (`test_sb4g_vc9_fixes.py`) | `test_sb4g_*.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
 
 **Proxy-only / partial coverage (SB3b acceptance, not fully guarded):**

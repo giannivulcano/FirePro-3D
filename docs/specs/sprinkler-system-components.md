@@ -1,9 +1,10 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-12   # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
-verified-commit: 7cdb7146   # room-detection rework (§11.5 room clip + §11.8 membership only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-13  # SB4g Account: s3.1 diagram, s4.4 Symbol row, s8 (symbol blocks, size, centring, selection, display), s10.3, s13.3, s14 D7 re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior 7cdb7146  # room-detection rework (§11.5 room clip + §11.8 membership only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
+  - firepro3d/symbol_block.py         # SB4g: SymbolBlockItem, the base of Sprinkler / WaterSupply (and the riser's RiserSymbolItem, pipe.py)
   - firepro3d/node.py                 # panel X / Y / Z + Offset rows, pick shape (pipe polish)
   - firepro3d/sprinkler_db.py
   - firepro3d/sprinkler_system.py
@@ -71,7 +72,7 @@ These 8 modules form the physical backbone of the application — every hydrauli
 │  └─ fittings: [] (unused — accessed via Node.fitting)   │
 ├─────────────────────────────────────────────────────────┤
 │  Node ──owns──> Fitting (symbol + type logic)           │
-│       ──owns──> Sprinkler (SVG visual)                  │
+│       ──owns──> Sprinkler (symbol block)                │
 │       ──refs──> Pipe[] (max 4)                          │
 ├─────────────────────────────────────────────────────────┤
 │  SprinklerDatabase (JSON file, product records)         │
@@ -194,7 +195,7 @@ Full-featured manager dialog with two tabs:
 | notes | ✗ | — | Not transferred to placed sprinklers |
 | — | — | Design Density | Set by auto-populate, not from DB |
 | — | — | S Spacing / L Spacing | Computed by design_area |
-| — | — | Graphic | User-selected SVG variant |
+| — | — | Symbol | Panel row, not a `_properties` entry: the sprinkler's symbol block (SB4g; the row replaced the retired `Graphic` row in its slot, before Ceiling Level). Stored as the sparse `symbol_block` id on the head; section 8.1 |
 | — | — | Ceiling Level / Ceiling Offset | From parent Node. The panel row for `Ceiling Offset` is labelled **Offset** (meta `label`); the key is unchanged in `_properties`, files and `set_property`, which also accepts `"Offset"` |
 | — | — | X / Y / Z | Editable panel rows from the parent Node (`Node.position_rows()`), shown only when the sprinkler has a node. X, Y in mm, **Y up-positive** (`CAD_Math.flip_y`); Z is absolute elevation. `Sprinkler.set_property("X" / "Y" / "Z")` forwards to `node.set_property`: X / Y move the node (and its riser stack), Z solves the node's Offset against its kept Ceiling Level and moves that node only. The rows carry `single_only` (not on a multi-selection). A node-less template sprinkler shows no position rows, and `set_properties(template)` skips them, so a template never moves a node. Semantics: [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §2.2 |
 | — | — | Phase | Panel row, not a `_properties` entry: `sprinkler.phase` (status id, PH1). `set_properties(template)` copies it; "Use as Template" keeps the template's current phase. Rules: [`project-phasing.md`](project-phasing.md) D-PH5 |
@@ -358,7 +359,7 @@ scale_factor = target_mm / svg_natural_size
 - Branch pipe (75mm width) → 150mm fitting symbol
 - Main pipe (150mm width) → about 212mm (75 × 2 × √2) fitting symbol: the `75 × √2` cap stops a main from inflating the symbol
 
-(Halved from 300 mm / about 424 mm by the pipe polish smoke, 2026-11-05; verified `ff2b8636`.) SVG is scaled uniformly and centred on the parent node's origin (0, 0). The vertical pipe's own riser pass-through symbol has a fixed size, owned by [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §9.1.
+(Halved from 300 mm / about 424 mm by the pipe polish smoke, 2026-11-05; verified `ff2b8636`.) SVG is scaled uniformly and centred on the parent node's origin (0, 0). The vertical pipe's own riser pass-through symbol is a System symbol block at the block's real size, owned by [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §9.1.
 
 ### 6.6 Pipe Clipping
 
@@ -420,42 +421,34 @@ Pipes do not store ceiling data; all Z positioning is derived from endpoint Node
 
 ## 8. Sprinkler Visual & Symbol System
 
-### 8.1 SVG Graphics
+### 8.1 Symbol blocks (SB4g)
 
-Three generic drafting symbols in `firepro3d/graphics/sprinkler_graphics/`:
-- `sprinkler0.svg` — "Sprinkler0"
-- `sprinkler1.svg` — "Sprinkler1"
-- `sprinkler2.svg` — "Sprinkler2"
+The head is drawn by a **System symbol block**, not an SVG: `Sprinkler(DisplayableItemMixin, SymbolBlockItem)` (`symbol_block.py`) paints the block's compiled render ops at real size. The mechanism (resolver, eligibility, the Symbol-for flag, the five seeds, tint, paper, refresh) is owned by [`system-blocks.md`](system-blocks.md) section 8g; this spec owns what it means for the sprinkler:
 
-User-selectable via the `Graphic` property dropdown. Symbol selection is independent of installation type (Orientation). These are aesthetic/drafting-convention variants, not orientation-specific.
+- Three shipped variants under `firepro3d/system_blocks/Symbols/`: `Sprinkler0` (`system-symbols-sprinkler0`, the default), `Sprinkler1`, `Sprinkler2`. `SYMBOL_DEFAULTS["Sprinkler"]` is the fallback for a head whose `symbol_block` is None, missing or not eligible.
+- Per-head choice is the **Symbol** panel row (the Symbol row of the section 4.4 table); it lists the System variants and the flagged user-library blocks. `Sprinkler.symbol_block` is None = the System default (sparse; section 13.3). A pick is one undo step. Symbol selection is independent of installation type (Orientation).
+- A new head takes the placement template's `symbol_block` (`Sprinkler.set_properties(template)`; `network_codec.sprinkler_template` for file, undo and paste; `auto_populate_room(..., symbol_block=)` for auto-populate).
+- The retired `Graphic` row: an old file's `Graphic` key is ignored on load (the head draws the System default), not mapped to a variant.
 
-### 8.2 Scaling Constants
+### 8.2 Size
 
-| Constant | Value | Purpose |
-|---|---|---|
-| `SVG_NATURAL_PX` | 30.0 | Native SVG bounding box width in px |
-| `TARGET_MM` | 609.6 | Desired symbol diameter in scene mm (24" × 25.4) |
-| `SCALE` | 20.32 | `TARGET_MM / SVG_NATURAL_PX` |
-
-No `ItemIgnoresTransformations` flag — symbol scales with zoom to maintain real-world size (24" diameter circle in plan view).
+The size is the block's own real size; there are no scaling constants (`SVG_NATURAL_PX` / `TARGET_MM` / `SCALE` are retired). No `ItemIgnoresTransformations`: the symbol scales with zoom. The seeds' centre-line extents are Sprinkler0 579.85 mm, Sprinkler1 594.73 mm, Sprinkler2 609.60 mm (the drawn outer edge sits half a stroke outside the centre line, at the By Linetype weight, section 8.5). The Display Manager *Scale* column no longer sizes the head (`Sprinkler._display_scale` is kept but not read for size).
 
 ### 8.3 Centering
 
-`centre_svg_on_origin()` (via `displayable_item.centre_svg_on_origin` helper) positions the SVG so its centre aligns with the parent Node's local origin (0, 0). Called on:
-- Graphic load / change
-- Display scale change
-- `rescale()` events
+The block's origin is the head centre and the item sits at its parent Node's local origin (0, 0); no centring code remains (`centre_svg_on_origin`, `Sprinkler._centre_on_node` and the re-centre tail of `display_manager._set_svg_tint` are removed). The seeds are centred on their origin.
 
 ### 8.4 Selection Delegation
 
-`Sprinkler.setFlag(ItemIsSelectable, False)` — the sprinkler is not directly selectable. Clicking anywhere on the sprinkler graphic selects the parent Node. Node's `shape()` expands to encompass the sprinkler's bounding area (`max(TARGET_MM / 2 × display_scale, Node.RADIUS)` radius circle). A node *without* a sprinkler no longer has that 177.8 mm disk: its `shape()` is a disk of `NODE_PICK_PX` (12) screen px at the visible zoom, capped at a third of its shortest attached run (selection: [`selection-mode.md`](selection-mode.md) §4.1).
+`Sprinkler.setFlag(ItemIsSelectable, False)` — the sprinkler is not directly selectable. Clicking anywhere on the sprinkler graphic selects the parent Node (`Sprinkler.shape()` is its full `boundingRect()`). Node's `shape()` expands to encompass the symbol: a `max(Node._symbol_radius(), Node.RADIUS)` radius circle, where `_symbol_radius()` is `Sprinkler.extent_radius()` (the largest absolute ops-rect coordinate from the origin) and falls back to `Node.RADIUS` while nothing resolves. The node's selection halo and ring follow the same extent. A node *without* a sprinkler no longer has that 177.8 mm disk: its `shape()` is a disk of `NODE_PICK_PX` (12) screen px at the visible zoom, capped at a third of its shortest attached run (selection: [`selection-mode.md`](selection-mode.md) §4.1).
 
 ### 8.5 Display Integration
 
-- `_display_scale` multiplier (from DisplayManager) affects effective visual size
-- SVG tinting via `_set_svg_tint()` for colour/fill overrides
-- Z-value: 100 (above Node at 10, above fitting symbols)
-- Paint: suppresses default Qt selection dashes; selection highlight drawn by parent Node
+- The Display Manager Sprinkler row's colour / fill reach the symbol through `display_manager._set_svg_tint`, which hands a `SymbolBlockItem` to `set_tint` (stored on the item, resolved at paint; stroke None, empty or `#ffffff` = authored colours). The row's Scale column no longer sizes the head
+- Weight: the seeds' strokes are By Linetype, so they follow the DM "Blocks" weight like any block; on a sheet the paper pass sets the item's `_paper_scale` / `_paper_pen_width`
+- Z-value: 100 (`Z_SPRINKLER`, a child of the Node, above fitting symbols)
+- Paint: no Qt selection dashes; selection highlight drawn by parent Node
+- A System edit, Reload or Promote of a symbol block re-resolves and re-shapes every head (`Model_Space.refresh_symbol_items`, called from `refresh_annotation_tags`)
 
 ---
 
@@ -525,11 +518,12 @@ Physical network endpoint representing the water main connection (`firepro3d/wat
 
 ### 10.3 Visual
 
-Same scaling pattern as Sprinkler:
-- SVG: `graphics/sprinkler_graphics/water_supply.svg`
-- 24" real-world diameter (`TARGET_MM = 609.6`, `SCALE = 20.32`)
-- Centred on origin, `ItemIsSelectable`, Z-value 50
-- No `ItemIgnoresTransformations` — scales with zoom
+Drawn like the Sprinkler (section 8.1): `WaterSupply(SymbolBlockItem)` paints the System **Water Supply** symbol block (`system-symbols-watersupply`, `SYMBOL_DEFAULTS["Water Supply"]`), no longer `water_supply.svg`.
+- Real size from the block (centre-line extent 579.85 mm, the old 24" SVG less half its stroke); the block origin is the item origin. No `ItemIgnoresTransformations` — scales with zoom
+- Per-supply choice through the **Symbol** panel row (sparse `symbol_block`, a top-level key of the file entry, section 13.3); the supply has no `Graphic` row
+- `ItemIsSelectable`; initial Z-value 50 (`Z_WATER_SUPPLY`), then elevation-ordered at runtime (`Z_CAT_SYMBOL`) and pinned just above a network node it sits on: [`view-relationships.md`](view-relationships.md) section 7.3
+- Selection draws the dashed bounds box the SVG item drew (canvas only; it never plots)
+- Paper / tint / refresh: the same hooks as the head (section 8.5)
 
 ### 10.4 Solver Interface
 
@@ -719,6 +713,8 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 Embedded within parent Node's serialization as a `_properties` dict snapshot. All values stored as strings. Legacy property names (`"Elevation"`, `"Elevation Offset"`, `"Ceiling Offset (in)"`) accepted on load and mapped to current names.
 
+**Symbol (SB4g).** The Symbol row is a view of `Sprinkler.symbol_block` and is never written as a row (`network_codec.sprinkler_props` strips it). A head with a non-default choice carries a sparse `"symbol_block": "<block id>"` key beside its rows in the same record (node entry, clipboard); absent = the System default. `network_codec.sprinkler_template(record, phase)` rebuilds the template for file load, undo and paste. The water supply's entry carries the same sparse `symbol_block` key at the top level of its record (`serialize_water_supply` / `deserialize_water_supply`). The placement template persists it in `QSettings` `template/sprinkler` under the same key (restored directly, not through `set_property`; a Sprinkler Manager catalog pick keeps it).
+
 ### 13.4 Backward Compatibility Rules
 
 | Scenario | Strategy |
@@ -742,7 +738,7 @@ No format version bump required for any currently-flagged divergence. All migrat
 | ~~D4~~ | ~~z_offset dual computation path~~ | ~~P2~~ | **Resolved 2026-05-03.** `ceiling_offset` is now sole source of truth. `z_offset` no longer written on save/copy. Old files still read for backward compat. All computation sites (move-to-level, paste, property manager) unified. | | |
 | ~~D5~~ | ~~C-Factor user-editable~~ | ~~P2~~ | **Resolved 2026-05-03.** C-Factor is now read-only and auto-derived from Material via `MATERIAL_C_FACTOR` mapping. CPVC added as material option. Old saves: C-Factor re-derived from Material on next edit. | | |
 | ~~D6~~ | ~~Missing pipe sizes~~ | ~~P2~~ | **Resolved 2026-05-03.** 11 sizes: ¾", 1", 1-¼", 1-½", 2", 2-½", 3", 4", 5", 6", 8". All added to `_INTERNAL_DIAMETERS`, `NOMINAL_OD_IN`, `INNER_DIAMETER_IN` (all 5 schedules), imperial/metric display mappings. | | |
-| D7 | SVG symbols limited & orientation-blind | P3 | 3 generic symbols; no orientation-driven selection | Asymmetric sidewall symbol (triangle); orientation-driven symbol auto-selection; wall auto-detection for sidewall orientation; tab-cycle orientation input; in-app symbol editor (create/edit/delete) | Multi-phase: (1) Add sidewall triangle SVG + orientation→symbol mapping, (2) Wall proximity detection for orientation prediction, (3) Symbol editor UI. Each phase is a separate implementation task. |
+| D7 | Sprinkler symbols limited & orientation-blind | P3 | 3 System symbol blocks (SB4g, §8.1), user-selectable and user-authorable in the Block Editor (Symbol for = Sprinkler); no orientation-driven selection | Asymmetric sidewall symbol (triangle); orientation-driven symbol auto-selection; wall auto-detection for sidewall orientation; tab-cycle orientation input | Multi-phase: (1) Add a sidewall triangle symbol block + orientation→symbol mapping, (2) Wall proximity detection for orientation prediction. Each phase is a separate implementation task. |
 | D8 | Singleton SprinklerSystem | P3 | One SprinklerSystem per project; one supply_node; all items in one container | Per-node/pipe system assignment; multiple SprinklerSystem instances; independent supply nodes; per-system hydraulic calculations | Requires: system ID field on Node/Pipe, system selector UI, serialization extension, hydraulic solver multi-run. Major architectural change — separate spec recommended. |
 | ~~D9~~ | ~~Sprinkler Manager template bug~~ | ~~P1~~ | **Resolved (verified 2026-07-14).** `_apply_sprinkler_template_from_record()` uses the correct keys (`"Temperature"`, `"Orientation"`) and transfers Manufacturer and Model — both template paths now match (§4). | | |
 | ~~D10~~ | ~~Badge-click select resolve inert~~ | ~~P1~~ | **Resolved 2026-07-14.** `mousePressEvent`'s fallback filter now accepts a `DesignAreaBadge` hit directly and resolves it to the parent `DesignArea` (selectability checked on the parent); bare `DesignArea` stays out of the filter, so the interior click-steal fix stands (§11.10). Functional tests `TestBadgeClickSelection` + guard test `TestSelectModeFilter` in `tests/test_design_criteria.py`. | | |

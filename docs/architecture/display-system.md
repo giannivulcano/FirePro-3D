@@ -117,7 +117,7 @@ uses **two** mechanisms:
 
 ## SVG recolouring
 
-Sprinklers, fittings, and water supply items use SVG graphics. The display system recolours them at the SVG XML level rather than using QPainter composition effects.
+Fitting symbols use SVG graphics. The display system recolours them at the SVG XML level rather than using QPainter composition effects. (The sprinkler head, the water supply and the riser pass-through are no longer SVG: they are System symbol blocks, tinted at paint -- see [`system-blocks.md`](../specs/system-blocks.md) section 8g.)
 
 The `_recolor_svg_bytes()` function:
 
@@ -128,7 +128,7 @@ The `_recolor_svg_bytes()` function:
 5. Creates a new `QSvgRenderer` from the modified XML
 6. Caches results by `(svg_path, color, fill_color)` tuple
 
-The `_set_svg_tint()` convenience function applies this to any item that has a `_svg_source_path` attribute, then re-centres the item on its parent node.
+The `_set_svg_tint()` convenience function applies this to any item that has a `_svg_source_path` attribute. It hands a `SymbolBlockItem` to that item's own `set_tint` instead.
 
 ## Section-cut hatching
 

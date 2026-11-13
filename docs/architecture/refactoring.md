@@ -78,7 +78,7 @@ error-prone across the many tool modes.
 **Rough approach:**
 
 - Make Fitting extend DisplayableItemMixin (as a mixin, not a QGraphicsItem)
-- Or refactor Fitting to be a proper QGraphicsSvgItem subclass like Sprinkler
+- Or refactor Fitting to be a proper item subclass, as Sprinkler is (a `SymbolBlockItem`, see [`system-blocks.md`](../specs/system-blocks.md) section 8g)
 
 **Risk:** Medium. Fitting's non-standard architecture (a plain Python class managing a child SVG item) exists because a Node always has exactly one Fitting, and the Fitting's visual is optional (the "no fitting" type has no SVG). Changing this requires careful handling of the fitting lifecycle.
 
