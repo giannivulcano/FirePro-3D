@@ -372,7 +372,14 @@ class SceneIOMixin:
         # --- Underlays ---
         project_dir = os.path.dirname(os.path.abspath(filename))
         missing_underlays = []
+        # LW-DC-8: underlays may be built asynchronously after this loader
+        # returns (cache miss -> worker thread), so their weight names are
+        # migrated here, from the payload, not by the end-of-load sweep.
+        from .paper_display import migrate_underlay_entry, pending_weight_mapping
+        lw_map = pending_weight_mapping()
         for entry in payload.get("underlays", []):
+            if lw_map:
+                entry = migrate_underlay_entry(entry, lw_map)
             udata = Underlay.from_dict(entry)
             resolved = Underlay.resolve_path(udata.path, project_dir)
 

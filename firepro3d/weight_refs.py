@@ -151,7 +151,8 @@ def _apply_ref(kind: str, ref, new, canonical_blocks: bool, touched: set):
 
 
 def retarget_weight_refs(scene, settings, mapping: dict[str, str], *,
-                         canonical_blocks: bool = False) -> list[tuple]:
+                         canonical_blocks: bool = False,
+                         underlays: bool = True) -> list[tuple]:
     """Re-point every by-name weight holder per *mapping* (``old -> new``).
 
     The mapping applies simultaneously and single-hop: every iter-sweep
@@ -168,6 +169,8 @@ def retarget_weight_refs(scene, settings, mapping: dict[str, str], *,
         canonical_blocks: Passed as ``canonical`` to placed blocks'
             ``set_overrides``; False (default) stores raw, which the Display
             Manager Cancel replay needs (see ``set_overrides``).
+        underlays: False skips the underlay records (the project loader
+            migrates their payloads before they are built).
 
     Returns:
         A journal of ``(kind, ref, key-path, old_value)`` for
@@ -193,7 +196,7 @@ def retarget_weight_refs(scene, settings, mapping: dict[str, str], *,
     pd.save_paper_categories(cats, settings)
     if cats != before:
         journal.append(("cats", None, "paper/categories", before))
-    for data, _item in getattr(scene, "underlays", []):
+    for data, _item in (getattr(scene, "underlays", []) if underlays else []):
         cur = data.line_weight_name
         if cur in mapping and mapping[cur] != cur:
             journal.append(("underlay", data, "line_weight_name", cur))

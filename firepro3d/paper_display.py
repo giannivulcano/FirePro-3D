@@ -900,10 +900,69 @@ def get_paper_display_for_save() -> dict:
     }
 
 
-# LW-DC-8: a pre-schema-2 file's pending merge, ``(new_defs, mapping)``,
-# stashed by ``apply_project_weights(stash=True)`` and consumed by
-# ``apply_pending_weight_migration`` at the end of ``load_from_file``.
-_PENDING_LW_MIGRATION: "tuple[list[LineWeightDef], dict[str, str]] | None" = None
+# LW-DC-8: a pre-schema-2 file's pending merge, stashed by
+# ``apply_project_weights(stash=True)`` as the KIND of migration (``"table"``:
+# the file's own unstamped table; ``"tableless"``: a pre-LT1 file) and consumed
+# by ``apply_pending_weight_migration`` at the end of ``load_from_file``. The
+# ``(new_defs, mapping)`` itself is computed when used (``_pending_migration``),
+# never at stash time, so rows a mid-load library merge adds survive.
+_PENDING_LW_MIGRATION: "str | None" = None
+
+
+def _pending_migration() -> "tuple[list[LineWeightDef], dict[str, str]] | None":
+    """The ``(new_defs, mapping)`` of the stashed migration against the CURRENT
+    project table (None if nothing is stashed).
+
+    A table-less file can only hold pre-schema-2 names, so its mapping is the
+    static legacy map (Default names included: an old "Medium" is 0.25 mm) --
+    except the template's own Custom rows, which map to themselves.
+    """
+    if _PENDING_LW_MIGRATION is None:
+        return None
+    if _PENDING_LW_MIGRATION == "tableless":
+        table = project_line_weights()
+        custom = {d.name for d in table if not is_default_weight(d.name)}
+        mapping = {k: v for k, v in _STATIC_LEGACY_MAP.items() if k not in custom}
+        return ensure_defaults(table), mapping
+    return legacy_weight_migration(project_line_weights())
+
+
+def _extend_mapping(mapping: dict[str, str]) -> dict[str, str]:
+    """*mapping* plus every rename-alias key whose target it maps (alias keys
+    follow their target)."""
+    ext = dict(mapping)
+    for key in weight_aliases():
+        target = canonical_weight_name(key)
+        if key not in ext and target in mapping:
+            ext[key] = mapping[target]
+    return ext
+
+
+def pending_weight_mapping() -> dict[str, str]:
+    """The pending LW-DC-8 old-name -> new-name map (alias keys included), or
+    ``{}`` when nothing is stashed. The loader migrates payload records that
+    are built asynchronously (underlays) with this before they are created."""
+    pending = _pending_migration()
+    return _extend_mapping(pending[1]) if pending is not None else {}
+
+
+def migrate_underlay_entry(entry: dict, ext: dict[str, str]) -> dict:
+    """A copy of one saved underlay payload with its weight names re-pointed
+    through *ext* (single hop): the default ``line_weight_name`` and every
+    ``layer_overrides[layer]["line_weight"]``."""
+    out = dict(entry)
+    cur = out.get("line_weight_name")
+    if cur in ext:
+        out["line_weight_name"] = ext[cur]
+    overrides = {}
+    for layer, ov in (out.get("layer_overrides") or {}).items():
+        ov = dict(ov)
+        if ov.get("line_weight") in ext:
+            ov["line_weight"] = ext[ov["line_weight"]]
+        overrides[layer] = ov
+    if "layer_overrides" in out:
+        out["layer_overrides"] = overrides
+    return out
 
 
 def _schema_current(data: dict) -> bool:
@@ -923,8 +982,8 @@ def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
     no ``line_weight_schema`` installs UNCHANGED (holders parse against it);
     with ``stash=True`` (the loader only) its LW-DC-8 merge-by-width is
     stashed for ``apply_pending_weight_migration``. A table-less file takes
-    the template (and stashes the template's migration, so factory names the
-    template lacks map by width).
+    the template (and stashes a static-map migration: its old factory names map
+    by width, the template's Custom rows stay).
     """
     global _PENDING_LW_MIGRATION
     data = data if isinstance(data, dict) else {}
@@ -934,7 +993,7 @@ def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
     if parsed is None:
         reset_project_line_weights()       # old file / no paper_display -> template
         if stash and not current:
-            _PENDING_LW_MIGRATION = legacy_weight_migration(project_line_weights())
+            _PENDING_LW_MIGRATION = "tableless"
     elif current:
         set_project_line_weights(ensure_defaults(parsed))
         set_weight_aliases(data.get("line_weight_aliases"))
@@ -942,7 +1001,7 @@ def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
         set_weight_aliases(data.get("line_weight_aliases"))
         if stash:
-            _PENDING_LW_MIGRATION = legacy_weight_migration(parsed)
+            _PENDING_LW_MIGRATION = "table"
 
 
 def apply_pending_weight_migration(scene, paper_display: dict | None,
@@ -963,22 +1022,21 @@ def apply_pending_weight_migration(scene, paper_display: dict | None,
         True if a migration ran.
     """
     global _PENDING_LW_MIGRATION
-    pending, _PENDING_LW_MIGRATION = _PENDING_LW_MIGRATION, None
+    pending = _pending_migration()      # against the table as it is NOW
+    _PENDING_LW_MIGRATION = None
     if pending is None:
         return False
     import shutil
     import tempfile
     from . import weight_refs
     new_defs, mapping = pending
-    ext = dict(mapping)
-    for key in weight_aliases():
-        target = canonical_weight_name(key)
-        if key not in ext and target in mapping:
-            ext[key] = mapping[target]
+    ext = _extend_mapping(mapping)
     tmp = tempfile.mkdtemp(prefix="fp3d_lwdc_")
     try:
         scratch = QSettings(f"{tmp}/scratch.ini", QSettings.Format.IniFormat)
-        weight_refs.retarget_weight_refs(scene, scratch, ext)
+        # Underlay records were migrated from their payload as they were
+        # built (they may not exist yet: async DXF/DWG builds).
+        weight_refs.retarget_weight_refs(scene, scratch, ext, underlays=False)
         del scratch
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -214,3 +214,110 @@ def test_unstamped_table_installs_unchanged_then_stashes():
     assert pd._PENDING_LW_MIGRATION is not None
     pd.apply_project_weights({"line_weights": rows})          # no stash: cleared
     assert pd._PENDING_LW_MIGRATION is None
+
+
+# --- Fix round 1: F3 (async underlays), F4 (table-less), F5 (mid-load rows) ---
+
+_MW_ROWS = [("Thinnest", .18), ("Thinner", .25), ("Thin", .35),
+            ("Thick", .50), ("Thickest", .70)]
+
+
+def _unstamped(path, mutate):
+    """Re-write a saved project as a pre-schema-2 file; *mutate(payload)*."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    pdsp = payload.setdefault("paper_display", {})
+    pdsp.pop("line_weight_schema", None)
+    mutate(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _wait(cond, timeout=30.0):
+    import time
+    from PyQt6.QtWidgets import QApplication
+    end = time.monotonic() + timeout
+    while not cond() and time.monotonic() < end:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    return cond()
+
+
+def test_f3_async_underlay_weight_migrates_after_the_build(qapp, tmp_path):
+    """MW project, underlay names "Thin" (0.35 in the file's own table), cache
+    miss -> the record is built by the worker AFTER load_from_file returns."""
+    import ezdxf
+    from firepro3d.underlay import Underlay
+    dxf = tmp_path / "u.dxf"
+    doc = ezdxf.new()
+    doc.modelspace().add_line((0, 0), (100, 0), dxfattribs={"layer": "0"})
+    doc.saveas(str(dxf))
+    ms = _scene()
+    rec = Underlay(type="dxf", path=str(dxf), line_weight_name="Thin",
+                   layer_overrides={"0": {"line_weight": "Thin"}})
+    ms._create_underlay_placeholder(rec)
+    path = tmp_path / "p.fpd"
+    assert ms.save_to_file(str(path), backup=False)
+    raw_rows = [{"name": n, "width_mm": mm} for n, mm in _MW_ROWS]
+    _unstamped(path, lambda p: p["paper_display"].update(
+        line_weights=raw_rows, line_weight_aliases={}))
+    raw_mm = {r["name"]: r["width_mm"] for r in raw_rows}["Thin"]      # 0.35
+
+    pd.reset_project_line_weights()
+    out = _scene()
+    assert out.load_from_file(str(path))
+    assert _wait(lambda: bool(out.underlays)), "async underlay never built"
+    built = out.underlays[0][0]
+    assert pd.resolve_line_weight_mm(built.line_weight_name) == pytest.approx(raw_mm)
+    ov = built.layer_overrides["0"]["line_weight"]
+    assert pd.resolve_line_weight_mm(ov) == pytest.approx(raw_mm)
+    assert built.line_weight_name in pd.weight_names()
+
+
+def test_f4_tableless_file_maps_old_names_statically(qapp, tmp_path):
+    """A pre-LT1 file has no table: an old "Medium" is 0.25 mm (base value)
+    -> Default "Fine", not the schema-2 template's 0.35 "Medium"."""
+    ms = _scene()
+    ms.register_block_definition(sprinkler_def(
+        {"circle": "Medium", "cross": "Medium", "deflector": "Medium"}))
+    path = tmp_path / "t.fpd"
+    assert ms.save_to_file(str(path), backup=False)
+
+    def strip(p):
+        p["paper_display"] = {"categories": {"Wall": {"line_weight": "Medium"}}}
+    _unstamped(path, strip)
+
+    pd.reset_project_line_weights()
+    out = _scene()
+    assert out.load_from_file(str(path))
+    pd.apply_paper_display_from_project(out._loaded_paper_display)
+    old_medium = _OLD_FACTORY_MM["Medium"]                              # 0.25
+    names = [n for _k, n in _holders(out)]
+    assert names and all(pd.resolve_line_weight_mm(n) == pytest.approx(old_medium)
+                         for n in names)
+    wall = pd.load_paper_categories()["Wall"]["line_weight"]
+    assert pd.resolve_line_weight_mm(wall) == pytest.approx(old_medium)
+
+
+def test_f5_row_added_mid_load_survives_the_migration(qapp, tmp_path, monkeypatch):
+    """A library merge that adds "Pen" 0.6 between the stash and the apply
+    must not lose the row (nor the refs naming it)."""
+    ms = _scene()
+    ms.register_block_definition(sprinkler_def(
+        {"circle": "Pen", "cross": "Pen", "deflector": "Pen"}))
+    path = tmp_path / "m.fpd"
+    assert ms.save_to_file(str(path), backup=False)
+    raw_rows = [{"name": n, "width_mm": mm} for n, mm in _MW_ROWS]
+    _unstamped(path, lambda p: p["paper_display"].update(
+        line_weights=raw_rows, line_weight_aliases={}))
+
+    real = pd.apply_pending_weight_migration
+
+    def with_merge(*a, **k):
+        pd.merge_project_line_weights({"Pen": 0.6})   # what the mid-load merge does
+        return real(*a, **k)
+    monkeypatch.setattr(pd, "apply_pending_weight_migration", with_merge)
+    pd.reset_project_line_weights()
+    out = _scene()
+    assert out.load_from_file(str(path))
+    assert "Pen" in pd.weight_names()
+    assert pd.resolve_line_weight_mm("Pen") == pytest.approx(0.6)
+    assert {n for _k, n in _holders(out)} == {"Pen"}
