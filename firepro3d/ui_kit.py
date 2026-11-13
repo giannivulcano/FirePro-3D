@@ -1293,6 +1293,13 @@ class _Chip(QWidget):
         if not self.isEnabled():
             p.setOpacity(_DISABLED_OPACITY)
         r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        if self._color is None:                  # PH2 unset ("—"): outline + dash
+            p.setPen(QPen(QColor(t.border_subtle), 1, Qt.PenStyle.DashLine))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(r, 3, 3)
+            p.setPen(QColor(t.muted))
+            p.drawText(r, Qt.AlignmentFlag.AlignCenter, "—")
+            return
         if not self._color:                      # No Fill (todo #70)
             paint_no_fill(p, r, 3)
             p.setBrush(Qt.BrushStyle.NoBrush)
@@ -1325,11 +1332,12 @@ class Swatch(QWidget):
     clicked = pyqtSignal()      # chip pressed; with auto_pick=False this is the only effect
 
     def __init__(self, hex_color="#000000", parent=None, *, context="Colour",
-                 show_label=True, auto_pick=True):
+                 show_label=True, auto_pick=True, unset_ok=False):
         super().__init__(parent)
         self._context = context
         self._auto_pick = auto_pick
-        self._hex = "#000000" if hex_color is None else hex_color
+        # unset_ok (PH2): None stays None, shown "—" (no override); else None -> black.
+        self._hex = hex_color if (hex_color is not None or unset_ok) else "#000000"
         self.setProperty("_color", self._hex)   # host-readable mirror of hex()
         t = _detect()
         lay = QHBoxLayout(self)
@@ -1360,7 +1368,7 @@ class Swatch(QWidget):
 
     @staticmethod
     def _text_for(v):
-        return swatch_label(v)        # one home: colour_tokens.swatch_label (WM3 D4)
+        return "—" if v is None else swatch_label(v)   # one home: colour_tokens.swatch_label (WM3 D4)
 
     def _on_chip(self):
         self.clicked.emit()

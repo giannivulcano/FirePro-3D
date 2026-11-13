@@ -480,6 +480,7 @@ PHASE_DEMOLITION = "demolition"
 PHASE_EXISTING_COLOUR = "#808080"        # D-PH10 factory: Existing grey lines
 PHASE_EXISTING_FILL = "#D3D3D3"          # D-PH10 factory: Existing light-grey fill
 PHASE_DEMOLITION_LINETYPE = "Demolition"  # D-PH10 / D-PH20: LT7 System > Linetypes entry
+PHASE_OPACITY_UNSET = -1                  # PH2: Phases-tab Opacity spin minimum, shown "—" (no override)
 FILL_TYPE_CUSTOM_LABEL = "(Custom)"           # region panel: no type, own fill (R2)
 COLOUR_TOKENS_MARK = "colour_tokens"   # .fpdb marker: file is token-migrated
 

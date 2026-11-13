@@ -1120,7 +1120,9 @@ a snapshot leaves the snapshot unchanged).
   paint). **`linetype_choices.py`**: `linetype_choices(registry, exclude)`
   mirrors `tile_choices`; `linetype_ref_from_value`, `missing_label` /
   `is_missing_label`, and `ensure_linetype_available` (loads into the
-  **project** scene via `blocks_browser.ensure_block_loaded`). The panel
+  **project** scene via `blocks_browser.ensure_block_loaded`; keyword
+  `outside_history=True` loads outside undo for a caller whose reference
+  is itself outside undo — the PH2 Phases tab OK). The panel
   Linetype row uses it through `Geometry2DMixin._set_linetype_from_panel`
   (every linetype change goes through `_set_style_field`, which calls
   `prepareGeometryChange` for the glyph pad).

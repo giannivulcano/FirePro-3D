@@ -7,6 +7,7 @@ native Qt colour dialog app-wide. Result contract:
     ""          → No Fill (always offered)
     "#RRGGBB"   → a colour
     "token:*"   → a theme token (Automatic / Accent; always offered)
+    NO_OVERRIDE → "— No override" (only with allow_unset; the Phases tab's "—")
 Callers must import the MODULE and call ``colour_picker.pick_colour`` so tests
 can monkeypatch one attribute. See docs/specs/ui-design-system.md.
 """
@@ -20,7 +21,7 @@ from PyQt6.QtGui import (QColor, QPainter, QPen, QLinearGradient, QBrush,
                          QRegularExpressionValidator, QDoubleValidator)
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QLabel,
                              QLineEdit, QGridLayout, QDialog, QDialogButtonBox,
-                             QToolButton, QMenu)
+                             QToolButton, QMenu, QPushButton)
 
 from .colour_tokens import is_token, resolve_colour, token_label
 from .constants import TOKEN_ACCENT, TOKEN_AUTO, TOKEN_BG
@@ -30,6 +31,7 @@ from .theme import M, detect
 from .ui_kit import Stepper, paint_no_fill
 
 NO_FILL = ""
+NO_OVERRIDE = "no-override"   # PH2: "— No override" (allow_unset callers only); never a colour
 
 # Fixed drawing colours (same in both themes) — AutoCAD ACI standard set.
 STANDARD = ("#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#00FFFF",
@@ -313,10 +315,11 @@ class ColourPickerDialog(HouseDialog):
 
     def __init__(self, parent=None, *, initial="#000000", context="",
                  theme=None, mode="colour", layer=None, registry=None,
-                 exclude=()):
+                 exclude=(), allow_unset=False):
         """``mode``: ``"colour"`` (today's dialog), ``"fill"`` (adds Opacity;
         No Fill = background off) or ``"pattern"`` (adds the Pattern row,
-        Opacity and Scale; No Fill hidden). ``layer`` seeds the Fill block."""
+        Opacity and Scale; No Fill hidden). ``layer`` seeds the Fill block.
+        ``allow_unset`` adds a "— No override" entry returning NO_OVERRIDE (PH2)."""
         super().__init__(parent, title="Colour", icon=None, theme=theme)
         self.setFixedWidth(M.COLOUR_DLG_W)
         self._token = initial if is_token(initial) else None
@@ -327,9 +330,13 @@ class ColourPickerDialog(HouseDialog):
         self._pattern_ref = layer.ref if isinstance(layer, PatternLayer) else None
         self._pattern_chips: list[_PatternChip] = []
         self._more_btn = None
+        self._unset_btn = None
         self._opacity = None
         self._scale = None
         self._result_layer = None
+        # PH2 (seam I1): opened on an unset ("—") value, OK keeps NO_OVERRIDE until
+        # the user picks something (the shown black is a placeholder, not a value).
+        self._unset = bool(allow_unset) and initial == NO_OVERRIDE
         if initial == NO_FILL:
             start = NO_FILL
         elif self._token:
@@ -368,6 +375,12 @@ class ColourPickerDialog(HouseDialog):
         top.addLayout(side, 1)
         lay.addLayout(top)
 
+        if allow_unset:                       # PH2 Q1: the Phases tab's "—"
+            self._unset_btn = QPushButton("—  No override")
+            self._unset_btn.setAutoDefault(False)
+            self._unset_btn.setToolTip("No override: the element keeps its own value")
+            self._unset_btn.clicked.connect(self._accept_no_override)
+            lay.addWidget(self._unset_btn)
         self._theme_row_chips = self._add_token_row(lay)
         std = list(zip(STANDARD, STANDARD_NAMES))
         self._standard_row_chips = self._add_row(lay, "Standard", [(v, f"{n} · {v}") for v, n in std]
@@ -532,7 +545,16 @@ class ColourPickerDialog(HouseDialog):
         or "#RRGGBB" if accepted."""
         return self._result_value
 
+    def no_override_button(self):
+        """The "— No override" button, or None when not offered (PH2)."""
+        return self._unset_btn
+
+    def _accept_no_override(self):
+        self._result_value = NO_OVERRIDE
+        QDialog.accept(self)                  # skip accept(): no recent push, no layer
+
     def _set_colour(self, qc: QColor, *, keep_hue=False):
+        self._unset = False
         self._token = None
         self._no_fill = False
         self._color = QColor(qc)
@@ -541,6 +563,7 @@ class ColourPickerDialog(HouseDialog):
         self._sync_widgets()
 
     def _set_no_fill(self):
+        self._unset = False
         self._token = None
         self._no_fill = True
         self._sync_widgets()
@@ -600,6 +623,7 @@ class ColourPickerDialog(HouseDialog):
 
     def _on_chip(self, value):
         if is_token(value):
+            self._unset = False
             self._token = value
             self._no_fill = False
             self._color = resolve_colour(value)
@@ -616,6 +640,9 @@ class ColourPickerDialog(HouseDialog):
 
     # ── outcome ────────────────────────────────────────────────────────────
     def accept(self):
+        if self._unset:                          # PH2 seam I1: nothing picked -> still "—"
+            self._accept_no_override()
+            return
         self._result_value = self.current_value()
         push_recent(self._result_value)          # no-op for NO_FILL; colour only
         if self._mode in ("fill", "pattern"):
@@ -638,19 +665,23 @@ class ColourPickerDialog(HouseDialog):
         super().reject()
 
 
-def pick_colour(initial, parent=None, context=""):
+def pick_colour(initial, parent=None, context="", *, allow_unset=False):
     """Open the house picker. Returns None (cancelled), NO_FILL (""), a colour
     token or a lower-case "#rrggbb" — the same convention
     QColor.name() gave every caller, so stored data / no-op comparisons keep
     their existing form. (The dialog DISPLAYS upper-case hex; only the
-    returned value is lower-cased.)"""
-    dlg = ColourPickerDialog(parent, initial=initial or "", context=context)
+    returned value is lower-cased.) With ``allow_unset`` it may also return
+    NO_OVERRIDE ("— No override", PH2)."""
+    dlg = ColourPickerDialog(parent, initial=initial or "", context=context,
+                             allow_unset=allow_unset)
     try:
         code = dlg.exec()
         v = dlg.result_value() if code == QDialog.DialogCode.Accepted else None
     finally:
         dlg.deleteLater()
-    return None if v is None else v.lower()
+    if v is None or v == NO_OVERRIDE:
+        return v
+    return v.lower()
 
 
 def pick_fill(initial, parent=None, *, pattern: bool, context="",

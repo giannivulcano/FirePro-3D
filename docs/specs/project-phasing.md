@@ -1,9 +1,10 @@
 ---
-status: partial           # concept ratified 2026-10-20 (grill Q1-Q19 + brainstorm sections 1-5); PH1 data model built 2026-11-12 (v0.101.0); PH2-PH8 unbuilt
+status: partial           # concept ratified 2026-10-20 (grill Q1-Q19 + brainstorm sections 1-5); PH1 data model built 2026-11-12 (v0.101.0); PH2 Display Manager Phases tab built 2026-11-12; PH3-PH8 unbuilt
 last-verified: 2026-11-12
-verified-commit: f2f0db3e  # PH1 (v0.101.0; status, D-PH4, D-PH5, AC1-AC4, AC12, edge cases); prior da92c5c4
+verified-commit: 1ac77114  # PH2 (merge to main; status, AC6, AC7, applies-to phases_tab.py); prior f2f0db3e  # PH1 (v0.101.0; status, D-PH4, D-PH5, AC1-AC4, AC12, edge cases); prior da92c5c4
 applies-to:
   - firepro3d/phase_registry.py
+  - firepro3d/phases_tab.py
   - firepro3d/displayable_item.py
   - firepro3d/paper_display.py
   - firepro3d/paper_space.py
@@ -92,8 +93,8 @@ AC1-AC14 as ratified in Phase 2, AC15 added 2026-11-06 (task lines in `todo_open
 - [x] AC3 template Phase committed on placement through every placement tool (D-PH5) (PH1).
 - [ ] AC4 legacy load per D-PH6; a pre-phasing sheet renders pixel-identical. Load half built in PH1 (v12 fixture guard); the render half lands with PH3.
 - [ ] AC5 viewport Phasing + Show ticks (D-PH8).
-- [ ] AC6 Phases tab with factory graphics (D-PH10, D-PH9).
-- [ ] AC7 phase graphics round-trip in the project file (D-PH11).
+- [x] AC6 Phases tab with factory graphics (D-PH10, D-PH9). *(PH2, 2026-11-12: `phases_tab.PhasesTab`, appended after Materials; columns STATUS / COLOUR / FILL / LINE WT / LINETYPE / OPACITY; `None` = "—" no override in every cell; the New row is shown and locked to "—" (D-PH9); Reset All = D-PH10 factory into the working copy; Set as Default writes only the template's `"phases"` key (`settings/template.save_phases_as_default`); Demolition's linetype shows `missing_label("Demolition")` until LT7 (D-PH20). Stored units: colour/fill as the picker returns them (`""` = No Fill, a real override), weight a line-weight **name**, linetype a block id, opacity an **integer percent** 0–100.)*
+- [x] AC7 phase graphics round-trip in the project file (D-PH11). *(PH2: the tab edits a `PhaseRegistry.copy()`; OK installs it via `set_project_table` only on a net change, outside undo, and dirties the project (a folder linetype it names loads outside undo too); Cancel leaves the registry untouched.)*
 - [ ] AC8 plan/elevation/section tab control (D-PH12).
 - [ ] AC9 Demolition dashing coverage (D-PH13).
 - [ ] AC10 hydraulic exclusion + report line (D-PH14).
