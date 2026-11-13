@@ -164,6 +164,61 @@ def test_e_colour_cell_no_override_clears_to_none(main_window, monkeypatch):
     dlg.reject()
 
 
+def _exec_then(action):
+    """Stand-in for the picker's modal exec(): run *action* on the REAL dialog, then OK."""
+    from PyQt6.QtWidgets import QDialog
+
+    def fake_exec(self):
+        action(self)
+        self.accept()                                     # the dialog's own OK path
+        return QDialog.DialogCode.Accepted
+    return fake_exec
+
+
+def test_i1_ok_on_an_unset_cell_keeps_no_override(main_window, monkeypatch):
+    """Seam I1: open a "—" colour cell, press OK untouched -> still None (not No Fill "")."""
+    from firepro3d import colour_picker as cp
+    dlg = main_window._make_display_manager("model")
+    t = _tab(dlg)
+    assert t.table().graphics_of("demolition")["colour"] is None     # factory (D-PH10)
+    monkeypatch.setattr(cp.ColourPickerDialog, "exec", _exec_then(lambda d: None))
+    t.swatch("demolition", "colour").clicked.emit()
+    assert t.table().graphics_of("demolition")["colour"] is None
+    assert t.cell_text("demolition", "colour") == "—"
+    # A real pick from the unset state still lands: No Fill chip -> "".
+    monkeypatch.setattr(cp.ColourPickerDialog, "exec",
+                        _exec_then(lambda d: d._on_chip(cp.NO_FILL)))
+    t.swatch("demolition", "colour").clicked.emit()
+    assert t.table().graphics_of("demolition")["colour"] == ""
+    dlg.reject()
+
+
+def test_i2_folder_linetype_loaded_on_ok_survives_undo(main_window, tmp_path, monkeypatch):
+    """Seam I2: OK loads a folder linetype outside undo (the registry ref is outside undo too)."""
+    import os
+    from firepro3d import app_data
+    from firepro3d.linetype_choices import _folder_linetypes
+    lt_dir = tmp_path / "lt"
+    os.makedirs(lt_dir)
+    rid = "user-linetypes-phdash"
+    with open(lt_dir / "PhDash.fpdb", "w", encoding="utf-8") as fh:
+        json.dump({"schema": 1, "id": rid, "library": "User", "series": "Linetypes",
+                   "name": "PhDash", "version": 1, "primitives": [],
+                   "repeat": {"pieces": []}}, fh)
+    monkeypatch.setattr(app_data, "linetypes_dir", lambda: str(lt_dir))
+    assert rid in [r[1] for r in _folder_linetypes()]                 # precondition
+    ms = main_window.scene
+    assert ms.block_registry.get(rid) is None
+    dlg = main_window._make_display_manager("model")
+    combo = _tab(dlg).cell("existing", "linetype")
+    combo.setCurrentIndex(combo.findData(rid))
+    dlg.accept()
+    assert pr.project_table().graphics_of("existing")["linetype"] == rid
+    assert ms.block_registry.get(rid) is not None                     # loaded on OK
+    ms.undo()                                                         # Ctrl+Z after OK
+    assert ms.block_registry.get(rid) is not None                     # not an undo step
+
+
 def test_combo_and_opacity_cells_reach_the_registry_on_ok(main_window):
     """Review T4-5 Minor 1: the combo path (itemData -> slot) and opacity back to "—" (None)."""
     from firepro3d.paper_display import weight_names

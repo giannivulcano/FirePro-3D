@@ -2743,7 +2743,8 @@ class DisplayManager(HouseDialog):
             from .linetype_choices import ensure_linetype_available
             for row in work.statuses():  # a folder linetype loads on OK, never on Cancel
                 ref = row["graphics"].get("linetype")
-                if ref and not ensure_linetype_available(ref, self._scene):
+                if ref and not ensure_linetype_available(  # registry is outside undo (seam I2)
+                        ref, self._scene, outside_history=True):
                     work.set_graphic(row["id"], "linetype", None)
             phase_registry.set_project_table(work.copy())
             self._scene._dirty = True

@@ -154,7 +154,8 @@ class PhasesTab(QWidget):
 
     def _pick(self, sid, key) -> None:
         cur = self._work.graphics_of(sid).get(key)
-        v = colour_picker.pick_colour(cur or "", self, f"{key.title()} override",
+        initial = colour_picker.NO_OVERRIDE if cur is None else cur   # seam I1
+        v = colour_picker.pick_colour(initial, self, f"{key.title()} override",
                                       allow_unset=True)
         if v is None:
             return

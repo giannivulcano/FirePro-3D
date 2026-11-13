@@ -61,7 +61,8 @@ def linetype_ref_from_value(value: str, registry=None, exclude=()) -> str | None
                  if label == v), None)
 
 
-def ensure_linetype_available(ref: str | None, scene) -> bool:
+def ensure_linetype_available(ref: str | None, scene, *,
+                              outside_history: bool = False) -> bool:
     """Load a Linetypes-folder linetype into the project before its id is
     stored (LT3-12; one undo step via ``blocks_browser.ensure_block_loaded``).
 
@@ -69,10 +70,16 @@ def ensure_linetype_available(ref: str | None, scene) -> bool:
     ref that is no folder linetype need nothing. The load targets the PROJECT
     scene (a Block Editor scene's ``_block_registry_owner``).
 
+    Args:
+        outside_history: Load outside undo (see ``ensure_capability_available``);
+            for a caller whose reference itself lives outside undo (the PH2
+            Phases tab installs the phase registry outside undo).
+
     Returns:
         False only when *ref* is a folder linetype that failed to load (the
         caller must not keep it); True otherwise.
     """
     from .capabilities import ensure_capability_available
     return ensure_capability_available(ref, scene, _folder_linetypes,
-                                       keywords=(CONTINUOUS,))
+                                       keywords=(CONTINUOUS,),
+                                       outside_history=outside_history)

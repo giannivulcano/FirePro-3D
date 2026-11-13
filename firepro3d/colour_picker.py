@@ -334,6 +334,9 @@ class ColourPickerDialog(HouseDialog):
         self._opacity = None
         self._scale = None
         self._result_layer = None
+        # PH2 (seam I1): opened on an unset ("—") value, OK keeps NO_OVERRIDE until
+        # the user picks something (the shown black is a placeholder, not a value).
+        self._unset = bool(allow_unset) and initial == NO_OVERRIDE
         if initial == NO_FILL:
             start = NO_FILL
         elif self._token:
@@ -551,6 +554,7 @@ class ColourPickerDialog(HouseDialog):
         QDialog.accept(self)                  # skip accept(): no recent push, no layer
 
     def _set_colour(self, qc: QColor, *, keep_hue=False):
+        self._unset = False
         self._token = None
         self._no_fill = False
         self._color = QColor(qc)
@@ -559,6 +563,7 @@ class ColourPickerDialog(HouseDialog):
         self._sync_widgets()
 
     def _set_no_fill(self):
+        self._unset = False
         self._token = None
         self._no_fill = True
         self._sync_widgets()
@@ -618,6 +623,7 @@ class ColourPickerDialog(HouseDialog):
 
     def _on_chip(self, value):
         if is_token(value):
+            self._unset = False
             self._token = value
             self._no_fill = False
             self._color = resolve_colour(value)
@@ -634,6 +640,9 @@ class ColourPickerDialog(HouseDialog):
 
     # ── outcome ────────────────────────────────────────────────────────────
     def accept(self):
+        if self._unset:                          # PH2 seam I1: nothing picked -> still "—"
+            self._accept_no_override()
+            return
         self._result_value = self.current_value()
         push_recent(self._result_value)          # no-op for NO_FILL; colour only
         if self._mode in ("fill", "pattern"):
