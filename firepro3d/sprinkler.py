@@ -59,11 +59,14 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
     # -------------------------------------------------------------------------
     # Public property API
 
-    def get_properties(self) -> dict:
+    def get_properties(self, *, with_symbol_row: bool = True) -> dict:
+        """The panel rows. ``with_symbol_row=False`` skips the Symbol row, whose
+        build walks the symbol library on disk -- serialize / undo / signature
+        callers that discard that row pass it (SB4g VC9 I1)."""
         from .system_blocks import SYMBOL_ROW_KEY
         props = {}
         for k, v in self._properties.items():      # the Symbol row takes Graphic's old slot
-            if k == "Ceiling Level":
+            if k == "Ceiling Level" and with_symbol_row:
                 props[SYMBOL_ROW_KEY] = self.symbol_row()
             props[k] = v
         # Sync ceiling properties from the parent node
@@ -150,7 +153,7 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
         """Copy all property values, the phase (D-PH5) and the symbol choice
         (SB4g R3) from a template Sprinkler."""
         from .system_blocks import SYMBOL_ROW_KEY
-        for key, meta in template.get_properties().items():
+        for key, meta in template.get_properties(with_symbol_row=False).items():
             if meta.get("single_only") or key in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY):
                 continue       # position rows never move this node; phase + symbol copied below
             self.set_property(key, meta["value"])

@@ -59,6 +59,7 @@ from firepro3d import colour_picker
 from firepro3d import fill_types
 from firepro3d import materials
 from firepro3d import phase_registry
+from firepro3d.network_codec import SYMBOL_KEY, read_symbol_id
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -942,6 +943,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             spr_props = self.settings.value("template/sprinkler", {})
             if isinstance(spr_props, dict):
                 for k, v in spr_props.items():
+                    if k == SYMBOL_KEY:      # SB4g I2: not a row, restored directly
+                        self.current_sprinkler_template.set_symbol_block(
+                            read_symbol_id(v))
+                        continue
                     self.current_sprinkler_template.set_property(k, v)
         if self.settings.contains("template/text"):
             raw = self.settings.value("template/text", {})
@@ -3576,6 +3581,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         from firepro3d.sprinkler import Sprinkler
         template = Sprinkler(None)
         template.phase = self.current_sprinkler_template.phase   # R7: sticky across a catalog pick
+        template.symbol_block = self.current_sprinkler_template.symbol_block   # SB4g I2
         template.set_property("Manufacturer",  record.manufacturer)
         template.set_property("Model",         record.model)
         template.set_property("K-Factor",      str(record.k_factor))
@@ -6018,6 +6024,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             spr_props = {k: v["value"]
                          for k, v in self.current_sprinkler_template._properties.items()}
             spr_props[phase_registry.ROW_KEY] = self.current_sprinkler_template.phase
+            if self.current_sprinkler_template.symbol_block:     # sparse (SB4g D6)
+                spr_props[SYMBOL_KEY] = self.current_sprinkler_template.symbol_block
             self.settings.setValue("template/sprinkler", spr_props)
         if self.current_text_template is not None:
             self.settings.setValue(

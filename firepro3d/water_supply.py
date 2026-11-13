@@ -81,10 +81,13 @@ class WaterSupply(SymbolBlockItem):
     # -------------------------------------------------------------------------
     # Property API (compatible with PropertyManager)
 
-    def get_properties(self) -> dict:
+    def get_properties(self, *, with_symbol_row: bool = True) -> dict:
+        """The panel rows; ``with_symbol_row=False`` skips the library-walking
+        Symbol row for non-panel callers (SB4g VC9 I1)."""
         from .system_blocks import SYMBOL_ROW_KEY
         props = self._properties.copy()
-        props[SYMBOL_ROW_KEY] = self.symbol_row()                         # SB4g D7 / R7
+        if with_symbol_row:
+            props[SYMBOL_ROW_KEY] = self.symbol_row()                     # SB4g D7 / R7
         props[phase_registry.ROW_KEY] = phase_registry.property_row(self)   # PD1
         return props
 

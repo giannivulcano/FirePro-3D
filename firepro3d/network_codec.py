@@ -42,7 +42,7 @@ def sprinkler_props(spr) -> dict:
     is written sparsely beside the rows -- SB4g D6)."""
     from .node import HYDRAULIC_ROW_KEYS
     from .system_blocks import SYMBOL_ROW_KEY
-    rec = {k: v for k, v in spr.get_properties().items()
+    rec = {k: v for k, v in spr.get_properties(with_symbol_row=False).items()
            if k not in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY)
            and k not in HYDRAULIC_ROW_KEYS}
     if spr.symbol_block:
