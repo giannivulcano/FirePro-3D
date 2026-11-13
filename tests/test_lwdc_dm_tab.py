@@ -234,9 +234,26 @@ def test_accent_follows_the_displayed_width(dm):
     _edit_cell(dm, row, 1, "0.254")                      # shows 0.25 == factory
     row = _row(dm, "Fine")
     assert tbl.item(row, 1).text() == "0.25"
+    # D2: the STORED width is the shown 2 dp, not 0.254 (raw: LW-DC-1 Fine).
+    assert next(d for d in pd.project_line_weights()
+                if d.name == "Fine").width_mm == 0.25
+    assert pd.resolve_line_weight_mm("Fine") == 0.25
     assert tbl.item(row, 1).foreground().color() != accent
     assert tbl.cellWidget(row, 3) is None
+    _edit_cell(dm, row, 1, "0.30")                       # 0.30 != 0.25: accent
+    row = _row(dm, "Fine")
+    assert tbl.item(row, 1).foreground().color() == accent
+    assert pd.resolve_line_weight_mm("Fine") == 0.30
     _edit_cell(dm, row, 1, "0.26")                       # shows 0.26: differs
     row = _row(dm, "Fine")
     assert tbl.item(row, 1).foreground().color() == accent
     assert tbl.cellWidget(row, 3) is not None
+
+
+def test_custom_width_rounds_to_two_decimals(dm):
+    dm._on_lw_add()
+    row = next(r for r, d in dm._lw_row_def.items() if d.name.startswith("Custom"))
+    name = dm._lw_row_def[row].name
+    _edit_cell(dm, row, 1, "0.456")
+    stored = next(d for d in pd.project_line_weights() if d.name == name)
+    assert stored.width_mm == 0.46

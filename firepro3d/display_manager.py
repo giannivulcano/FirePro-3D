@@ -2608,6 +2608,7 @@ class DisplayManager(HouseDialog):
                 self._lw_table.item(row, 1).setText(f"{old_def.width_mm:.2f}")
                 self._suppress = False
                 return
+            new_width = round(new_width, 2)          # D2: 2 dp, as shown
             if not validate_line_weight_width(new_width):
                 self._suppress = True
                 self._lw_table.item(row, 1).setText(f"{old_def.width_mm:.2f}")
