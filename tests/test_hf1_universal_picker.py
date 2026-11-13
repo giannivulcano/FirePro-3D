@@ -514,18 +514,24 @@ def test_graphic_override_stroke_no_stroke_draws_nothing(mw, qapp, monkeypatch):
 
 def test_pick_colour_has_no_opt_out_flags(qapp, monkeypatch):
     """The retired allow_none / allow_tokens kwargs are gone (slice B): the
-    one picker takes (initial, parent, context) and always shows every row."""
+    one picker takes (initial, parent, context) and always shows every row.
+    PH2 (ruled 2026-11-12): the only extra is the keyword-only, add-only
+    ``allow_unset`` (default False), which adds "— No override" and hides nothing."""
     import inspect
-    assert list(inspect.signature(colour_picker.pick_colour).parameters) == [
-        "initial", "parent", "context"]
+    params = inspect.signature(colour_picker.pick_colour).parameters
+    assert list(params) == ["initial", "parent", "context", "allow_unset"]
+    assert params["allow_unset"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["allow_unset"].default is False
     seen = []
 
     def exec_(self):
-        seen.append(bool(self._theme_row_chips) and self._standard_row_chips[-1].value == "")
+        seen.append((bool(self._theme_row_chips) and self._standard_row_chips[-1].value == "",
+                     self.no_override_button() is not None))
         return QDialog.DialogCode.Rejected
     monkeypatch.setattr(colour_picker.ColourPickerDialog, "exec", exec_)
     assert colour_picker.pick_colour("#112233", None, "x") is None
-    assert seen == [True]
+    assert colour_picker.pick_colour("#112233", None, "x", allow_unset=True) is None
+    assert seen == [(True, False), (True, True)]   # every row both ways; the entry only on opt-in
 
 
 # ── Font colour: "" ──────────────────────────────────────────────────────────
