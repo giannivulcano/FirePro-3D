@@ -4690,7 +4690,8 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
             end rows' By End Type Model scale label (ET1 Q12b).
     """
     from .paper_display import model_blocks_weight as _pd_blocks
-    from .paper_display import picker_weight_name, weight_names
+    from .paper_display import (picker_weight_name, weight_names,
+                                weight_separator_at)
     from .linetype_choices import linetype_choices, missing_label
     from .stroke_style import (AS_AUTHORED, AS_AUTHORED_LABEL, BY_CATEGORY,
                                BY_CATEGORY_LABEL, BY_LINETYPE, weight_label)
@@ -4720,6 +4721,7 @@ def stroke_rows(style: dict, registry, exclude=(), *, locked: bool = False,
         "Linetype": {"type": "enum", "options": options, "value": value,
                      "tooltip": tip_lt},
         "Weight": {"type": "enum", "options": [*head, *weight_names()],
+                   "separator_at": weight_separator_at(len(head)),
                    "value": value_w, "tooltip": tip_w},
     }
     if placement:                       # WM3 D4: Colour after Weight

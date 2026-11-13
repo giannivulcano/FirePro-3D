@@ -40,22 +40,22 @@ def test_named_weight_survives_normalize():
 
 
 def test_weight_label_continuous_falls_back_to_model_blocks(qapp):
-    pd.set_model_blocks_weight(None)               # factory 0.18 mm -> Thinnest (MW-5)
+    pd.set_model_blocks_weight(None)               # factory 0.18 mm -> Thin (LW-DC-1)
     try:
         assert ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, None) == \
-            "By Linetype (Thinnest)"
-        pd.set_model_blocks_weight("Thin")
-        assert ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, None) == \
             "By Linetype (Thin)"
+        pd.set_model_blocks_weight("Medium")        # 0.35 mm (was "Thin")
+        assert ss.weight_label(ss.BY_LINETYPE, ss.CONTINUOUS, None) == \
+            "By Linetype (Medium)"
     finally:
         pd.set_model_blocks_weight(None)
 
 
 def test_weight_label_uses_dash_weight(qapp):
     ms = Model_Space()
-    lt = hidden(ms, weight="Thinner")
+    lt = hidden(ms, weight="Fine")                  # 0.25 mm (was "Thinner")
     assert ss.weight_label(ss.BY_LINETYPE, lt, ms.block_registry) == \
-        "By Linetype (Thinner)"
+        "By Linetype (Fine)"
     assert ss.weight_label("Thin", lt, ms.block_registry) == "Thin"
 
 

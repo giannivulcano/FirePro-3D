@@ -56,12 +56,12 @@ class TestUnderlayLayerPen:
         assert underlay_layer_pen(rec, "A-DOOR").color().name() == "#c0c0c0"
 
     def test_named_weight_hint_width(self, qapp):
-        # "Medium" (old factory, 0.25mm) -> its row by mm (MW-6) -> Auto
-        # whole px of 0.25 x factor (MW-3 / MW-8; was 0.25 x 6 hint)
-        rec = _record(line_weight_name="Medium")
+        # "Fine" (0.25mm) -> the Default row shipping 3 px (LW-DC-1; was the
+        # old "Medium" row at Auto 2 px)
+        rec = _record(line_weight_name="Fine")
         pen = underlay_layer_pen(rec, "A-WALL")
         assert pen.isCosmetic()  # NEVER zoom-scales (spec §3.4 invariant)
-        assert pen.widthF() == pytest.approx(2.0)      # 0.25 x 8 = 2 px
+        assert pen.widthF() == pytest.approx(3.0)      # shipped Model px of the 0.25 mm row
 
 
 class TestBuilderPerLayerPens:
@@ -546,7 +546,7 @@ class TestExportUnderlayParity:
         assert stroke.pen().isCosmetic()
         assert stroke.pen().color().name() == "#c0c0c0"
         assert stroke.pen().widthF() == pytest.approx(
-            4.0)   # screen pen back (MW-8 Auto: 0.50 x 8 = 4 px)
+            5.0)   # screen pen back (0.50 mm row "Wide": shipped 5 px, LW-DC-1)
         assert text.brush().color().name() == "#c0c0c0"
 
     def test_export_weight_true_mm(self, qapp, tmp_path):

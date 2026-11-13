@@ -1,8 +1,8 @@
 """Raw 2D shapes plot their authored named weight on sheets (AC1-AC4).
 
-Paper "Construction" category is set to "Thick" (0.50 mm) so the category
+Paper "Construction" category is set to "Wide" (0.50 mm) so the category
 fallback is distinguishable from every named weight used here
-(Thin 0.35 / Thickest 0.70). Rendered at PPM px per paper mm; the ink
+(Medium 0.35 / Thick 0.70). Rendered at PPM px per paper mm; the ink
 thickness is the longest dark run down any column in the middle half of
 the viewport image (side edges of rectangles/regions lie outside it).
 """
@@ -24,7 +24,7 @@ from tests.lt3_support import hidden
 from tests.test_filled_region import square_pieces
 
 PPM = 20                     # render px per paper mm
-CAT = "Thick"                # Construction category weight under test (0.50 mm)
+CAT = "Wide"                 # Construction category weight under test (0.50 mm)
 TOL_PX = 1.5
 
 
@@ -44,7 +44,7 @@ class _DetailStub:
 
 @pytest.fixture
 def construction_thick(qapp):
-    """B&W paper, Construction = Thick; restores the categories after."""
+    """B&W paper, Construction = Wide; restores the categories after."""
     set_paper_mode("bw")
     before = pd.load_paper_categories()
     cats = pd.load_paper_categories()
@@ -101,10 +101,10 @@ def _rect(span):
 
 
 SHAPES = {"line": _line, "polyline": _poly, "rect": _rect}
-# (weight, use dashed linetype with dash weight Thickest, expected mm or None = CAT)
+# (weight, use dashed linetype with dash weight Thick, expected mm or None = CAT)
 WEIGHTS = {
-    "named_thin": ("Thin", False, 0.35),
-    "named_thickest": ("Thickest", False, 0.70),
+    "named_medium": ("Medium", False, 0.35),
+    "named_thick": ("Thick", False, 0.70),
     "by_linetype_continuous": ("by_linetype", False, None),
     "by_linetype_dashed": ("by_linetype", True, 0.70),
 }
@@ -158,7 +158,7 @@ def _expected_px(mm, cat_mm):
 def test_g1_plan_viewport_raw_shape_plots_authored_weight(construction_thick, shape, wkey):
     weight, dashed, mm = WEIGHTS[wkey]
     ms = Model_Space()
-    lt = hidden(ms, weight="Thickest") if dashed else None
+    lt = hidden(ms, weight="Thick") if dashed else None
     item = _style(SHAPES[shape](2000.0), weight, lt)
     vp, w, h = _plan_viewport([item], ms)
     got = _ink_px(_paint(vp, w, h))
@@ -179,7 +179,7 @@ def _region():
 def test_g2_schematic_viewport_raw_shape_plots_authored_weight(construction_thick, shape, wkey):
     weight, dashed, mm = WEIGHTS[wkey]
     proj = Model_Space()
-    lt = hidden(proj, weight="Thickest") if dashed else None
+    lt = hidden(proj, weight="Thick") if dashed else None
     item = _region() if shape == "region" else SHAPES[shape](100.0)
     _style(item, weight, lt)
     vp, w, h = _schematic_viewport(proj, [item.to_dict()])
@@ -191,7 +191,7 @@ def test_g2_schematic_viewport_raw_shape_plots_authored_weight(construction_thic
 def test_g3_canvas_pen_restored_after_paper_pass(construction_thick):
     """AC4: the paper pass leaves the canvas pen exactly as it found it."""
     ms = Model_Space()
-    item = _style(_line(2000.0), "Thickest")
+    item = _style(_line(2000.0), "Thick")
     vp, w, h = _plan_viewport([item], ms)
     item._sync_stroke_pen()
     before = item.pen()
@@ -201,7 +201,7 @@ def test_g3_canvas_pen_restored_after_paper_pass(construction_thick):
         (before.widthF(), before.isCosmetic(), before.color().name())
 
 
-@pytest.mark.parametrize("weight,mm", [("Thickest", 0.70), ("by_linetype", None)])
+@pytest.mark.parametrize("weight,mm", [("Thick", 0.70), ("by_linetype", None)])
 def test_g4_block_op_in_schematic_viewport_unchanged(construction_thick, weight, mm):
     """AC3: block ops keep LT2-5 -- named = own mm; By Linetype = Blocks weight."""
     proj = Model_Space()

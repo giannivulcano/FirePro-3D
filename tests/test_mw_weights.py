@@ -14,6 +14,10 @@ from firepro3d import paper_display as pd
 from firepro3d.paper_display import LineWeightDef
 from tests._mainwindow_helpers import dispose_main_window
 
+# LW-DC-1 factory Defaults (name, mm). _NEW below is the retired MW-4 table,
+# kept as a self-contained fixture table / migration input.
+_DEFAULTS = [("Extra Thin", 0.13), ("Thin", 0.18), ("Fine", 0.25), ("Medium", 0.35),
+             ("Wide", 0.50), ("Thick", 0.70), ("Extra Thick", 1.00)]
 _NEW = [("Thinnest", 0.18), ("Thinner", 0.25), ("Thin", 0.35),
         ("Thick", 0.50), ("Thickest", 0.70)]
 _OLD = [("Very Light", 0.13), ("Light", 0.18), ("Medium", 0.25),
@@ -33,7 +37,7 @@ def _store_template(rows):
 
 
 def test_factory_table_is_the_user_standard():
-    assert [(d.name, d.width_mm) for d in pd.FACTORY_LINE_WEIGHTS] == _NEW
+    assert [(d.name, d.width_mm) for d in pd.FACTORY_LINE_WEIGHTS] == _DEFAULTS   # LW-DC-1
 
 
 def test_model_px_round_trips_and_is_omitted_when_auto():
@@ -65,9 +69,9 @@ def test_g4_old_factory_project_table_untouched():
 
 def test_g4_old_factory_template_is_replaced_and_rewritten():
     _store_template(_OLD)
-    assert [(d.name, d.width_mm) for d in pd.load_line_weights()] == _NEW
+    assert [(d.name, d.width_mm) for d in pd.load_line_weights()] == _DEFAULTS
     raw = json.loads(QSettings("GV", "FirePro3D").value("paper/line_weights"))
-    assert [(e["name"], e["width_mm"]) for e in raw] == _NEW
+    assert [(e["name"], e["width_mm"]) for e in raw] == _DEFAULTS
 
 
 def test_g4_customised_template_is_kept():
@@ -117,7 +121,10 @@ def test_g5_category_defaults_land_by_mm_user_template():
 
 def test_g5_missing_factory_names_resolve_by_mm_both_ways():
     pd.set_project_line_weights(_defs(_OLD))
-    assert pd.resolve_line_weight_mm("Thin") == 0.35       # new name, old table
+    assert pd.resolve_line_weight_mm("Thin") == 0.18       # Default name (0.18), old table
+    assert pd.resolve_line_weight_mm("Thickest") == 0.50   # MW name (0.70) -> nearest 0.50
+    assert pd.resolve_line_weight_mm("Thinnest") == 0.18   # non-clashing MW name, by mm
+    assert pd.resolve_line_weight_mm("Thinner") == 0.25    # (a pre-MW table has no such row)
     pd.set_project_line_weights(_defs(_NEW))
     assert pd.resolve_line_weight_mm("Heavy") == 0.35      # old name, new table
     assert pd.resolve_line_weight_mm("Very Light") == 0.18 # 0.13 -> nearest

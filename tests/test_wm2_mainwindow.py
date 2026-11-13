@@ -23,8 +23,8 @@ def test_g12_panel_pick_repaints_and_is_one_undo_step(mw, qapp):
     ms.push_undo_state()
     try:
         authored = {c: round(canvas_px(w)) for c, (_y, w) in SPRINKLER.items()}
-        thick = round(canvas_px("Thick"))
-        assert thick not in authored.values()          # composition: distinguishable
+        wide = round(canvas_px("Wide"))
+        assert wide not in authored.values()          # composition: distinguishable
         assert _runs(ms) == authored                   # painted before the pick
         ms.clearSelection()
         inst.setSelected(True)
@@ -32,11 +32,11 @@ def test_g12_panel_pick_repaints_and_is_one_undo_step(mw, qapp):
         pm = mw.prop_manager
         assert pm._targets == [inst]
         before = ms._undo_pos
-        pm._prop_widgets["Weight"].setCurrentText("Thick")   # the real combo
+        pm._prop_widgets["Weight"].setCurrentText("Wide")   # the real combo
         qapp.processEvents()
-        assert inst.overrides["weight"] == "Thick"
+        assert inst.overrides["weight"] == "Wide"
         assert ms._undo_pos == before + 1                    # ONE step
-        assert set(_runs(ms).values()) == {thick}            # repainted
+        assert set(_runs(ms).values()) == {wide}            # repainted
         ms.undo()
         qapp.processEvents()
         restored = [i for i in ms._block_instances if i.block_id == d.id]

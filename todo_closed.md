@@ -2375,3 +2375,9 @@ Shipped on `main` (Small tier: /todo:audit Census → /todo F1–F4 batch → gr
 - [x] [type:maint] Room manual close/pop and shift-click floor vertex delete keep their own 8 px literals — route through `CLOSE_HIT_PX` / `close_hit` [P4] [subject:Architecture] [done:2026-11-12]
   - Details: found 2026-10-01 (scene-tools P1 Slice 9; `model_space.py` `tol = 8.0` ×2 + `vtx_tol`).
   - Built 2026-11-12 (room-detection run): `_press_room_manual` close / vertex pop and `_press_select_shift_floor` vertex delete call `geometry_drawing_controller.close_hit` (same 8 px). Parity guards `tests/test_room_close_hit.py`.
+
+## Linetypes -- LW-DC line weight Defaults / Custom -- 2026-11-12
+
+- [x] [type:feature] LW-DC — Line Weights tab: Defaults / Custom sections (Extra Thin 0.13, Thin 0.18, Fine 0.25, Medium 0.35, Wide 0.50, Thick 0.70, Extra Thick 1.00); rename follows every reference; deleting an in-use weight prompts for a replacement (default = nearest width) [P2] [subject:CAD] [done:2026-11-12]
+  - Details: user request 2026-11-12. Touches `paper_display.FACTORY_LINE_WEIGHTS` (MW-4), `display_manager` Line Weights tab (`_on_lw_remove` today refuses an in-use weight; `_propagate_lw_rename` = LT2-8). Name collision with the MW factory: "Thin" (0.35 -> 0.18) and "Thick" (0.50 -> 0.70) — MW-6 factory-name resolution must be re-decided.
+  - Built 2026-11-12 (LW-DC run, branch feat/lineweights-defaults-custom, spec `docs/specs/linetypes.md` §LW-DC): seven named Defaults + Custom section (sectioned pickers, DM Defaults/Custom with accent + reset), merge-by-width project-open migration (LW-DC-8; async underlay payloads, table-less files via the static map), delete-with-replacement that aliases deleted->pick (D1), Width rounded to 2 dp (D2). Guards `tests/test_lwdc_*.py`. Full suite not run (user call); follow-ups M3/M4/M6 filed in todo_open.

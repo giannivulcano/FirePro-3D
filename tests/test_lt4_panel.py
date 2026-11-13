@@ -301,9 +301,9 @@ def test_template_in_a_linetype_shows_continuous_and_the_dash_weight(qapp):
     w = BlockEditorWidget(proj)
     assert w.toggle_capability("repeat")
     sc = w.editor_scene
-    la.set_pattern_weight(sc, "Thin")
-    ss.set_current(linetype=hid.id, weight="Thinnest")
-    _assert_template_matches_draw(sc, "Thin")
+    la.set_pattern_weight(sc, "Medium")              # 0.35 mm (was "Thin")
+    ss.set_current(linetype=hid.id, weight="Thin")   # 0.18 mm (was "Thinnest")
+    _assert_template_matches_draw(sc, "Medium")
 
 
 def test_template_in_a_dots_only_linetype_shows_the_weight_a_draw_gets(qapp):
@@ -313,23 +313,23 @@ def test_template_in_a_dots_only_linetype_shows_the_weight_a_draw_gets(qapp):
     assert w.toggle_capability("repeat")
     sc = w.editor_scene
     assert la.apply_pattern_rows(sc, [("dot", 0.0), ("gap", 3.0)])
-    ss.set_current(linetype=hid.id, weight="Thinnest")
-    _assert_template_matches_draw(sc, "Thinnest")
+    ss.set_current(linetype=hid.id, weight="Thin")   # 0.18 mm (was "Thinnest")
+    _assert_template_matches_draw(sc, "Thin")
 
 
 def test_template_outside_a_linetype_is_unaffected(qapp):
     proj, hid = _hidden_project()
-    ss.set_current(linetype=hid.id, weight="Thinnest")
+    ss.set_current(linetype=hid.id, weight="Thin")   # 0.18 mm (was "Thinnest")
     props = proj._get_geometry_template().get_properties()
     assert props["Linetype"]["value"] == "Hidden"
     assert not props["Linetype"].get("disabled")
     assert not props["Weight"].get("disabled")
-    assert props["Weight"]["value"] == "Thinnest"
+    assert props["Weight"]["value"] == "Thin"
     plain = BlockEditorWidget(proj).editor_scene        # editor, no repeat
     props = plain._get_geometry_template().get_properties()
     assert not props["Linetype"].get("disabled")
     assert not props["Weight"].get("disabled")
-    assert ss.current_style() == {"linetype": hid.id, "weight": "Thinnest"}
+    assert ss.current_style() == {"linetype": hid.id, "weight": "Thin"}
 
 
 # ── review G5 R-N1: a dots-only pattern's Weight row is disabled ─────────

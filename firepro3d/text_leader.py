@@ -320,13 +320,15 @@ def panel_rows(rec: dict | None, registry, exclude=(), fallback_weight: str = ""
     if not rec:
         return rows
     from .capabilities import end_choices
-    from .paper_display import picker_weight_name, weight_names
+    from .paper_display import (picker_weight_name, weight_names,
+                                weight_separator_at)
     choices = end_choices(registry, exclude)
     value = next((n for n, r in choices if r == rec["end"]), None)
     rows["Leader End"] = {"type": "enum", "options": [n for n, _ in choices],
                           "value": value or (choices[0][0] if choices else "")}
     shown = rec["weight"] or fallback_weight
     rows["Leader Weight"] = {"type": "enum", "options": weight_names(),
+                             "separator_at": weight_separator_at(),
                              "value": picker_weight_name(shown) if shown
                              else weight_names()[0]}
     return rows

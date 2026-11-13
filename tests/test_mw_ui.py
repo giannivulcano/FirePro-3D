@@ -25,12 +25,17 @@ INK = "#ff00ff"
 _X = 60.0
 
 
+def _lw_row(d, name):
+    """Table row of weight *name* (header rows shift the indices, LW-DC-6)."""
+    return next(r for r, lw in d._lw_row_def.items() if lw.name == name)
+
+
 def _dlg():
     return DisplayManager(Model_Space(), active_context="paper")
 
 
 def _row(d, name):
-    return [x.name for x in d._lw_defs].index(name)
+    return _lw_row(d, name)
 
 
 def _px():
@@ -63,12 +68,14 @@ def _live_underlay(w, weight):
 # ---------------------------------------------------------------- D1 column
 
 def test_model_column_shows_auto_and_tooltips(qapp):
-    pd.set_project_line_weights([LineWeightDef("Thin", 0.35),
+    # Custom rows: on a Default an Auto px that differs from factory paints
+    # in the accent colour (LW-DC-2), not the muted "Auto" look.
+    pd.set_project_line_weights([LineWeightDef("Pen", 0.35),
                                  LineWeightDef("Pinned", 0.50, 7)])
     d = _dlg()
     hdr = d._lw_table.horizontalHeaderItem(2)
     assert hdr.text() == "MODEL (PX)" and hdr.toolTip()
-    auto = d._lw_table.item(_row(d, "Thin"), 2)
+    auto = d._lw_table.item(_row(d, "Pen"), 2)
     assert auto.text() == "Auto (3)" and auto.toolTip()
     muted = th.detect().color("muted")
     assert auto.foreground().color() == muted
@@ -124,13 +131,17 @@ def test_cancel_restores_overrides(qapp):
 
 
 def test_reset_is_new_factory_all_auto(qapp):
-    pd.set_project_line_weights([LineWeightDef("Thin", 0.35, 4)])
+    # LW-DC-1: the factory rows ship explicit Model px 1/2/3/4/5/6/8 (the MW-4
+    # "all Auto" contract is retired); Reset restores them.
+    pd.set_project_line_weights([LineWeightDef("Thin", 0.35, 7)])
     d = _dlg()
     d._reset_line_weights_tab()
     assert [(x.name, x.width_mm, x.model_px) for x in pd.project_line_weights()] \
-        == [(x.name, x.width_mm, None) for x in pd.FACTORY_LINE_WEIGHTS]
-    texts = [d._lw_table.item(r, 2).text() for r in range(d._lw_table.rowCount())]
-    assert texts == ["Auto (1)", "Auto (2)", "Auto (3)", "Auto (4)", "Auto (6)"]
+        == [("Extra Thin", 0.13, 1), ("Thin", 0.18, 2), ("Fine", 0.25, 3),
+            ("Medium", 0.35, 4), ("Wide", 0.50, 5), ("Thick", 0.70, 6),
+            ("Extra Thick", 1.00, 8)]
+    texts = [d._lw_table.item(r, 2).text() for r in sorted(d._lw_row_def)]
+    assert texts == ["1", "2", "3", "4", "5", "6", "8"]
     d.reject()
 
 

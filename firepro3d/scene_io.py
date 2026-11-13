@@ -273,7 +273,7 @@ class SceneIOMixin:
         # recovery both come through here; apply_paper_display_from_project
         # re-applies the same values afterwards.
         from .paper_display import apply_project_weights
-        apply_project_weights(self._loaded_paper_display)
+        apply_project_weights(self._loaded_paper_display, stash=True)
         # HF5 R9: the fill-type table loads at the same point -- block compile
         # and region parse below resolve typed fills against THIS file's types.
         from . import fill_types
@@ -372,7 +372,14 @@ class SceneIOMixin:
         # --- Underlays ---
         project_dir = os.path.dirname(os.path.abspath(filename))
         missing_underlays = []
+        # LW-DC-8: underlays may be built asynchronously after this loader
+        # returns (cache miss -> worker thread), so their weight names are
+        # migrated here, from the payload, not by the end-of-load sweep.
+        from .paper_display import migrate_underlay_entry, pending_weight_mapping
+        lw_map = pending_weight_mapping()
         for entry in payload.get("underlays", []):
+            if lw_map:
+                entry = migrate_underlay_entry(entry, lw_map)
             udata = Underlay.from_dict(entry)
             resolved = Underlay.resolve_path(udata.path, project_dir)
 
@@ -614,6 +621,13 @@ class SceneIOMixin:
         # Old schematics turn Printed (notes design N13): reads definitions + sheets.
         from .schematic_scene import migrate_old_schematics
         migrate_old_schematics(self, version)
+
+        # LW-DC-8: a pre-schema-2 file's by-name weights merge into the new
+        # Defaults now that every holder is built, before the undo baseline
+        # (outside undo; the file re-saves as schema 2 on the next save).
+        from .paper_display import apply_pending_weight_migration
+        apply_pending_weight_migration(
+            self, self._loaded_paper_display, self._loaded_display_settings)
 
         # Start fresh undo history
         self._undo_stack = []

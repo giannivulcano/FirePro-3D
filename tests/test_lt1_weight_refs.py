@@ -11,6 +11,11 @@ from firepro3d.text_item import TextAnnotationData, TextItem
 from tests._paper_iso_helpers import _DetailMgrStub
 
 
+def _lw_row(d, name):
+    """Table row of weight *name* (header rows shift the indices, LW-DC-6)."""
+    return next(r for r, lw in d._lw_row_def.items() if lw.name == name)
+
+
 def _scene_with_refs():
     pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS,
                                  LineWeightDef("SheetW", 0.41),
@@ -29,14 +34,24 @@ def _scene_with_refs():
 
 
 def _row(d, name):
-    return [x.name for x in d._lw_defs].index(name)
+    return _lw_row(d, name)
 
 
 def _rename(d, old, new):
     d._lw_table.item(_row(d, old), 0).setText(new)
 
 
-def test_remove_refused_for_sheet_and_definition_text(qapp):
+def _cancel_replace_dialog(monkeypatch):
+    """LW-DC-5 retired the outright refusal: an in-use remove now opens the
+    replace modal; these guards answer Cancel (nothing changes)."""
+    from PyQt6.QtWidgets import QDialog
+    from firepro3d.weight_replace_dialog import WeightReplaceDialog
+    monkeypatch.setattr(WeightReplaceDialog, "exec",
+                        lambda self: QDialog.DialogCode.Rejected)
+
+
+def test_remove_cancelled_for_sheet_and_definition_text(qapp, monkeypatch):
+    _cancel_replace_dialog(monkeypatch)
     ms, _sheet, _defn = _scene_with_refs()
     d = DisplayManager(ms, active_context="paper")
     for name in ("SheetW", "DefW"):
@@ -93,7 +108,8 @@ def _mm(item):
     return item._frame_pen().widthF() * (item.scale() or 1.0)
 
 
-def test_model_text_weight_refused_renamed_and_cancelled(qapp):
+def test_model_text_weight_cancelled_renamed_and_cancelled(qapp, monkeypatch):
+    _cancel_replace_dialog(monkeypatch)
     pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS,
                                  LineWeightDef("ModelW", 0.43)])
     ms = Model_Space()

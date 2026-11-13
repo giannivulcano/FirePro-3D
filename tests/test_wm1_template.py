@@ -28,13 +28,13 @@ def test_primitive_rows_have_no_by_block(qapp):
 def test_weight_row_shows_resolved_by_linetype(qapp):
     pd.set_model_blocks_weight(None)
     ms = Model_Space(scene_role="block_editor")
-    lt = hidden(ms, weight="Thinner")
+    lt = hidden(ms, weight="Fine")                  # 0.25 mm (was "Thinner")
     ln = _line(ms)
     w = ln.get_properties()["Weight"]
-    assert w["options"][0] == "By Linetype (Thinnest)" == w["value"]
+    assert w["options"][0] == "By Linetype (Thin)" == w["value"]   # 0.18 mm (was "Thinnest")
     ln.style["linetype"] = lt
     w = ln.get_properties()["Weight"]
-    assert w["options"][0] == "By Linetype (Thinner)" == w["value"]
+    assert w["options"][0] == "By Linetype (Fine)" == w["value"]
 
 
 def test_picking_by_linetype_label_stores_by_linetype(qapp):

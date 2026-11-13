@@ -41,15 +41,16 @@ def _clean_settings():
 
 class TestLineWeightDefs:
     def test_factory_defaults_count(self):
-        assert len(FACTORY_LINE_WEIGHTS) == 5
+        assert len(FACTORY_LINE_WEIGHTS) == 7        # LW-DC-1
 
     def test_factory_names(self):
         names = [lw.name for lw in FACTORY_LINE_WEIGHTS]
-        assert names == ["Thinnest", "Thinner", "Thin", "Thick", "Thickest"]   # MW-4
+        assert names == ["Extra Thin", "Thin", "Fine", "Medium", "Wide", "Thick",
+                         "Extra Thick"]   # LW-DC-1
 
     def test_factory_widths(self):
         widths = [lw.width_mm for lw in FACTORY_LINE_WEIGHTS]
-        assert widths == [0.18, 0.25, 0.35, 0.50, 0.70]   # MW-4
+        assert widths == [0.13, 0.18, 0.25, 0.35, 0.50, 0.70, 1.00]   # LW-DC-1
 
     def test_sorted_ascending(self):
         widths = [lw.width_mm for lw in FACTORY_LINE_WEIGHTS]
@@ -67,8 +68,8 @@ class TestLineWeightDefs:
 
     def test_load_returns_factory_when_no_settings(self):
         loaded = load_line_weights()
-        assert len(loaded) == 5
-        assert loaded[0].name == "Thinnest"          # MW-4 factory
+        assert len(loaded) == 7
+        assert loaded[0].name == "Extra Thin"        # LW-DC-1 factory
 
 
 class TestPaperCategories:
@@ -87,21 +88,21 @@ class TestPaperCategories:
     def test_factory_opening_categories_light(self):
         for k in ("Door", "Window", "Opening"):
             c = factory_paper_categories()[k]
-            # MW-5: 0.18 mm -> the new factory's Thinnest (was "Light")
-            assert c["line_weight"] == "Thinnest" and c["color"] == TOKEN_AUTO   # paper-as-authored D3
+            # LW-DC-1: 0.18 mm -> "Thin" (was "Thinnest")
+            assert c["line_weight"] == "Thin" and c["color"] == TOKEN_AUTO   # paper-as-authored D3
             assert c["fill"] is None and c["visible"] is True
 
     def test_factory_blocks_category_light_no_fill(self):
         """Blocks: paper-only, factory 0.18 mm, no fill / section (LT1-2, H6)."""
         c = factory_paper_categories()["Blocks"]
-        assert c["line_weight"] == "Thinnest"      # MW-5: 0.18 mm
+        assert c["line_weight"] == "Thin"      # 0.18 mm
         assert c["fill"] is None
         assert c["section_color"] is None
         assert c["color"] == TOKEN_AUTO       # paper-as-authored D3
         assert c["visible"] is True and c["opacity"] == 100
 
     def test_factory_hatch_category_is_very_light(self):
-        assert factory_paper_categories()["Hatch"]["line_weight"] == "Thinnest"   # MW-5: 0.13 -> nearest 0.18
+        assert factory_paper_categories()["Hatch"]["line_weight"] == "Extra Thin"   # 0.13 mm exact (was nearest 0.18)
 
     def test_factory_construction_pen_only(self):
         """Construction is a paper-only, pen-only category (color #000000, no fill)."""
@@ -109,7 +110,7 @@ class TestPaperCategories:
         assert c["color"] == TOKEN_AUTO     # paper-as-authored D3
         assert c["fill"] is None
         assert c["section_color"] is None
-        assert c["line_weight"] == "Thinnest"      # MW-5: 0.18 mm
+        assert c["line_weight"] == "Thin"      # 0.18 mm
         assert c["visible"] is True
 
     def test_factory_bw_colors(self):
@@ -120,14 +121,14 @@ class TestPaperCategories:
                 assert vals["fill"] == TOKEN_BG, f"{key} fill"      # paper-as-authored D3
 
     def test_factory_wall_heavy(self):
-        assert factory_paper_categories()["Wall"]["line_weight"] == "Thin"      # MW-5: 0.35 mm
+        assert factory_paper_categories()["Wall"]["line_weight"] == "Medium"      # 0.35 mm
 
     def test_factory_pipe_medium(self):
-        assert factory_paper_categories()["Pipe"]["line_weight"] == "Thinner"   # MW-5: 0.25 mm
+        assert factory_paper_categories()["Pipe"]["line_weight"] == "Fine"   # 0.25 mm
 
     def test_factory_grid_medium(self):
         # Grid Line factory weight upgraded to Medium (Task 2: bubble-label true-scale)
-        assert factory_paper_categories()["Grid Line"]["line_weight"] == "Thinner"   # MW-5: 0.25 mm
+        assert factory_paper_categories()["Grid Line"]["line_weight"] == "Fine"   # 0.25 mm
 
     def test_round_trip_qsettings(self):
         cats = load_paper_categories()
@@ -138,7 +139,7 @@ class TestPaperCategories:
 
     def test_load_returns_factory_when_no_settings(self):
         loaded = load_paper_categories()
-        assert loaded["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
+        assert loaded["Pipe"]["line_weight"] == "Fine"   # factory 0.25 mm
 
 
 class TestProjectPersistence:
@@ -172,7 +173,7 @@ class TestProjectPersistence:
     def test_apply_from_project_missing_key_uses_factory(self):
         apply_paper_display_from_project({})
         cats = load_paper_categories()
-        assert cats["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
+        assert cats["Pipe"]["line_weight"] == "Fine"   # factory 0.25 mm
 
 
 class TestProjectFilePersistence:
@@ -195,7 +196,7 @@ class TestProjectFilePersistence:
         cats = load_paper_categories()
         # paper-as-authored D4: a missing color_mode maps as B&W (rows OFF)
         assert all(cats[k]["as_authored"] is False for k in _TOGGLED_ROWS)
-        assert cats["Pipe"]["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
+        assert cats["Pipe"]["line_weight"] == "Fine"   # factory 0.25 mm
 
     def test_backward_compat_no_paper_display_key(self):
         """Simulates loading a project file that predates paper_display."""
@@ -373,7 +374,7 @@ class TestRoomLabelPaperHeight:
 
 class TestResolveLineWeight:
     def test_known_weight(self):
-        mm = resolve_line_weight_mm("Medium")
+        mm = resolve_line_weight_mm("Fine")
         assert mm == 0.25
 
     def test_unknown_weight_returns_default(self):

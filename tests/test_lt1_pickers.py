@@ -14,7 +14,7 @@ def _table():
 
 def _check_options(opts):
     assert opts == pd.weight_names()
-    assert opts.index("Site") == opts.index("Thin") + 1  # 0.35 < 0.40 < 0.50 (MW-4 names)
+    assert opts.index("Site") == pd.weight_separator_index()  # LW-DC-7: Custom follows the Defaults
 
 
 def test_text_item_property_options_include_custom(qapp):
@@ -37,7 +37,9 @@ def test_frame_group_combo_lists_custom(qapp):
     fg = FrameGroupController(lambda: [item])
     fg.sync()
     combo = fg.weight_combo
-    assert [combo.itemText(i) for i in range(combo.count())] == pd.weight_names()
+    items = [combo.itemText(i) for i in range(combo.count())]
+    assert items[pd.weight_separator_index()] == ""   # LW-DC-7 separator
+    assert [t for t in items if t] == pd.weight_names()
     assert combo.currentText() == item.data.border_weight
 
 
@@ -71,5 +73,7 @@ def test_underlay_weight_menu_lists_project_table(qapp, monkeypatch):
     opt = _option()
     assert WeightDelegate(DARK).editorEvent(
         _release_event(opt), model, opt, idx) is True
-    assert seen == [["Default", *pd.weight_names()]]
+    names = pd.weight_names()
+    k = pd.weight_separator_index()     # LW-DC-7: separator action ("") before Custom
+    assert seen == [["Default", *names[:k], "", *names[k:]]]
     assert "Site" in seen[0]
