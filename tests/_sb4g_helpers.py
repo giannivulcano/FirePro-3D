@@ -82,6 +82,24 @@ def ink_extent_mm(view, item):
     return (max(xs) - min(xs) + 1) / k, (max(ys) - min(ys) + 1) / k
 
 
+def ink_tol_mm(view):
+    """Tolerance of ``ink_extent_mm`` against a centre-line extent: the
+    cosmetic width a By Linetype stroke resolves to (the DM Model "Blocks"
+    weight, LW-DC factory "Thin" = 2 px) plus 1.5 device px of anti-aliasing,
+    in scene mm. At a 1 px weight this is today's 2.5 px (10 mm at 0.25)."""
+    from firepro3d.stroke_style import canvas_px
+    QApplication.processEvents()
+    dpr = view.viewport().grab().toImage().devicePixelRatio()
+    k = view.transform().m11() * dpr
+    return (canvas_px("By Linetype") + 1.5) / k
+
+
+def grab(view) -> QImage:
+    """The shown view's viewport pixels after pending paints."""
+    QApplication.processEvents()
+    return view.viewport().grab().toImage()
+
+
 # -- scene builders + renders -------------------------------------------------
 def scene():
     ms = Model_Space()

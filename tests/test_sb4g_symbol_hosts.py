@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QGraphicsItem
 from firepro3d.constants import RISER_SYMBOL_SIZE_MM, Z_SPRINKLER
 from firepro3d.node import Node
 from firepro3d.symbol_block import SymbolBlockItem
-from tests._sb4g_helpers import _circle_symbol, ink_extent_mm
+from tests._sb4g_helpers import _circle_symbol, grab, ink_extent_mm, ink_tol_mm
 
 # Raw sources: Sprinkler.TARGET_MM = 24.0 * 25.4 at 119fbbf0 (sprinkler.py:24,
 # water_supply.py:37) and RISER_SYMBOL_SIZE_MM = 150 map each SVG's 20-unit viewBox
@@ -25,7 +25,6 @@ EXTENT_MM = {
     "system-symbols-watersupply": 2 * 9.51192 * KH,                # 579.847 (water_supply.svg)
     "system-symbols-riser": 2 * 9.2852659 * KR,                    # 139.279 (riser_passthrough.svg)
 }
-INK_TOL = 10.0                              # +-1 device px AA each side at zoom 0.25
 
 
 def _head(scene, x=0.0, y=0.0):
@@ -51,8 +50,8 @@ def test_g1_sprinkler_draws_its_block_at_real_size(shown_model_view, real_system
     assert spr.definition() is not None and spr.definition().id == want
     assert spr.extent_radius() * 2 == pytest.approx(EXTENT_MM[want], abs=0.01)
     w, h = ink_extent_mm(view, spr)
-    assert w == pytest.approx(EXTENT_MM[want], abs=INK_TOL)
-    assert h == pytest.approx(EXTENT_MM[want], abs=INK_TOL)
+    assert w == pytest.approx(EXTENT_MM[want], abs=ink_tol_mm(view))
+    assert h == pytest.approx(EXTENT_MM[want], abs=ink_tol_mm(view))
 
 
 def test_g3_user_symbol_300mm_and_node_shape_follow_it(shown_model_view):
@@ -62,7 +61,7 @@ def test_g3_user_symbol_300mm_and_node_shape_follow_it(shown_model_view):
     node.sprinkler.set_symbol_block(d.id)
     assert node.sprinkler.extent_radius() == pytest.approx(150.0, abs=0.01)
     w, _h = ink_extent_mm(view, node.sprinkler)
-    assert w == pytest.approx(300.0, abs=INK_TOL)
+    assert w == pytest.approx(300.0, abs=ink_tol_mm(view))
     # Node pick disk = the symbol extent (max with Node.RADIUS = 13)
     assert node.shape().boundingRect().width() / 2.0 == pytest.approx(150.0, abs=0.01)
     # bounds = 1.15 x extent for the selection ring (node.py ratio, kept)
@@ -104,8 +103,8 @@ def test_g1_water_supply_draws_its_block_at_real_size(shown_model_view, real_sys
     assert ws.extent_radius() * 2 == pytest.approx(want, abs=0.01)
     assert (ws._rect().center().x(), ws._rect().center().y()) == pytest.approx((0.0, 0.0), abs=0.01)  # T14 fold-in: centred on its node
     w, h = ink_extent_mm(view, ws)
-    assert w == pytest.approx(want, abs=INK_TOL)
-    assert h == pytest.approx(want, abs=INK_TOL)
+    assert w == pytest.approx(want, abs=ink_tol_mm(view))
+    assert h == pytest.approx(want, abs=ink_tol_mm(view))
 
 
 def test_ac10_water_supply_selectable_z_kept_selection_never_plots(shown_model_view,
@@ -119,13 +118,14 @@ def test_ac10_water_supply_selectable_z_kept_selection_never_plots(shown_model_v
     scene.addItem(ws)
     assert ws.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
     assert ws.zValue() == Z_WATER_SUPPLY
-    w0, _ = ink_extent_mm(view, ws)
+    unsel = grab(view)
     ws.setSelected(True)
-    w_sel, _ = ink_extent_mm(view, ws)
-    assert w_sel > w0                               # canvas selection outline drawn
+    assert grab(view) != unsel                      # canvas selection outline drawn
     monkeypatch.setattr(pd, "paper_pass_active", lambda: True)
-    w_paper, _ = ink_extent_mm(view, ws)
-    assert w_paper == pytest.approx(w0, abs=INK_TOL)   # selection never plots
+    ws.update()
+    sel_paper = grab(view)
+    ws.setSelected(False)
+    assert grab(view) == sel_paper                  # selection never plots
 
 
 # -- T10: riser pass-through ---------------------------------------------------
@@ -151,8 +151,8 @@ def test_g1_riser_draws_its_block_at_real_size(shown_model_view, real_system_lib
     want = EXTENT_MM["system-symbols-riser"]
     assert rs.extent_radius() * 2 == pytest.approx(want, abs=0.01)
     w, h = ink_extent_mm(view, rs)
-    assert w == pytest.approx(want, abs=INK_TOL)
-    assert h == pytest.approx(want, abs=INK_TOL)
+    assert w == pytest.approx(want, abs=ink_tol_mm(view))
+    assert h == pytest.approx(want, abs=ink_tol_mm(view))
 
 
 def test_riser_hit_disk_follows_the_riser_block(shown_model_view):

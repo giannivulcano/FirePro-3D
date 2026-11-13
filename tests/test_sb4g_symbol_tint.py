@@ -138,12 +138,12 @@ def test_g4_paper_row_colour_and_fill_plot_and_restore(qapp, real_system_library
 
 def test_paper_named_weight_user_symbol_plots_mm_over_scale(qapp):
     """D8: a user symbol with a NAMED weight plots its paper mm / scale
-    (needs _paper_scale / _paper_pen_width). Raw source: the paper "Thin"
-    weight 0.35 mm (tests/test_paper_authored_weights.py WEIGHTS) at 1:50
-    (paper_scale 0.02) = 17.5 scene mm."""
+    (needs _paper_scale / _paper_pen_width). Raw source: the factory Default
+    "Medium" weight 0.35 mm (paper_display.DEFAULT_LINE_WEIGHTS, LW-DC-1) at
+    1:50 (paper_scale 0.02) = 17.5 scene mm."""
     ms = scene()
     ring = CircleItem(QPointF(0.0, 0.0), 300.0)
-    ring.style["weight"] = "Thin"
+    ring.style["weight"] = "Medium"
     ring.style["colour"] = "#ff0000"
     d = BlockDefinition.new(name="U", library="Test", series="S",
                             primitives=[ring.to_dict()], origin=(0.0, 0.0))

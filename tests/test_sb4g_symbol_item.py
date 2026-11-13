@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QApplication
 
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import CircleItem
-from tests._sb4g_helpers import _circle_symbol, ink_extent_mm
+from tests._sb4g_helpers import _circle_symbol, ink_extent_mm, ink_tol_mm
 
 
 def test_item_resolves_its_chosen_block_and_reports_real_extent(shown_model_view):
@@ -31,9 +31,9 @@ def test_item_paints_its_ops_at_real_size_in_a_shown_view(shown_model_view):
     item.set_symbol_block(d.id)
     scene.addItem(item)
     w, h = ink_extent_mm(view, item)
-    # 300 mm circle; +-1 device px of AA each side = 8 mm at 0.25
-    assert w == pytest.approx(300.0, abs=10.0)
-    assert h == pytest.approx(300.0, abs=10.0)
+    # 300 mm circle; tolerance = the By Linetype stroke's px + AA (ink_tol_mm)
+    assert w == pytest.approx(300.0, abs=ink_tol_mm(view))
+    assert h == pytest.approx(300.0, abs=ink_tol_mm(view))
 
 
 def test_stroke_tint_recolours_pixels_and_unset_is_authored(shown_model_view):
