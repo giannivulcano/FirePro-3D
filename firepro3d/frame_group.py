@@ -86,11 +86,10 @@ class FrameGroupController(QObject):
 
     def _refill_weights(self):
         """Fill the weight combo from the live project table (LT1-6)."""
-        from .paper_display import weight_names
+        from .paper_display import fill_weight_combo
         cur = self.weight_combo.currentText()
         self.weight_combo.blockSignals(True)
-        self.weight_combo.clear()
-        self.weight_combo.addItems(weight_names())
+        fill_weight_combo(self.weight_combo)
         if cur:
             self.weight_combo.setCurrentText(cur)
         self.weight_combo.blockSignals(False)

@@ -437,6 +437,8 @@ class PropertyManager(QWidget):
             elif prop_type == "enum":
                 widget = Selector()
                 widget.addItems([str(o) for o in meta.get("options", [])])
+                if meta.get("separator_at") is not None:   # LW-DC-7
+                    widget.insertSeparator(meta["separator_at"])
                 warn = {str(o) for o in meta.get("warn_options", ())}
                 if warn:
                     wc = th.detect().color("warn")

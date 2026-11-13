@@ -516,6 +516,29 @@ def weight_separator_index() -> int:
     return sum(1 for d in project_line_weights() if is_default_weight(d.name))
 
 
+def weight_separator_at(head_len: int = 0) -> int | None:
+    """Combo index for ``insertSeparator`` between Defaults and Custom.
+
+    Args:
+        head_len: Number of rows listed before ``weight_names()`` in the combo.
+
+    Returns:
+        The index where Custom starts, or ``None`` when no Custom rows exist.
+    """
+    sep = weight_separator_index()
+    return head_len + sep if len(project_line_weights()) > sep else None
+
+
+def fill_weight_combo(combo, head=()) -> None:
+    """Clear ``combo`` and fill it: ``head``, Defaults, a separator, Custom
+    (LW-DC-7). The separator is an empty-text item, only when Custom rows exist."""
+    combo.clear()
+    combo.addItems([*head, *weight_names()])
+    at = weight_separator_at(len(head))
+    if at is not None:
+        combo.insertSeparator(at)
+
+
 def _same_mm(a: float, b: float) -> bool:
     return round(float(a), 6) == round(float(b), 6)
 

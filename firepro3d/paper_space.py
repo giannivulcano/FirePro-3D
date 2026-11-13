@@ -1898,7 +1898,8 @@ def _text_panel_properties(data: "TextAnnotationData", registry=None, exclude=()
     Returns:
         An ordered property dict in PropertyManager meta format.
     """
-    from .paper_display import picker_weight_name, weight_names
+    from .paper_display import (picker_weight_name, weight_names,
+                                weight_separator_at)
     from .text_leader import panel_rows
     return {
         "Font": {"type": "font", "value": data.font_family or "Arial"},
@@ -1921,7 +1922,8 @@ def _text_panel_properties(data: "TextAnnotationData", registry=None, exclude=()
         "Line Type": {"type": "enum", "value": data.border_line_type,
                       "options": ["solid", "dashed", "dotted", "dashdot"]},
         "Border Weight": {"type": "enum", "value": picker_weight_name(data.border_weight),
-                          "options": weight_names()},
+                          "options": weight_names(),
+                          "separator_at": weight_separator_at()},
         "Corner": {"type": "enum", "value": data.border_corner,
                    "options": ["square", "round", "chamfer"]},
         "Wrap": {"type": "bool", "value": data.wrap_on()},                   # D7

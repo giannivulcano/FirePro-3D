@@ -1517,13 +1517,12 @@ class DisplayManager(HouseDialog):
         combo = getattr(self, "_model_blocks_combo", None)
         if combo is None:
             return
-        from .paper_display import (model_blocks_weight, picker_weight_name,
-                                    weight_names)
+        from .paper_display import (fill_weight_combo, model_blocks_weight,
+                                    picker_weight_name)
         was = self._suppress
         self._suppress = True
         try:
-            combo.clear()
-            combo.addItems(weight_names())
+            fill_weight_combo(combo)
             combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         finally:
             self._suppress = was
@@ -1993,7 +1992,7 @@ class DisplayManager(HouseDialog):
     def _build_paper_space_tab(self) -> QWidget:
         """Build the Paper Space display overrides tab."""
         from .paper_display import (
-            weight_names, load_paper_categories,
+            fill_weight_combo, load_paper_categories,
             _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS, _LW_ONLY, _AUTH_ONLY,
         )
         _t = th.detect()
@@ -2035,7 +2034,6 @@ class DisplayManager(HouseDialog):
 
         # Load data
         cats = load_paper_categories(self._settings)
-        lw_names = weight_names()          # the PROJECT table (LT1-3)
         from .paper_display import factory_paper_categories, picker_weight_name
         factory_all = factory_paper_categories()
 
@@ -2133,7 +2131,7 @@ class DisplayManager(HouseDialog):
                 # ── Line Weight combo ────────────────────────────────
                 lw_combo = QComboBox()
                 if key not in _AUTH_ONLY:      # R2: the Underlay row has no weight
-                    lw_combo.addItems(lw_names)
+                    fill_weight_combo(lw_combo)
                     cur_lw = picker_weight_name(cat.get("line_weight")
                                                 or factory_all[key]["line_weight"])  # MW-6: the row it draws as
                     idx = lw_combo.findText(cur_lw)
@@ -2342,13 +2340,13 @@ class DisplayManager(HouseDialog):
         # whose Colour is By Category. Visibility and opacity stay authored /
         # per instance.
         from .paper_display import (model_blocks_colour, model_blocks_weight,
-                                    picker_weight_name, weight_names)
+                                    picker_weight_name, fill_weight_combo)
         blocks_lbl = QLabel("Model blocks weight / colour:")
         blocks_lbl.setToolTip("Blocks: line weight and colour of block linework "
                               "drawn By Category (visibility and opacity stay "
                               "authored)")
         combo = QComboBox()
-        combo.addItems(weight_names())
+        fill_weight_combo(combo)
         combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         combo.setToolTip("Canvas line weight of block linework whose weight is "
                          "By Linetype on a Continuous line (Thin Lines still "
@@ -2548,9 +2546,8 @@ class DisplayManager(HouseDialog):
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
-        from .paper_display import (weight_names, load_paper_categories,
+        from .paper_display import (fill_weight_combo, load_paper_categories,
                                     picker_weight_name, factory_paper_categories)
-        lw_names = weight_names()          # the PROJECT table (LT1-3)
         cats = load_paper_categories(self._settings)
         factory_all = factory_paper_categories()
         self._suppress = True
@@ -2560,8 +2557,7 @@ class DisplayManager(HouseDialog):
                 continue                    # R2: the Underlay row has no weight
             combo = widgets["lw_combo"]
             cur = combo.currentText()
-            combo.clear()
-            combo.addItems(lw_names)
+            fill_weight_combo(combo)
             idx = combo.findText(cur)
             if idx >= 0:
                 combo.setCurrentIndex(idx)
