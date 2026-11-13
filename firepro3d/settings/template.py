@@ -284,3 +284,22 @@ def save_current_as_default(scene) -> str:
         json.dump(payload, fh, indent=2)
     log.debug("Saved current settings as default template: %s", path)
     return path
+
+
+def save_phases_as_default(rows) -> str:
+    """Write *rows* as the template's ``"phases"`` key only (PH2 Q4); every other key kept.
+
+    Args:
+        rows: The phase registry rows (``PhaseRegistry.to_list()`` shape).
+
+    Returns:
+        The absolute path to the template file.
+    """
+    path = ensure_template()
+    with open(path, encoding="utf-8") as fh:
+        payload = json.load(fh)
+    payload["phases"] = [dict(r) for r in rows]
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    log.debug("Saved phase graphics as default: %s", path)
+    return path
