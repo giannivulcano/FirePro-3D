@@ -198,10 +198,11 @@ def test_i2_latched_dm_categories_plot_paper_colour_on_full_colour(
     hits = sum(1 for x in range(pm.width) for y in range(pm.height)
                if _on_blend(pm.pixel(x, y)))
     assert hits > 20, hits        # canvas ink / accent would leave ~0
-    for canvas_rgb in ((0xe6, 0xe9, 0xec), (0x63, 0xbe, 0x8b)):   # dark-theme ink / accent
-        stale = sum(1 for x in range(pm.width) for y in range(pm.height)
-                    if all(abs(a - b) <= 3 for a, b in zip(pm.pixel(x, y), canvas_rgb)))
-        assert stale < 20, (canvas_rgb, stale)    # latched canvas tint would be ~1400
+    # The stroke core reaches the paper colour itself (t ~ 1.0); a stale canvas
+    # accent (#63be8b, same hue family as paper #2e9e63) tops out at t ~ 0.74.
+    tmax = max(sum((c - 255) * w for c, w in zip(pm.pixel(x, y), wv)) / vv
+               for x in range(pm.width) for y in range(pm.height))
+    assert tmax > 0.9, tmax
 
 
 # ── I3: per-instance token override under a hex category ────────────────────

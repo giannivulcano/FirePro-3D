@@ -981,6 +981,7 @@ def _apply_pipe(pipe, cat, authored, lw_mm, paper_scale):
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
     pipe.update()
+    pipe.repaint_riser()        # SB4g R4: the riser pulls its colour at paint
 
 
 def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
@@ -1330,9 +1331,14 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             # Type-specific extra state
             if isinstance(item, Pipe):
                 entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
+                rs = item._riser_symbol
+                entry["riser_paper"] = ((rs, rs._paper_pen_width, rs._paper_scale)
+                                        if rs is not None else None)
                 _l = item.label
                 entry["tag_paper"] = (_l._paper_pen_width, _l._paper_pen_color,
                                       _l._paper_scale)
+            elif isinstance(item, (Sprinkler, WaterSupply)):
+                entry["symbol_paper"] = (item._paper_pen_width, item._paper_scale)
             elif isinstance(item, GridlineItem):
                 entry["gridline"] = _save_gridline_state(item)
             elif isinstance(item, HydraulicNodeBadge):
@@ -1373,6 +1379,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
 
             if isinstance(item, Pipe):
                 _apply_pipe(item, cat, authored, lw_mm, paper_scale)
+                rs = item._riser_symbol       # SB4g R4: named weights plot mm / scale
+                if rs is not None:
+                    rs._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+                    rs._paper_scale = paper_scale
+                    rs.update()               # colour: pulled from the pipe at paint (T10)
                 # Pipe label (SB4a D10): the one annotative path -- the label
                 # is a BoundLabelItem and takes _apply_block's hooks; its
                 # opacity stays 1. A hidden label is skipped.
@@ -1393,6 +1404,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _apply_block(item, cat, authored, lw_mm, paper_scale)
                 item.place()
             elif isinstance(item, (Sprinkler, WaterSupply)):
+                # SB4g D8: _apply_block's two width hooks, without its colour forcing
+                item._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+                item._paper_scale = paper_scale
                 if not authored:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
                 else:
@@ -1623,6 +1637,10 @@ def restore_model_display(saved: list[dict]):
         if isinstance(item, Pipe):
             item._display_color = entry["display_color"]
             item._paper_pen_width = entry.get("paper_pen_width")
+            rp = entry.get("riser_paper")
+            if rp is not None:
+                rs, rs._paper_pen_width, rs._paper_scale = rp
+                rs.update()
             if "tag_paper" in entry:
                 _l = item.label
                 if _is_annot(_l.definition()):
@@ -1631,6 +1649,7 @@ def restore_model_display(saved: list[dict]):
                  _l._paper_scale) = entry["tag_paper"]
                 _l.update()
             item.update()
+            item.repaint_riser()            # SB4g R4: colour restored above
 
         elif isinstance(item, GridlineItem):
             gs = entry.get("gridline", {})
@@ -1659,6 +1678,7 @@ def restore_model_display(saved: list[dict]):
         elif isinstance(item, (Sprinkler, WaterSupply)):
             _set_svg_tint(item, entry["display_color"],
                           entry.get("display_fill_color"))
+            item._paper_pen_width, item._paper_scale = entry.get("symbol_paper", (None, None))
             item.update()
 
         elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):

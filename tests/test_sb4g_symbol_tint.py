@@ -8,8 +8,11 @@ from PyQt6.QtCore import QPointF, QRectF, QSettings
 from PyQt6.QtGui import QColor
 
 from firepro3d import display_manager as dm
-from tests._sb4g_helpers import (SPR0_FILL, WS_FILL, head, names, render, riser_scene, scene,
-                                 water_supply)
+from firepro3d import paper_display as pd
+from firepro3d.block_definition import BlockDefinition
+from firepro3d.geometry_2d import CircleItem
+from tests._sb4g_helpers import (SPR0_FILL, WS_FILL, head, names, render, riser_scene, ring_hits,
+                                 scene, water_supply)
 
 RECT = QRectF(-400.0, -400.0, 800.0, 800.0)
 
@@ -104,3 +107,85 @@ def test_g4_riser_strokes_in_the_pipe_colour_then_the_velocity_colour(
     assert _ring_dominant(ms, "red") > 100                   # VELOCITY_COLOR_HIGH (220, 0, 0)
     assert _ring_dominant(ms, "green") == 0
     ms.hydraulic_result = None
+
+
+# -- T13: paper hooks ------------------------------------------------------------
+def _paper_row(key, *, as_authored, colour, fill=None):
+    cats = pd.load_paper_categories()
+    cats[key]["as_authored"] = as_authored
+    cats[key]["color"] = colour
+    if fill is not None:
+        cats[key]["fill"] = fill
+    pd.save_paper_categories(cats)
+
+
+def test_g4_paper_row_colour_and_fill_plot_and_restore(qapp, real_system_library):
+    ms = scene()
+    _n, spr = head(ms)
+    canvas = names(render(ms, RECT))
+    _paper_row("Sprinkler", as_authored=False, colour="#00aa00", fill="#aa00aa")
+    saved = pd.apply_paper_overrides(ms, RECT, paper_scale=0.02)
+    try:
+        assert spr._paper_scale == 0.02                    # D8 hook (secondary assert)
+        paper = names(render(ms, RECT))
+    finally:
+        pd.restore_model_display(saved)
+    assert "#aa00aa" in paper                              # fill: solid, exact
+    assert any(QColor(n).green() > QColor(n).red() + 60 for n in paper)   # stroke blend
+    assert spr._paper_scale is None and spr._paper_pen_width is None
+    assert names(render(ms, RECT)) == canvas               # restored exactly
+
+
+def test_paper_named_weight_user_symbol_plots_mm_over_scale(qapp):
+    """D8: a user symbol with a NAMED weight plots its paper mm / scale
+    (needs _paper_scale / _paper_pen_width). Raw source: the paper "Thin"
+    weight 0.35 mm (tests/test_paper_authored_weights.py WEIGHTS) at 1:50
+    (paper_scale 0.02) = 17.5 scene mm."""
+    ms = scene()
+    ring = CircleItem(QPointF(0.0, 0.0), 300.0)
+    ring.style["weight"] = "Thin"
+    ring.style["colour"] = "#ff0000"
+    d = BlockDefinition.new(name="U", library="Test", series="S",
+                            primitives=[ring.to_dict()], origin=(0.0, 0.0))
+    d.symbol_for = "Sprinkler"
+    ms.register_block_definition(d)
+    _n, spr = head(ms)
+    spr.set_symbol_block(d.id)
+    saved = pd.apply_paper_overrides(ms, RECT, paper_scale=0.02)
+    try:
+        img = render(ms, QRectF(-400.0, -400.0, 800.0, 800.0), 800, 800)   # 1 px / mm
+    finally:
+        pd.restore_model_display(saved)
+    reds = [x for x in range(800) if QColor(img.pixel(x, 400)).red() > 150
+            and QColor(img.pixel(x, 400)).green() < 100 and x > 600]
+    # 17.5 mm band at x = 700; the Sprinkler row's own 0.25 mm would plot 12.5
+    assert 15 <= len(reds) <= 20, len(reds)
+
+
+def test_g4_riser_takes_the_pipe_paper_row(qapp, real_system_library):
+    ms, _nodes, p = riser_scene()
+    _paper_row("Pipe", as_authored=False, colour="#00aa00")
+    saved = pd.apply_paper_overrides(ms, QRectF(-100.0, -100.0, 200.0, 200.0),
+                                     paper_scale=0.02)
+    try:
+        assert p._riser_symbol._paper_scale == 0.02
+        hits = _ring_dominant(ms, "green")
+    finally:
+        pd.restore_model_display(saved)
+    assert hits > 100
+    assert p._riser_symbol._paper_scale is None
+
+
+def test_pipe_paper_pass_and_restore_schedule_a_riser_repaint(qapp, real_system_library):
+    """T10 review: the pipe's _display_color changes in _apply_pipe and again
+    in the restore; the riser pulls it at paint, so each must schedule a riser
+    repaint (a mid-pass canvas repaint would otherwise show a stale colour)."""
+    ms, _nodes, p = riser_scene()
+    calls = []
+    real = p.repaint_riser
+    p.repaint_riser = lambda: (calls.append(1), real())
+    saved = pd.apply_paper_overrides(ms, QRectF(-100.0, -100.0, 200.0, 200.0),
+                                     paper_scale=0.02)
+    in_apply = len(calls)
+    pd.restore_model_display(saved)
+    assert in_apply >= 1 and len(calls) > in_apply, (in_apply, len(calls))
