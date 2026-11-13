@@ -206,7 +206,11 @@ def load_line_weights(settings: QSettings | None = None) -> list[LineWeightDef]:
         return [d.copy() for d in FACTORY_LINE_WEIGHTS]
     if _is_legacy_factory(defs):
         new = [d.copy() for d in FACTORY_LINE_WEIGHTS]
-        save_line_weights(new, settings)
+        # Rewriting the template alone would hide the old names from
+        # ``migrate_settings_weights`` (stored "Thin" 0.35 would then map to
+        # itself): run that one-time migration first, which also rewrites it.
+        if not migrate_settings_weights(settings):
+            save_line_weights(new, settings)
         return new
     return defs
 
@@ -222,6 +226,14 @@ def save_line_weights(defs: list[LineWeightDef],
 
 
 _SETTINGS_SCHEMA_KEY = "paper/line_weight_schema"
+
+
+def _settings_schema_current(settings: QSettings) -> bool:
+    """True once ``migrate_settings_weights`` has run on *settings*."""
+    try:
+        return int(settings.value(_SETTINGS_SCHEMA_KEY, 0) or 0) >= LINE_WEIGHT_SCHEMA
+    except (TypeError, ValueError):
+        return False
 # Non-category QSettings keys holding a weight name (LW-DC-9): the Model
 # Blocks weight (current + "Set as Default") and the ribbon's current weight.
 _SETTINGS_WEIGHT_KEYS = ("display/Blocks/line_weight",
@@ -247,11 +259,7 @@ def migrate_settings_weights(settings: QSettings) -> bool:
     Returns:
         True if a migration ran, False if the store was already schema 2.
     """
-    try:
-        done = int(settings.value(_SETTINGS_SCHEMA_KEY, 0) or 0) >= LINE_WEIGHT_SCHEMA
-    except (TypeError, ValueError):
-        done = False
-    if done:
+    if _settings_schema_current(settings):
         return False
     raw = settings.value("paper/line_weights")
     defs = None

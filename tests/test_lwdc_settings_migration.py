@@ -98,3 +98,17 @@ def test_mainwindow_runs_it_once_before_restore(qapp, monkeypatch):
         assert int(s2.value("paper/line_weight_schema")) == 2
     finally:
         dispose_main_window(w)
+
+
+def test_f6_template_read_before_the_migration_does_not_hide_old_names(st):
+    """Any load_line_weights() before migrate_settings_weights (the template
+    read by a lazy project seed, a DM, a test) used to rewrite an untouched MW
+    template to Defaults, so stored "Thin" (0.35 mm) then mapped to itself."""
+    _template(st, _MW)
+    st.setValue("paper/categories/Wall/line_weight", "Thin")
+    raw_thin_mm = {n: mm for n, mm in _MW}["Thin"]                    # 0.35
+    pd.load_line_weights(st)                  # the order hazard, before migration
+    pd.migrate_settings_weights(st)
+    wall = st.value("paper/categories/Wall/line_weight")
+    assert pd.resolve_line_weight_mm(wall, st) == pytest.approx(raw_thin_mm)
+    assert wall == "Medium"
