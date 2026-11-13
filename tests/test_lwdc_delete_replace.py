@@ -98,7 +98,8 @@ def test_replace_and_delete_retargets_every_holder_kind(qapp, tmp_path,
     assert w["note"].note["leader"]["weight"] == "Medium"
     assert w["ann"].border_weight == "Medium"
     assert w["lb"].style["weight"] == "Wide"           # untouched
-    assert "Pen X" not in pd.weight_aliases()          # no alias for a delete
+    # D1 (supersedes "no alias for a delete"): deleted -> pick is an alias.
+    assert pd.weight_aliases() == {"Pen X": "Medium"}
     assert "Pen X" not in [lw.name for lw in d._lw_row_def.values()]
     d.reject()
 
@@ -209,3 +210,58 @@ def test_dialog_chosen_is_the_name_and_single_noun(qapp):
     assert "is used by 1 reference." in dlg.findChild(QLabel).text()
     texts = [b.text() for b in dlg.findChild(QDialogButtonBox).buttons()]
     assert sorted(texts) == ["Cancel", "Replace && Delete"]
+
+
+# --- F1 (D1 + seam M1) --------------------------------------------------------
+
+def test_delete_moves_an_alias_key_holder_and_repoints_aliases(
+        qapp, tmp_path, monkeypatch):
+    """A holder still carrying a renamed-away name ("Pen X", alias -> "Pen Q")
+    is counted for "Pen Q" and must move with it; aliases follow the pick."""
+    settings = _setup(tmp_path, [("Pen Q", 0.40)])
+    pd.set_weight_aliases({"Pen X": "Pen Q"})
+    ms, w = _world(settings, a="Pen Q", b="Wide")
+    w["ln"].style["weight"] = "Pen X"                  # raw old name
+    d = _dm(ms, settings)
+    _Modal(monkeypatch)
+    d._lw_table.setCurrentCell(_row(d, "Pen Q"), 0)
+    d._on_lw_remove()
+    assert w["ln"].style["weight"] == "Medium"         # not dangling on "Pen X"
+    assert wr.weight_ref_count(ms, settings, "Medium") >= A_HOLDERS
+    assert pd.weight_aliases() == {"Pen X": "Medium", "Pen Q": "Medium"}
+    d.reject()
+    assert w["ln"].style["weight"] == "Pen X"          # exact restore
+    assert pd.weight_aliases() == {"Pen X": "Pen Q"}   # snapshot, not guessed
+
+
+def test_undo_after_delete_resolves_the_pick_and_cancel_drops_the_alias(
+        qapp, tmp_path, monkeypatch):
+    settings = _setup(tmp_path, [("Pen X", 0.40)])
+    ms, w = _world(settings, a="Pen X", b="Wide")
+    ms.push_undo_state()                               # snapshot names "Pen X"
+    ms.push_undo_state()                               # undo needs a step back
+    d = _dm(ms, settings)
+    _Modal(monkeypatch)
+    d._lw_table.setCurrentCell(_row(d, "Pen X"), 0)
+    d._on_lw_remove()
+    d.accept()                                         # OK: delete stands
+    ms.undo()                                          # snapshot still names "Pen X"
+    mm = [pd.resolve_line_weight_mm(ln.style["weight"]) for ln in ms._draw_lines
+          if ln.style.get("weight") not in (None, "Wide")]
+    # Raw ground truth: Default "Medium" is 0.35 mm (LW-DC-1); without the
+    # alias the restored "Pen X" resolved to the 0.25 fallback.
+    assert mm == [pytest.approx(0.35)]
+    assert "Pen X" not in pd.weight_names()
+    assert pd.resolve_line_weight_mm("Pen X") == pytest.approx(0.35)
+
+
+def test_dm_cancel_removes_the_delete_alias(qapp, tmp_path, monkeypatch):
+    settings = _setup(tmp_path, [("Pen X", 0.40)])
+    ms, _w = _world(settings, a="Pen X", b="Wide")
+    d = _dm(ms, settings)
+    _Modal(monkeypatch)
+    d._lw_table.setCurrentCell(_row(d, "Pen X"), 0)
+    d._on_lw_remove()
+    assert pd.weight_aliases() == {"Pen X": "Medium"}
+    d.reject()
+    assert pd.weight_aliases() == {}

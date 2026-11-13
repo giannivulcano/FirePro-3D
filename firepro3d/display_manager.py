@@ -2469,6 +2469,14 @@ class DisplayManager(HouseDialog):
                 lw.model_px != fac.model_px)
 
     def _lw_differs_from_factory(self, lw) -> bool:
+        """True if Default *lw*'s shown width or Model px differs from its factory row.
+
+        Args:
+            lw: The ``LineWeightDef`` to test.
+
+        Returns:
+            False for a Custom weight.
+        """
         return any(self._lw_factory_diff(lw))
 
     def _on_lw_reset(self, name: str) -> None:
@@ -2667,11 +2675,30 @@ class DisplayManager(HouseDialog):
             dlg = WeightReplaceDialog(lw.name, lw.width_mm, count, others, self)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
-            journal = retarget_weight_refs(self._scene, self._settings,
-                                           {lw.name: dlg.chosen()})
-            self._lw_ops.append(("delete", journal))   # no alias for a delete
+            from .paper_display import (canonical_weight_name,
+                                        record_weight_rename, weight_aliases)
+            chosen = dlg.chosen()
+            # The deleted name plus every rename-alias key that resolves to
+            # it (a holder may still carry an old name), counted the same
+            # way weight_ref_count counts them.
+            stale = [k for k in weight_aliases()
+                     if canonical_weight_name(k) == lw.name]
+            journal = retarget_weight_refs(
+                self._scene, self._settings,
+                {k: chosen for k in (lw.name, *stale)})
+            self._lw_ops.append(("delete", journal))
+            deleted_to = chosen
+        else:
+            deleted_to = None
         self._lw_defs.remove(lw)
         self._commit_lw_defs()
+        if deleted_to is not None:
+            # LW-DC-5 (D1): alias deleted -> pick, aliases that targeted the
+            # deleted row follow the pick, so undo snapshots / pastes / the
+            # ribbon current still naming it resolve as the pick. After the
+            # table commit (the old name is no longer live). Cancel restores
+            # the alias snapshot.
+            record_weight_rename(lw.name, deleted_to)
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
