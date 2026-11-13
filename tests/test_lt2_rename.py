@@ -284,14 +284,19 @@ def _plan_line_scene():
     return ms, ln
 
 
-def test_plan_geometry_weight_is_in_use(qapp):
+def test_plan_geometry_weight_is_in_use(qapp, monkeypatch):
+    from PyQt6.QtWidgets import QDialog
+    from firepro3d.weight_replace_dialog import WeightReplaceDialog
+    # LW-DC-5 retired the refusal: an in-use remove opens the replace modal.
+    monkeypatch.setattr(WeightReplaceDialog, "exec",
+                        lambda self: QDialog.DialogCode.Rejected)
     ms, _ln = _plan_line_scene()
     d = DisplayManager(ms, active_context="paper")
     assert d._line_weight_in_use("A")
     row = _lw_row(d, "A")
     d._lw_table.setCurrentCell(row, 0)
     n = len(d._lw_defs)
-    d._on_lw_remove()                                  # refused
+    d._on_lw_remove()                                  # dialog cancelled
     assert len(d._lw_defs) == n and "A" in [x.name for x in d._lw_defs]
     d.reject()
 

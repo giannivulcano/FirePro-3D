@@ -2,9 +2,9 @@
 CUSTOM sections, locked Default names, accent + per-row reset (real widgets,
 settings isolated by conftest)."""
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QAbstractItemDelegate, QLineEdit
+from PyQt6.QtWidgets import QAbstractItemDelegate, QApplication, QLineEdit
 
 from firepro3d import paper_display as pd
 from firepro3d import theme as th
@@ -44,6 +44,8 @@ def _edit_cell(d, row, col, text):
     # (QTest key events do not reach the editor's commit filter here).
     tbl.commitData(editor)
     tbl.closeEditor(editor, QAbstractItemDelegate.EndEditHint.NoHint)
+    # flush the editor's deleteLater so a second edit finds a fresh editor
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 def test_section_headers_present_and_inert(dm):
@@ -182,3 +184,59 @@ def test_custom_name_may_not_equal_a_default_name(dm):
     assert "Pen X" in pd.weight_names()
     assert sum(n == "Medium" for n in pd.weight_names()) == 1
     assert dm._lw_table.item(_row(dm, "Pen X"), 0).text() == "Pen X"
+
+
+# -- T7 review minors ----------------------------------------------------------
+
+def _current_def(d):
+    return d._lw_row_def.get(d._lw_table.currentRow())
+
+
+def test_current_row_survives_a_resorting_edit(dm):
+    tbl = dm._lw_table
+    tbl.setCurrentCell(_row(dm, "Pen X"), 0)
+    pen = dm._lw_row_def[_row(dm, "Pen X")]
+    _edit_cell(dm, _row(dm, "Pen X"), 1, "0.95")        # re-sorts below Thick
+    assert _current_def(dm) is pen
+    assert tbl.currentRow() == _row(dm, "Pen X")
+    assert dm._lw_remove_btn.isEnabled()
+    _edit_cell(dm, _row(dm, "Pen X"), 0, "Pen Y")       # rename keeps it too
+    assert _current_def(dm) is pen and dm._lw_remove_btn.isEnabled()
+
+
+def test_added_weight_becomes_current(dm):
+    dm._on_lw_add()
+    cur = _current_def(dm)
+    assert cur is not None and cur.name.startswith("Custom ")
+    assert dm._lw_table.currentRow() == _row(dm, cur.name)
+    assert dm._lw_remove_btn.isEnabled()
+
+
+def test_auto_model_px_default_shows_accent_and_reset_restores_int(dm):
+    tbl = dm._lw_table
+    _edit_cell(dm, _row(dm, "Wide"), 2, "auto")
+    wide = next(d for d in pd.project_line_weights() if d.name == "Wide")
+    assert wide.model_px is None
+    row = _row(dm, "Wide")
+    assert tbl.item(row, 2).foreground().color() == th.detect().color("accent")
+    btn = tbl.cellWidget(row, 3)
+    assert btn is not None
+    QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
+    wide = next(d for d in pd.project_line_weights() if d.name == "Wide")
+    assert wide.model_px == 5 and isinstance(wide.model_px, int)
+    assert tbl.cellWidget(_row(dm, "Wide"), 3) is None
+
+
+def test_accent_follows_the_displayed_width(dm):
+    tbl = dm._lw_table
+    accent = th.detect().color("accent")
+    row = _row(dm, "Fine")
+    _edit_cell(dm, row, 1, "0.254")                      # shows 0.25 == factory
+    row = _row(dm, "Fine")
+    assert tbl.item(row, 1).text() == "0.25"
+    assert tbl.item(row, 1).foreground().color() != accent
+    assert tbl.cellWidget(row, 3) is None
+    _edit_cell(dm, row, 1, "0.26")                       # shows 0.26: differs
+    row = _row(dm, "Fine")
+    assert tbl.item(row, 1).foreground().color() == accent
+    assert tbl.cellWidget(row, 3) is not None

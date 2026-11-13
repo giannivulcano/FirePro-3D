@@ -2326,8 +2326,9 @@ class DisplayManager(HouseDialog):
         # mutates project_line_weights()'s result in place.
         self._lw_defs = [d.copy() for d in project_line_weights()]
         self._lw_snapshot = [d.copy() for d in self._lw_defs]
-        # (old, new) renames in order -- reject() replays them backwards.
-        self._lw_renames: list[tuple[str, str]] = []
+        # Ordered rename / delete log -- reject() undoes it newest first:
+        # ("rename", old, new) or ("delete", journal) (LT2-8 / LW-DC-5).
+        self._lw_ops: list[tuple] = []
         self._lw_edited = False            # set by _commit_lw_defs
         # Rename aliases are part of the Cancel snapshot (H-g).
         from .paper_display import weight_aliases
@@ -2378,13 +2379,19 @@ class DisplayManager(HouseDialog):
 
         return page
 
-    def _populate_lw_table(self):
+    def _populate_lw_table(self, select=None):
         """Fill the table: DEFAULTS header + Defaults, CUSTOM header + Custom,
-        each by width (LW-DC-6). Rebuilds ``_lw_row_def``."""
+        each by width (LW-DC-6). Rebuilds ``_lw_row_def``.
+
+        Args:
+            select: The ``LineWeightDef`` to make current afterwards (an
+                added weight); default is the one current before the rebuild.
+        """
         from PyQt6.QtWidgets import QTableWidgetItem
         from .paper_display import (auto_model_px, factory_default,
                                     is_default_weight)
         tbl = self._lw_table
+        keep = select or self._lw_row_def.get(tbl.currentRow())
         self._suppress = True
         self._lw_defs.sort(key=lambda d: d.width_mm)
         defaults = [d for d in self._lw_defs if is_default_weight(d.name)]
@@ -2432,8 +2439,7 @@ class DisplayManager(HouseDialog):
                 model_item.setToolTip(_MODEL_PX_TIP)
                 tbl.setItem(row, 2, model_item)
                 if fac is not None:
-                    w_diff = round(lw.width_mm, 6) != round(fac.width_mm, 6)
-                    p_diff = lw.model_px != fac.model_px
+                    w_diff, p_diff = self._lw_factory_diff(lw)
                     if w_diff:
                         width_item.setForeground(accent)
                     if p_diff:
@@ -2444,13 +2450,26 @@ class DisplayManager(HouseDialog):
                             lambda _=False, n=lw.name: self._on_lw_reset(n)))
                 row += 1
         self._suppress = False
+        at = next((r for r, d in self._lw_row_def.items() if d is keep), None)
+        if at is not None:                 # the rebuild dropped the selection
+            tbl.setCurrentCell(at, 0)
+        if hasattr(self, "_lw_remove_btn"):    # absent on the first fill
+            self._update_lw_remove_state(tbl.currentRow(), 0, -1, -1)
 
-    def _lw_differs_from_factory(self, lw) -> bool:
+    def _lw_factory_diff(self, lw) -> tuple[bool, bool]:
+        """``(width differs, Model px differs)`` of Default *lw* from its
+        factory row. The width compares at the Width cell's two decimals, so
+        accent appears iff the shown value differs; both False for a Custom
+        weight."""
         from .paper_display import factory_default
         fac = factory_default(lw.name)
-        return fac is not None and (
-            round(lw.width_mm, 6) != round(fac.width_mm, 6)
-            or lw.model_px != fac.model_px)
+        if fac is None:
+            return False, False
+        return (f"{lw.width_mm:.2f}" != f"{fac.width_mm:.2f}",
+                lw.model_px != fac.model_px)
+
+    def _lw_differs_from_factory(self, lw) -> bool:
+        return any(self._lw_factory_diff(lw))
 
     def _on_lw_reset(self, name: str) -> None:
         """Restore Default *name* to its factory width + Model px (LW-DC-2)."""
@@ -2480,6 +2499,11 @@ class DisplayManager(HouseDialog):
         return menu
 
     def _on_lw_context_menu(self, pos) -> None:
+        """Show the Defaults-row "Reset to default" menu at *pos*.
+
+        Args:
+            pos: Click position in the table viewport's coordinates.
+        """
         menu = self._lw_row_menu(self._lw_table.rowAt(pos.y()))
         if menu is not None:
             menu.exec(self._lw_table.viewport().mapToGlobal(pos))
@@ -2545,7 +2569,7 @@ class DisplayManager(HouseDialog):
             old_name = old_def.name
             old_def.name = text
             self._propagate_lw_rename(old_name, text)
-            self._lw_renames.append((old_name, text))
+            self._lw_ops.append(("rename", old_name, text))
             renamed = (old_name, text)
         elif col == 2:  # Model (px) override (MW-11)
             from .paper_display import validate_model_px
@@ -2620,9 +2644,10 @@ class DisplayManager(HouseDialog):
         while any(d.name == name for d in self._lw_defs) or is_alias_key(name):
             idx += 1
             name = f"Custom {idx}"
-        self._lw_defs.append(LineWeightDef(name, 0.20))
+        new = LineWeightDef(name, 0.20)
+        self._lw_defs.append(new)
         self._commit_lw_defs()
-        self._populate_lw_table()
+        self._populate_lw_table(select=new)
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
@@ -2631,8 +2656,20 @@ class DisplayManager(HouseDialog):
         lw = self._lw_row_def.get(self._lw_table.currentRow())
         if lw is None or is_default_weight(lw.name):    # Defaults never delete
             return
-        if self._line_weight_in_use(lw.name):
-            return
+        from .weight_refs import retarget_weight_refs, weight_ref_count
+        count = weight_ref_count(self._scene, self._settings, lw.name)
+        if count:                          # LW-DC-5: replace, then delete
+            from PyQt6.QtWidgets import QDialog
+            from .weight_replace_dialog import WeightReplaceDialog
+            others = [d for d in self._lw_defs if d is not lw]
+            if not others:
+                return
+            dlg = WeightReplaceDialog(lw.name, lw.width_mm, count, others, self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            journal = retarget_weight_refs(self._scene, self._settings,
+                                           {lw.name: dlg.chosen()})
+            self._lw_ops.append(("delete", journal))   # no alias for a delete
         self._lw_defs.remove(lw)
         self._commit_lw_defs()
         self._populate_lw_table()
@@ -2640,13 +2677,11 @@ class DisplayManager(HouseDialog):
             self._refresh_lw_combos()
 
     def _update_lw_remove_state(self, row, col, prev_row, prev_col):
-        """Remove is enabled only on a Custom row that is not in use."""
+        """Remove is enabled only on a Custom row (in use or not: LW-DC-5)."""
         from .paper_display import is_default_weight
         lw = self._lw_row_def.get(row)
-        if lw is None or is_default_weight(lw.name):
-            self._lw_remove_btn.setEnabled(False)
-            return
-        self._lw_remove_btn.setEnabled(not self._line_weight_in_use(lw.name))
+        self._lw_remove_btn.setEnabled(
+            lw is not None and not is_default_weight(lw.name))
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
@@ -2727,8 +2762,12 @@ class DisplayManager(HouseDialog):
         if getattr(self, "_lw_edited", False):
             from .paper_display import (set_project_line_weights,
                                         set_weight_aliases)
-            for old, new in reversed(self._lw_renames):
-                self._propagate_lw_rename(new, old)     # incl. underlay refs
+            from .weight_refs import restore_weight_refs
+            for op in reversed(self._lw_ops):
+                if op[0] == "rename":
+                    self._propagate_lw_rename(op[2], op[1])  # incl. underlays
+                else:
+                    restore_weight_refs(self._scene, self._settings, op[1])
             set_project_line_weights(self._lw_snapshot)
             # After the table: set_project_line_weights prunes live-name keys.
             set_weight_aliases(self._lw_alias_snapshot)
