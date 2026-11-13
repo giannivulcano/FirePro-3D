@@ -198,6 +198,16 @@ def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
     return out
 
 
+def _uid_tree(item):
+    """*item* and every descendant (the uid index registers children too: a
+    Sprinkler joins its Node by setParentItem, which addItem never sees)."""
+    stack = [item]
+    while stack:
+        it = stack.pop()
+        yield it
+        stack.extend(it.childItems())
+
+
 class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 13  # 13: project phasing -- pipe "Phase" text -> "phase" id + "phases" registry (phase_registry.migrate_payload); 12: old schematics turn Printed once (schematic_scene.migrate_old_schematics); 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
@@ -233,6 +243,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def __init__(self, scene_role: str = "plan"):
         super().__init__()
+        # SB5 D1 / D3: uid -> item index, kept by the addItem / removeItem /
+        # clear overrides; element_by_uid validates every hit.
+        self._uid_index: dict = {}
+        self._uid_gen = 0           # bumped by every add / remove (the miss memo key)
+        self._uid_miss: dict = {}   # uid -> _uid_gen of its confirmed miss
+        self._uid_repairs = 0       # register collisions re-minted (Q6; reset at load start)
+        self._uid_rebuilds = 0      # index rebuilds from items() (G-index counter)
         self.scene_role = scene_role
         self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
         self.editor_kind = "block"       # a block_editor scene: "block" or "schematic" (D-S14)
@@ -708,11 +725,108 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         events to Python (P4 probe), so the stroke-joint index (design D5a)
         is emptied here -- every ``self.clear()`` site (load / new reset)
         goes through this override. The opaque-block order drops here for the
-        same reason (``BlockInstance.itemChange`` is not told)."""
+        same reason (``BlockInstance.itemChange`` is not told). The SB5 uid
+        index is emptied here too."""
         self.stroke_joints.clear()
         self._opaque_stack = None
         self._stack_members = weakref.WeakSet()
+        self._uid_index.clear()          # SB5 D3: Qt clear() never calls removeItem
+        self._uid_miss.clear()
+        self._uid_gen += 1
         super().clear()
+
+    def addItem(self, item) -> None:
+        """Qt add, then register *item* and its descendants in the uid index
+        (SB5 D1: the add choke point every Python ``addItem`` passes)."""
+        super().addItem(item)
+        self._uid_register(item)
+
+    def removeItem(self, item) -> None:
+        """Unregister *item* and its descendants from the uid index, then Qt
+        remove (SB5 D1)."""
+        self._uid_unregister(item)
+        super().removeItem(item)
+
+    def _uid_live(self, it, uid: str) -> bool:
+        """True while *it* is in this scene and still carries *uid*."""
+        try:
+            return it.scene() is self and getattr(it, "_uid", None) == uid
+        except RuntimeError:            # a C++-deleted wrapper
+            return False
+
+    def _uid_register_one(self, it) -> None:
+        """Index *it* under its uid. A uid a different live item already holds
+        re-mints the incoming item (Q6: the first holder keeps it)."""
+        uid = getattr(it, "_uid", None)
+        if not isinstance(uid, str) or not uid:
+            return
+        held = self._uid_index.get(uid)
+        if held is not None and held is not it and self._uid_live(held, uid):
+            it._uid = element_uid.new_uid()
+            self._uid_repairs += 1
+            uid = it._uid
+        self._uid_index[uid] = it
+
+    def _uid_register(self, item) -> None:
+        for it in _uid_tree(item):
+            self._uid_register_one(it)
+        self._uid_gen += 1
+
+    def _uid_unregister(self, item) -> None:
+        for it in _uid_tree(item):
+            uid = getattr(it, "_uid", None)
+            if isinstance(uid, str) and self._uid_index.get(uid) is it:
+                del self._uid_index[uid]
+        self._uid_gen += 1
+
+    def _uid_reindex(self, item, uid: str) -> None:
+        """Give in-scene *item* the saved / transferred *uid* (the
+        ``element_uid.uid_from_dict`` / ``transfer_uid`` hook)."""
+        old = getattr(item, "_uid", None)
+        if isinstance(old, str) and self._uid_index.get(old) is item:
+            del self._uid_index[old]
+        item._uid = uid
+        self._uid_register_one(item)
+        self._uid_gen += 1
+
+    def _uid_rebuild(self) -> None:
+        """Rebuild the index from ``items()`` (covers children joined by
+        ``setParentItem``); the first item met keeps a duplicated uid."""
+        self._uid_rebuilds += 1
+        idx = {}
+        for it in self.items():
+            uid = getattr(it, "_uid", None)
+            if isinstance(uid, str) and uid and uid not in idx:
+                idx[uid] = it
+        self._uid_index = idx
+
+    def element_by_uid(self, uid):
+        """The live element whose ``_uid`` is *uid*, or None (SB5 D3).
+
+        A hit is returned only while it is in this scene and still carries
+        *uid*. A miss rebuilds the index once; a confirmed miss is memoized
+        until the next add / remove, so a dangling host never rebuilds per
+        paint.
+
+        Args:
+            uid: An element uid (anything else -> None).
+
+        Returns:
+            The element, or None.
+        """
+        if not isinstance(uid, str) or not uid:
+            return None
+        it = self._uid_index.get(uid)
+        if it is not None and self._uid_live(it, uid):
+            return it
+        if self._uid_miss.get(uid) == self._uid_gen:
+            return None
+        self._uid_rebuild()
+        it = self._uid_index.get(uid)
+        if it is not None and self._uid_live(it, uid):
+            return it
+        self._uid_miss[uid] = self._uid_gen
+        return None
 
     def cleanup(self) -> None:
         """Release background resources held by this scene (teardown seam).
@@ -3026,8 +3140,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         return inst
 
     def gridline_by_uid(self, uid):
-        """The gridline whose ``_uid`` is *uid*, or None (hosted-blocks D3)."""
-        return next((g for g in self._gridlines if g._uid == uid), None)
+        """The gridline whose ``_uid`` is *uid*, or None (hosted-blocks D3;
+        resolved through the SB5 uid index)."""
+        it = self.element_by_uid(uid)
+        # still registered in _gridlines: a gridline dropped from the list is gone
+        return it if isinstance(it, GridlineItem) and it in self._gridlines else None
 
     def hosted_blocks_on(self, gl) -> list:
         """Block instances hosted on gridline *gl* (hosted-blocks D2)."""
