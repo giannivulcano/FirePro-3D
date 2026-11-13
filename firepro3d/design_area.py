@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from .colour_tokens import resolve_colour
+from . import element_uid
 from .constants import (DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA,
                         Z_DESIGN_AREA_CONFIRMED,
                         DA_BADGE_WIDTH_MM, DA_BADGE_TEXT_MM, DA_BADGE_TITLE_MM,
@@ -665,6 +666,7 @@ class DesignArea(QGraphicsPathItem):
 
     def __init__(self, sprinklers=None, parent=None):
         super().__init__(parent)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self._sprinklers: list = list(sprinklers or [])
         self._as_entries: list = []        # (sprinkler, as_sqft, sxl_sqft, listed_sqft)
         self.spacing_warnings: list[str] = []

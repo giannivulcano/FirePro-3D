@@ -3,6 +3,7 @@ from PyQt6.QtGui import QPainterPath
 
 from .constants import DEFAULT_LEVEL, Z_SPRINKLER
 from . import phase_registry
+from . import element_uid
 
 from .displayable_item import DisplayableItemMixin
 from .symbol_block import SymbolBlockItem
@@ -14,6 +15,7 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
 
     def __init__(self, node):
         SymbolBlockItem.__init__(self, "Sprinkler", owner=node)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self.node = node
         self.init_displayable()
         self._display_scale: float = 1.0       # DM scale column retired; not read for size

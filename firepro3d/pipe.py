@@ -8,6 +8,7 @@ from .fitting import Fitting
 from .symbol_block import SymbolBlockItem
 from .bound_label import BoundLabelItem, TagBlockHost
 from . import phase_registry
+from . import element_uid
 
 from .constants import (DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY, Z_ANNOT_TAG,
                         Z_CAT_PIPE, Z_CAT_SYMBOL, RISER_SYMBOL_TAG,
@@ -89,6 +90,7 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
     def __init__(self, node1, node2):
 
         super().__init__()
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         # Properties
         self._properties = {
             "Mark":        {"type": "string", "value": ""},
