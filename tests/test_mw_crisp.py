@@ -250,8 +250,9 @@ def _hline(sc, y, weight, colour=INK):
 
 
 @pytest.mark.parametrize("half", [0.0, 0.5])
-@pytest.mark.parametrize("weight,n", [("Thinnest", 1), ("Thinner", 2), ("Thin", 3),
-                                      ("Thick", 4), ("Thickest", 6)])
+@pytest.mark.parametrize("weight,n", [("Extra Thin", 1), ("Thin", 2), ("Fine", 3),
+                                      ("Medium", 4), ("Wide", 5), ("Thick", 6),
+                                      ("Extra Thick", 8)])
 def test_g1_g2_factory_weights_paint_n_full_rows(be, half, weight, n):
     v, sc = be
     y = boundary_y(v, 40.0) + half
@@ -306,7 +307,7 @@ def test_g2_linetyped_dash_is_n_full_rows(be, half):
     d = make_linetype(dashes=((0.0, 30.0),), length=45.0)
     sc.register_block_definition(d)
     y = boundary_y(v, 40.0) + half
-    ln = _hline(sc, y, "Thinner")
+    ln = _hline(sc, y, "Thin")
     ln.style["linetype"] = d.id
     img, dpr = grab(v)
     # Inside a dash: the rhythm is origin-anchored, dashes span -135..-105.
@@ -320,7 +321,7 @@ def test_g2_block_op_is_n_full_rows(be):
     from firepro3d.block_definition import BlockDefinition
     v, sc = be
     prim = LineItem(QPointF(-150, 0), QPointF(150, 0))
-    prim.style["weight"] = "Thick"; prim.style["colour"] = INK
+    prim.style["weight"] = "Medium"; prim.style["colour"] = INK
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[prim.to_dict()], origin=(0.0, 0.0))
     sc.register_block_definition(d)
@@ -337,7 +338,7 @@ def test_g2_text_frame_edge_is_n_full_rows(be):
     from firepro3d.text_item import TextAnnotationData, TextItem
     v, sc = be
     # Wide padding keeps the glyphs' AA rows out of the edge's column profile.
-    t = TextItem(TextAnnotationData(text="HELLO", border=True, border_weight="Thinner",
+    t = TextItem(TextAnnotationData(text="HELLO", border=True, border_weight="Thin",
                                     color=INK, cell_padding_mm=8.0))
     sc.addItem(t); sc._texts.append(t)
     t.setPos(20.0, 20.0)                    # clear of the x = 0 / y = 0 axes
@@ -370,7 +371,7 @@ def test_g6_underlay_axis_stroke_is_n_full_rows(qapp):
     v = Model_View(sc); v.resize(800, 600); v.show(); QTest.qWaitForWindowExposed(v)
     v.resetTransform(); v.centerOn(0, 0); QApplication.processEvents()
     try:
-        rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Thinner")
+        rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Thin")
         group, _ = sc._build_batched_underlay_group(       # adds itself to the scene
             [{"kind": "line", "x1": -150, "y1": 40, "x2": 150, "y2": 40, "layer": "A"}], rec)
         sc.underlays.append((rec, group))
@@ -399,7 +400,7 @@ def test_g2_vertical_line_is_n_full_columns(be, half):
     v, sc = be
     x = boundary_x(v, 60.0) + half
     ln = LineItem(QPointF(x, -150), QPointF(x, -20))      # clear of y = 0 axis
-    ln.style["weight"] = "Thinner"; ln.style["colour"] = INK
+    ln.style["weight"] = "Thin"; ln.style["colour"] = INK
     sc.addItem(ln); sc._draw_lines.append(ln)
     img, dpr = grab(v)
     dev = v.viewportTransform().map(QPointF(x, -80.0))
@@ -413,7 +414,7 @@ def test_g2_rotated_rect_edge_classified_in_rotated_frame(be):
 
     def make(dy):
         r = RectangleItem(QPointF(30, 30 + dy), QPointF(90, 60 + dy))
-        r.style["weight"] = "Thick"; r.style["colour"] = INK
+        r.style["weight"] = "Medium"; r.style["colour"] = INK
         r.set_angle(90)                      # data rotation (bake-at-rest)
         rc = r.rect()                        # mapToScene applies the rotation
         pts = [r.mapToScene(q) for q in (rc.topLeft(), rc.topRight(),
@@ -616,7 +617,7 @@ def test_rotated_underlay_group_splits_lazily_unchanged(qapp, monkeypatch):
 def test_seeded_underlay_axis_rows_stay_crisp(qapp):
     # Pixel check on the seeded path: the axis line at a half-pixel offset is
     # its full rows only (no AA smear), straight from the seed.
-    sc, v, items = _seed_scene(weight="Thinner")
+    sc, v, items = _seed_scene(weight="Thin")
     try:
         group = items[0].parentItem()
         y0 = 40.0

@@ -195,6 +195,10 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
         # Settings
         self.settings = QSettings("GV", "FirePro3D")
+        # LW-DC-9: merge the stored weight names into the new Defaults ONCE,
+        # before anything reads a weight (restore_settings, the Display Manager).
+        from firepro3d.paper_display import migrate_settings_weights
+        migrate_settings_weights(self.settings)
         self.current_sprinkler_template = Sprinkler(None)
         self.current_pipe_template = Pipe(None, None)
         self.current_opening_template = WallOpening(wall=None, feature_id="door_914")

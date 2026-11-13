@@ -47,14 +47,27 @@ class LineWeightDef:
         return d
 
 
-# MW-4: the user standard (2026-10-04).
-FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
+# LW-DC-1: the factory Defaults (ratified 2026-11-12; replaces MW-4's table).
+DEFAULT_LINE_WEIGHTS: list[LineWeightDef] = [
+    LineWeightDef("Extra Thin",  0.13, 1),
+    LineWeightDef("Thin",        0.18, 2),
+    LineWeightDef("Fine",        0.25, 3),
+    LineWeightDef("Medium",      0.35, 4),
+    LineWeightDef("Wide",        0.50, 5),
+    LineWeightDef("Thick",       0.70, 6),
+    LineWeightDef("Extra Thick", 1.00, 8),
+]
+FACTORY_LINE_WEIGHTS = DEFAULT_LINE_WEIGHTS      # the public name stays
+# MW-4's retired table (2026-10-04): a migration input only (LW-DC-8).
+MW_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
     LineWeightDef("Thinnest", 0.18),
     LineWeightDef("Thinner",  0.25),
     LineWeightDef("Thin",     0.35),
     LineWeightDef("Thick",    0.50),
     LineWeightDef("Thickest", 0.70),
 ]
+LINE_WEIGHT_SCHEMA = 2           # payload key "line_weight_schema" (LW-DC-8)
+OLD_SUFFIX = " (old)"
 # The pre-MW factory: an untouched template equal to it migrates (MW-4), and
 # its names resolve by their mm wherever a table lacks them (MW-6).
 LEGACY_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
@@ -64,8 +77,98 @@ LEGACY_FACTORY_LINE_WEIGHTS: list[LineWeightDef] = [
     LineWeightDef("Heavy",      0.35),
     LineWeightDef("Very Heavy", 0.50),
 ]
+# Factory-name -> mm (MW-6): the Defaults, plus the old non-clashing names at
+# their old mm. "Thin" / "Thick" / "Medium" resolve to the Default rows.
 _FACTORY_NAME_MM: dict[str, float] = {
-    d.name: d.width_mm for d in (*LEGACY_FACTORY_LINE_WEIGHTS, *FACTORY_LINE_WEIGHTS)}
+    **{d.name: d.width_mm for d in (*LEGACY_FACTORY_LINE_WEIGHTS,
+                                    *MW_FACTORY_LINE_WEIGHTS)},
+    **{d.name: d.width_mm for d in DEFAULT_LINE_WEIGHTS}}
+
+# Old factory name -> Default name, only for pre-schema-2 sources (LW-DC-8).
+_STATIC_LEGACY_MAP: dict[str, str] = {
+    "Very Light": "Extra Thin", "Light": "Thin", "Medium": "Fine",
+    "Heavy": "Medium", "Very Heavy": "Wide", "Thinnest": "Thin",
+    "Thinner": "Fine", "Thin": "Medium", "Thick": "Wide", "Thickest": "Thick"}
+
+
+def is_default_weight(name: str) -> bool:
+    """True if *name* is one of the seven factory Default names (LW-DC-2)."""
+    return any(d.name == name for d in DEFAULT_LINE_WEIGHTS)
+
+
+def factory_default(name: str) -> "LineWeightDef | None":
+    """A copy of the factory Default called *name*, else None."""
+    for d in DEFAULT_LINE_WEIGHTS:
+        if d.name == name:
+            return d.copy()
+    return None
+
+
+def ensure_defaults(defs) -> list[LineWeightDef]:
+    """Copies of *defs* plus any missing Default in factory form (prepended)."""
+    have = {d.name for d in defs}
+    return [*(d.copy() for d in DEFAULT_LINE_WEIGHTS if d.name not in have),
+            *(d.copy() for d in defs)]
+
+
+def legacy_weight_migration(defs) -> tuple[list[LineWeightDef], dict[str, str]]:
+    """LW-DC-8 merge-by-width of a pre-schema-2 table.
+
+    A row whose (name, mm) is in the MW or pre-MW factory set and whose mm
+    equals a Default merges into it (``mapping[name]`` = the Default; a
+    ``model_px`` override carries over); a row that is exactly a Default
+    (same name and mm) merges into itself (identity mapping, no `` (old)``
+    row); another row named like a Default is
+    renamed with `` (old)`` (uniquified); any other row stays Custom. Missing
+    Defaults are added. The mapping is single-hop (apply it simultaneously).
+    """
+    factory = {(d.name, round(d.width_mm, 6))
+               for d in (*MW_FACTORY_LINE_WEIGHTS, *LEGACY_FACTORY_LINE_WEIGHTS)}
+    by_mm = {round(d.width_mm, 6): d.name for d in DEFAULT_LINE_WEIGHTS}
+    mapping: dict[str, str] = {}
+    px_over: dict[str, int | None] = {}
+    kept: list[LineWeightDef] = []
+    clashes: list[LineWeightDef] = []
+    for d in defs:
+        mm = round(d.width_mm, 6)
+        target = by_mm.get(mm)
+        if (d.name, mm) in factory and target is not None:
+            mapping[d.name] = target
+            if d.model_px is not None:
+                px_over.setdefault(target, d.model_px)
+        elif target == d.name:
+            # Exactly a Default's (name, mm): merges into itself (identity).
+            mapping[d.name] = d.name
+            if d.model_px is not None:
+                px_over.setdefault(d.name, d.model_px)
+        elif is_default_weight(d.name):
+            clashes.append(d)
+        else:
+            kept.append(d.copy())
+    taken = {d.name for d in kept} | {d.name for d in DEFAULT_LINE_WEIGHTS}
+    for d in clashes:
+        new = d.name + OLD_SUFFIX
+        n = 2
+        while new in taken:
+            new = f"{d.name} (old {n})"
+            n += 1
+        taken.add(new)
+        mapping[d.name] = new
+        c = d.copy()
+        c.name = new
+        kept.append(c)
+    present = {d.name for d in defs}
+    for name, target in _STATIC_LEGACY_MAP.items():
+        if name in present:
+            continue
+        mapping.setdefault(name, target)
+    out = []
+    for d in DEFAULT_LINE_WEIGHTS:
+        c = d.copy()
+        if d.name in px_over:
+            c.model_px = px_over[d.name]
+        out.append(c)
+    return [*out, *kept], mapping
 
 
 def validate_model_px(px) -> bool:
@@ -75,10 +178,13 @@ def validate_model_px(px) -> bool:
 
 
 def _is_legacy_factory(defs: list[LineWeightDef]) -> bool:
-    """An untouched pre-MW factory template (names + mm, no overrides)."""
-    want = {(d.name, round(d.width_mm, 6)) for d in LEGACY_FACTORY_LINE_WEIGHTS}
-    return (len(defs) == len(want) and all(d.model_px is None for d in defs)
-            and {(d.name, round(d.width_mm, 6)) for d in defs} == want)
+    """An untouched MW or pre-MW factory template (names + mm, no overrides)."""
+    got = {(d.name, round(d.width_mm, 6)) for d in defs}
+    return (all(d.model_px is None for d in defs) and any(
+        len(defs) == len(want) and got == want
+        for want in ({(d.name, round(d.width_mm, 6)) for d in fac}
+                     for fac in (LEGACY_FACTORY_LINE_WEIGHTS,
+                                 MW_FACTORY_LINE_WEIGHTS))))
 
 
 def load_line_weights(settings: QSettings | None = None) -> list[LineWeightDef]:
@@ -100,7 +206,11 @@ def load_line_weights(settings: QSettings | None = None) -> list[LineWeightDef]:
         return [d.copy() for d in FACTORY_LINE_WEIGHTS]
     if _is_legacy_factory(defs):
         new = [d.copy() for d in FACTORY_LINE_WEIGHTS]
-        save_line_weights(new, settings)
+        # Rewriting the template alone would hide the old names from
+        # ``migrate_settings_weights`` (stored "Thin" 0.35 would then map to
+        # itself): run that one-time migration first, which also rewrites it.
+        if not migrate_settings_weights(settings):
+            save_line_weights(new, settings)
         return new
     return defs
 
@@ -115,6 +225,63 @@ def save_line_weights(defs: list[LineWeightDef],
     settings.sync()
 
 
+_SETTINGS_SCHEMA_KEY = "paper/line_weight_schema"
+
+
+def _settings_schema_current(settings: QSettings) -> bool:
+    """True once ``migrate_settings_weights`` has run on *settings*."""
+    try:
+        return int(settings.value(_SETTINGS_SCHEMA_KEY, 0) or 0) >= LINE_WEIGHT_SCHEMA
+    except (TypeError, ValueError):
+        return False
+# Non-category QSettings keys holding a weight name (LW-DC-9): the Model
+# Blocks weight (current + "Set as Default") and the ribbon's current weight.
+_SETTINGS_WEIGHT_KEYS = ("display/Blocks/line_weight",
+                         "display/Blocks/default_line_weight",
+                         "template/geometry/weight")
+
+
+def migrate_settings_weights(settings: QSettings) -> bool:
+    """One-time LW-DC-9 migration of the app-wide weight names.
+
+    Runs the LW-DC-8 merge-by-width over the new-project template
+    (``paper/line_weights``: read raw, before ``load_line_weights`` could
+    replace a legacy factory template) and rewrites every stored weight name
+    through its mapping -- each ``paper/categories/*/line_weight``, the Model
+    Blocks weight (current and default) and the ribbon current weight -- so
+    paper output is unchanged. The mapping is the template's merged with
+    ``_STATIC_LEGACY_MAP`` for names the template lacks. Stamps
+    ``paper/line_weight_schema`` = 2; a later call is a no-op.
+
+    Args:
+        settings: The app QSettings (tests pass an isolated one).
+
+    Returns:
+        True if a migration ran, False if the store was already schema 2.
+    """
+    if _settings_schema_current(settings):
+        return False
+    raw = settings.value("paper/line_weights")
+    defs = None
+    if raw is not None:
+        try:
+            defs = _parse_weight_list(json.loads(raw) if isinstance(raw, str) else raw)
+        except (json.JSONDecodeError, TypeError):
+            defs = None
+    new_defs, mapping = legacy_weight_migration(defs or [])
+    if defs is not None:
+        save_line_weights(new_defs, settings)
+    keys = [f"paper/categories/{k}/line_weight" for k in _CATEGORY_KEYS]
+    for key in (*keys, *_SETTINGS_WEIGHT_KEYS):
+        cur = settings.value(key)
+        if cur is not None and str(cur) in mapping and mapping[str(cur)] != str(cur):
+            settings.setValue(key, mapping[str(cur)])
+    settings.setValue(_SETTINGS_SCHEMA_KEY, LINE_WEIGHT_SCHEMA)
+    settings.sync()
+    _clear_hatch_mm()
+    return True
+
+
 def validate_line_weight_name(name: str,
                               existing: list[LineWeightDef]) -> bool:
     """Return True if *name* is valid (non-empty, unique, not reserved).
@@ -127,6 +294,8 @@ def validate_line_weight_name(name: str,
         return False
     if name.strip().lower() in _reserved_weight_names():
         return False
+    if is_default_weight(name.strip()):
+        return False           # a Default name is never taken by another row (LW-DC-3)
     return all(lw.name != name.strip() for lw in existing)
 
 
@@ -343,34 +512,105 @@ def reset_project_line_weights() -> None:
 
 
 def weight_names() -> list[str]:
-    """Project weight names sorted by width — the source for every picker."""
-    return [d.name for d in sorted(project_line_weights(),
-                                   key=lambda d: d.width_mm)]
+    """Project weight names for every picker: Defaults by width, then Custom
+    by width (LW-DC-7)."""
+    rows = sorted(project_line_weights(), key=lambda d: d.width_mm)
+    return ([d.name for d in rows if is_default_weight(d.name)]
+            + [d.name for d in rows if not is_default_weight(d.name)])
 
 
-def merge_project_line_weights(weights: dict, model_px: dict | None = None) -> list[str]:
-    """Add bundled ``{name: mm}`` weights the project lacks (project wins).
+def weight_separator_index() -> int:
+    """Index in ``weight_names()`` where Custom starts (= the Default count)."""
+    return sum(1 for d in project_line_weights() if is_default_weight(d.name))
 
-    *model_px* is the bundle's ``weight_model_px`` ``{name: px}`` (H-MW-a);
-    an added row takes its valid override. Returns the names added. Invalid
-    widths are skipped.
+
+def weight_separator_at(head_len: int = 0) -> int | None:
+    """Combo index for ``insertSeparator`` between Defaults and Custom.
+
+    Args:
+        head_len: Number of rows listed before ``weight_names()`` in the combo.
+
+    Returns:
+        The index where Custom starts, or ``None`` when no Custom rows exist
+        or no Default precedes them (no leading separator).
     """
-    have = {d.name for d in project_line_weights()} | set(_WEIGHT_ALIASES)
-    added = []
+    sep = weight_separator_index()
+    return head_len + sep if 0 < sep < len(project_line_weights()) else None
+
+
+def fill_weight_combo(combo, head=()) -> None:
+    """Clear ``combo`` and fill it: ``head``, Defaults, a separator, Custom
+    (LW-DC-7). The separator is an empty-text item, only when Custom rows exist."""
+    combo.clear()
+    combo.addItems([*head, *weight_names()])
+    at = weight_separator_at(len(head))
+    if at is not None:
+        combo.insertSeparator(at)
+
+
+def _same_mm(a: float, b: float) -> bool:
+    return round(float(a), 6) == round(float(b), 6)
+
+
+def merge_project_line_weights(weights: dict, model_px: dict | None = None
+                               ) -> tuple[list[str], dict[str, str]]:
+    """Merge a bundle's ``{name: mm}`` into the project table by width (LW-DC-10).
+
+    Per bundled ``(name, mm)``: the project row of that name with the same
+    mm -> nothing; a pre-schema-2 factory pair (MW / pre-MW name at its
+    factory mm) with a row of that exact mm -> mapped to that row (a Default
+    preferred); a name the table lacks -> added under its name; a name whose
+    row has another mm -> mapped to the row with that exact mm, else added
+    as Custom ``name (old)`` and mapped to it. *model_px* is the bundle's
+    ``weight_model_px`` ``{name: px}`` (H-MW-a) for an added row. Invalid
+    widths and rename-alias keys are skipped.
+
+    Returns:
+        ``(added_names, mapping)``: the rows added, and the ``old -> new``
+        name map the caller applies to the bundle's own references
+        (``weight_refs.retarget_definition_refs``).
+    """
+    table = list(project_line_weights())
+    aliases = set(_WEIGHT_ALIASES)
+    factory = {(d.name, round(d.width_mm, 6))
+               for d in (*MW_FACTORY_LINE_WEIGHTS, *LEGACY_FACTORY_LINE_WEIGHTS)}
+    added: list[LineWeightDef] = []
+    mapping: dict[str, str] = {}
+
+    def add(name: str, mm: float, px) -> None:
+        row = LineWeightDef(name, mm, px if validate_model_px(px) else None)
+        added.append(row)
+        table.append(row)
+
     for name, mm in (weights or {}).items():
         try:
             mm = float(mm)
         except (TypeError, ValueError):
             continue
-        if name in have or not name or not validate_line_weight_width(mm):
+        if not name or name in aliases or not validate_line_weight_width(mm):
             continue
-        px = (model_px or {}).get(name)
-        added.append(LineWeightDef(str(name), mm,
-                                   px if validate_model_px(px) else None))
-        have.add(name)
+        name = str(name)
+        cur = next((d for d in table if d.name == name), None)
+        if cur is not None and _same_mm(cur.width_mm, mm):
+            continue
+        exact = sorted((d for d in table if _same_mm(d.width_mm, mm)),
+                       key=lambda d: not is_default_weight(d.name))
+        ex = exact[0] if exact else None
+        if (name, round(mm, 6)) in factory and ex is not None:
+            mapping[name] = ex.name
+        elif cur is None:
+            add(name, mm, (model_px or {}).get(name))
+        elif ex is not None:
+            mapping[name] = ex.name
+        else:
+            new, n = name + OLD_SUFFIX, 2
+            while any(d.name == new for d in table):
+                new, n = f"{name} (old {n})", n + 1
+            add(new, mm, (model_px or {}).get(name))
+            mapping[name] = new
     if added:
         set_project_line_weights([*project_line_weights(), *added])
-    return [d.name for d in added]
+    return [d.name for d in added], mapping
 
 
 # ---------------------------------------------------------------------------
@@ -664,24 +904,167 @@ def get_paper_display_for_save() -> dict:
         "categories": load_paper_categories(),
         "line_weights": [d.to_dict() for d in project_line_weights()],
         "line_weight_aliases": weight_aliases(),
+        "line_weight_schema": LINE_WEIGHT_SCHEMA,
     }
 
 
-def apply_project_weights(data: dict | None) -> None:
+# LW-DC-8: a pre-schema-2 file's pending merge, stashed by
+# ``apply_project_weights(stash=True)`` as the KIND of migration (``"table"``:
+# the file's own unstamped table; ``"tableless"``: a pre-LT1 file) and consumed
+# by ``apply_pending_weight_migration`` at the end of ``load_from_file``. The
+# ``(new_defs, mapping)`` itself is computed when used (``_pending_migration``),
+# never at stash time, so rows a mid-load library merge adds survive.
+_PENDING_LW_MIGRATION: "str | None" = None
+
+
+def _pending_migration() -> "tuple[list[LineWeightDef], dict[str, str]] | None":
+    """The ``(new_defs, mapping)`` of the stashed migration against the CURRENT
+    project table (None if nothing is stashed).
+
+    A table-less file can only hold pre-schema-2 names, so its mapping is the
+    static legacy map (Default names included: an old "Medium" is 0.25 mm) --
+    except the template's own Custom rows, which map to themselves.
+    """
+    if _PENDING_LW_MIGRATION is None:
+        return None
+    if _PENDING_LW_MIGRATION == "tableless":
+        table = project_line_weights()
+        custom = {d.name for d in table if not is_default_weight(d.name)}
+        mapping = {k: v for k, v in _STATIC_LEGACY_MAP.items() if k not in custom}
+        return ensure_defaults(table), mapping
+    return legacy_weight_migration(project_line_weights())
+
+
+def _extend_mapping(mapping: dict[str, str]) -> dict[str, str]:
+    """*mapping* plus every rename-alias key whose target it maps (alias keys
+    follow their target)."""
+    ext = dict(mapping)
+    for key in weight_aliases():
+        target = canonical_weight_name(key)
+        if key not in ext and target in mapping:
+            ext[key] = mapping[target]
+    return ext
+
+
+def pending_weight_mapping() -> dict[str, str]:
+    """The pending LW-DC-8 old-name -> new-name map (alias keys included), or
+    ``{}`` when nothing is stashed. The loader migrates payload records that
+    are built asynchronously (underlays) with this before they are created."""
+    pending = _pending_migration()
+    return _extend_mapping(pending[1]) if pending is not None else {}
+
+
+def migrate_underlay_entry(entry: dict, ext: dict[str, str]) -> dict:
+    """A copy of one saved underlay payload with its weight names re-pointed
+    through *ext* (single hop): the default ``line_weight_name`` and every
+    ``layer_overrides[layer]["line_weight"]``."""
+    out = dict(entry)
+    cur = out.get("line_weight_name")
+    if cur in ext:
+        out["line_weight_name"] = ext[cur]
+    overrides = {}
+    for layer, ov in (out.get("layer_overrides") or {}).items():
+        ov = dict(ov)
+        if ov.get("line_weight") in ext:
+            ov["line_weight"] = ext[ov["line_weight"]]
+        overrides[layer] = ov
+    if "layer_overrides" in out:
+        out["layer_overrides"] = overrides
+    return out
+
+
+def _schema_current(data: dict) -> bool:
+    v = data.get("line_weight_schema")
+    return isinstance(v, int) and not isinstance(v, bool) and v >= LINE_WEIGHT_SCHEMA
+
+
+def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
     """Install a project file's weight table, then its rename aliases.
 
     Called at the top of ``load_from_file`` (before any definition / text
     parse canonicalises weight names -- else the PREVIOUS project's aliases
     would rewrite this file's names) and again by
     ``apply_paper_display_from_project`` (same values; idempotent).
+
+    A schema-2 table installs with any missing Default added. A table with
+    no ``line_weight_schema`` installs UNCHANGED (holders parse against it);
+    with ``stash=True`` (the loader only) its LW-DC-8 merge-by-width is
+    stashed for ``apply_pending_weight_migration``. A table-less file takes
+    the template (and stashes a static-map migration: its old factory names map
+    by width, the template's Custom rows stay).
     """
+    global _PENDING_LW_MIGRATION
     data = data if isinstance(data, dict) else {}
+    _PENDING_LW_MIGRATION = None
     parsed = _parse_weight_list(data.get("line_weights"))
+    current = _schema_current(data)
     if parsed is None:
         reset_project_line_weights()       # old file / no paper_display -> template
+        if stash and not current:
+            _PENDING_LW_MIGRATION = "tableless"
+    elif current:
+        set_project_line_weights(ensure_defaults(parsed))
+        set_weight_aliases(data.get("line_weight_aliases"))
     else:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
         set_weight_aliases(data.get("line_weight_aliases"))
+        if stash:
+            _PENDING_LW_MIGRATION = "table"
+
+
+def apply_pending_weight_migration(scene, paper_display: dict | None,
+                                   display_settings: dict | None = None) -> bool:
+    """Run the stashed LW-DC-8 migration against the freshly loaded *scene*.
+
+    Re-points every by-name holder through ``weight_refs.retarget_weight_refs``
+    (alias keys follow their target), then installs the migrated table and
+    prunes the aliases it touched. The file's own payload dicts are migrated
+    in place too -- ``paper_display`` (categories, table, schema stamp) and
+    ``display_settings`` (the Model Blocks weight) -- so the later
+    ``apply_paper_display_from_project`` / ``apply_project_display_settings``
+    re-apply migrated names. The retarget runs against a scratch settings
+    store: the app's QSettings (migrated once by ``migrate_settings_weights``)
+    must not be rewritten by a project open.
+
+    Returns:
+        True if a migration ran.
+    """
+    global _PENDING_LW_MIGRATION
+    pending = _pending_migration()      # against the table as it is NOW
+    _PENDING_LW_MIGRATION = None
+    if pending is None:
+        return False
+    import shutil
+    import tempfile
+    from . import weight_refs
+    new_defs, mapping = pending
+    ext = _extend_mapping(mapping)
+    tmp = tempfile.mkdtemp(prefix="fp3d_lwdc_")
+    try:
+        scratch = QSettings(f"{tmp}/scratch.ini", QSettings.Format.IniFormat)
+        # Underlay records were migrated from their payload as they were
+        # built (they may not exist yet: async DXF/DWG builds).
+        weight_refs.retarget_weight_refs(scene, scratch, ext, underlays=False)
+        del scratch
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if isinstance(paper_display, dict):
+        for cat in (paper_display.get("categories") or {}).values():
+            if isinstance(cat, dict) and cat.get("line_weight") in ext:
+                cat["line_weight"] = ext[cat["line_weight"]]
+    if isinstance(display_settings, dict):
+        blocks = display_settings.get(weight_refs.MODEL_BLOCKS_KEY)
+        if isinstance(blocks, dict) and blocks.get("line_weight") in ext:
+            blocks["line_weight"] = ext[blocks["line_weight"]]
+    kept = {k: v for k, v in weight_aliases().items()
+            if k not in ext and canonical_weight_name(v) not in mapping}
+    set_project_line_weights(new_defs)
+    set_weight_aliases(kept)
+    if isinstance(paper_display, dict):
+        paper_display["line_weights"] = [d.to_dict() for d in project_line_weights()]
+        paper_display["line_weight_aliases"] = weight_aliases()
+        paper_display["line_weight_schema"] = LINE_WEIGHT_SCHEMA
+    return True
 
 
 def apply_paper_display_from_project(data: dict | None):

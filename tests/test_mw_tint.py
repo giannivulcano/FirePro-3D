@@ -33,7 +33,7 @@ def be(qapp):
     QApplication.processEvents()
 
 
-def _line(sc, a, b, weight="Thinnest"):
+def _line(sc, a, b, weight="Extra Thin"):
     ln = LineItem(QPointF(*a), QPointF(*b))
     ln.style["weight"] = weight
     sc.addItem(ln); sc._draw_lines.append(ln)
@@ -77,7 +77,7 @@ def themed(request, monkeypatch):
 
 
 @pytest.mark.parametrize("half", [0.0, 0.5])
-@pytest.mark.parametrize("weight,n", [("Thinnest", 1), ("Thinner", 2), ("Thick", 4)])
+@pytest.mark.parametrize("weight,n", [("Extra Thin", 1), ("Thin", 2), ("Medium", 4)])
 def test_g8_tint_width_equals_untinted_width(be, themed, half, weight, n):
     v, sc = be
     y = boundary_y(v, 40.0) + half
@@ -90,7 +90,7 @@ def test_g8_tint_width_equals_untinted_width(be, themed, half, weight, n):
 def test_g8_tint_width_vertical(be, themed):
     v, sc = be
     x = boundary_x(v, _X) + 0.5
-    _line(sc, (x, -150), (x, 150), "Thinner")
+    _line(sc, (x, -150), (x, 150), "Thin")
     img, dpr = grab(v)
     dev = v.viewportTransform().map(QPointF(x, 40.0))   # clear of the X axis
     bg = img.pixelColor(int((dev.x() + 60) * dpr), int(dev.y() * dpr))
@@ -102,7 +102,7 @@ def test_g8_tint_width_vertical(be, themed):
 def test_g8_diagonal_fringe_is_pure_tint_hue(be, theme_name, monkeypatch):
     v, sc = be
     monkeypatch.setattr(th, "detect", lambda: th.DARK if theme_name == "dark" else th.LIGHT)
-    _line(sc, (-100, -100), (100, 0), "Thinner")
+    _line(sc, (-100, -100), (100, 0), "Thin")
     img, dpr = grab(v)
     free = th.detect().color("constraint_free")
     lit = 0
@@ -200,7 +200,7 @@ def test_g8_tint_never_leaks_into_the_item(be):
 def test_g8_block_ops_tint_per_op(be, half):
     from firepro3d.block_definition import BlockDefinition
     v, sc = be
-    a = LineItem(QPointF(-100, 0), QPointF(100, 0)); a.style["weight"] = "Thick"
+    a = LineItem(QPointF(-100, 0), QPointF(100, 0)); a.style["weight"] = "Medium"
     d = BlockDefinition.new(name="B", library="L", series="S",
                             primitives=[a.to_dict()], origin=(0.0, 0.0))
     sc.register_block_definition(d)
@@ -216,7 +216,7 @@ def test_g8_truly_nested_block_op_tints_at_its_own_width(be):
     block's stroke op tints at its own width (MW-12 nested instances)."""
     from firepro3d.block_definition import BlockDefinition
     v, sc = be
-    a = LineItem(QPointF(-100, 0), QPointF(100, 0)); a.style["weight"] = "Thick"
+    a = LineItem(QPointF(-100, 0), QPointF(100, 0)); a.style["weight"] = "Medium"
     inner = BlockDefinition.new(name="C", library="L", series="S",
                                 primitives=[a.to_dict()], origin=(0.0, 0.0))
     outer = BlockDefinition.new(
@@ -345,7 +345,7 @@ def test_tint_lookup_failure_paints_the_item_untinted(be, monkeypatch):
     v, sc = be
     ink = "#ff00ff"
     y = boundary_y(v, 40.0)
-    ln = _line(sc, (-150, y), (150, y), "Thick")
+    ln = _line(sc, (-150, y), (150, y), "Medium")
     ln.style["colour"] = ink
 
     def boom():

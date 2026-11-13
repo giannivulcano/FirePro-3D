@@ -7,6 +7,11 @@ from firepro3d.paper_display import LineWeightDef
 
 # MW-4 replaced the factory names; these alias tests name the pre-MW rows
 # ("Heavy", "Light", ...) as ordinary live rows, so they seed the legacy table.
+def _lw_row(d, name):
+    """Table row of weight *name* (header rows shift the indices, LW-DC-6)."""
+    return next(r for r, lw in d._lw_row_def.items() if lw.name == name)
+
+
 @pytest.fixture(autouse=True)
 def _table():
     pd.set_project_line_weights([*pd.LEGACY_FACTORY_LINE_WEIGHTS,
@@ -58,7 +63,7 @@ def test_aliases_persist_and_reset():
 
 def test_merge_does_not_readd_an_alias_key():
     _rename("A", "B")
-    assert pd.merge_project_line_weights({"A": 0.99}) == []
+    assert pd.merge_project_line_weights({"A": 0.99}) == ([], {})
     assert "A" not in pd.weight_names()
 
 
@@ -112,7 +117,7 @@ def _scene():
 
 def _dm_rename(ms, old, new):
     d = DisplayManager(ms, active_context="paper")
-    row = [x.name for x in d._lw_defs].index(old)
+    row = _lw_row(d, old)
     d._lw_table.item(row, 0).setText(new)
     return d
 
@@ -190,10 +195,10 @@ def test_model_blocks_weight_follows_rename_and_cancel(qapp):
 def test_new_weight_cannot_hijack_an_alias_key(qapp):
     ms, _defn, _t = _scene()
     d = _dm_rename(ms, "A", "B")
-    row = [x.name for x in d._lw_defs].index("Heavy")
+    row = _lw_row(d, "Heavy")
     d._lw_table.item(row, 0).setText("A")              # refused
     assert "Heavy" in [x.name for x in d._lw_defs]
-    row = [x.name for x in d._lw_defs].index("B")
+    row = _lw_row(d, "B")
     d._lw_table.item(row, 0).setText("A")              # renaming back is fine
     assert "A" in [x.name for x in d._lw_defs]
     d.accept()
@@ -279,14 +284,19 @@ def _plan_line_scene():
     return ms, ln
 
 
-def test_plan_geometry_weight_is_in_use(qapp):
+def test_plan_geometry_weight_is_in_use(qapp, monkeypatch):
+    from PyQt6.QtWidgets import QDialog
+    from firepro3d.weight_replace_dialog import WeightReplaceDialog
+    # LW-DC-5 retired the refusal: an in-use remove opens the replace modal.
+    monkeypatch.setattr(WeightReplaceDialog, "exec",
+                        lambda self: QDialog.DialogCode.Rejected)
     ms, _ln = _plan_line_scene()
     d = DisplayManager(ms, active_context="paper")
     assert d._line_weight_in_use("A")
-    row = [x.name for x in d._lw_defs].index("A")
+    row = _lw_row(d, "A")
     d._lw_table.setCurrentCell(row, 0)
     n = len(d._lw_defs)
-    d._on_lw_remove()                                  # refused
+    d._on_lw_remove()                                  # dialog cancelled
     assert len(d._lw_defs) == n and "A" in [x.name for x in d._lw_defs]
     d.reject()
 
@@ -310,13 +320,13 @@ def test_hijack_refusal_shows_message(qapp, monkeypatch):
     ms, _defn, _t = _scene()
     d = _dm_rename(ms, "A", "B")
     assert calls == []
-    row = [x.name for x in d._lw_defs].index("Heavy")
+    row = _lw_row(d, "Heavy")
     d._lw_table.item(row, 0).setText("A")              # hijack -> refused
     assert len(calls) == 1
     assert calls[0][1] == ("“A” was renamed to “B” in this "
                            "project — choose another name")
     calls.clear()
-    row = [x.name for x in d._lw_defs].index("B")
+    row = _lw_row(d, "B")
     d._lw_table.item(row, 0).setText("A")              # rename-back: no message
     assert calls == []
     d.reject()

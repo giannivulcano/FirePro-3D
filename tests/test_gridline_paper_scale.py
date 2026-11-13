@@ -29,7 +29,7 @@ class TestGridLineCategoryModel:
     def test_factory_medium_weight_no_bubble_height(self):
         cat = factory_paper_categories()["Grid Line"]
         assert "bubble_label_height_mm" not in cat       # SB1c D12: retired
-        assert cat["line_weight"] == "Thinner"   # MW-5: factory 0.25 mm
+        assert cat["line_weight"] == "Fine"   # MW-5: factory 0.25 mm
 
     def test_fresh_settings_load_defaults(self, temp_settings):
         cats = load_paper_categories(temp_settings)

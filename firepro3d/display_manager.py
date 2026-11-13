@@ -288,7 +288,7 @@ _COL_OPACITY = 4
 _COL_RESET   = 5
 
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
-_MODEL_BLOCKS_KEY = "Blocks"
+from .weight_refs import MODEL_BLOCKS_KEY as _MODEL_BLOCKS_KEY
 
 # Line Weights tab "Model (px)" column header + cell tooltip (MW-11).
 _MODEL_PX_TIP = (
@@ -1511,13 +1511,12 @@ class DisplayManager(HouseDialog):
         combo = getattr(self, "_model_blocks_combo", None)
         if combo is None:
             return
-        from .paper_display import (model_blocks_weight, picker_weight_name,
-                                    weight_names)
+        from .paper_display import (fill_weight_combo, model_blocks_weight,
+                                    picker_weight_name)
         was = self._suppress
         self._suppress = True
         try:
-            combo.clear()
-            combo.addItems(weight_names())
+            fill_weight_combo(combo)
             combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         finally:
             self._suppress = was
@@ -1803,12 +1802,16 @@ class DisplayManager(HouseDialog):
         self._apply_paper_preview()
 
     def _reset_line_weights_tab(self):
-        """Reset the PROJECT weight table to factory defaults (LT1-3).
+        """Reset the PROJECT weight table's Defaults to factory (LT1-3, LW-DC-2);
+        Custom rows are kept.
 
         Never writes the template; "Set as Default" does that.
         """
-        from .paper_display import FACTORY_LINE_WEIGHTS
-        self._lw_defs = [d.copy() for d in FACTORY_LINE_WEIGHTS]
+        from .paper_display import DEFAULT_LINE_WEIGHTS, is_default_weight
+        # LW-DC-2: the seven Defaults return to factory; Custom rows stay.
+        self._lw_defs = [
+            *(d.copy() for d in DEFAULT_LINE_WEIGHTS),
+            *(d.copy() for d in self._lw_defs if not is_default_weight(d.name))]
         self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
@@ -1987,7 +1990,7 @@ class DisplayManager(HouseDialog):
     def _build_paper_space_tab(self) -> QWidget:
         """Build the Paper Space display overrides tab."""
         from .paper_display import (
-            weight_names, load_paper_categories,
+            fill_weight_combo, load_paper_categories,
             _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS, _LW_ONLY, _AUTH_ONLY,
         )
         _t = th.detect()
@@ -2029,7 +2032,6 @@ class DisplayManager(HouseDialog):
 
         # Load data
         cats = load_paper_categories(self._settings)
-        lw_names = weight_names()          # the PROJECT table (LT1-3)
         from .paper_display import factory_paper_categories, picker_weight_name
         factory_all = factory_paper_categories()
 
@@ -2127,7 +2129,7 @@ class DisplayManager(HouseDialog):
                 # ── Line Weight combo ────────────────────────────────
                 lw_combo = QComboBox()
                 if key not in _AUTH_ONLY:      # R2: the Underlay row has no weight
-                    lw_combo.addItems(lw_names)
+                    fill_weight_combo(lw_combo)
                     cur_lw = picker_weight_name(cat.get("line_weight")
                                                 or factory_all[key]["line_weight"])  # MW-6: the row it draws as
                     idx = lw_combo.findText(cur_lw)
@@ -2288,9 +2290,9 @@ class DisplayManager(HouseDialog):
 
         self._lw_table = QTableWidget()
         self._lw_table.setObjectName("underlayTable")   # Underlay Manager table look
-        self._lw_table.setColumnCount(3)
+        self._lw_table.setColumnCount(4)
         self._lw_table.setHorizontalHeaderLabels(
-            ["NAME", "WIDTH (MM)", "MODEL (PX)"])
+            ["NAME", "WIDTH (MM)", "MODEL (PX)", ""])
         self._lw_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._lw_table.horizontalHeader().setSectionResizeMode(
@@ -2300,6 +2302,15 @@ class DisplayManager(HouseDialog):
             2, QHeaderView.ResizeMode.Fixed)
         self._lw_table.setColumnWidth(2, 120)
         self._lw_table.horizontalHeaderItem(2).setToolTip(_MODEL_PX_TIP)
+        self._lw_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Fixed)
+        self._lw_table.setColumnWidth(3, th.M.GLYPH_BTN_PX + 12)   # per-row reset
+        self._lw_table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self._lw_table.customContextMenuRequested.connect(
+            self._on_lw_context_menu)
+        # table row -> LineWeightDef; header rows are absent (LW-DC-6).
+        self._lw_row_def: dict = {}
         self._lw_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self._lw_table.setSelectionMode(
@@ -2309,8 +2320,9 @@ class DisplayManager(HouseDialog):
         # mutates project_line_weights()'s result in place.
         self._lw_defs = [d.copy() for d in project_line_weights()]
         self._lw_snapshot = [d.copy() for d in self._lw_defs]
-        # (old, new) renames in order -- reject() replays them backwards.
-        self._lw_renames: list[tuple[str, str]] = []
+        # Ordered rename / delete log -- reject() undoes it newest first:
+        # ("rename", old, new) or ("delete", journal) (LT2-8 / LW-DC-5).
+        self._lw_ops: list[tuple] = []
         self._lw_edited = False            # set by _commit_lw_defs
         # Rename aliases are part of the Cancel snapshot (H-g).
         from .paper_display import weight_aliases
@@ -2336,13 +2348,13 @@ class DisplayManager(HouseDialog):
         # whose Colour is By Category. Visibility and opacity stay authored /
         # per instance.
         from .paper_display import (model_blocks_colour, model_blocks_weight,
-                                    picker_weight_name, weight_names)
+                                    picker_weight_name, fill_weight_combo)
         blocks_lbl = QLabel("Model blocks weight / colour:")
         blocks_lbl.setToolTip("Blocks: line weight and colour of block linework "
                               "drawn By Category (visibility and opacity stay "
                               "authored)")
         combo = QComboBox()
-        combo.addItems(weight_names())
+        fill_weight_combo(combo)
         combo.setCurrentText(picker_weight_name(model_blocks_weight()))  # MW-6: the row it draws as
         combo.setToolTip("Canvas line weight of block linework whose weight is "
                          "By Linetype on a Continuous line (Thin Lines still "
@@ -2361,195 +2373,179 @@ class DisplayManager(HouseDialog):
 
         return page
 
-    def _populate_lw_table(self):
+    def _populate_lw_table(self, select=None):
+        """Fill the table: DEFAULTS header + Defaults, CUSTOM header + Custom,
+        each by width (LW-DC-6). Rebuilds ``_lw_row_def``.
+
+        Args:
+            select: The ``LineWeightDef`` to make current afterwards (an
+                added weight); default is the one current before the rebuild.
+        """
         from PyQt6.QtWidgets import QTableWidgetItem
-        from .paper_display import auto_model_px
+        from .paper_display import (auto_model_px, factory_default,
+                                    is_default_weight)
+        tbl = self._lw_table
+        keep = select or self._lw_row_def.get(tbl.currentRow())
         self._suppress = True
         self._lw_defs.sort(key=lambda d: d.width_mm)
-        self._lw_table.setRowCount(len(self._lw_defs))
-        muted = th.detect().color("muted")
-        for row, lw in enumerate(self._lw_defs):
-            name_item = QTableWidgetItem(lw.name)
-            width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
-            self._lw_table.setItem(row, 0, name_item)
-            self._lw_table.setItem(row, 1, width_item)
-            # Model (px) (MW-11): muted "Auto (n)" or the whole-px override.
-            if lw.model_px is None:
-                model_item = QTableWidgetItem(
-                    f"Auto ({auto_model_px(lw.width_mm)})")
-                model_item.setForeground(muted)
-            else:
-                model_item = QTableWidgetItem(str(lw.model_px))
-            model_item.setToolTip(_MODEL_PX_TIP)
-            self._lw_table.setItem(row, 2, model_item)
+        defaults = [d for d in self._lw_defs if is_default_weight(d.name)]
+        customs = [d for d in self._lw_defs if not is_default_weight(d.name)]
+        tbl.clearSpans()
+        tbl.setRowCount(0)                 # drops items and reset widgets
+        tbl.setRowCount(len(defaults) + len(customs) + 2)
+        self._lw_row_def = {}
+        pal = th.detect()
+        muted = pal.color("muted")
+        accent = pal.color("accent")
+        group_font = QFont()
+        group_font.setBold(True)
+        group_font.setPointSize(group_font.pointSize() + 1)
+
+        def header(row: int, text: str) -> None:
+            item = QTableWidgetItem(text)
+            item.setFont(group_font)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            tbl.setItem(row, 0, item)
+            tbl.setSpan(row, 0, 1, 4)
+
+        row = 0
+        for title, group in (("DEFAULTS", defaults), ("CUSTOM", customs)):
+            header(row, title)
+            row += 1
+            for lw in group:
+                self._lw_row_def[row] = lw
+                is_def = title == "DEFAULTS"
+                fac = factory_default(lw.name) if is_def else None
+                name_item = QTableWidgetItem(lw.name)
+                width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
+                if is_def:                 # LW-DC-2: the name is read-only
+                    name_item.setFlags(name_item.flags()
+                                       & ~Qt.ItemFlag.ItemIsEditable)
+                tbl.setItem(row, 0, name_item)
+                tbl.setItem(row, 1, width_item)
+                # Model (px) (MW-11): muted "Auto (n)" or the whole-px override.
+                if lw.model_px is None:
+                    model_item = QTableWidgetItem(
+                        f"Auto ({auto_model_px(lw.width_mm)})")
+                    model_item.setForeground(muted)
+                else:
+                    model_item = QTableWidgetItem(str(lw.model_px))
+                model_item.setToolTip(_MODEL_PX_TIP)
+                tbl.setItem(row, 2, model_item)
+                if fac is not None:
+                    w_diff, p_diff = self._lw_factory_diff(lw)
+                    if w_diff:
+                        width_item.setForeground(accent)
+                    if p_diff:
+                        model_item.setForeground(accent)
+                    if w_diff or p_diff:
+                        tbl.setCellWidget(row, 3, glyph_button(
+                            "\u21ba", "Reset to default",
+                            lambda _=False, n=lw.name: self._on_lw_reset(n)))
+                row += 1
         self._suppress = False
+        at = next((r for r, d in self._lw_row_def.items() if d is keep), None)
+        if at is not None:                 # the rebuild dropped the selection
+            tbl.setCurrentCell(at, 0)
+        if hasattr(self, "_lw_remove_btn"):    # absent on the first fill
+            self._update_lw_remove_state(tbl.currentRow(), 0, -1, -1)
+
+    def _lw_factory_diff(self, lw) -> tuple[bool, bool]:
+        """``(width differs, Model px differs)`` of Default *lw* from its
+        factory row. The width compares at the Width cell's two decimals, so
+        accent appears iff the shown value differs; both False for a Custom
+        weight."""
+        from .paper_display import factory_default
+        fac = factory_default(lw.name)
+        if fac is None:
+            return False, False
+        return (f"{lw.width_mm:.2f}" != f"{fac.width_mm:.2f}",
+                lw.model_px != fac.model_px)
+
+    def _lw_differs_from_factory(self, lw) -> bool:
+        """True if Default *lw*'s shown width or Model px differs from its factory row.
+
+        Args:
+            lw: The ``LineWeightDef`` to test.
+
+        Returns:
+            False for a Custom weight.
+        """
+        return any(self._lw_factory_diff(lw))
+
+    def _on_lw_reset(self, name: str) -> None:
+        """Restore Default *name* to its factory width + Model px (LW-DC-2)."""
+        from .paper_display import factory_default
+        fac = factory_default(name)
+        lw = next((d for d in self._lw_defs if d.name == name), None)
+        if fac is None or lw is None:
+            return
+        lw.width_mm = fac.width_mm
+        lw.model_px = fac.model_px
+        self._commit_lw_defs()
+        self._populate_lw_table()
+        if hasattr(self, "_paper_cat_data"):
+            self._refresh_lw_combos()
+
+    def _lw_row_menu(self, row: int):
+        """The right-click menu for table *row* (None off a Default row)."""
+        from PyQt6.QtWidgets import QMenu
+        from .paper_display import is_default_weight
+        lw = self._lw_row_def.get(row)
+        if lw is None or not is_default_weight(lw.name):
+            return None
+        menu = QMenu(self._lw_table)
+        act = menu.addAction("Reset to default")
+        act.setEnabled(self._lw_differs_from_factory(lw))
+        act.triggered.connect(lambda _=False, n=lw.name: self._on_lw_reset(n))
+        return menu
+
+    def _on_lw_context_menu(self, pos) -> None:
+        """Show the Defaults-row "Reset to default" menu at *pos*.
+
+        Args:
+            pos: Click position in the table viewport's coordinates.
+        """
+        menu = self._lw_row_menu(self._lw_table.rowAt(pos.y()))
+        if menu is not None:
+            menu.exec(self._lw_table.viewport().mapToGlobal(pos))
 
     def _weight_refs(self):
-        """Yield ``(name, (kind, ref))`` for every live by-name weight ref:
-        sheet annotations; model-plan texts; project definition text
-        primitives and stroke ``style.weight``; open Block Editors' texts and
-        styled raw items, and the project scene's styled geometry
-        (linetypes.md LT1-5 / LT2-8); placed blocks' Weight overrides and
-        definitions' nested-record Weight overrides (WM2).
-        """
-        from .stroke_style import is_named_weight
-        for sheet in getattr(self._scene, "_sheets", []) or []:
-            for ann in getattr(sheet, "annotations", []):
-                yield ann.border_weight, ("ann", ann)
-                if (getattr(ann, "leader", None) or {}).get("weight"):
-                    yield ann.leader["weight"], ("lead_ann", ann.leader)
-        scenes = [self._scene]
-        prov = getattr(self._scene, "_editor_scenes_provider", None)
-        if callable(prov):
-            scenes.extend(sc for sc in prov() if sc is not self._scene)
-        for sc in scenes:
-            for item in getattr(sc, "_texts", []) or []:
-                yield item._data.border_weight, ("item", item)
-                if (item._data.leader or {}).get("weight"):
-                    yield item._data.leader["weight"], ("lead_item", item)
-            for item in sc.items():
-                st = getattr(item, "style", None)
-                if isinstance(st, dict) and is_named_weight(st.get("weight")):
-                    yield st["weight"], ("raw", item)
-            for inst in getattr(sc, "_block_instances", []) or []:
-                w = getattr(inst, "overrides", {}).get("weight")
-                if is_named_weight(w):
-                    yield w, ("inst", inst)
-                lw = ((getattr(inst, "note", None) or {}).get("leader") or {}).get("weight")
-                if lw:
-                    yield lw, ("lead_inst", inst)      # a Note's leader weight
-                bw = ((getattr(inst, "note", None) or {}).get("style") or {}).get("border_weight")
-                if bw:
-                    yield bw, ("style_inst", inst)     # a Note's own border weight
-        reg = getattr(self._scene, "block_registry", None)
-        if reg is not None:
-            for bid in reg.ids():
-                defn = reg.get(bid)
-                for prim in getattr(defn, "primitives", []) or []:
-                    if prim.get("type") == "text" and "border_weight" in prim:
-                        yield prim["border_weight"], ("prim", (bid, prim))
-                    if (prim.get("type") == "text"
-                            and (prim.get("leader") or {}).get("weight")):
-                        yield prim["leader"]["weight"], ("lead_prim", (bid, prim["leader"]))
-                    st = prim.get("style")
-                    if isinstance(st, dict) and is_named_weight(st.get("weight")):
-                        yield st["weight"], ("sprim", (bid, st))
-                    ov = prim.get("overrides")
-                    if isinstance(ov, dict) and is_named_weight(ov.get("weight")):
-                        yield ov["weight"], ("nrec", (bid, ov))
+        """Yield ``(name, (kind, ref))`` for every live by-name weight ref
+        (delegates to :func:`weight_refs.iter_weight_refs`)."""
+        from .weight_refs import iter_weight_refs
+        return iter_weight_refs(self._scene)
 
     def _line_weight_in_use(self, name: str) -> bool:
-        """True if *name* is referenced anywhere by name.
-
-        Reference kinds: paper categories; underlays (§16.6: the per-underlay
-        default ``line_weight_name`` and per-layer
-        ``layer_overrides[layer]["line_weight"]``); sheet text annotations
-        (all sheets); model-plan texts (``_texts``); text primitives and
-        stroke ``style.weight`` of project block definitions; open Block
-        Editors' items; placed blocks' and nested records' Weight overrides
-        (WM2); the Model "Blocks" weight (LT2-6 / LT2-8). Holder
-        names are compared canonically (an alias key counts as its target).
-        """
-        from .paper_display import (canonical_weight_name,
-                                    load_paper_categories, model_blocks_weight)
-        if model_blocks_weight() == name:
-            return True
-        cats = load_paper_categories(self._settings)
-        if any(v.get("line_weight") == name for v in cats.values()):
-            return True
-        for data, _item in getattr(self._scene, "underlays", []):
-            if data.line_weight_name == name:
-                return True
-            for ov in data.layer_overrides.values():
-                if ov.get("line_weight") == name:
-                    return True
-        if any(canonical_weight_name(n) == name
-               for n, _ref in self._weight_refs()):
-            return True
-        return False
+        """True if *name* is referenced anywhere by name (delegates to
+        :func:`weight_refs.is_weight_in_use`)."""
+        from .weight_refs import is_weight_in_use
+        return is_weight_in_use(self._scene, self._settings, name)
 
     def _propagate_lw_rename(self, old: str, new: str):
-        """Follow a weight rename through every by-name reference."""
-        from .paper_display import (load_paper_categories, model_blocks_weight,
-                                    save_paper_categories,
-                                    set_model_blocks_weight)
-        if model_blocks_weight() == old:
-            # Raw: the Cancel replay writes a pre-rename (alias-key) name
-            # before the table + aliases are restored.
-            set_model_blocks_weight(new, canonical=False)
-            self._settings.setValue(
-                f"display/{_MODEL_BLOCKS_KEY}/line_weight", new)
-        cats = load_paper_categories(self._settings)
-        for cat_vals in cats.values():
-            if cat_vals.get("line_weight") == old:
-                cat_vals["line_weight"] = new
-        save_paper_categories(cats, self._settings)
-        for data, _item in getattr(self._scene, "underlays", []):
-            if data.line_weight_name == old:
-                data.line_weight_name = new
-            for ov in data.layer_overrides.values():
-                if ov.get("line_weight") == old:
-                    ov["line_weight"] = new
-        touched_defs = set()
-        for cur, (kind, ref) in list(self._weight_refs()):
-            if cur != old:
-                continue
-            if kind == "lead_ann":
-                ref["weight"] = new         # a sheet text's leader record
-            elif kind == "lead_item":
-                ref._data.leader["weight"] = new
-                ref.update()
-            elif kind == "lead_inst":
-                ref.note["leader"]["weight"] = new
-                ref.note_changed()
-            elif kind == "style_inst":
-                ref.note["style"]["border_weight"] = new
-                ref.note_changed()
-            elif kind == "lead_prim":
-                bid, rec = ref
-                rec["weight"] = new
-                touched_defs.add(bid)
-            elif kind == "ann":
-                ref.border_weight = new     # live paper TextItems alias this data
-            elif kind == "item":
-                ref._data.border_weight = new
-                ref.update()
-            elif kind == "raw":
-                ref.style["weight"] = new
-                ref.update()
-            elif kind == "sprim":
-                bid, st = ref
-                st["weight"] = new
-                touched_defs.add(bid)
-            elif kind == "inst":
-                # Raw, like the Blocks weight: the Cancel replay writes a
-                # pre-rename (alias-key) name before the aliases are restored.
-                ref.set_overrides({**ref.overrides, "weight": new},
-                                  canonical=False)
-            elif kind == "nrec":
-                bid, ov = ref
-                ov["weight"] = new
-                touched_defs.add(bid)
-            else:
-                bid, prim = ref
-                prim["border_weight"] = new
-                touched_defs.add(bid)
-        reg = getattr(self._scene, "block_registry", None)
-        for bid in touched_defs:
-            reg.invalidate(bid)
+        """Follow a weight rename through every by-name reference
+        (delegates to :func:`weight_refs.retarget_weight_refs`)."""
+        from .weight_refs import retarget_weight_refs
+        retarget_weight_refs(self._scene, self._settings, {old: new})
 
     def _on_lw_cell_changed(self, row, col):
-        if self._suppress or row >= len(self._lw_defs):
+        old_def = self._lw_row_def.get(row)
+        if self._suppress or old_def is None or col > 2:    # header rows ignored
             return
         from .paper_display import (
-            validate_line_weight_name, validate_line_weight_width,
+            is_default_weight, validate_line_weight_name,
+            validate_line_weight_width,
         )
-        old_def = self._lw_defs[row]
         text = self._lw_table.item(row, col).text().strip()
         renamed = None
         if col == 0:  # Name changed
             from .paper_display import canonical_weight_name, is_alias_key
-            others = [d for i, d in enumerate(self._lw_defs) if i != row]
+            if is_default_weight(old_def.name):      # LW-DC-2: read-only name
+                self._suppress = True
+                self._lw_table.item(row, 0).setText(old_def.name)
+                self._suppress = False
+                return
+            others = [d for d in self._lw_defs if d is not old_def]
             # Renaming back onto an old name of THIS weight is allowed (its
             # refs are this weight's own); any other alias key is refused --
             # no hijack of the renamed-away references (LT2-8 / H-g).
@@ -2575,7 +2571,7 @@ class DisplayManager(HouseDialog):
             old_name = old_def.name
             old_def.name = text
             self._propagate_lw_rename(old_name, text)
-            self._lw_renames.append((old_name, text))
+            self._lw_ops.append(("rename", old_name, text))
             renamed = (old_name, text)
         elif col == 2:  # Model (px) override (MW-11)
             from .paper_display import validate_model_px
@@ -2606,6 +2602,7 @@ class DisplayManager(HouseDialog):
                 self._lw_table.item(row, 1).setText(f"{old_def.width_mm:.2f}")
                 self._suppress = False
                 return
+            new_width = round(new_width, 2)          # D2: 2 dp, as shown
             if not validate_line_weight_width(new_width):
                 self._suppress = True
                 self._lw_table.item(row, 1).setText(f"{old_def.width_mm:.2f}")
@@ -2650,37 +2647,68 @@ class DisplayManager(HouseDialog):
         while any(d.name == name for d in self._lw_defs) or is_alias_key(name):
             idx += 1
             name = f"Custom {idx}"
-        self._lw_defs.append(LineWeightDef(name, 0.20))
+        new = LineWeightDef(name, 0.20)
+        self._lw_defs.append(new)
         self._commit_lw_defs()
-        self._populate_lw_table()
+        self._populate_lw_table(select=new)
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
     def _on_lw_remove(self):
-        row = self._lw_table.currentRow()
-        if row < 0 or row >= len(self._lw_defs):
+        from .paper_display import is_default_weight
+        lw = self._lw_row_def.get(self._lw_table.currentRow())
+        if lw is None or is_default_weight(lw.name):    # Defaults never delete
             return
-        if self._line_weight_in_use(self._lw_defs[row].name):
-            return
-        self._lw_defs.pop(row)
+        from .weight_refs import retarget_weight_refs, weight_ref_count
+        count = weight_ref_count(self._scene, self._settings, lw.name)
+        if count:                          # LW-DC-5: replace, then delete
+            from PyQt6.QtWidgets import QDialog
+            from .weight_replace_dialog import WeightReplaceDialog
+            others = [d for d in self._lw_defs if d is not lw]
+            if not others:
+                return
+            dlg = WeightReplaceDialog(lw.name, lw.width_mm, count, others, self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            from .paper_display import (canonical_weight_name,
+                                        record_weight_rename, weight_aliases)
+            chosen = dlg.chosen()
+            # The deleted name plus every rename-alias key that resolves to
+            # it (a holder may still carry an old name), counted the same
+            # way weight_ref_count counts them.
+            stale = [k for k in weight_aliases()
+                     if canonical_weight_name(k) == lw.name]
+            journal = retarget_weight_refs(
+                self._scene, self._settings,
+                {k: chosen for k in (lw.name, *stale)})
+            self._lw_ops.append(("delete", journal))
+            deleted_to = chosen
+        else:
+            deleted_to = None
+        self._lw_defs.remove(lw)
         self._commit_lw_defs()
+        if deleted_to is not None:
+            # LW-DC-5 (D1): alias deleted -> pick, aliases that targeted the
+            # deleted row follow the pick, so undo snapshots / pastes / the
+            # ribbon current still naming it resolve as the pick. After the
+            # table commit (the old name is no longer live). Cancel restores
+            # the alias snapshot.
+            record_weight_rename(lw.name, deleted_to)
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
     def _update_lw_remove_state(self, row, col, prev_row, prev_col):
-        """Disable Remove button if the selected weight is in use."""
-        if row < 0 or row >= len(self._lw_defs):
-            self._lw_remove_btn.setEnabled(False)
-            return
+        """Remove is enabled only on a Custom row (in use or not: LW-DC-5)."""
+        from .paper_display import is_default_weight
+        lw = self._lw_row_def.get(row)
         self._lw_remove_btn.setEnabled(
-            not self._line_weight_in_use(self._lw_defs[row].name))
+            lw is not None and not is_default_weight(lw.name))
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
-        from .paper_display import (weight_names, load_paper_categories,
+        from .paper_display import (fill_weight_combo, load_paper_categories,
                                     picker_weight_name, factory_paper_categories)
-        lw_names = weight_names()          # the PROJECT table (LT1-3)
         cats = load_paper_categories(self._settings)
         factory_all = factory_paper_categories()
         self._suppress = True
@@ -2690,9 +2718,8 @@ class DisplayManager(HouseDialog):
                 continue                    # R2: the Underlay row has no weight
             combo = widgets["lw_combo"]
             cur = combo.currentText()
-            combo.clear()
-            combo.addItems(lw_names)
-            idx = combo.findText(cur)
+            fill_weight_combo(combo)
+            idx = combo.findText(cur) if cur else -1   # "" would match the separator
             if idx >= 0:
                 combo.setCurrentIndex(idx)
             else:
@@ -2757,8 +2784,12 @@ class DisplayManager(HouseDialog):
         if getattr(self, "_lw_edited", False):
             from .paper_display import (set_project_line_weights,
                                         set_weight_aliases)
-            for old, new in reversed(self._lw_renames):
-                self._propagate_lw_rename(new, old)     # incl. underlay refs
+            from .weight_refs import restore_weight_refs
+            for op in reversed(self._lw_ops):
+                if op[0] == "rename":
+                    self._propagate_lw_rename(op[2], op[1])  # incl. underlays
+                else:
+                    restore_weight_refs(self._scene, self._settings, op[1])
             set_project_line_weights(self._lw_snapshot)
             # After the table: set_project_line_weights prunes live-name keys.
             set_weight_aliases(self._lw_alias_snapshot)

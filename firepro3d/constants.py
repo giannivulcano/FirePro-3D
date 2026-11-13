@@ -639,6 +639,7 @@ END_GLYPH_HALF_PX = 8.0            # LT5 End type frame: accent crosshair half-s
 END_GLYPH_ARM_PX = 28.0            # LT5 End type frame: +X arrow arm length (mockup gate)
 END_SAMPLE_MM = 18.0               # LT5 End type frame: faint sample line length (mockup gate)
 END_PREVIEW_PX_PER_MM = 4.0        # LT5 panel swatch: Fixed end mm -> swatch px
+END_PREVIEW_WEIGHTS = ("Thin", "Wide")   # LT5 panel swatch: the two sample lines' weights (Defaults, 0.18 / 0.50 mm)
 # path_walk.Curve.from_path flattens at this scale-up: Qt's default flattening of a
 # cubic deviates > 0.1 mm from the drawn curve at mm scale; x64 keeps a ~50 mm
 # cubic within ~0.004 mm. Qt caps a single cubic at ~512 segments, so a very

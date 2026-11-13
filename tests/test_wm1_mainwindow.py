@@ -59,16 +59,16 @@ def test_template_pick_drives_drawn_line_and_panel_stays(win_with_editor, qapp):
 def test_selected_edit_does_not_move_current(win_with_editor, qapp):
     w = win_with_editor
     sc = w._test_editor.editor_scene
-    ss.set_current(weight="Thin")
+    ss.set_current(weight="Medium")                  # 0.35 mm (was "Thin")
     ln = LineItem(QPointF(0, -150), QPointF(100, -150))
     sc.addItem(ln); sc._draw_lines.append(ln); sc.push_undo_state()
     sc.set_mode("select"); sc.clearSelection(); ln.setSelected(True)
     qapp.processEvents()
     assert _target(w) is ln
-    w.prop_manager._prop_widgets["Weight"].setCurrentText("Thinnest")
+    w.prop_manager._prop_widgets["Weight"].setCurrentText("Thin")   # 0.18 mm (was "Thinnest")
     qapp.processEvents()
-    assert ln.style["weight"] == "Thinnest"
-    assert ss.current_style()["weight"] == "Thin"
+    assert ln.style["weight"] == "Thin"
+    assert ss.current_style()["weight"] == "Medium"
 
 
 def test_current_persists_through_save_settings(win_with_editor):

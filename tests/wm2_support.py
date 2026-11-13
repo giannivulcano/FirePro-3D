@@ -12,7 +12,7 @@ from tests.test_lt1_block_paper import _HALF_LEN
 #: component -> (model y, authored weight)
 SPRINKLER = {"circle": (-200.0, "Thickest"),
              "cross": (0.0, "Thinnest"),
-             "deflector": (200.0, "Thin")}
+             "deflector": (200.0, "Medium")}   # 0.35 mm, shipped 4 px (LW-DC-1; "Thin" is now 0.18 mm, 2 px = cross)
 ROWS = {"circle": 100, "cross": 200, "deflector": 300}
 COL = 320                                       # clear of the origin cross
 

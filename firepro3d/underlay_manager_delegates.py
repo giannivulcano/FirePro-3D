@@ -342,7 +342,11 @@ class WeightDelegate(_BaseDelegate):
         act_default.setCheckable(True)
         act_default.setChecked(current == "")
         act_default.setData("")
-        for name in names:
+        from .paper_display import weight_separator_index
+        sep = weight_separator_index()
+        for i, name in enumerate(names):
+            if i == sep and i > 0:
+                menu.addSeparator()     # LW-DC-7: Defaults | Custom
             action = menu.addAction(name)
             action.setCheckable(True)
             action.setChecked(name == current)

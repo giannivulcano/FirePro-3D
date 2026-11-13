@@ -45,8 +45,8 @@ def test_thin_pill_drives_mapping_and_persists(main_window):
     w.footer.thin_pill.click()
     assert pd.thin_lines() is False
     assert w.settings.value("view/thin_lines", True, type=bool) is False
-    # MW-6/MW-8: old "Very Heavy" -> its 0.50 mm row -> Auto 4 px (was 3.0)
-    assert underlay_layer_pen(rec, "0").widthF() == pytest.approx(4.0)
+    # MW-6/MW-8 + LW-DC-1: old "Very Heavy" -> its 0.50 mm row ("Wide") -> shipped 5 px (was Auto 4)
+    assert underlay_layer_pen(rec, "0").widthF() == pytest.approx(5.0)
 
 
 def test_thin_lines_restored_on_startup(qapp):
@@ -76,7 +76,7 @@ def test_pill_repens_live_underlay(main_window):
     rec = Underlay(type="dxf", path="x.dxf", line_weight_name="Very Heavy")
     group, _ = w.scene._build_batched_underlay_group([dict(_LINE)], rec)
     w.scene.underlays.append((rec, group))
-    on_screen = pd.canvas_weight_px(pd.resolve_line_weight_mm("Very Heavy"))
+    on_screen = pd.canvas_px_for_weight("Very Heavy")   # the 0.50 mm row ("Wide"), shipped 5 px
     assert _stroke_widths(group) == [pytest.approx(on_screen)]
     assert on_screen > 1.0
     w.footer.thin_pill.click()

@@ -40,12 +40,12 @@ def test_blocks_row_edits_model_weight_and_emits(qapp):
     d.lineWeightsChanged.connect(lambda: hits.append(1))
     combo = d._model_blocks_combo
     assert d._lw_tab.isAncestorOf(combo) and not d._tree.isAncestorOf(combo)
-    assert combo.currentText() == "Thinnest"
+    assert combo.currentText() == "Thin"
     assert combo.toolTip()
-    combo.setCurrentText("Thin")
-    assert pd.model_blocks_weight() == "Thin" and hits
+    combo.setCurrentText("Medium")
+    assert pd.model_blocks_weight() == "Medium" and hits
     d.reject()
-    assert pd.model_blocks_weight() == "Thinnest"
+    assert pd.model_blocks_weight() == "Thin"
 
 
 def test_blocks_row_colour_swatch_edits_model_colour_and_emits(qapp, monkeypatch):
@@ -123,22 +123,22 @@ def test_legacy_project_without_blocks_colour_reads_factory(qapp):
 
 def test_reset_and_set_as_default(qapp, monkeypatch):
     d = DisplayManager(Model_Space())
-    d._model_blocks_combo.setCurrentText("Thin")
+    d._model_blocks_combo.setCurrentText("Medium")
     _pick(monkeypatch, _G)
     d._model_blocks_swatch._chip.clicked.emit()
     d._tabs.setCurrentWidget(d._lw_tab)
-    d._set_as_default()                            # Line Weights tab: default -> Thin + _G
+    d._set_as_default()                            # Line Weights tab: default -> Medium + _G
     d._reset_line_weights_tab()                    # live row -> factory
-    assert pd.model_blocks_weight() == "Thinnest"
+    assert pd.model_blocks_weight() == "Thin"
     assert pd.model_blocks_colour() == "token:auto"
-    assert d._model_blocks_combo.currentText() == "Thinnest"
+    assert d._model_blocks_combo.currentText() == "Thin"
     assert d._model_blocks_swatch.hex() == "token:auto"
     d.accept()
     apply_default_display_settings(Model_Space())  # New Project path
-    assert pd.model_blocks_weight() == "Thin"
+    assert pd.model_blocks_weight() == "Medium"
     assert pd.model_blocks_colour() == _G
     s = QSettings("GV", "FirePro3D")
-    assert s.value("display/Blocks/line_weight") == "Thin"
+    assert s.value("display/Blocks/line_weight") == "Medium"
     assert s.value("display/Blocks/color") == _G
 
 
@@ -146,13 +146,13 @@ def test_model_undo_keeps_project_blocks_weight_and_colour(qapp, monkeypatch):
     """A user default must not flip the project's Blocks row on Ctrl+Z
     (apply_saved_display_settings runs at every model undo restore)."""
     s = QSettings("GV", "FirePro3D")
-    s.setValue("display/Blocks/default_line_weight", "Thinnest")
+    s.setValue("display/Blocks/default_line_weight", "Thin")
     s.setValue("display/Blocks/default_color", "#808000")
     ms = Model_Space()
-    apply_project_display_settings(ms, {"Blocks": {"line_weight": "Thinnest",
+    apply_project_display_settings(ms, {"Blocks": {"line_weight": "Thin",
                                                    "color": "#808000"}})
     d = DisplayManager(ms)
-    d._model_blocks_combo.setCurrentText("Thin")  # project edit, not default
+    d._model_blocks_combo.setCurrentText("Medium")  # project edit, not default
     _pick(monkeypatch, _G)
     d._model_blocks_swatch._chip.clicked.emit()
     d.accept()
@@ -160,7 +160,7 @@ def test_model_undo_keeps_project_blocks_weight_and_colour(qapp, monkeypatch):
     ms.push_undo_state()
     pd.set_model_blocks_colour(None)               # live cache drifts; the restore must re-resolve it
     ms.undo()
-    assert pd.model_blocks_weight() == "Thin"
+    assert pd.model_blocks_weight() == "Medium"
     assert pd.model_blocks_colour() == _G
 
 

@@ -167,8 +167,8 @@ def test_paper_tab_hatch_row_saves_line_weight(qapp):
         assert not row["color_btn"].isEnabled()
         pd._clear_hatch_mm()
         before = pd.hatch_line_mm()
-        row["lw_combo"].setCurrentText("Thick")
-        assert pd.load_paper_categories()["Hatch"]["line_weight"] == "Thick"
+        row["lw_combo"].setCurrentText("Wide")
+        assert pd.load_paper_categories()["Hatch"]["line_weight"] == "Wide"
         after = pd.hatch_line_mm()
         assert after == 0.50 and after != before
         # paper-as-authored D8: Hatch has no As Authored glyph, and another

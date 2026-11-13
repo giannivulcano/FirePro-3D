@@ -1871,7 +1871,8 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
             from .hatch_patterns import picker_exclude
             return _text_panel_properties(self._data, self._tile_registry(),
                                           picker_exclude(self.scene()))
-        from .paper_display import picker_weight_name, weight_names
+        from .paper_display import (picker_weight_name, weight_names,
+                                    weight_separator_at)
         d = self._data
         props = {
             "Text":     {"type": "header", "value": "Text"},
@@ -1898,6 +1899,7 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
                           "value": ("none" if not d.border else d.border_line_type)},
             "Border Weight": {"type": "enum",
                               "options": weight_names(),
+                              "separator_at": weight_separator_at(),
                               "value": picker_weight_name(d.border_weight)},
             "Corner":   {"type": "icon_enum", "value": d.border_corner,
                          "options": [("square", "corner_square.svg"),

@@ -35,13 +35,13 @@ def test_line_type_and_weight_commit(qapp):
 
 def test_sync_reflects_target_state(qapp):
     item = TextItem(TextAnnotationData(text="A", border=True, border_corner="round",
-                                       border_line_type="dotted", border_weight="Thinner"))
+                                       border_line_type="dotted", border_weight="Fine"))
     ctl = FrameGroupController(get_targets=lambda: [item])
     ctl.sync()
     assert ctl.border_btn.isChecked() is True
     assert ctl.corner_btns["round"].isChecked() is True
     assert ctl.line_type_combo.currentText() == "dotted"
-    assert ctl.weight_combo.currentText() == "Thinner"
+    assert ctl.weight_combo.currentText() == "Fine"
 
 
 def test_controls_disabled_when_border_off(qapp):

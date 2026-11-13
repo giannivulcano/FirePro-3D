@@ -64,9 +64,11 @@ def _weight_rows(scene, rows_ok: bool) -> dict:
     options = [by_cat, *pd.weight_names()]
     if value not in options:
         options = [value] + options
+    sep_at = pd.weight_separator_at(len(options) - len(pd.weight_names()))
     tip = ("Weight of every dash — what By Linetype lines draw at"
            if has_dash else "Add a dash to set the linetype's Weight")
     return {"Weight": {"type": "enum", "options": options, "value": value,
+                       "separator_at": sep_at,
                        "disabled": not rows_ok or not has_dash,
                        "tooltip": tip}}
 

@@ -53,7 +53,7 @@ def test_canvas_parity_follows_model_blocks_row(qapp):
     pd.set_model_blocks_weight(None)
     try:
         ms, _d = _placed(_legacy_prim())
-        assert _row_run(_render_model(ms), 320) == 1        # Light, as before
+        assert _row_run(_render_model(ms), 320) == 2        # 0.18 mm "Thin", shipped 2 px (LW-DC-1)
         pd.set_model_blocks_weight("Heavy")
         ms.update()
         assert _row_run(_render_model(ms), 320) >= 2        # still follows the row
@@ -84,7 +84,7 @@ def test_raw_editor_item_from_dict_parity(qapp):
         assert ln.style["weight"] == "by_linetype"
         ms = Model_Space(scene_role="block_editor")
         ms.addItem(ln); ms._draw_lines.append(ln)
-        assert _run_near(_render_model(ms), 320, _EDITOR_ROW) == 1
+        assert _run_near(_render_model(ms), 320, _EDITOR_ROW) == 2   # 0.18 mm "Thin", shipped 2 px (LW-DC-1)
     finally:
         pd.set_model_blocks_weight(None)
 
