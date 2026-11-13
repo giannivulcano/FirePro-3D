@@ -63,7 +63,7 @@ from .constants import (
     DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, DEFAULT_LEVEL_GAP_MM,
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
-    Z_CAT_CONSTRUCTION, Z_CATEGORY_BY_CLASS, Z_OPENING_ABOVE_HOST,
+    Z_CAT_CONSTRUCTION, Z_CAT_SYMBOL, Z_CATEGORY_BY_CLASS, Z_OPENING_ABOVE_HOST,
     Z_ANNOT_GRID, Z_ANNOT_MARKER, Z_ANNOT_TAG, Z_NOTE,
 )
 
@@ -901,6 +901,16 @@ class LevelManager:
         ws_item = getattr(scene, "water_supply_node", None)
         if ws_item is not None:
             _apply_elev_z(ws_item)       # Z_CATEGORY_BY_CLASS["WaterSupply"] (Q16)
+            # The supply has no elevation of its own: when it sits on a node
+            # (placement puts it on the node's XY), pin it just above that node
+            # so it stacks over the pipes there, as a head rides its node.
+            ws_nodes = scene.sprinkler_system.nodes
+            if ws_nodes:
+                ws_pos = ws_item.scenePos()
+                host = min(ws_nodes,
+                           key=lambda n: (n.scenePos() - ws_pos).manhattanLength())
+                if (host.scenePos() - ws_pos).manhattanLength() <= scene.SNAP_RADIUS:
+                    ws_item.setZValue(host.zValue() + (Z_CAT_SYMBOL - Z_CAT_NODE))
         for item in getattr(scene, "_walls", []):
             _apply_elev_z(item)
             wall_z = item.zValue()
