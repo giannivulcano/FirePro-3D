@@ -1808,12 +1808,16 @@ class DisplayManager(HouseDialog):
         self._apply_paper_preview()
 
     def _reset_line_weights_tab(self):
-        """Reset the PROJECT weight table to factory defaults (LT1-3).
+        """Reset the PROJECT weight table's Defaults to factory (LT1-3, LW-DC-2);
+        Custom rows are kept.
 
         Never writes the template; "Set as Default" does that.
         """
-        from .paper_display import FACTORY_LINE_WEIGHTS
-        self._lw_defs = [d.copy() for d in FACTORY_LINE_WEIGHTS]
+        from .paper_display import DEFAULT_LINE_WEIGHTS, is_default_weight
+        # LW-DC-2: the seven Defaults return to factory; Custom rows stay.
+        self._lw_defs = [
+            *(d.copy() for d in DEFAULT_LINE_WEIGHTS),
+            *(d.copy() for d in self._lw_defs if not is_default_weight(d.name))]
         self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
@@ -2292,9 +2296,9 @@ class DisplayManager(HouseDialog):
 
         self._lw_table = QTableWidget()
         self._lw_table.setObjectName("underlayTable")   # Underlay Manager table look
-        self._lw_table.setColumnCount(3)
+        self._lw_table.setColumnCount(4)
         self._lw_table.setHorizontalHeaderLabels(
-            ["NAME", "WIDTH (MM)", "MODEL (PX)"])
+            ["NAME", "WIDTH (MM)", "MODEL (PX)", ""])
         self._lw_table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch)
         self._lw_table.horizontalHeader().setSectionResizeMode(
@@ -2304,6 +2308,15 @@ class DisplayManager(HouseDialog):
             2, QHeaderView.ResizeMode.Fixed)
         self._lw_table.setColumnWidth(2, 120)
         self._lw_table.horizontalHeaderItem(2).setToolTip(_MODEL_PX_TIP)
+        self._lw_table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.Fixed)
+        self._lw_table.setColumnWidth(3, th.M.GLYPH_BTN_PX + 12)   # per-row reset
+        self._lw_table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self._lw_table.customContextMenuRequested.connect(
+            self._on_lw_context_menu)
+        # table row -> LineWeightDef; header rows are absent (LW-DC-6).
+        self._lw_row_def: dict = {}
         self._lw_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self._lw_table.setSelectionMode(
@@ -2366,27 +2379,110 @@ class DisplayManager(HouseDialog):
         return page
 
     def _populate_lw_table(self):
+        """Fill the table: DEFAULTS header + Defaults, CUSTOM header + Custom,
+        each by width (LW-DC-6). Rebuilds ``_lw_row_def``."""
         from PyQt6.QtWidgets import QTableWidgetItem
-        from .paper_display import auto_model_px
+        from .paper_display import (auto_model_px, factory_default,
+                                    is_default_weight)
+        tbl = self._lw_table
         self._suppress = True
         self._lw_defs.sort(key=lambda d: d.width_mm)
-        self._lw_table.setRowCount(len(self._lw_defs))
-        muted = th.detect().color("muted")
-        for row, lw in enumerate(self._lw_defs):
-            name_item = QTableWidgetItem(lw.name)
-            width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
-            self._lw_table.setItem(row, 0, name_item)
-            self._lw_table.setItem(row, 1, width_item)
-            # Model (px) (MW-11): muted "Auto (n)" or the whole-px override.
-            if lw.model_px is None:
-                model_item = QTableWidgetItem(
-                    f"Auto ({auto_model_px(lw.width_mm)})")
-                model_item.setForeground(muted)
-            else:
-                model_item = QTableWidgetItem(str(lw.model_px))
-            model_item.setToolTip(_MODEL_PX_TIP)
-            self._lw_table.setItem(row, 2, model_item)
+        defaults = [d for d in self._lw_defs if is_default_weight(d.name)]
+        customs = [d for d in self._lw_defs if not is_default_weight(d.name)]
+        tbl.clearSpans()
+        tbl.setRowCount(0)                 # drops items and reset widgets
+        tbl.setRowCount(len(defaults) + len(customs) + 2)
+        self._lw_row_def = {}
+        pal = th.detect()
+        muted = pal.color("muted")
+        accent = pal.color("accent")
+        group_font = QFont()
+        group_font.setBold(True)
+        group_font.setPointSize(group_font.pointSize() + 1)
+
+        def header(row: int, text: str) -> None:
+            item = QTableWidgetItem(text)
+            item.setFont(group_font)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            tbl.setItem(row, 0, item)
+            tbl.setSpan(row, 0, 1, 4)
+
+        row = 0
+        for title, group in (("DEFAULTS", defaults), ("CUSTOM", customs)):
+            header(row, title)
+            row += 1
+            for lw in group:
+                self._lw_row_def[row] = lw
+                is_def = title == "DEFAULTS"
+                fac = factory_default(lw.name) if is_def else None
+                name_item = QTableWidgetItem(lw.name)
+                width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
+                if is_def:                 # LW-DC-2: the name is read-only
+                    name_item.setFlags(name_item.flags()
+                                       & ~Qt.ItemFlag.ItemIsEditable)
+                tbl.setItem(row, 0, name_item)
+                tbl.setItem(row, 1, width_item)
+                # Model (px) (MW-11): muted "Auto (n)" or the whole-px override.
+                if lw.model_px is None:
+                    model_item = QTableWidgetItem(
+                        f"Auto ({auto_model_px(lw.width_mm)})")
+                    model_item.setForeground(muted)
+                else:
+                    model_item = QTableWidgetItem(str(lw.model_px))
+                model_item.setToolTip(_MODEL_PX_TIP)
+                tbl.setItem(row, 2, model_item)
+                if fac is not None:
+                    w_diff = round(lw.width_mm, 6) != round(fac.width_mm, 6)
+                    p_diff = lw.model_px != fac.model_px
+                    if w_diff:
+                        width_item.setForeground(accent)
+                    if p_diff:
+                        model_item.setForeground(accent)
+                    if w_diff or p_diff:
+                        tbl.setCellWidget(row, 3, glyph_button(
+                            "\u21ba", "Reset to default",
+                            lambda _=False, n=lw.name: self._on_lw_reset(n)))
+                row += 1
         self._suppress = False
+
+    def _lw_differs_from_factory(self, lw) -> bool:
+        from .paper_display import factory_default
+        fac = factory_default(lw.name)
+        return fac is not None and (
+            round(lw.width_mm, 6) != round(fac.width_mm, 6)
+            or lw.model_px != fac.model_px)
+
+    def _on_lw_reset(self, name: str) -> None:
+        """Restore Default *name* to its factory width + Model px (LW-DC-2)."""
+        from .paper_display import factory_default
+        fac = factory_default(name)
+        lw = next((d for d in self._lw_defs if d.name == name), None)
+        if fac is None or lw is None:
+            return
+        lw.width_mm = fac.width_mm
+        lw.model_px = fac.model_px
+        self._commit_lw_defs()
+        self._populate_lw_table()
+        if hasattr(self, "_paper_cat_data"):
+            self._refresh_lw_combos()
+
+    def _lw_row_menu(self, row: int):
+        """The right-click menu for table *row* (None off a Default row)."""
+        from PyQt6.QtWidgets import QMenu
+        from .paper_display import is_default_weight
+        lw = self._lw_row_def.get(row)
+        if lw is None or not is_default_weight(lw.name):
+            return None
+        menu = QMenu(self._lw_table)
+        act = menu.addAction("Reset to default")
+        act.setEnabled(self._lw_differs_from_factory(lw))
+        act.triggered.connect(lambda _=False, n=lw.name: self._on_lw_reset(n))
+        return menu
+
+    def _on_lw_context_menu(self, pos) -> None:
+        menu = self._lw_row_menu(self._lw_table.rowAt(pos.y()))
+        if menu is not None:
+            menu.exec(self._lw_table.viewport().mapToGlobal(pos))
 
     def _weight_refs(self):
         """Yield ``(name, (kind, ref))`` for every live by-name weight ref
@@ -2407,17 +2503,23 @@ class DisplayManager(HouseDialog):
         retarget_weight_refs(self._scene, self._settings, {old: new})
 
     def _on_lw_cell_changed(self, row, col):
-        if self._suppress or row >= len(self._lw_defs):
+        old_def = self._lw_row_def.get(row)
+        if self._suppress or old_def is None or col > 2:    # header rows ignored
             return
         from .paper_display import (
-            validate_line_weight_name, validate_line_weight_width,
+            is_default_weight, validate_line_weight_name,
+            validate_line_weight_width,
         )
-        old_def = self._lw_defs[row]
         text = self._lw_table.item(row, col).text().strip()
         renamed = None
         if col == 0:  # Name changed
             from .paper_display import canonical_weight_name, is_alias_key
-            others = [d for i, d in enumerate(self._lw_defs) if i != row]
+            if is_default_weight(old_def.name):      # LW-DC-2: read-only name
+                self._suppress = True
+                self._lw_table.item(row, 0).setText(old_def.name)
+                self._suppress = False
+                return
+            others = [d for d in self._lw_defs if d is not old_def]
             # Renaming back onto an old name of THIS weight is allowed (its
             # refs are this weight's own); any other alias key is refused --
             # no hijack of the renamed-away references (LT2-8 / H-g).
@@ -2525,24 +2627,26 @@ class DisplayManager(HouseDialog):
             self._refresh_lw_combos()
 
     def _on_lw_remove(self):
-        row = self._lw_table.currentRow()
-        if row < 0 or row >= len(self._lw_defs):
+        from .paper_display import is_default_weight
+        lw = self._lw_row_def.get(self._lw_table.currentRow())
+        if lw is None or is_default_weight(lw.name):    # Defaults never delete
             return
-        if self._line_weight_in_use(self._lw_defs[row].name):
+        if self._line_weight_in_use(lw.name):
             return
-        self._lw_defs.pop(row)
+        self._lw_defs.remove(lw)
         self._commit_lw_defs()
         self._populate_lw_table()
         if hasattr(self, "_paper_cat_data"):
             self._refresh_lw_combos()
 
     def _update_lw_remove_state(self, row, col, prev_row, prev_col):
-        """Disable Remove button if the selected weight is in use."""
-        if row < 0 or row >= len(self._lw_defs):
+        """Remove is enabled only on a Custom row that is not in use."""
+        from .paper_display import is_default_weight
+        lw = self._lw_row_def.get(row)
+        if lw is None or is_default_weight(lw.name):
             self._lw_remove_btn.setEnabled(False)
             return
-        self._lw_remove_btn.setEnabled(
-            not self._line_weight_in_use(self._lw_defs[row].name))
+        self._lw_remove_btn.setEnabled(not self._line_weight_in_use(lw.name))
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
@@ -2558,7 +2662,7 @@ class DisplayManager(HouseDialog):
             combo = widgets["lw_combo"]
             cur = combo.currentText()
             fill_weight_combo(combo)
-            idx = combo.findText(cur)
+            idx = combo.findText(cur) if cur else -1   # "" would match the separator
             if idx >= 0:
                 combo.setCurrentIndex(idx)
             else:

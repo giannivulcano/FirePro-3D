@@ -9,6 +9,11 @@ from tests.lt3_support import make_linetype
 from tests.wm2_support import nested_record, scene_with, sprinkler_def
 
 
+def _lw_row(d, name):
+    """Table row of weight *name* (header rows shift the indices, LW-DC-6)."""
+    return next(r for r, lw in d._lw_row_def.items() if lw.name == name)
+
+
 def test_record_linetype_override_is_a_dependency(qapp):
     lt = make_linetype()
     s = sprinkler_def()
@@ -61,31 +66,36 @@ def test_weight_rename_follows_placement_and_record(qapp):
 
 
 def test_weight_rename_cancel_restores_placement_and_record(qapp):
-    """Cancel replays the rename backwards while the Thick->Bold alias is
+    """Cancel replays the rename backwards while the Pen->Bold alias is
     still live: the placement must store the old name raw, not canonicalise
     it straight back to the new one (seam review)."""
     from firepro3d import paper_display as pd
     from firepro3d.display_manager import DisplayManager
+    from firepro3d.paper_display import LineWeightDef
+    # LW-DC-2: a Default's name is read-only, so the rename rides a Custom row
+    # (the Thick -> Bold contract is retired by the Defaults lock).
+    pd.set_project_line_weights([*pd.DEFAULT_LINE_WEIGHTS,
+                                 LineWeightDef("Pen", 0.55)])
     s = sprinkler_def()
     h = BlockDefinition.new(name="H", library="L", series="S",
-                            primitives=[nested_record(s.id, {"weight": "Thick"})],
+                            primitives=[nested_record(s.id, {"weight": "Pen"})],
                             origin=(0.0, 0.0))
-    ms, inst = scene_with([s, h], h.id, {"weight": "Thick"})
+    ms, inst = scene_with([s, h], h.id, {"weight": "Pen"})
     # An un-overridden placement paints the record's own override.
     inst2 = ms.place_block_instance(h.id, (0.0, 0.0), level=ms.active_level)
     try:
         d = DisplayManager(ms, active_context="paper")
-        row = [x.name for x in d._lw_defs].index("Thick")
+        row = _lw_row(d, "Pen")
         d._lw_table.item(row, 0).setText("Bold")
         assert inst.overrides["weight"] == "Bold"
         d.reject()
-        assert inst.overrides["weight"] == "Thick"
+        assert inst.overrides["weight"] == "Pen"
         assert {op.weight for op in inst.render_ops()
-                if op.kind == "stroke"} == {"Thick"}
+                if op.kind == "stroke"} == {"Pen"}
         rec = ms.get_block_definition(h.id).primitives[0]
-        assert rec["overrides"]["weight"] == "Thick"
+        assert rec["overrides"]["weight"] == "Pen"
         assert {op.weight for op in inst2.render_ops()
-                if op.kind == "stroke"} == {"Thick"}
+                if op.kind == "stroke"} == {"Pen"}
     finally:
         pd.set_weight_aliases({})
         pd.reset_project_line_weights()

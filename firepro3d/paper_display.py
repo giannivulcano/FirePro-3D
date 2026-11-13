@@ -523,10 +523,11 @@ def weight_separator_at(head_len: int = 0) -> int | None:
         head_len: Number of rows listed before ``weight_names()`` in the combo.
 
     Returns:
-        The index where Custom starts, or ``None`` when no Custom rows exist.
+        The index where Custom starts, or ``None`` when no Custom rows exist
+        or no Default precedes them (no leading separator).
     """
     sep = weight_separator_index()
-    return head_len + sep if len(project_line_weights()) > sep else None
+    return head_len + sep if 0 < sep < len(project_line_weights()) else None
 
 
 def fill_weight_combo(combo, head=()) -> None:

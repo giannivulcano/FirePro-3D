@@ -11,6 +11,11 @@ from firepro3d.text_item import TextAnnotationData, TextItem
 from tests._paper_iso_helpers import _DetailMgrStub
 
 
+def _lw_row(d, name):
+    """Table row of weight *name* (header rows shift the indices, LW-DC-6)."""
+    return next(r for r, lw in d._lw_row_def.items() if lw.name == name)
+
+
 def _scene_with_refs():
     pd.set_project_line_weights([*pd.FACTORY_LINE_WEIGHTS,
                                  LineWeightDef("SheetW", 0.41),
@@ -29,7 +34,7 @@ def _scene_with_refs():
 
 
 def _row(d, name):
-    return [x.name for x in d._lw_defs].index(name)
+    return _lw_row(d, name)
 
 
 def _rename(d, old, new):
