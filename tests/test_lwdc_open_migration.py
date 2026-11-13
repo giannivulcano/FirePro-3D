@@ -272,6 +272,50 @@ def test_f3_async_underlay_weight_migrates_after_the_build(qapp, tmp_path):
     assert built.line_weight_name in pd.weight_names()
 
 
+def test_f3_cache_hit_underlay_is_migrated_once(qapp, tmp_path):
+    """A cache-hit underlay is built DURING load from the already-migrated
+    payload; the end-of-load sweep must not map it a second time. "Thinnest"
+    (0.18) is the chain case: one hop -> Default "Thin" (0.18), a second hop
+    would read that as MW "Thin" (0.35) -> "Medium"."""
+    import ezdxf
+    from firepro3d.underlay import Underlay
+    dxf = tmp_path / "u.dxf"
+    doc = ezdxf.new()
+    doc.modelspace().add_line((0, 0), (100, 0), dxfattribs={"layer": "0"})
+    doc.saveas(str(dxf))
+    raw_rows = [{"name": n, "width_mm": mm} for n, mm in _MW_ROWS]
+    raw_mm = {r["name"]: r["width_mm"] for r in raw_rows}["Thinnest"]   # 0.18
+
+    # Build the underlay once (async), then save: the save writes its cache.
+    ms = _scene()
+    ms._create_underlay_placeholder(Underlay(
+        type="dxf", path=str(dxf), line_weight_name="Thin",
+        layer_overrides={"0": {"line_weight": "Thin"}}))
+    seed = tmp_path / "seed.fpd"
+    assert ms.save_to_file(str(seed), backup=False)
+    first = _scene()
+    assert first.load_from_file(str(seed))
+    assert _wait(lambda: bool(first.underlays)), "async underlay never built"
+    path = tmp_path / "p.fpd"
+    assert first.save_to_file(str(path), backup=False)
+
+    def old(p):
+        p["paper_display"].update(line_weights=raw_rows, line_weight_aliases={})
+        for u in p["underlays"]:
+            u["line_weight_name"] = "Thinnest"
+            u["layer_overrides"] = {"0": {"line_weight": "Thinnest"}}
+    _unstamped(path, old)
+
+    pd.reset_project_line_weights()
+    out = _scene()
+    assert out.load_from_file(str(path))
+    assert out.underlays, "expected a synchronous cache-hit build during load"
+    built = out.underlays[0][0]
+    assert pd.resolve_line_weight_mm(built.line_weight_name) == pytest.approx(raw_mm)
+    ov = built.layer_overrides["0"]["line_weight"]
+    assert pd.resolve_line_weight_mm(ov) == pytest.approx(raw_mm)
+
+
 def test_f4_tableless_file_maps_old_names_statically(qapp, tmp_path):
     """A pre-LT1 file has no table: an old "Medium" is 0.25 mm (base value)
     -> Default "Fine", not the schema-2 template's 0.35 "Medium"."""

@@ -115,11 +115,40 @@ def test_load_template_mw_or_legacy_factory_becomes_defaults():
     assert [d.name for d in pd.load_line_weights(s)] == ["Solo"]
 
 
-def test_end_preview_sample_lines_use_distinct_default_weights():
-    """F7: the End-type swatch's two sample lines name live Defaults that
-    print at visibly different widths (0.18 / 0.50 mm per LW-DC-1)."""
-    from firepro3d.constants import END_PREVIEW_WEIGHTS
-    thin, heavy = END_PREVIEW_WEIGHTS
-    assert thin in pd.weight_names() and heavy in pd.weight_names()
-    assert pd.resolve_line_weight_mm(thin) == 0.18
-    assert pd.resolve_line_weight_mm(heavy) == 0.50
+def _stroke_rows(img, x):
+    """Lengths of the runs of painted pixels down column *x*, top to bottom."""
+    runs, n = [], 0
+    for y in range(img.height()):
+        if img.pixelColor(x, y).alpha() > 0:
+            n += 1
+        elif n:
+            runs.append(n)
+            n = 0
+    if n:
+        runs.append(n)
+    return runs
+
+
+def test_end_preview_sample_lines_use_distinct_default_weights(qapp):
+    """F7: the End-type swatch (``end_authoring.preview_painter``) paints its
+    two sample lines at the Thin and Wide Defaults' Model px -- 2 and 5 px,
+    hand-copied from LW-DC-1's table -- not a stale MW name's fallback."""
+    from PyQt6.QtCore import QPointF, QRectF
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    from firepro3d import end_authoring
+    from firepro3d.block_editor import BlockEditorWidget
+    from firepro3d.geometry_2d import LineItem
+    from firepro3d.model_space import Model_Space
+    w = BlockEditorWidget(Model_Space())
+    w.editor_scene._show_status = lambda *a, **k: None
+    for a, b in (((0, 0), (-3, -1)), ((0, 0), (-3, 1))):
+        w._add_primitive(LineItem(QPointF(*a), QPointF(*b)))
+    w.editor_scene.push_undo_state()
+    assert w.toggle_capability("end")
+    W, H = 226, 64
+    img = QImage(W, H, QImage.Format.Format_ARGB32_Premultiplied)
+    img.fill(QColor(0, 0, 0, 0))
+    p = QPainter(img)
+    end_authoring.preview_painter(w.editor_scene)(p, QRectF(0, 0, W, H))
+    p.end()
+    assert _stroke_rows(img, W // 2) == [2, 5]
