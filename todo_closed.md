@@ -2,6 +2,13 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System -- SB4g sprinkler, water supply and riser symbols as System symbol blocks -- 2026-11-13
+
+- [x] [type:feature] SB4g — Convert sprinkler (3 variants), water-supply and riser symbols to System *symbol* blocks (real size) [subject:CAD] [P1] [done:2026-11-13]
+  - Built 2026-11-13 on feat/sb4g-symbol-blocks: design `docs/superpowers/specs/2026-11-12-sb4g-symbol-blocks-design.md` (daf0156d), plan local; T1 4d5f7e10, T2 e97c0f97, T3 ffacb3df, T4 a358f185 (five System seeds), T5 ee2aeb3d, T6 46fcfd82 + 4b4b5903, T7 7a0cd700 (`SymbolBlockItem`), T8 f485fa3d + 152d3377, T9 a0ce3dcc, T10 a6b33b50, T11 211a5ccb, T12 ff9dc2eb, T13 ef0c11e4, T14 024743cb; VC9 fix 5efde87f; LW-DC merge test fix ecdbb0de. Smoke fix: the water supply pins just above its host node in `level_manager.apply_to_scene` (pre-existing at base 28039a0c, VC7-proved; no guard test by user ruling). Full suite not run (user ruling, 2026-11-13).
+  - Details: concept Q9 — symbol blocks, `scale_mode: real_size` with the existing Display-Manager scale multiplier; riser show/hide logic stays in `pipe.py`. Early instance of containment C2 (element composes a Block). SB3 checkpoint passed 2026-10-29. `sprinkler.py`, `water_supply.py`, `pipe.py`, `graphics/`.
+  - +1 occurrence 2026-10-20 (project phasing D-PH13): once these symbols are System blocks, a Demolition head / water supply / riser dashes its own strokes through the PH4 block path; until then phasing gives them colour/opacity only.
+
 ## Project phasing -- PH2 Phases tab -- 2026-11-12
 
 - [x] [type:feature] PH2 — Display Manager Phases tab: per-status Colour / Fill / Line Wt / Linetype / Opacity ("—" = no override), OK / Cancel / Reset All, saved in the project + seeded from the template [P1] [subject:CAD] [done:2026-11-12]
