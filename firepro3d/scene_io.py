@@ -262,6 +262,7 @@ class SceneIOMixin:
         from . import phase_registry
         phase_registry.migrate_payload(payload)   # D-PH6: before any deserializer
         self._clear_scene()
+        self._uid_repairs = 0               # SB5 Q6: count this file's duplicate uids only
         self._project_path = os.path.abspath(filename)
 
         # --- Display settings ---
@@ -636,6 +637,8 @@ class SceneIOMixin:
         msg = f"Loaded from {filename}"
         if orphan_hosts:
             msg += f" -- dropped {orphan_hosts} hosted block(s) whose gridline is missing"
+        if getattr(self, "_uid_repairs", 0):
+            msg += f" -- {self._uid_repairs} duplicate element ids repaired"
         if heads_kept:
             msg += (f" -- {heads_kept} edited section/detail head block(s) keep Mark "
                     f"in the top slot")
