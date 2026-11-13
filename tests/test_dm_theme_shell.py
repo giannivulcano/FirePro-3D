@@ -34,7 +34,8 @@ def test_tabs_are_top_tabs_in_order_and_paper_context_opens_paper(mw):
     try:
         assert isinstance(dlg._tabs, TopTabs)
         assert [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())] == [
-            "Model", "Paper Space", "Line Weights", "Fill Types", "Materials"]
+            "Model", "Paper Space", "Line Weights", "Fill Types", "Materials",
+            "Phases"]                                      # PH2 AC6: after Materials
         assert dlg._tabs.currentIndex() == 0
         dlg._tabs.setCurrentIndex(3)                       # Fill Types: footer actions off
         assert not dlg._reset_btn.isEnabled() and not dlg._default_btn.isEnabled()

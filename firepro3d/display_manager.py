@@ -26,6 +26,7 @@ import os
 import xml.etree.ElementTree as ET
 from . import theme as th
 from . import colour_picker
+from . import phase_registry
 from . import fill_types
 from .house_dialog import HouseDialog
 from .ui_kit import AsAuthoredToggle, EyeToggle, Swatch, TopTabs, glyph_button
@@ -1358,6 +1359,10 @@ class DisplayManager(HouseDialog):
         self._ft_tab.material_table = self._mat_tab.table
         self._ft_tab.edited.connect(self._mat_tab.refresh_fill_types)
         self._tabs.add_tab("materials", "Materials", self._mat_tab)
+        # project-phasing PH2: a working copy of the phase registry; OK installs it.
+        from .phases_tab import PhasesTab
+        self._phases_tab = PhasesTab(self._scene, parent=self)
+        self._tabs.add_tab("phases", "Phases", self._phases_tab)
 
         if self._active_context == "paper":
             self._tabs.setCurrentIndex(1)  # Paper Space tab
@@ -1733,7 +1738,7 @@ class DisplayManager(HouseDialog):
     def _sync_tab_buttons(self, _idx=None) -> None:
         """Reset All / Set as Default do not apply to the Fill Types or Materials
         tab (the tables are per project, not an app-wide default): disable them."""
-        on_ft = self._tabs.currentWidget() in (self._ft_tab, self._mat_tab)
+        on_ft = self._tabs.current() in ("fill_types", "materials")
         tip = "Fill Types and Materials are per-project: there is no default to reset or save."
         for btn, own in ((self._reset_btn, self._reset_tip),
                          (self._default_btn, self._default_tip)):
@@ -1741,14 +1746,13 @@ class DisplayManager(HouseDialog):
             btn.setToolTip(tip if on_ft else own)
 
     def _reset_all(self):
-        """Reset active tab to factory defaults."""
-        idx = self._tabs.currentIndex()
-        if idx == 0:
-            self._reset_model_tab()
-        elif idx == 1:
-            self._reset_paper_space_tab()
-        elif idx == 2:
-            self._reset_line_weights_tab()
+        """Reset the active tab to factory defaults (dispatch by tab key, PH2)."""
+        action = {"model": self._reset_model_tab,
+                  "paper": self._reset_paper_space_tab,
+                  "line_weights": self._reset_line_weights_tab,
+                  "phases": self._phases_tab.reset_to_factory}.get(self._tabs.current())
+        if action is not None:
+            action()
 
     def _reset_model_tab(self):
         """Reset all Model tab categories and instances to factory defaults."""
@@ -1829,17 +1833,21 @@ class DisplayManager(HouseDialog):
 
     def _set_as_default(self):
         """Save current tab settings as defaults for new projects."""
-        idx = self._tabs.currentIndex()
-        if idx == 0:
+        key = self._tabs.current()
+        if key == "model":
             self._set_model_as_default()
-        elif idx == 1:
+        elif key == "paper":
             self._settings.sync()  # paper space already in QSettings
-        elif idx == 2:
+        elif key == "line_weights":
             # The tab edits the PROJECT table; this writes the template that
             # new projects / table-less files copy (LT1-3).
             from .paper_display import save_line_weights
             save_line_weights(self._lw_defs, self._settings)
             self._set_model_blocks_as_default()
+        elif key == "phases":
+            # PH2 Q2: only the template's "phases" key; the project installs on OK.
+            from .settings.template import save_phases_as_default
+            save_phases_as_default(self._phases_tab.table().to_list())
 
     def _set_model_as_default(self):
         """Save current Model tab category settings as defaults for new projects.
@@ -2727,6 +2735,17 @@ class DisplayManager(HouseDialog):
         if self._mat_tab.dirty:         # after Fill Types: a material may name a pending type
             from . import materials
             materials.set_project_table(self._mat_tab.table().copy())
+            self._scene._dirty = True
+            self._scene.sceneModified.emit()
+        work = self._phases_tab.table()
+        if self._phases_tab.dirty and work.to_list() != phase_registry.to_list():
+            # PH2: install only a net change; outside undo, dirties like Materials.
+            from .linetype_choices import ensure_linetype_available
+            for row in work.statuses():  # a folder linetype loads on OK, never on Cancel
+                ref = row["graphics"].get("linetype")
+                if ref and not ensure_linetype_available(ref, self._scene):
+                    work.set_graphic(row["id"], "linetype", None)
+            phase_registry.set_project_table(work.copy())
             self._scene._dirty = True
             self._scene.sceneModified.emit()
         for cat_def in _CATEGORIES:
