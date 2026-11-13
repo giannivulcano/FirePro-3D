@@ -108,7 +108,7 @@ code-only object ref that is never saved (element-parameters D2 / D3).
 - **`element_host` stored by uid:** `BlockInstance._host_uid` is the truth. The getter resolves it through `scene.element_by_uid` while the block is in a `Model_Space`; off-scene it returns a cached ref (existing tests, Block Editor). The setter records both. Saved as a sparse `"host_uid"` in `BlockInstance.to_dict` (both paths; closes element-parameters D3). Lazy resolution -> no load second pass; a pipe split's node1 half is picked up automatically.
 - **Dangling:** an unresolved `_host_uid` -> `host_values()` None -> the attribute default placeholder `"?"` (`block_attributes`); the uid is kept and saved back unchanged.
 - **Load notice:** the existing single composed load status (`scene_io`) appends "N duplicate element ids repaired" and "N hosted item(s) whose host is missing" when non-zero.
-- **Refresh (Q10; closes element-parameters D2):** `push_undo_state` and the end of `_restore_network` (undo / redo) call `refresh_all_bound(scene)`; a committed move, grip or panel edit of any host ends at `push_undo_state`. Gridline hosts also update live during a drag via `push`. Other hosts update at commit, not per drag frame (live per-frame following of placed tags is SB6).
+- **Refresh (Q10; closes element-parameters D2):** `push_undo_state` calls `refresh_all_bound(scene)`; a committed move, grip or panel edit of any host ends there. Undo / redo needs no call: `_restore_network` rebuilds every block, so bound text is fresh by construction (Phase 4 amendment 2026-11-13, user ruling: the end-of-restore call had no observable effect and was dropped; a guard asserts the undo / redo text). Gridline hosts also update live during a drag via `push`. Other hosts update at commit, not per drag frame (live per-frame following of placed tags is SB6).
 
 ### 5. Delete cascade, design-area membership, section restore (D6)
 
@@ -121,7 +121,7 @@ code-only object ref that is never saved (element-parameters D2 / D3).
 - Each caller is already inside a snapshot undo step -> one Undo restores host, dependents (re-linked by uid) and membership (Q11).
 - **Status (Q13):** cascade only from gridlines -> today's gridline wording; otherwise "Deleted N item(s) and M hosted item(s)" / "Cut N item(s) and M hosted item(s)".
 - **Section restore (Q14b):** `restore_from_list` pairs placed markers by uid: present -> apply the record (rename when the name differs); missing -> re-add with its saved uid; absent from the snapshot -> delete. The four cardinals stay keyed by direction. `_same_cut` is retired.
-- **AC10 restated (approved 2026-11-13):** probe P1 showed an undone delete of "Section 3" already keeps its number (the name is re-adopted before `_recount`); the original premise was wrong. The uid pairing fixes rename / move / delete undo landing on the wrong marker when two share a cut.
+- **AC10 restated (approved 2026-11-13):** probe P1 showed an undone delete of "Section 3" already keeps its number (the name is re-adopted before `_recount`); the original premise was wrong. The uid pairing replaces the geometry guess with identity (Phase 4: `_same_cut` already pairs a single-step rename undo correctly at base, so this is robustness, not a visible fix; see AC10).
 - **Plan step 1 probe (hypothesis):** re-populate calls `node.delete_sprinkler()`, which never `removeItem`s the Sprinkler child -> a node keeping its pipes may hold a ghost sprinkler. A guard settles it before cascade relies on it; if real and pre-existing (VC7 at base), file it rather than fix it here.
 
 ## Acceptance Criteria
@@ -135,7 +135,7 @@ code-only object ref that is never saved (element-parameters D2 / D3).
 - [ ] AC7 Every final removal path cascades uid-hosted dependents in one undo step; one Undo restores host + dependents re-linked (Q8, Q11); status text per Q13.
 - [ ] AC8 `element_host` round-trips as `host_uid` through `.fpd` save/load and undo/redo; dangling -> "?" + one notice; bound text refreshes on host move, grip, undo, redo (Q10).
 - [ ] AC9 Sprinkler delete removes design-area membership in the same undo step (Q14a).
-- [ ] AC10 (restated) Section-marker undo / redo pairs markers by uid: undoing a rename, move or delete keeps the same marker object, its tab and sheet bindings, even when another marker has an identical cut; the counter's recount behaviour is unchanged (Q14b).
+- [ ] AC10 (restated; reworded at Phase 4 2026-11-13, user ruling) Section-marker undo / redo pairs markers by uid, replacing `_same_cut`: undoing a rename or move keeps the same marker object, its tab and sheet bindings, even when another marker has an identical cut; undoing a delete restores the marker with the same uid; the counter's recount behaviour is unchanged (Q14b). Phase 4 found today's `_same_cut` already pairs a single-step rename undo correctly, so this is a robustness refactor, not a visible fix.
 - [ ] AC11 The paste footer shows every skip reason (pattern, design area, hosted host gone).
 
 ## Verification Checklist
