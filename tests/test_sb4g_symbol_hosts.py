@@ -102,6 +102,7 @@ def test_g1_water_supply_draws_its_block_at_real_size(shown_model_view, real_sys
     assert ws.definition().id == "system-symbols-watersupply"
     want = EXTENT_MM["system-symbols-watersupply"]
     assert ws.extent_radius() * 2 == pytest.approx(want, abs=0.01)
+    assert (ws._rect().center().x(), ws._rect().center().y()) == pytest.approx((0.0, 0.0), abs=0.01)  # T14 fold-in: centred on its node
     w, h = ink_extent_mm(view, ws)
     assert w == pytest.approx(want, abs=INK_TOL)
     assert h == pytest.approx(want, abs=INK_TOL)

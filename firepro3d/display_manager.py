@@ -539,7 +539,7 @@ def _apply_pipe(pipe, color, scale, opacity, visible, font_size=None):
 
 
 def _apply_svg_item(item, color, scale, opacity, visible, fill_color=None):
-    """Apply colour tint + opacity to a QGraphicsSvgItem (Sprinkler, WaterSupply, Badge)."""
+    """Apply colour tint + opacity to an item: the badge's QGraphicsSvgItem, or a SymbolBlockItem (Sprinkler, WaterSupply: block-drawn symbols)."""
     _set_svg_tint(item, color, fill_color)
     item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     item.setVisible(visible)

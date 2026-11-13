@@ -158,3 +158,39 @@ def test_symbol_row_is_never_saved_as_a_property_and_a_template_copy_carries_the
     other.set_properties(tmpl)
     assert other.symbol_block == SPR_IDS[1]
     assert len(ms._undo_stack) == steps          # a copy replays no Symbol pick (no undo step)
+
+
+def test_ws_row_pick_of_an_embedded_or_system_block_is_one_undo_step(qapp, real_system_library):
+    """T14 fold-in (T12 review): the first Library pick's step could be the embed's
+    own push; these picks involve no embed (LibWS already embedded, then System),
+    so the one step can only be the row's own request_undo_push."""
+    _library(block_library_dir())
+    ms = scene()
+    ws = water_supply(ms)
+    ms.push_undo_state()
+    ws.set_symbol_from_row("LibWS (Library)")               # embeds LibWS
+    assert "lib-ws-1" in ms._block_definitions and ws.symbol_block == "lib-ws-1"
+    n = len(ms._undo_stack)
+    ws.set_symbol_from_row("Water Supply (System)")         # System id: nothing to embed
+    assert ws.symbol_block is None
+    assert len(ms._undo_stack) == n + 1
+    ws.set_symbol_from_row("LibWS (Library)")               # already embedded: nothing to embed
+    assert ws.symbol_block == "lib-ws-1"
+    assert len(ms._undo_stack) == n + 2
+
+
+def test_multi_select_symbol_pick_is_one_step_and_refreshes_both_heads(qapp, real_system_library):
+    ms = scene()
+    na, a = head(ms)
+    nb, b = head(ms, 3000.0, 0.0)
+    ms.push_undo_state()
+    assert a.definition().id == b.definition().id == SPR_IDS[0]
+    pm = PropertyManager()
+    pm.show_properties([na, nb])
+    n = len(ms._undo_stack)
+    _pick(pm, "Sprinkler2 (System)")
+    assert len(ms._undo_stack) == n + 1                     # ONE step for both heads
+    assert a.symbol_block == b.symbol_block == SPR_IDS[2]
+    assert a.definition().id == b.definition().id == SPR_IDS[2]   # both re-resolved
+    pm.show_properties([])
+    pm._refresh_timer.stop()

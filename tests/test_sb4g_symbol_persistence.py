@@ -14,6 +14,7 @@ from PyQt6.QtCore import QPointF
 from firepro3d.network_codec import SYMBOL_KEY, serialize_node
 from firepro3d.node import Node
 from firepro3d.sprinkler import Sprinkler
+from firepro3d.water_supply import WaterSupply
 from tests._sb4g_helpers import SPR_IDS, head, scene, water_supply
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ph1_pre_phasing_v12.fpd"
@@ -106,3 +107,26 @@ def test_ac3_water_supply_symbol_round_trips_file_and_paste(qapp, tmp_path):
     assert ms2.water_supply_node.symbol_block == "lib-ws-1"
     data = ms._clipboard_item_dicts([ws])
     assert data[0][SYMBOL_KEY] == "lib-ws-1"
+    # T14 fold-in (T11 review): the pasted WaterSupply itself carries the id
+    ms.water_supply_node.scene().removeItem(ms.water_supply_node)
+    ms.water_supply_node = None                      # one supply: paste into an empty slot
+    new = ms.paste_items(QPointF(5000.0, 0.0), data=data)
+    pasted = [i for i in new if isinstance(i, WaterSupply)]
+    assert [p.symbol_block for p in pasted] == ["lib-ws-1"]
+
+
+def test_ac3_water_supply_symbol_survives_an_undo_round_trip(qapp):
+    ms = scene()
+    ws = water_supply(ms)
+    ws.symbol_block = "lib-ws-1"
+    ms.push_undo_state()
+    ms.push_undo_state()
+    ms.undo()
+    assert ms.water_supply_node is not None
+    assert ms.water_supply_node.symbol_block == "lib-ws-1"
+
+
+def test_read_symbol_id_treats_empty_as_default():
+    from firepro3d.network_codec import read_symbol_id
+    assert read_symbol_id("") is None
+    assert read_symbol_id("x") == "x"

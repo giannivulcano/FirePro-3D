@@ -1847,7 +1847,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             self.refresh_annotation_tags()
 
     def refresh_annotation_tags(self) -> None:
-        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, node badges (SB4e), and every open section's elevation bubbles, SB4c D1): its bounds
+        """Re-shape every intrinsic label (room tags, pipe labels, gridline bubbles, node badges (SB4e), symbol-drawn elements (SB4g), and every open section's elevation bubbles, SB4c D1): its bounds
         rect is cached, so a mapping, registry, units or scale change needs
         ``refresh()``."""
         labels = [r._tag for r in list(self._rooms)]
@@ -1862,6 +1862,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 lab.refresh()
             except RuntimeError:          # wrapper outliving its C++ item (teardown)
                 pass
+        self.refresh_symbol_items()                     # SB4g AC5: symbol blocks too
         for gl in list(self._gridlines):  # the trim moves with the block / k (SB4b D13)
             try:
                 gl.prepareGeometryChange()
@@ -1876,6 +1877,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             except RuntimeError:          # scene deleted under us (teardown)
                 pass
         self.annotationLabelsChanged.emit()
+
+    def refresh_symbol_items(self) -> None:
+        """Re-resolve every symbol-drawn element (SB4g D8 / AC5): sprinkler
+        heads, the water supply and every riser symbol hold their resolved
+        definition and cached bounds, so a System edit / Reload / Promote or a
+        definition change needs ``refresh()``. ``refresh()`` announces the
+        owner's geometry change first (a head's Node bounds follow its extent,
+        R2 / S4), so nothing more is needed here."""
+        items = list(self.sprinkler_system.sprinklers)
+        if self.water_supply_node is not None:
+            items.append(self.water_supply_node)
+        items += [p._riser_symbol for p in list(self.sprinkler_system.pipes)
+                  if getattr(p, "_riser_symbol", None) is not None]
+        for it in items:
+            try:
+                it.refresh()
+            except RuntimeError:          # wrapper outliving its C++ item (teardown)
+                pass
 
     def refresh_view_marker_heads(self) -> None:
         """Re-shape every view-marker head (SB4d D1 / D4): each section /
