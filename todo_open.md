@@ -93,7 +93,8 @@
 
 ## Project phasing
 
-- [ ] [type:maint] PH2 tidy -- (a) `phases_tab.DASH` repeats the “—” literal of `ui_kit.Swatch._text_for` and `_COLS` repeats `phase_registry._GRAPHIC_KEYS` (Rule A: one home); (b) `ColourPickerDialog._on_pattern` does not clear `_unset` (latent: only the Phases tab passes `allow_unset`, colour mode); (c) the picker's unset state shows a black placeholder (hex #000000, Black chip selected) -- consider a blank hex / no selected chip while unset [P3] [subject:CAD]
+- [ ] [type:maint] PH2 tidy: Phases-tab duplicated literals + picker unset-state polish [P3] [subject:CAD]
+  - Details: (a) `phases_tab.DASH` repeats the “—” literal of `ui_kit.Swatch._text_for` and `_COLS` repeats `phase_registry._GRAPHIC_KEYS` (Rule A: one home); (b) `ColourPickerDialog._on_pattern` does not clear `_unset` (latent: only the Phases tab passes `allow_unset`, colour mode); (c) the picker's unset state shows a black placeholder (hex #000000, Black chip selected) -- consider a blank hex / no selected chip while unset.
 - [ ] [type:feature] PH3 — Sheet viewport phasing: Phasing + Show-per-status rows on plan/detail/elevation/section viewports (not schematic), paper-pass hide / colour / fill / weight / opacity in every colour mode, host labels follow [P1] [subject:CAD]
   - Details: concept PD2 + PD3; D-PH8, D-PH9, D-PH13 (minus dash), D-PH17 paper, D-PH18. AC5, AC9, AC13, AC14, AC15. Depends PH1, PH2. Guards: offscreen sheet render + PDF export — Existing pixels grey, hidden status absent, Phasing-off render pixel-identical to the pre-phasing base.
   - +1 occurrence 2026-11-06 (landing, D-PH10 ruling, AC15): a Material pattern stays under a phase override. The status Colour drives its lines, fixed-colour patterns included, and the status Fill replaces its background. `_display_fill_color` reaches Solid mode only; the hatch / section-cut path is `draw_section_type` (concept PD3).
