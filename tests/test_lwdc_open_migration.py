@@ -321,3 +321,53 @@ def test_f5_row_added_mid_load_survives_the_migration(qapp, tmp_path, monkeypatc
     assert "Pen" in pd.weight_names()
     assert pd.resolve_line_weight_mm("Pen") == pytest.approx(0.6)
     assert {n for _k, n in _holders(out)} == {"Pen"}
+
+
+@pytest.mark.parametrize("fixture", FIXTURES)
+def test_f8_open_through_mainwindow_keeps_paper_mm(fixture, tmp_path, monkeypatch):
+    """The real entry point: ``MainWindow._apply_loaded_file`` (open + crash
+    recovery), not a hand-copied load sequence. Holder names are injected
+    into a COPY of the fixture; expected mm come from its raw JSON table."""
+    import main as _m
+    from firepro3d.view_3d import View3D
+    from tests._mainwindow_helpers import dispose_main_window
+    _m.View3D = View3D
+    src = tmp_path / fixture
+    shutil.copyfile(FIXDIR / fixture, src)
+    payload = json.loads(src.read_text(encoding="utf-8"))
+    assert "line_weight_schema" not in payload["paper_display"]
+    injected = _inject_by_name_weights(payload)
+    src.write_text(json.dumps(payload), encoding="utf-8")
+    raw_table = payload["paper_display"]["line_weights"]
+    raw_cats = {k: v["line_weight"] for k, v in payload["paper_display"]["categories"].items()
+                if v.get("line_weight")}
+    raw_blocks = payload["display_settings"]["Blocks"]["line_weight"]
+    # Old names per holder: the same file loaded with the migration off (not
+    # every injected style is a holder - only what the sweep reaches).
+    monkeypatch.setattr(pd, "apply_pending_weight_migration", lambda *a, **k: False)
+    old = _scene()
+    assert old.load_from_file(str(src))
+    old_names = [n for _k, n in _holders(old)]
+    assert bool(old_names) == bool(injected)
+    monkeypatch.undo()
+    pd.reset_project_line_weights()
+    pd.set_model_blocks_weight(None)
+    expected = sorted(_raw_mm(raw_table, n) for n in old_names)
+
+    monkeypatch.setattr(_m.MainWindow, "_maybe_offer_template_push", lambda self: None)
+    w = _m.MainWindow()
+    try:
+        assert w._apply_loaded_file(str(src)) is not False
+        got = sorted(pd.resolve_line_weight_mm(n)
+                     for n, _r in wr.iter_weight_refs(w.scene))
+        assert got == pytest.approx(expected)
+        assert [d.name for d in pd.project_line_weights()][:7] == [
+            d.name for d in pd.DEFAULT_LINE_WEIGHTS]
+        cats = pd.load_paper_categories()
+        for key, old_name in raw_cats.items():
+            assert pd.resolve_line_weight_mm(cats[key]["line_weight"]) == pytest.approx(
+                _raw_mm(raw_table, old_name)), key
+        assert pd.resolve_line_weight_mm(pd.model_blocks_weight()) == pytest.approx(
+            _raw_mm(raw_table, raw_blocks))
+    finally:
+        dispose_main_window(w)
