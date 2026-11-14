@@ -13,11 +13,13 @@ from pathlib import Path
 import pytest
 
 from firepro3d import paper_display as pd
+from firepro3d import project_tables
 from firepro3d import weight_refs as wr
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.level_manager import LevelManager
 from firepro3d.model_space import Model_Space
 from firepro3d.paper_display import LineWeightDef
+from tests._project_tables_helpers import capture_sessions
 from tests.wm2_support import sprinkler_def
 
 FIXDIR = Path(__file__).parent / "fixtures"
@@ -98,13 +100,14 @@ def test_legacy_fixture_open_keeps_paper_mm(fixture, tmp_path, monkeypatch):
     raw_blocks = payload["display_settings"]["Blocks"]["line_weight"]
 
     # Old names per holder, in sweep order: the same load with the migration off.
-    monkeypatch.setattr(pd, "apply_pending_weight_migration", lambda *a, **k: False)
+    monkeypatch.setattr(project_tables.LoadSession, "migrate_holders", lambda self, scene: False)
     old = _scene()
     assert old.load_from_file(str(src))
     old_names = _holders(old)
     assert bool(old_names) == bool(injected)
     monkeypatch.undo()
 
+    sessions = capture_sessions(monkeypatch)
     ms = _scene()
     assert ms.load_from_file(str(src))
     new = _holders(ms)
@@ -119,9 +122,8 @@ def test_legacy_fixture_open_keeps_paper_mm(fixture, tmp_path, monkeypatch):
     assert [d.name for d in pd.project_line_weights()][:7] == [
         d.name for d in pd.DEFAULT_LINE_WEIGHTS]
 
-    # Categories + Model Blocks weight: through the loader's own payload, then
-    # the second apply (apply_paper_display_from_project) must be idempotent.
-    pd.apply_paper_display_from_project(ms._loaded_paper_display)
+    # Categories + Model Blocks weight: through the loader's own payload; the
+    # load's second apply (apply_paper_display_from_project) must be idempotent.
     assert [d.name for d in pd.project_line_weights()][:7] == [
         d.name for d in pd.DEFAULT_LINE_WEIGHTS]
     cats = pd.load_paper_categories()
@@ -129,22 +131,29 @@ def test_legacy_fixture_open_keeps_paper_mm(fixture, tmp_path, monkeypatch):
         assert cats[key]["line_weight"] in live
         assert pd.resolve_line_weight_mm(cats[key]["line_weight"]) == pytest.approx(
             _raw_mm(raw_table, old_name)), key
-    blocks_new = ms._loaded_display_settings["Blocks"]["line_weight"]
+    blocks_new = sessions[-1].display_settings["Blocks"]["line_weight"]
     assert blocks_new in live
     assert pd.resolve_line_weight_mm(blocks_new) == pytest.approx(
         _raw_mm(raw_table, raw_blocks))
 
 
-def test_second_apply_is_idempotent_and_stashes_nothing(tmp_path):
+def test_second_apply_is_idempotent_and_stashes_nothing(tmp_path, monkeypatch):
     src = tmp_path / "h.fpd"
     shutil.copyfile(FIXDIR / "hf5_legacy.fpd", src)
+    sessions = capture_sessions(monkeypatch)
+    tables = []                                 # the table before the load's own apply
+    real_styles = project_tables.LoadSession.apply_styles
+
+    def snap(self, scene):
+        tables.append([d.to_dict() for d in pd.project_line_weights()])
+        return real_styles(self, scene)
+    monkeypatch.setattr(project_tables.LoadSession, "apply_styles", snap)
     ms = _scene()
-    assert ms.load_from_file(str(src))
-    table = [d.to_dict() for d in pd.project_line_weights()]
-    pd.apply_paper_display_from_project(ms._loaded_paper_display)
-    pd.apply_paper_display_from_project(ms._loaded_paper_display)
+    assert ms.load_from_file(str(src))          # applies the paper display once
+    table, = tables
+    pd.apply_paper_display_from_project(sessions[-1].paper_display)   # and again
     assert [d.to_dict() for d in pd.project_line_weights()] == table
-    assert pd._PENDING_LW_MIGRATION is None
+    assert sessions[-1].weight_kind is None
 
 
 def _mw_scene_with_custom_thin():
@@ -165,7 +174,7 @@ def _mw_scene_with_custom_thin():
     return ms, host
 
 
-def test_custom_thin_clash_becomes_thin_old_at_030_and_save_reopen_is_stable(tmp_path):
+def test_custom_thin_clash_becomes_thin_old_at_030_and_save_reopen_is_stable(tmp_path, monkeypatch):
     ms, host = _mw_scene_with_custom_thin()
     path = tmp_path / "c.fpd"
     assert ms.save_to_file(str(path), backup=False)
@@ -190,30 +199,29 @@ def test_custom_thin_clash_becomes_thin_old_at_030_and_save_reopen_is_stable(tmp
     assert saved["paper_display"]["line_weight_schema"] == 2
     table = [d.to_dict() for d in pd.project_line_weights()]
     pd.reset_project_line_weights()
+    sessions = capture_sessions(monkeypatch)
     again = _scene()
     assert again.load_from_file(str(path2))
-    assert pd._PENDING_LW_MIGRATION is None
+    assert sessions[-1].weight_kind is None
     assert {n for _k, n in _holders(again)} == {"Thin (old)"}
     assert [d.to_dict() for d in pd.project_line_weights()] == table
 
 
 def test_schema2_table_installs_with_missing_defaults_added():
-    pd.apply_project_weights({"line_weight_schema": 2,
-                              "line_weights": [{"name": "Pen", "width_mm": .4}]},
-                             stash=True)
-    assert pd._PENDING_LW_MIGRATION is None
+    assert pd.apply_project_weights({"line_weight_schema": 2,
+                                     "line_weights": [{"name": "Pen", "width_mm": .4}]},
+                                    stash=True) is None
     assert {d.name for d in pd.DEFAULT_LINE_WEIGHTS} <= {d.name for d in pd.project_line_weights()}
     assert "Pen" in pd.weight_names()
 
 
 def test_unstamped_table_installs_unchanged_then_stashes():
     rows = [{"name": "Thin", "width_mm": .35}, {"name": "Thick", "width_mm": .50}]
-    pd.apply_project_weights({"line_weights": rows}, stash=True)
+    kind = pd.apply_project_weights({"line_weights": rows}, stash=True)
     assert [(d.name, d.width_mm) for d in pd.project_line_weights()] == [
         ("Thin", .35), ("Thick", .50)]
-    assert pd._PENDING_LW_MIGRATION is not None
-    pd.apply_project_weights({"line_weights": rows})          # no stash: cleared
-    assert pd._PENDING_LW_MIGRATION is None
+    assert kind is not None
+    assert pd.apply_project_weights({"line_weights": rows}) is None   # no stash: none
 
 
 # --- Fix round 1: F3 (async underlays), F4 (table-less), F5 (mid-load rows) ---
@@ -331,8 +339,7 @@ def test_f4_tableless_file_maps_old_names_statically(qapp, tmp_path):
 
     pd.reset_project_line_weights()
     out = _scene()
-    assert out.load_from_file(str(path))
-    pd.apply_paper_display_from_project(out._loaded_paper_display)
+    assert out.load_from_file(str(path))                # applies the paper display
     old_medium = _OLD_FACTORY_MM["Medium"]                              # 0.25
     names = [n for _k, n in _holders(out)]
     assert names and all(pd.resolve_line_weight_mm(n) == pytest.approx(old_medium)
@@ -353,12 +360,12 @@ def test_f5_row_added_mid_load_survives_the_migration(qapp, tmp_path, monkeypatc
     _unstamped(path, lambda p: p["paper_display"].update(
         line_weights=raw_rows, line_weight_aliases={}))
 
-    real = pd.apply_pending_weight_migration
+    real = project_tables.LoadSession.migrate_holders
 
-    def with_merge(*a, **k):
+    def with_merge(self, scene):
         pd.merge_project_line_weights({"Pen": 0.6})   # what the mid-load merge does
-        return real(*a, **k)
-    monkeypatch.setattr(pd, "apply_pending_weight_migration", with_merge)
+        return real(self, scene)
+    monkeypatch.setattr(project_tables.LoadSession, "migrate_holders", with_merge)
     pd.reset_project_line_weights()
     out = _scene()
     assert out.load_from_file(str(path))
@@ -388,7 +395,7 @@ def test_f8_open_through_mainwindow_keeps_paper_mm(fixture, tmp_path, monkeypatc
     raw_blocks = payload["display_settings"]["Blocks"]["line_weight"]
     # Old names per holder: the same file loaded with the migration off (not
     # every injected style is a holder - only what the sweep reaches).
-    monkeypatch.setattr(pd, "apply_pending_weight_migration", lambda *a, **k: False)
+    monkeypatch.setattr(project_tables.LoadSession, "migrate_holders", lambda self, scene: False)
     old = _scene()
     assert old.load_from_file(str(src))
     old_names = [n for _k, n in _holders(old)]
