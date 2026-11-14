@@ -5334,6 +5334,61 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if "phase" in blob:
             tmpl.phase = phase_registry.read_id(str(blob["phase"]))
 
+    # QSettings key for the persisted roof placement template.
+    ROOF_TEMPLATE_SETTINGS_KEY = "template/roof"
+
+    def save_roof_template_settings(self, settings) -> None:
+        """Persist the roof placement template's recipe (no level, no name)."""
+        tmpl = self._get_roof_template()
+        settings.setValue(self.ROOF_TEMPLATE_SETTINGS_KEY, {
+            "roof_type":      tmpl._roof_type,
+            "pitch_deg":      tmpl._pitch_deg,
+            "eave_height_mm": tmpl._eave_height_mm,
+            "overhang_mm":    tmpl._overhang_mm,
+            "thickness_mm":   tmpl._thickness_mm,
+            "colour":         tmpl._colour,
+            "phase":          tmpl.phase,
+        })
+
+    def load_roof_template_settings(self, settings) -> None:
+        """Restore the roof placement template's recipe; per-key validation.
+
+        Mirrors ``RoofItem.set_property``: Overhang clamps at 0, the other
+        numbers take any float, and the level re-seeds from the getter.
+        """
+        from .roof import ROOF_TYPES, _stored_colour
+        if not settings.contains(self.ROOF_TEMPLATE_SETTINGS_KEY):
+            return
+        blob = settings.value(self.ROOF_TEMPLATE_SETTINGS_KEY, {})
+        if not isinstance(blob, dict):
+            return
+        tmpl = self._get_roof_template()
+
+        def _num(key):
+            try:
+                return float(blob[key])
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        if str(blob.get("roof_type")) in ROOF_TYPES:
+            tmpl._roof_type = str(blob["roof_type"])
+        v = _num("pitch_deg")
+        if v is not None:
+            tmpl._pitch_deg = v
+        v = _num("eave_height_mm")
+        if v is not None:
+            tmpl._eave_height_mm = v
+        v = _num("overhang_mm")
+        if v is not None:
+            tmpl._overhang_mm = max(0.0, v)
+        v = _num("thickness_mm")
+        if v is not None:
+            tmpl._thickness_mm = v   # RoofItem.set_property applies no clamp
+        if "colour" in blob:
+            tmpl._colour = _stored_colour(str(blob["colour"]))
+        if "phase" in blob:
+            tmpl.phase = phase_registry.read_id(str(blob["phase"]))
+
     def _get_roof_template(self) -> "RoofItem":
         """Shell → PlacementInputCoordinator._get_roof_template."""
         return self._plc._get_roof_template()

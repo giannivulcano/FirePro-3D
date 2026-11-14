@@ -136,3 +136,45 @@ def test_restored_wall_template_drives_the_next_placed_wall(qapp, ini_settings):
     w = b._walls[0]
     assert w._thickness_mm == pytest.approx(254.0)
     assert w._computed_height_mm() == pytest.approx(2500.0)
+
+
+ROOF_KEY = "template/roof"
+
+
+def test_roof_template_round_trips_its_recipe(qapp, ini_settings):
+    a = _scene()
+    t = a._get_roof_template()
+    t._roof_type = "hip"
+    t._pitch_deg = 30.0
+    t._eave_height_mm = 2400.0
+    t._overhang_mm = 450.0
+    t._thickness_mm = 200.0
+    t._colour = "#654321"
+    t.phase = PHASE_EXISTING
+    a.save_roof_template_settings(ini_settings)
+
+    assert set(ini_settings.value(ROOF_KEY, {})) == {
+        "roof_type", "pitch_deg", "eave_height_mm", "overhang_mm",
+        "thickness_mm", "colour", "phase"}
+
+    b = _scene(("Level 3", 6000.0))
+    b.load_roof_template_settings(ini_settings)
+    u = b._get_roof_template()
+    assert (u._roof_type, u._pitch_deg) == ("hip", pytest.approx(30.0))
+    assert u._eave_height_mm == pytest.approx(2400.0)
+    assert u._overhang_mm == pytest.approx(450.0)
+    assert u._thickness_mm == pytest.approx(200.0)
+    assert u._colour == "#654321"
+    assert u.phase == PHASE_EXISTING
+    assert u.level == "Level 3"                  # re-seeded, not stored
+
+
+def test_roof_load_with_garbage_keeps_factory(qapp, ini_settings):
+    ms = _scene()
+    ini_settings.setValue(ROOF_KEY, {"roof_type": "dome", "pitch_deg": "x",
+                                     "overhang_mm": -5})
+    ms.load_roof_template_settings(ini_settings)
+    t = ms._get_roof_template()
+    assert t._roof_type == "flat"
+    assert t._pitch_deg == pytest.approx(20.0)
+    assert t._overhang_mm == pytest.approx(0.0)  # negative clamps to 0 (set_property rule)
