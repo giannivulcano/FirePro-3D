@@ -67,6 +67,7 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from . import element_uid
+from . import hosted_dependents
 from .floor_opening import FloorOpening, drop_carried_voids
 from .feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
@@ -3170,11 +3171,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def _sync_hosted_blocks(self, gl) -> None:
         """Re-derive hosted block positions from *gl* (D5; called by
-        ``GridlineItem._rebuild_geometry``)."""
-        from .hosted_blocks import ppm_of, scene_pos
-        ppm = ppm_of(self)
-        for b in self.hosted_blocks_on(gl):
-            b.set_block_pos(*scene_pos(gl, b.host, ppm))
+        ``GridlineItem._rebuild_geometry``) -- the SB5 HostedDependents hook,
+        which also re-shapes blocks bound to *gl*."""
+        hosted_dependents.push(self, gl)
 
     def _shift_hosted_along(self, gl, old_origin, new_origin) -> None:
         """Grip 0 slid *gl*'s origin along its axis: compensate ``along_mm``
@@ -4348,6 +4347,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
+        hosted_dependents.refresh_all_bound(self)   # SB5 Q10: a committed host edit re-shapes bound text
         cap_kind = self.block_capability[0] if self.block_capability else None
         if cap_kind == "repeat" and self._undo_stack:
             # LT4: Continuous lock + grow-to-fit join this commit's snapshot.

@@ -160,9 +160,11 @@ class BlockInstance(QGraphicsObject):
         self._note_geom = None     # (box, box item, bound prims) -- _note_geometry
         # Element host (element-parameters.md, SB2a D-a; SB5 D5): the element
         # whose keyed values feed host-sourced attributes. ``_host_uid`` is the
-        # truth (saved as ``host_uid`` on both paths); ``_element_host`` is the
-        # cached ref read off a Model_Space (Block Editor, tests) or for a host
-        # without a uid. Distinct from ``host`` above.
+        # truth (saved as ``host_uid`` on both paths). Inside a Model_Space a
+        # set ``_host_uid`` resolves through ``element_by_uid`` and a miss
+        # returns None (dangling host -> '?'); the cached ``_element_host`` ref
+        # serves only when the block is not in a Model_Space (Block Editor, a
+        # bare instance) or the host has no uid. Distinct from ``host`` above.
         self._host_uid: Optional[str] = None
         self._element_host = None
         self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
@@ -231,9 +233,12 @@ class BlockInstance(QGraphicsObject):
 
     @property
     def element_host(self):
-        """The element feeding host-sourced attributes: resolved by uid through
-        the scene index while placed in a Model_Space (SB5 D5; a pipe split's
-        node1 half is picked up automatically), else the cached ref."""
+        """The element feeding host-sourced attributes. Inside a Model_Space a
+        set ``_host_uid`` resolves through ``element_by_uid`` (SB5 D5; a pipe
+        split's node1 half is picked up automatically) and a miss returns None
+        (dangling host -> '?'); the cached ``_element_host`` ref serves only
+        when the block is not in a Model_Space (Block Editor, a bare instance)
+        or the host has no uid."""
         uid = self._host_uid
         if uid is not None:
             sc = self.scene()
