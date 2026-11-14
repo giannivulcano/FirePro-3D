@@ -1,0 +1,941 @@
+{
+  "version": 13,
+  "project_info": {},
+  "mark_patterns": {
+    "Door": "D{n}",
+    "Window": "W{n}",
+    "Opening": "O{n}",
+    "Wall": "WL{n}",
+    "Pipe": "P{n}",
+    "Sprinkler": "S{n}",
+    "Room": "{level}{n:02}",
+    "Section": "{n}",
+    "Detail": "{n}"
+  },
+  "annotation_defaults": {},
+  "project_settings_size": null,
+  "scale": {
+    "pixels_per_mm": 1.0,
+    "calibrated": false,
+    "display_unit": "mm",
+    "drawing_scale": 100.0,
+    "precision": 3
+  },
+  "display_settings": {
+    "Pipe": {
+      "color": "#4488ff",
+      "opacity": 100,
+      "visible": true
+    },
+    "Sprinkler": {
+      "color": "#ff4444",
+      "fill": "token:bg",
+      "opacity": 100,
+      "visible": true
+    },
+    "Fitting": {
+      "color": "#44cc44",
+      "opacity": 100,
+      "visible": true
+    },
+    "Water Supply": {
+      "color": "#00cccc",
+      "fill": "token:bg",
+      "opacity": 100,
+      "visible": true
+    },
+    "Node": {
+      "color": "#888888",
+      "opacity": 100,
+      "visible": true
+    },
+    "Hydraulic Badge": {
+      "color": "token:auto",
+      "fill": "token:bg",
+      "opacity": 100,
+      "visible": true
+    },
+    "Design Area": {
+      "color": "#dc1e1e",
+      "fill": "#ffc800",
+      "opacity": 100,
+      "visible": true
+    },
+    "Wall": {
+      "color": "#666666",
+      "fill": "#999999",
+      "opacity": 100,
+      "visible": true
+    },
+    "Door": {
+      "color": "#888888",
+      "opacity": 100,
+      "visible": true
+    },
+    "Window": {
+      "color": "#888888",
+      "opacity": 100,
+      "visible": true
+    },
+    "Opening": {
+      "color": "#888888",
+      "opacity": 100,
+      "visible": true
+    },
+    "Roof": {
+      "color": "#8B4513",
+      "fill": "#D2B48C",
+      "opacity": 100,
+      "visible": true
+    },
+    "Room": {
+      "color": "#4488cc",
+      "fill": "#4488cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "Floor": {
+      "color": "#8888cc",
+      "fill": "#8888cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "Grid Line": {
+      "color": "#4488cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "Level Datum": {
+      "color": "#4488cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "Elevation Marker": {
+      "color": "#4488cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "Section Marker": {
+      "color": "#4488cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "Detail Marker": {
+      "color": "#4488cc",
+      "opacity": 100,
+      "visible": true
+    },
+    "2D Geometry": {
+      "color": "token:auto",
+      "opacity": 100,
+      "visible": true
+    },
+    "Reference Geometry": {
+      "color": "#888888",
+      "opacity": 100,
+      "visible": true
+    },
+    "Blocks": {
+      "line_weight": "Thin",
+      "color": "token:auto"
+    }
+  },
+  "paper_display": {
+    "categories": {
+      "Pipe": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Sprinkler": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": null,
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Fitting": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Water Supply": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": null,
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Node": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Hydraulic Badge": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": null,
+        "line_weight": "Extra Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Wall": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": "token:auto",
+        "line_weight": "Medium",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Door": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Window": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Opening": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Roof": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": "token:auto",
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Room": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": null,
+        "line_weight": "Extra Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Floor": {
+        "color": "token:auto",
+        "fill": "token:bg",
+        "section_color": "token:auto",
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Grid Line": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Fine",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Level Datum": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Extra Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Elevation Marker": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Extra Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Section Marker": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Extra Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Detail Marker": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Construction": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Hatch": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Extra Thin",
+        "opacity": 100,
+        "visible": true
+      },
+      "Blocks": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": "Thin",
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      },
+      "Underlay": {
+        "color": "token:auto",
+        "fill": null,
+        "section_color": null,
+        "line_weight": null,
+        "opacity": 100,
+        "visible": true,
+        "as_authored": true
+      }
+    },
+    "line_weights": [
+      {
+        "name": "Extra Thin",
+        "width_mm": 0.13,
+        "model_px": 1
+      },
+      {
+        "name": "Thin",
+        "width_mm": 0.18,
+        "model_px": 2
+      },
+      {
+        "name": "Fine",
+        "width_mm": 0.25,
+        "model_px": 3
+      },
+      {
+        "name": "Medium",
+        "width_mm": 0.35,
+        "model_px": 4
+      },
+      {
+        "name": "Wide",
+        "width_mm": 0.5,
+        "model_px": 5
+      },
+      {
+        "name": "Thick",
+        "width_mm": 0.7,
+        "model_px": 6
+      },
+      {
+        "name": "Extra Thick",
+        "width_mm": 1.0,
+        "model_px": 8
+      }
+    ],
+    "line_weight_aliases": {},
+    "line_weight_schema": 2
+  },
+  "fill_types": [
+    {
+      "id": "<ID0>",
+      "name": "Brick",
+      "pattern": {
+        "ref": "builtin-hatch-brick",
+        "color": "token:element",
+        "opacity": 1.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "id": "<ID1>",
+      "name": "Concrete",
+      "pattern": {
+        "ref": "builtin-hatch-concrete",
+        "color": "token:element",
+        "opacity": 1.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "id": "<ID2>",
+      "name": "Cross Hatch",
+      "pattern": {
+        "ref": "builtin-hatch-cross-hatch",
+        "color": "token:element",
+        "opacity": 1.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "id": "<ID3>",
+      "name": "Diagonal",
+      "pattern": {
+        "ref": "builtin-hatch-diagonal",
+        "color": "token:element",
+        "opacity": 1.0,
+        "scale": 1.0
+      }
+    },
+    {
+      "id": "<ID4>",
+      "name": "Solid Black",
+      "background": {
+        "color": "#000000",
+        "opacity": 1.0
+      }
+    },
+    {
+      "id": "<ID5>",
+      "name": "Solid Grey 20%",
+      "background": {
+        "color": "#808080",
+        "opacity": 0.2
+      }
+    }
+  ],
+  "materials": {
+    "rows": [
+      {
+        "id": "material-none",
+        "name": "None",
+        "fill_type": null
+      },
+      {
+        "id": "<ID6>",
+        "name": "Brick",
+        "fill_type": "<ID0>"
+      },
+      {
+        "id": "<ID7>",
+        "name": "Concrete",
+        "fill_type": "<ID1>"
+      },
+      {
+        "id": "<ID8>",
+        "name": "Steel Framed",
+        "fill_type": "<ID3>"
+      },
+      {
+        "id": "<ID9>",
+        "name": "Wood Framed",
+        "fill_type": "<ID2>"
+      }
+    ],
+    "defaults": {}
+  },
+  "phases": [
+    {
+      "id": "new",
+      "name": "New",
+      "builtin": true,
+      "graphics": {
+        "colour": null,
+        "fill": null,
+        "weight": null,
+        "linetype": null,
+        "opacity": null
+      },
+      "include_in_calc": true
+    },
+    {
+      "id": "existing",
+      "name": "Existing",
+      "builtin": true,
+      "graphics": {
+        "colour": "#808080",
+        "fill": "#D3D3D3",
+        "weight": null,
+        "linetype": null,
+        "opacity": null
+      },
+      "include_in_calc": true
+    },
+    {
+      "id": "demolition",
+      "name": "Demolition",
+      "builtin": true,
+      "graphics": {
+        "colour": null,
+        "fill": null,
+        "weight": null,
+        "linetype": "Demolition",
+        "opacity": null
+      },
+      "include_in_calc": false
+    }
+  ],
+  "levels": [
+    {
+      "name": "Level 1",
+      "elevation_mm": 0.0,
+      "view_top": 2000.0,
+      "view_bottom": -1000.0,
+      "number": 1
+    },
+    {
+      "name": "Level 2",
+      "elevation_mm": 3048.0,
+      "view_top": 2000.0,
+      "view_bottom": -1000.0,
+      "number": 2
+    },
+    {
+      "name": "Level 3",
+      "elevation_mm": 6096.0,
+      "view_top": 2000.0,
+      "view_bottom": -1000.0,
+      "number": 3
+    }
+  ],
+  "plan_views": [
+    {
+      "name": "Plan: Level 1",
+      "level_name": "Level 1",
+      "view_height": 2895.6,
+      "view_depth": -1000.0,
+      "view_height_explicit": false
+    }
+  ],
+  "active_level": "Level 1",
+  "nodes": [],
+  "pipes": [],
+  "annotations": [],
+  "underlays": [],
+  "water_supply": null,
+  "design_areas": [],
+  "gridlines": [
+    {
+      "origin": [
+        0.0,
+        -0.0
+      ],
+      "length": 21945.6,
+      "angle": 90.0,
+      "bubble1_offset": 1000.0,
+      "bubble2_offset": 1000.0,
+      "bubble1_vis": true,
+      "bubble2_vis": true,
+      "label": "1",
+      "locked": false,
+      "uid": "<ID10>"
+    },
+    {
+      "origin": [
+        7315.2,
+        -4.479268132561359e-13
+      ],
+      "length": 21945.6,
+      "angle": 90.0,
+      "bubble1_offset": 1000.0,
+      "bubble2_offset": 1000.0,
+      "bubble1_vis": true,
+      "bubble2_vis": true,
+      "label": "2",
+      "locked": false,
+      "uid": "<ID11>"
+    },
+    {
+      "origin": [
+        14630.4,
+        -8.958536265122718e-13
+      ],
+      "length": 21945.6,
+      "angle": 90.0,
+      "bubble1_offset": 1000.0,
+      "bubble2_offset": 1000.0,
+      "bubble1_vis": true,
+      "bubble2_vis": true,
+      "label": "3",
+      "locked": false,
+      "uid": "<ID12>"
+    },
+    {
+      "origin": [
+        0.0,
+        -0.0
+      ],
+      "length": 21945.6,
+      "angle": 0.0,
+      "bubble1_offset": 1000.0,
+      "bubble2_offset": 1000.0,
+      "bubble1_vis": true,
+      "bubble2_vis": true,
+      "label": "A",
+      "locked": false,
+      "uid": "<ID13>"
+    },
+    {
+      "origin": [
+        0.0,
+        -7315.2
+      ],
+      "length": 21945.6,
+      "angle": 0.0,
+      "bubble1_offset": 1000.0,
+      "bubble2_offset": 1000.0,
+      "bubble1_vis": true,
+      "bubble2_vis": true,
+      "label": "B",
+      "locked": false,
+      "uid": "<ID14>"
+    },
+    {
+      "origin": [
+        0.0,
+        -14630.4
+      ],
+      "length": 21945.6,
+      "angle": 0.0,
+      "bubble1_offset": 1000.0,
+      "bubble2_offset": 1000.0,
+      "bubble1_vis": true,
+      "bubble2_vis": true,
+      "label": "C",
+      "locked": false,
+      "uid": "<ID15>"
+    }
+  ],
+  "walls": [],
+  "constraints": [
+    {
+      "id": "<ID16>",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "<ID10>",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID17>",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "<ID11>",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID18>",
+      "type": "dim_point_line",
+      "refs": [
+        {
+          "uid": "<ID11>",
+          "h": "mid"
+        },
+        {
+          "uid": "<ID10>",
+          "h": "edge"
+        }
+      ],
+      "value": 7315.2,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "side": -1
+      }
+    },
+    {
+      "id": "<ID19>",
+      "type": "vertical",
+      "refs": [
+        {
+          "uid": "<ID12>",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID20>",
+      "type": "dim_point_line",
+      "refs": [
+        {
+          "uid": "<ID12>",
+          "h": "mid"
+        },
+        {
+          "uid": "<ID11>",
+          "h": "edge"
+        }
+      ],
+      "value": 7315.200000000001,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "side": -1
+      }
+    },
+    {
+      "id": "<ID21>",
+      "type": "horizontal",
+      "refs": [
+        {
+          "uid": "<ID13>",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID22>",
+      "type": "horizontal",
+      "refs": [
+        {
+          "uid": "<ID14>",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID23>",
+      "type": "dim_point_line",
+      "refs": [
+        {
+          "uid": "<ID14>",
+          "h": "mid"
+        },
+        {
+          "uid": "<ID13>",
+          "h": "edge"
+        }
+      ],
+      "value": 7315.2,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "side": 1
+      }
+    },
+    {
+      "id": "<ID24>",
+      "type": "horizontal",
+      "refs": [
+        {
+          "uid": "<ID15>",
+          "h": "edge"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID25>",
+      "type": "dim_point_line",
+      "refs": [
+        {
+          "uid": "<ID15>",
+          "h": "mid"
+        },
+        {
+          "uid": "<ID14>",
+          "h": "edge"
+        }
+      ],
+      "value": 7315.2,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "side": 1
+      }
+    },
+    {
+      "id": "<ID26>",
+      "type": "coincident",
+      "refs": [
+        {
+          "ref": "origin"
+        },
+        {
+          "uid": "<ID10>",
+          "h": "p1"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "<ID27>",
+      "type": "coincident",
+      "refs": [
+        {
+          "ref": "origin"
+        },
+        {
+          "uid": "<ID13>",
+          "h": "p1"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    }
+  ],
+  "floor_slabs": [],
+  "roofs": [],
+  "rooms": [],
+  "block_definitions": {},
+  "blocks": [],
+  "detail_views": [],
+  "sections": [
+    {
+      "name": "North",
+      "cut_a": [
+        26065.6,
+        -26065.6
+      ],
+      "cut_b": [
+        -4120.0,
+        -26065.6
+      ],
+      "look_sign": 1,
+      "depth": 30185.6,
+      "cardinal": "north",
+      "auto_extent": true,
+      "gridline_z_overrides": {},
+      "datum_ends": {}
+    },
+    {
+      "name": "South",
+      "cut_a": [
+        -4120.0,
+        4120.0
+      ],
+      "cut_b": [
+        26065.6,
+        4120.0
+      ],
+      "look_sign": 1,
+      "depth": 30185.6,
+      "cardinal": "south",
+      "auto_extent": true,
+      "gridline_z_overrides": {},
+      "datum_ends": {}
+    },
+    {
+      "name": "East",
+      "cut_a": [
+        26065.6,
+        4120.0
+      ],
+      "cut_b": [
+        26065.6,
+        -26065.6
+      ],
+      "look_sign": 1,
+      "depth": 30185.6,
+      "cardinal": "east",
+      "auto_extent": true,
+      "gridline_z_overrides": {},
+      "datum_ends": {}
+    },
+    {
+      "name": "West",
+      "cut_a": [
+        -4120.0,
+        -26065.6
+      ],
+      "cut_b": [
+        -4120.0,
+        4120.0
+      ],
+      "look_sign": 1,
+      "depth": 30185.6,
+      "cardinal": "west",
+      "auto_extent": true,
+      "gridline_z_overrides": {},
+      "datum_ends": {}
+    }
+  ],
+  "sheets": [
+    {
+      "number": "FP-1.0",
+      "name": "Fire Suppression Layout",
+      "paper_size": "ANSI D",
+      "orientation": "",
+      "title_block_fields": {
+        "Company": "Celerity Engineering Limited",
+        "Project": "",
+        "Scale": "1:100",
+        "Rev": "A",
+        "Date": "13 Nov 2026",
+        "Drawn By": "",
+        "Checked By": ""
+      },
+      "sheet_views": [],
+      "annotations": [],
+      "revisions": []
+    }
+  ],
+  "titleblock_template": null
+}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from firepro3d import weight_refs as wr
@@ -58,6 +59,17 @@ def resave_text(scene, tmp_path: Path) -> str:
     for form in (str(tmp_path).replace("\\", "\\\\"), str(tmp_path), tmp_path.as_posix()):
         text = text.replace(form, "<TMP>")
     return text
+
+
+def normalise_ids(text: str) -> str:
+    """Replace every 32-hex id token with ``<ID{n}>`` (n = order of first
+    appearance; the same token always gets the same n). Seeded fill-type and
+    material ids are fresh uuid4 values per seeding."""
+    seen: dict[str, str] = {}
+
+    def sub(m):
+        return seen.setdefault(m.group(0), f"<ID{len(seen)}>")
+    return re.sub(r"\b[0-9a-f]{32}\b", sub, text)
 
 
 def snapshot(scene, tmp_path: Path) -> tuple[dict, str]:
