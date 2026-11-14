@@ -408,3 +408,28 @@ def test_g7_view_hidden_wall_squares_neighbour(real3d):
     actor = v._actors["walls"][0]
     vol = abs(pv.wrap(actor.GetMapper().GetInput()).volume)
     assert vol == pytest.approx(3000 * T * 3000, rel=1e-6)
+
+
+def test_g8_thermal_run_on_wall_solids(qapp, model_scene):
+    """Real consumer path (main.py): extract_surface_mesh -> compute."""
+    from firepro3d.thermal_radiation_solver import (
+        RadiationResult, StandardSurfaceRadiationModel, extract_surface_mesh)
+    from firepro3d.wall_opening import WallOpening
+    s = model_scene()
+    lm, sm = s._level_manager, s.scale_manager
+    a = _wall(s, (0, 0), (3000, 0))
+    b = _wall(s, (3000, 0), (3000, 3000))
+    blocker = _wall(s, (-2000, -2000), (5000, -2000))
+    op = WallOpening(wall=a, feature_id="door_914", offset_along=1500.0)
+    s.addItem(op); a.openings.append(op)
+    em = extract_surface_mesh(a, lm, sm)
+    rc = extract_surface_mesh(b, lm, sm)
+    bl = extract_surface_mesh(blocker, lm, sm)
+    assert em is not None and rc is not None and bl is not None
+    params = {"threshold": 12.5, "resolution_mm": 500.0,
+              "blocking_meshes": [bl]}
+    res = StandardSurfaceRadiationModel().compute([(a, em)], [(b, rc)], params)
+    assert isinstance(res, RadiationResult)
+    assert res.total_receiver_area > 0.0
+    assert b in res.per_receiver_mesh and b in res.per_receiver_flux
+    assert np.isfinite(res.max_radiation)
