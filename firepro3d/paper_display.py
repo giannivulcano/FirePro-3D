@@ -503,7 +503,8 @@ def set_project_line_weights(defs: list[LineWeightDef]) -> None:
 
 
 def reset_project_line_weights() -> None:
-    """Re-seed the project table from the template (New Project / old files).
+    """Re-seed the project table from the app's line-weight table in QSettings
+    (``load_line_weights()``) (New Project / old files).
 
     Also clears the rename aliases (they are project-scoped, LT2-8).
     """
@@ -908,26 +909,19 @@ def get_paper_display_for_save() -> dict:
     }
 
 
-# LW-DC-8: a pre-schema-2 file's pending merge, stashed by
-# ``apply_project_weights(stash=True)`` as the KIND of migration (``"table"``:
-# the file's own unstamped table; ``"tableless"``: a pre-LT1 file) and consumed
-# by ``apply_pending_weight_migration`` at the end of ``load_from_file``. The
-# ``(new_defs, mapping)`` itself is computed when used (``_pending_migration``),
-# never at stash time, so rows a mid-load library merge adds survive.
-_PENDING_LW_MIGRATION: "str | None" = None
-
-
-def _pending_migration() -> "tuple[list[LineWeightDef], dict[str, str]] | None":
-    """The ``(new_defs, mapping)`` of the stashed migration against the CURRENT
-    project table (None if nothing is stashed).
+def _pending_migration(kind: "str | None") -> "tuple[list[LineWeightDef], dict[str, str]] | None":
+    """The ``(new_defs, mapping)`` of a pending LW-DC-8 migration of *kind*
+    (``"table"`` / ``"tableless"``) against the CURRENT project table (None
+    when *kind* is None). Computed when used, never at stash time, so rows a
+    mid-load library merge adds survive.
 
     A table-less file can only hold pre-schema-2 names, so its mapping is the
     static legacy map (Default names included: an old "Medium" is 0.25 mm) --
     except the template's own Custom rows, which map to themselves.
     """
-    if _PENDING_LW_MIGRATION is None:
+    if kind is None:
         return None
-    if _PENDING_LW_MIGRATION == "tableless":
+    if kind == "tableless":
         table = project_line_weights()
         custom = {d.name for d in table if not is_default_weight(d.name)}
         mapping = {k: v for k, v in _STATIC_LEGACY_MAP.items() if k not in custom}
@@ -946,11 +940,11 @@ def _extend_mapping(mapping: dict[str, str]) -> dict[str, str]:
     return ext
 
 
-def pending_weight_mapping() -> dict[str, str]:
-    """The pending LW-DC-8 old-name -> new-name map (alias keys included), or
-    ``{}`` when nothing is stashed. The loader migrates payload records that
-    are built asynchronously (underlays) with this before they are created."""
-    pending = _pending_migration()
+def pending_weight_mapping(kind: "str | None") -> dict[str, str]:
+    """The LW-DC-8 old-name -> new-name map of a pending migration of *kind*
+    (alias keys included), or ``{}``. The loader migrates payload records
+    built asynchronously (underlays) with this before they are created."""
+    pending = _pending_migration(kind)
     return _extend_mapping(pending[1]) if pending is not None else {}
 
 
@@ -978,30 +972,33 @@ def _schema_current(data: dict) -> bool:
     return isinstance(v, int) and not isinstance(v, bool) and v >= LINE_WEIGHT_SCHEMA
 
 
-def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
+def apply_project_weights(data: dict | None, *, stash: bool = False) -> "str | None":
     """Install a project file's weight table, then its rename aliases.
 
-    Called at the top of ``load_from_file`` (before any definition / text
-    parse canonicalises weight names -- else the PREVIOUS project's aliases
-    would rewrite this file's names) and again by
-    ``apply_paper_display_from_project`` (same values; idempotent).
+    Called by ``project_tables.begin_load`` right after ``_clear_scene``
+    (before any definition / text parse canonicalises weight names -- else
+    the PREVIOUS project's aliases would rewrite this file's names) and again
+    by ``apply_paper_display_from_project`` (same values; idempotent).
 
     A schema-2 table installs with any missing Default added. A table with
     no ``line_weight_schema`` installs UNCHANGED (holders parse against it);
     with ``stash=True`` (the loader only) its LW-DC-8 merge-by-width is
-    stashed for ``apply_pending_weight_migration``. A table-less file takes
-    the template (and stashes a static-map migration: its old factory names map
-    by width, the template's Custom rows stay).
+    returned as the migration kind (``"table"`` / ``"tableless"``, else
+    None) for the load session. A table-less file takes the template (and
+    returns a static-map migration: its old factory names map by width, the
+    template's Custom rows stay).
+
+    Returns:
+        The pending migration kind, or None (always None without ``stash``).
     """
-    global _PENDING_LW_MIGRATION
     data = data if isinstance(data, dict) else {}
-    _PENDING_LW_MIGRATION = None
+    kind = None
     parsed = _parse_weight_list(data.get("line_weights"))
     current = _schema_current(data)
     if parsed is None:
         reset_project_line_weights()       # old file / no paper_display -> template
         if stash and not current:
-            _PENDING_LW_MIGRATION = "tableless"
+            kind = "tableless"
     elif current:
         set_project_line_weights(ensure_defaults(parsed))
         set_weight_aliases(data.get("line_weight_aliases"))
@@ -1009,12 +1006,13 @@ def apply_project_weights(data: dict | None, *, stash: bool = False) -> None:
         set_project_line_weights(parsed)   # never touches QSettings (LT1-3)
         set_weight_aliases(data.get("line_weight_aliases"))
         if stash:
-            _PENDING_LW_MIGRATION = "table"
+            kind = "table"
+    return kind
 
 
-def apply_pending_weight_migration(scene, paper_display: dict | None,
+def apply_pending_weight_migration(scene, kind: "str | None", paper_display: dict | None,
                                    display_settings: dict | None = None) -> bool:
-    """Run the stashed LW-DC-8 migration against the freshly loaded *scene*.
+    """Run the pending *kind* LW-DC-8 migration against the freshly loaded *scene*.
 
     Re-points every by-name holder through ``weight_refs.retarget_weight_refs``
     (alias keys follow their target), then installs the migrated table and
@@ -1029,9 +1027,7 @@ def apply_pending_weight_migration(scene, paper_display: dict | None,
     Returns:
         True if a migration ran.
     """
-    global _PENDING_LW_MIGRATION
-    pending = _pending_migration()      # against the table as it is NOW
-    _PENDING_LW_MIGRATION = None
+    pending = _pending_migration(kind)      # against the table as it is NOW
     if pending is None:
         return False
     import shutil

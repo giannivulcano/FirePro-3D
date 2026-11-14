@@ -39,8 +39,7 @@ def test_fpd_round_trip_and_open_never_writes_qsettings(qapp, tmp_path):
     pd.set_project_line_weights([LineWeightDef("Junk", 1.0)])
 
     ms2 = Model_Space()
-    ms2.load_from_file(path)
-    pd.apply_paper_display_from_project(ms2._loaded_paper_display)   # main._load_project path
+    ms2.load_from_file(path)                     # applies the paper display too
     assert pd.resolve_line_weight_mm("Site") == 0.40
     assert "Junk" not in pd.weight_names()
     assert QSettings("GV", "FirePro3D").value("paper/line_weights") == before

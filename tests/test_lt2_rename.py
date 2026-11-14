@@ -443,14 +443,13 @@ def _project_b_file(tmp_path):
 def test_open_ignores_previous_project_aliases(qapp, tmp_path):
     """C1: after renaming Heavy -> Bold in project A, opening project B
     (live Heavy) keeps B's names -- they resolve to Heavy's mm and re-save as
-    Heavy (main._apply_loaded_file order: load_from_file, then paper apply)."""
+    Heavy (load_from_file order: build, then the paper apply at its end)."""
     import json
     path, did = _project_b_file(tmp_path)
     _rename("Heavy", "Bold")                           # session = project A
     assert pd.weight_aliases() == {"Heavy": "Bold"}
     ms2 = Model_Space()
-    ms2.load_from_file(str(path))
-    pd.apply_paper_display_from_project(ms2._loaded_paper_display)
+    ms2.load_from_file(str(path))                      # applies the paper display too
     prims = ms2.block_registry.get(did).primitives
     assert prims[0]["style"]["weight"] == "Heavy"
     assert prims[1]["border_weight"] == "Heavy"

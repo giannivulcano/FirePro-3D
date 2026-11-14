@@ -3777,18 +3777,6 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # load_from_file replaced scene.scale_manager — re-seed open editors.
         self._sync_editor_units()
         self.level_widget.populate()
-        # Apply display settings: prefer project-embedded settings, fall back to QSettings
-        project_ds = getattr(self.scene, '_loaded_display_settings', None)
-        if project_ds:
-            from firepro3d.display_manager import apply_project_display_settings
-            apply_project_display_settings(self.scene, project_ds)
-        else:
-            from firepro3d.display_manager import apply_saved_display_settings
-            apply_saved_display_settings(self.scene)
-        # Apply paper-space display settings from project file
-        from firepro3d.paper_display import apply_paper_display_from_project
-        paper_ds = getattr(self.scene, '_loaded_paper_display', None)
-        apply_paper_display_from_project(paper_ds)
         # load_from_file baked cached-underlay pens against the PREVIOUS
         # project's weight table; re-pen now that the file's table is live.
         self._refresh_weight_canvases()
