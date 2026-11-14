@@ -58,7 +58,7 @@ def test_g9_l_scene_bar(qapp, model_scene):
 def test_g9_pie_grid(qapp, model_scene):
     s, walls = _scene_pies(model_scene)
     assert len(walls) == 200
-    assert any(len(ends) >= 2 for w in walls
+    assert any(len(ends) >= 3 for w in walls                # a 4-way end
                for ends in w._join_ends()["partners"])
     _per_wall_ms(s, walls)
     ms = _per_wall_ms(s, walls)

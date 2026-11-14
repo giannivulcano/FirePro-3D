@@ -40,7 +40,7 @@ boolean, non-manifold output, wrong volumes).
 | Q5 | Walls + wall openings only. Floors and roofs untouched. |
 | Q6 | Thermal results may change; thermal code untouched. Guard: the mesh dict contract holds and a thermal run completes. |
 | Q7 | Edge lines match plan: no seam inside a joined junction; stops draw their seam; top/bottom outline, outside verticals and reveal edges draw. |
-| Q8 | Perf bar <= 1.5 ms per wall with 2 openings (base 0.73 ms at `2509b668`, 200 L-joined walls); second bench = pie-junction grid; interleaved base/HEAD pairs on an idle host after smoke. |
+| Q8 | Perf bar <= 5 ms per wall with 2 openings (re-set by the user 2026-11-14 in Phase 5 from the grilled 1.5 ms, which manifold3d alone - about 1-1.5 ms per wall - cannot meet; base 0.73 ms at `2509b668`, 200 L-joined walls); second bench = pie-junction grid, measured only; interleaved base/HEAD pairs on an idle host after smoke. |
 | Q9 | 3D has its own join pool = walls the 3D view shows. |
 | Q10 | Guards G1-G9 (Acceptance Criteria). |
 
@@ -60,10 +60,15 @@ mesher: a second path would need parity guards for nothing.
 
 `View3D._extract_walls` builds the pool once per rebuild: every wall in
 `scene._walls` that passes `View3D._is_visible` (the `_display_overrides`
-`visible` flag). It is passed as `wall.get_3d_mesh(level_manager, pool=...)`.
-With no pool (other callers, e.g. the selection highlight), the wall builds the
-same pool itself. The plan pool (`_join_pool`, `isVisible()` for the active plan
-view) is never used in 3D.
+`visible` flag). From it, `join_neighbourhoods(pool)` (`wall.py`) computes
+each wall's join ring once per rebuild - the walls whose reach box (end points
+grown by 2 x half thickness + `MITER_TOL`) overlaps the wall's own or a
+first-ring wall's - and each wall gets its ring as
+`wall.get_3d_mesh(level_manager, pool=ring)`; the ring gives the same mesh as
+the whole pool (D9). The view keeps the rings until the next rebuild and the
+selection highlight passes the cached ring. With no pool (the thermal extract),
+the wall builds its own ring from `pool_3d()` (`join_ring`). The plan pool
+(`_join_pool`, `isVisible()` for the active plan view) is never used in 3D.
 
 ### D3 - `_join_ends(extra=None, pool=None)` (GENERALIZE)
 
@@ -132,9 +137,11 @@ degenerate contract; the view skips it).
 
 ### D9 - Performance
 
-No caching this run; `View3D` rebuild triggers unchanged (view-3d spec §2.3).
-If G9 misses the bar, the first lever (asked before building) is reusing the
-cached plan body when a single band's members equal the plan pool.
+No mesh caching; `View3D` rebuild triggers unchanged (view-3d spec §2.3).
+As built, the first G9 run showed the cost was not meshing but every wall
+re-scanning the whole pool on each join query (O(n^2), 27-57 ms per wall); the
+lever shipped is the per-rebuild join ring (D2), not the cached-plan-body reuse
+first named here. Measured: L scene about 3 ms per wall, pie grid about 5 ms.
 
 ## Acceptance Criteria
 
@@ -160,7 +167,9 @@ Every guard drives the real `get_3d_mesh` / `View3D._extract_walls` with real
 - [ ] **G8** Mesh dict contract (keys, types) holds and a thermal run on a
   sample model completes. RED: a dict key removed.
 - [ ] **G9** Perf marker, two bench shapes (200 L-joined walls x 2 openings,
-  bar <= 1.5 ms/wall; pie-junction grid, no openings), interleaved base/HEAD.
+  bar <= 5 ms/wall; pie-junction grid with 4-way ends, no openings, measured
+  only), interleaved base/HEAD. Plus: the ring gives the whole-pool mesh
+  (parity guard) and the selection highlight reuses the rebuild's ring.
 - [ ] User smoke in the real 3D tab: mitred L, pies, tees, stops, mixed heights,
   openings near a corner, hidden-wall toggle.
 

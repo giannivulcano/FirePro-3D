@@ -484,3 +484,62 @@ def test_join_neighbourhood_parity(qapp, model_scene):
         assert _mesh_key(w.get_3d_mesh(level_manager=lm,
                                        pool=rings[id(w)])) == full
         assert _mesh_key(w.get_3d_mesh(level_manager=lm)) == full
+
+def test_g4_third_wall_keeps_mitre_above_short_wall(qapp, model_scene):
+    """G4: above the short wall's top the tall wall still mitres against a
+    third wall present there -- its band body is the plan body it has
+    with that third wall alone."""
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0), top=3000.0)
+    _wall(s, (3000, 0), (3000, 3000), top=2000.0)          # short
+    _wall(s, (3000, 0), (3000, -3000), top=3000.0)         # third, full height
+    bands = a._solid_bands(a.pool_3d(), s._level_manager)
+    assert [(z0, z1) for _b, z0, z1, _e in bands] == [(0.0, 2000.0),
+                                                      (2000.0, 3000.0)]
+    s2 = model_scene()
+    a2 = _wall(s2, (0, 0), (3000, 0))
+    _wall(s2, (3000, 0), (3000, -3000))
+    exp = {(round(p.x(), 6), round(p.y(), 6)) for p in a2.outline_geometry().body}
+    got = {(round(p.x(), 6), round(p.y(), 6)) for p in bands[1][0]}
+    assert got == exp
+    square = {(round(p.x(), 6), round(p.y(), 6)) for p in a.quad_points()}
+    assert got != square                                    # not square
+    m = _mesh(a, s)
+    assert _closed(m)
+
+
+def test_g6_no_pie_spoke_in_top_outline(qapp, model_scene):
+    """G6: a 4-way pie draws no spoke from the junction centre."""
+    L = 2000.0
+    s = model_scene()
+    a = _wall(s, (0, 0), (L, 0))
+    for p2 in ((0, L), (-L, 0), (0, -L)):
+        _wall(s, (0, 0), p2)
+    assert len(a._join_ends(pool=a.pool_3d())["partners"][0]) == 3
+    top = _segs2d(_mesh(a, s)["edges"], 3000.0)
+    assert top
+    h = T / 4                        # midpoints of the spokes to (T/2, +-T/2)
+    for mid in ((h, h), (h, -h), (0.0, 0.0)):
+        assert not any(_on_segment(mid, p, q) for p, q in top)
+
+
+def test_highlight_reuses_rebuild_ring(real3d, monkeypatch):
+    """G9: the selection highlight meshes a wall with the ring cached by
+    the last rebuild, not a fresh scan of every wall."""
+    from firepro3d.wall import WallSegment
+    ms, v = real3d
+    a = _wall(ms, (0, 0), (3000, 0))
+    _wall(ms, (3000, 0), (3000, 3000))
+    _wall(ms, (20000, 0), (23000, 0))                      # far away
+    v.rebuild()
+    seen = []
+    orig = WallSegment.get_3d_mesh
+
+    def spy(self, level_manager=None, pool=None):
+        seen.append(pool)
+        return orig(self, level_manager, pool)
+    monkeypatch.setattr(WallSegment, "get_3d_mesh", spy)
+    v._highlight_mesh_selection([a])
+    assert len(seen) == 1
+    assert seen[0] is v._wall_rings[id(a)][1]
+    assert len(v._actors["sel_overlay"]) == 1

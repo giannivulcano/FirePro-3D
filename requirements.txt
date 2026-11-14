@@ -12,6 +12,8 @@ scipy>=1.14
 # 3D view (hard-imported at startup by firepro3d/view_3d.py — required to launch)
 pyvista>=0.44
 pyvistaqt>=0.11
+# exact wall solids: imported at module level by firepro3d/wall.py (via
+# wall_solid.py), so no scene -- headless included -- loads without it
 manifold3d>=3.5
 vtk>=9.3
 

@@ -1218,15 +1218,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Args:
             level_manager: Resolves the base / top levels to z.
             pool: The 3D join pool. It must hold this wall's
-                ``join_neighbourhoods`` ring (the view passes exactly that);
-                walls beyond it are ignored at a cost. None: this wall's
-                ring within ``pool_3d()``.
+                ``join_neighbourhoods`` ring (the view passes exactly that):
+                a narrower pool can change joins and edges (a wrong mesh);
+                walls beyond the ring only cost time. None: this wall's
+                ring within ``pool_3d()`` (``join_ring``).
 
         Returns:
             ``{"vertices", "faces", "color", "edges"}`` or None (degenerate).
         """
         if pool is None:
-            pool = join_neighbourhoods([self, *self.pool_3d()])[id(self)]
+            pool = join_ring(self, self.pool_3d())
         else:
             pool = [w for w in pool if w is not self]
         bands = self._solid_bands(pool, level_manager)
@@ -2051,3 +2052,18 @@ def join_neighbourhoods(walls) -> dict[int, list[WallSegment]]:
         keep.discard(id(w))
         out[id(w)] = [by_id[i] for i in sorted(keep, key=order.__getitem__)]
     return out
+
+
+def _boxes_overlap(a, b) -> bool:
+    return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
+
+
+def join_ring(wall: WallSegment, pool) -> list[WallSegment]:
+    """*wall*'s ``join_neighbourhoods`` ring within *pool*, built for that
+    wall alone: one box per pool wall instead of every wall's ring, for
+    callers meshing one wall (selection highlight, thermal extract)."""
+    mine = _reach_box(wall)
+    boxes = [(w, _reach_box(w)) for w in pool if w is not wall]
+    first = [b for _w, b in boxes if _boxes_overlap(mine, b)]
+    return [w for w, b in boxes
+            if any(_boxes_overlap(f, b) for f in first)]

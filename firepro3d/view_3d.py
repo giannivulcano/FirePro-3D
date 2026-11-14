@@ -123,6 +123,9 @@ class View3D(QWidget):
 
         # Wall / slab / roof pick maps
         self._wall_refs: list[WallSegment] = []
+        # id(wall) -> (wall, its join ring) from the last _extract_walls,
+        # reused by the selection highlight (G9)
+        self._wall_rings: dict[int, tuple] = {}
         self._slab_refs: list[FloorSlab] = []
         self._roof_refs: list = []
         self._wall_centroids_3d: np.ndarray | None = None
@@ -936,6 +939,7 @@ class View3D(QWidget):
         self._clear_actors("walls")
         self._clear_actors("wall_edges")
         self._wall_refs.clear()
+        self._wall_rings = {}
         self._original_wall_colors.clear()
 
         scene_obj = self._scene
@@ -947,6 +951,7 @@ class View3D(QWidget):
         pool = [w for w in getattr(scene_obj, "_walls", [])
                 if self._is_visible(w)]
         rings = join_neighbourhoods(pool)       # once per rebuild (G9)
+        self._wall_rings = {id(w): (w, rings[id(w)]) for w in pool}
         for wall in pool:
             mesh_data = wall.get_3d_mesh(level_manager=lm, pool=rings[id(wall)])
             if mesh_data is None:
@@ -1631,7 +1636,9 @@ class View3D(QWidget):
             log.debug("highlight: processing %s, has _roof_type=%s, has get_3d_mesh=%s",
                       type(sel).__name__, hasattr(sel, '_roof_type'), hasattr(sel, 'get_3d_mesh'))
             if isinstance(sel, WallSegment):
-                mesh_data = sel.get_3d_mesh(level_manager=lm)
+                cached = self._wall_rings.get(id(sel))
+                ring = cached[1] if cached and cached[0] is sel else None
+                mesh_data = sel.get_3d_mesh(level_manager=lm, pool=ring)
             elif isinstance(sel, FloorSlab):
                 mesh_data = sel.get_3d_mesh(level_manager=lm)
             elif hasattr(sel, 'get_3d_mesh'):
