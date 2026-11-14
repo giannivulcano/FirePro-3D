@@ -1114,6 +1114,14 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 and (getattr(w, "_display_overrides", None) or {}).get(
                     "visible") is not False]
 
+    def _band_neighbours(self, e: dict, members) -> list["WallSegment"]:
+        """Walls joined, hosting or teeing into this wall in a band (*e* is
+        its ``_join_ends`` over *members*)."""
+        nbrs = [o for o, _ep in e["partners"][0] + e["partners"][1]]
+        nbrs += [h for h in e["hosts"] if h is not None]
+        nbrs += self._tee_guests(members)
+        return nbrs
+
     def _solid_bands(self, pool, level_manager) -> list[tuple]:
         """``[(body, z0, z1, e)]`` per height band (D4), identical bands merged.
 
@@ -1121,6 +1129,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         host and tee guest reached through *pool*; each band joins only the
         pool walls whose span covers the band's mid height.
         """
+        pool = [w for w in pool if w is not self]
         z0, z1 = self.z_span_mm(level_manager)
         if z1 - z0 < 1.0:
             return []
@@ -1142,7 +1151,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                        if spans[id(w)][0] <= zm <= spans[id(w)][1]]
             e = self._join_ends(pool=members)
             body, _u = self._body_polygons(e)
-            key = [(round(p.x(), 6), round(p.y(), 6)) for p in body]
+            # Merge only when the body AND the walls joined/unioned for the
+            # edges are equal: a neighbour that ends mid-wall must keep its
+            # own band so the outline above it is drawn without its union.
+            key = ([(round(p.x(), 6), round(p.y(), 6)) for p in body],
+                   frozenset(id(n) for n in self._band_neighbours(e, members)))
             if out and out[-1][4] == key:
                 out[-1] = (out[-1][0], out[-1][1], zb, out[-1][3], key)
             else:
@@ -1163,9 +1176,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     def _opening_cuts(self, level_manager) -> list[tuple]:
         """Per opening: the plan gap rect (width x full thickness, as
-        ``WallOpening._gap_rect`` draws it: centred on ``center_on_wall()``,
-        measured along from ``centerline_pt1``) in scene coords, sill..head
-        clamped to the wall's span (D5): ``[(QPointF x4, z0, z1)]``."""
+        ``WallOpening._gap_rect`` draws it, measured along from
+        ``centerline_pt1``) centred on the wall axis, in scene coords,
+        sill..head clamped to the wall's span (D5):
+        ``[(QPointF x4, z0, z1)]``."""
         base_z, top_z = self.z_span_mm(level_manager)
         a, b = self.centerline_pt1, self.centerline_pt2
         length = math.hypot(b.x() - a.x(), b.y() - a.y())
@@ -1181,8 +1195,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         out = []
         for op in self.openings:
             half_w = (op._width_mm / mm_per_scene) / 2.0
-            c = op.center_on_wall()
-            cx, cy = c.x(), c.y()
+            # On the wall axis: the cut is full thickness, so the opening's
+            # cross offset / alignment shift (D5, Q4) does not move it.
+            cx = a.x() + ux * op._offset_along
+            cy = a.y() + uy * op._offset_along
             z0 = max(base_z, base_z + op._sill_mm)
             z1 = min(top_z, base_z + op._sill_mm + op._height_mm)
             if z1 <= z0:
@@ -1202,8 +1218,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Returns:
             ``{"vertices", "faces", "color", "edges"}`` or None (degenerate).
         """
-        if pool is None:
-            pool = self.pool_3d()
+        pool = self.pool_3d() if pool is None else [
+            w for w in pool if w is not self]
         bands = self._solid_bands(pool, level_manager)
         if not bands:
             return None
@@ -1224,6 +1240,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     def _solid_edges(self, bands, cuts, pool, level_manager) -> list:
         """3D edge segments in mm following the plan outline rule (D7)."""
+        pool = [w for w in pool if w is not self]
         to_mm = self._to_mm()
         tol = WALL_OUTLINE_ON_EDGE_TOL
 
@@ -1237,9 +1254,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             members = [w for w in pool
                        if spans[id(w)][0] <= zm <= spans[id(w)][1]]
             _b, union = self._body_polygons(e)
-            nbrs = [o for o, _ep in e["partners"][0] + e["partners"][1]]
-            nbrs += [h for h in e["hosts"] if h is not None]
-            nbrs += self._tee_guests(members)
+            nbrs = self._band_neighbours(e, members)
             polys = [union]
             for n in nbrs:
                 ne = n._join_ends(pool=[m for m in members if m is not n] + [self])
@@ -1274,8 +1289,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 out.append(((ax, ay, z), (bx, by, z)))
         verts: dict = {}
         for z0, z1, _p, corners in per_band:
-            for x, y in corners:
-                k = (round(x, 3), round(y, 3))
+            uniq = {(round(x, 3), round(y, 3)) for x, y in corners}
+            for k in sorted(uniq):
                 if k in verts and abs(verts[k][1] - z0) < 1e-6:
                     verts[k] = (verts[k][0], z1)
                 else:

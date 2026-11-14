@@ -272,3 +272,85 @@ def test_clip_depth_pulls_corners_to_faces():
     rect = [(1, -1), (2, -1), (2, 201), (1, 201)]
     poly = [(0, 0), (10, 0), (10, 200), (0, 200)]
     assert clip_depth(rect, poly) == [(1.0, 0.0), (2.0, 0.0), (2.0, 200.0), (1.0, 200.0)]
+
+
+@pytest.mark.parametrize("align", ["Centered", "Flush-front", "Flush-back"])
+def test_cut_on_axis_for_any_alignment(qapp, model_scene, align):
+    """D5/Q4: the cut is full thickness on the wall axis; the opening's
+    alignment/cross offset shifts its plan symbol but not the cut."""
+    from firepro3d.wall_opening import WallOpening
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0))
+    op = WallOpening(wall=a, feature_id="door_914", offset_along=1500.0)
+    op.alignment = align
+    s.addItem(op); a.openings.append(op)
+    op._reposition()
+    m = _mesh(a, s)
+    exp = 3000 * T * 3000 - op._width_mm * T * (
+        op._sill_mm + op._height_mm - op._sill_mm)
+    assert _closed(m)
+    assert _vol(m) == pytest.approx(exp, rel=1e-9)
+
+
+def test_get_3d_mesh_excludes_self_from_pool(qapp, model_scene):
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0))
+    _wall(s, (3000, 0), (3000, 3000))
+    want = _vol(_mesh(a, s))
+    assert _vol(_mesh(a, s, pool=list(s._walls))) == pytest.approx(want, rel=1e-12)
+    bands = a._solid_bands(list(s._walls), s._level_manager)
+    assert _area(bands[0][0]) == pytest.approx(_area(a.outline_geometry().body),
+                                               rel=1e-9)
+
+
+def test_band_keeps_member_set_across_mid_span_stub(qapp, model_scene):
+    """A tee stub shorter than its host splits the host's bands even though
+    the host body is identical, so the top outline above the stub is drawn."""
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0), top=3000.0)
+    _wall(s, (1500, 0), (1500, 2000), top=2000.0)
+    bands = a._solid_bands(a.pool_3d(), s._level_manager)
+    assert [(z0, z1) for _b, z0, z1, _e in bands] == [(0.0, 2000.0), (2000.0, 3000.0)]
+    m = _mesh(a, s)
+    assert _closed(m)
+    assert _vol(m) == pytest.approx(3000 * T * 3000, rel=1e-9)
+    top = _segs2d(m["edges"], 3000.0)
+    for x in (1400.0, 1450.0, 1500.0, 1550.0, 1600.0):
+        for y in (-T / 2, T / 2):
+            assert any(_on_segment((x, y), p, q) for p, q in top), (x, y)
+    # z = 2000 (D7.2): band-below pieces XOR band-above pieces -- only the
+    # host face the stub stands on (y = -100, the stub's width) differs.
+    mid = _segs2d(m["edges"], 2000.0)
+    assert mid
+    assert all(abs(p[1] + T / 2) < 1e-3 and abs(q[1] + T / 2) < 1e-3
+               and 1400.0 - 1e-3 <= min(p[0], q[0])
+               and max(p[0], q[0]) <= 1600.0 + 1e-3 for p, q in mid), mid
+
+
+def test_no_duplicate_edges_mixed_height_l(qapp, model_scene):
+    s = model_scene()
+    _wall(s, (0, 0), (3000, 0), top=3000.0)
+    b = _wall(s, (3000, 0), (3000, 3000), top=2000.0)
+    edges = _mesh(b, s)["edges"]
+    keys = [tuple(sorted((tuple(round(c, 3) for c in p),
+                          tuple(round(c, 3) for c in q)))) for p, q in edges]
+    assert len(keys) == len(set(keys))
+
+
+def test_calibrated_scene_cut_exact_mm(qapp, model_scene):
+    from firepro3d.wall_opening import WallOpening
+    s = model_scene()
+    s.scale_manager.calibrate(QPointF(0, 0), QPointF(200, 0), 100.0)  # 2 px/mm
+    ppm = s.scale_manager.pixels_per_mm
+    assert ppm == pytest.approx(2.0)
+    a = _wall(s, (0, 0), (3000 * ppm, 0))
+    op = WallOpening(wall=a, feature_id="door_914", offset_along=1500.0 * ppm)
+    s.addItem(op); a.openings.append(op)
+    op._reposition()
+    m = _mesh(a, s)
+    hw = op._width_mm / 2
+    exp = 3000 * T * 3000 - op._width_mm * T * op._height_mm
+    assert _closed(m) and _vol(m) == pytest.approx(exp, rel=1e-9)
+    jx = {round(a3[0], 3) for a3, b3 in m["edges"]
+          if abs(a3[0] - b3[0]) < 1e-6 and abs(a3[1] - b3[1]) < 1e-6}
+    assert {round(1500 - hw, 3), round(1500 + hw, 3)} <= jx
