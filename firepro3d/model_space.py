@@ -820,7 +820,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         A hit is returned only while it is in this scene and still carries
         *uid*. A miss rebuilds the index once; a confirmed miss is memoized
         until the next add / remove, so a dangling host never rebuilds per
-        paint.
+        paint. At most one rebuild runs per ``_uid_gen``: after it, every
+        further miss at that generation is final. Invariant: every path that
+        gives a scene item a uid after ``addItem`` (a late ``_uid`` retag, a
+        uid-bearing child joining by ``setParentItem``) must bump
+        ``_uid_gen`` (or go through ``_uid_reindex``).
 
         Args:
             uid: An element uid (anything else -> None).
