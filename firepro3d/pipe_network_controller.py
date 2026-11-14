@@ -541,6 +541,9 @@ class PipeNetworkController:
 
         # Remove orphaned start_node
         if len(start_node.pipes) == 0:
+            from . import hosted_dependents
+            for b in hosted_dependents.cascade(self._scene, [start_node]):   # SB5 D6
+                self._scene.remove_block_instance(b)   # SB5 D6 collinear
             self._scene.sprinkler_system.remove_node(start_node)
             self._scene.removeItem(start_node)
 

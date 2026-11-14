@@ -155,9 +155,10 @@ class SectionManager(QObject):
 
         Args:
             name: The section's name.
-            notes: Also remove its Notes (elevation-parity D4) inside the
-                caller's undo step. ``restore_from_list`` passes False: an undo
-                restore has already restored the blocks as they were.
+            notes: Also remove its Notes (elevation-parity D4) and its hosted
+                dependents (SB5 D6) inside the caller's undo step.
+                ``restore_from_list`` passes False: an undo restore has already
+                restored the blocks as they were.
         """
         key = self._key(name)
         m = self.markers.get(key)
@@ -170,6 +171,9 @@ class SectionManager(QObject):
         if notes:
             from .note_controller import remove_notes
             remove_notes(self._ms, f"section:{m.view_name}")
+            from . import hosted_dependents
+            for b in hosted_dependents.cascade(self._ms, [m]):   # SB5 D6 (restore passes notes=False)
+                self._ms.remove_block_instance(b)   # SB5 D6 section delete
         if m.scene() is self._ms:
             self._ms.removeItem(m)
         self.sectionsChanged.emit()

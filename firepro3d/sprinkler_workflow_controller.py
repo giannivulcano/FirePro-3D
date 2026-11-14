@@ -130,6 +130,15 @@ class SprinklerWorkflowController:
 
         # Remove existing sprinklers in this room before placing new ones
         existing = room._detect_sprinklers()
+        # SB5 D6 / Q14a: the replaced heads (and any node leaving with its head)
+        # take their dependents and design-area membership along. The list is
+        # passed explicitly: cascade never relies on scene membership (the
+        # re-populate ghost head, SB5 plan Task 1).
+        from . import hosted_dependents
+        doomed = list(existing) + [s.node for s in existing
+                                   if s.node is not None and not s.node.pipes]
+        for b in hosted_dependents.cascade(self._scene, doomed):
+            self._scene.remove_block_instance(b)   # SB5 D6 re-populate
         for spr in existing:
             node = spr.node
             if node is not None:

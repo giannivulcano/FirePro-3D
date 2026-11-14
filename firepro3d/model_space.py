@@ -1078,11 +1078,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         # Single scene refresh after all removals
         self.update()
-        if n_hosted:
-            self._show_status(f"Deleted gridline {', '.join(gl_names)} and "
-                              f"{n_hosted} hosted block(s)")
-        else:
-            self._show_status(f"Deleted {len(selected)} item(s)")
+        self._show_status(hosted_dependents.cascade_status(
+            "Deleted", len(selected), gl_names, n_hosted))   # SB5 Q13
         self.push_undo_state()
 
     def _bulk_delete(self, selected, selected_set):
@@ -1093,16 +1090,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         Cut) gets it in the same undo step.
 
         Returns:
-            ``(names, count)``: labels of the gridlines that hosted blocks and
-            the number of hosted blocks removed by the cascade.
+            ``(names, count)``: labels of the gridlines whose hosted blocks
+            went (empty when any element-bound dependent went too, SB5 Q13),
+            and the number of dependents the cascade removed.
         """
         from .gridline import GridlineItem
         gls = [g for g in selected
                if isinstance(g, GridlineItem) and g in self._gridlines]
-        hosted = [(g, [b for b in self.hosted_blocks_on(g)
-                       if b not in selected_set]) for g in gls]
-        cascade = [b for _, bs in hosted for b in bs]
-        names = [g.grid_label for g, bs in hosted if bs]
+        # SB5 D6: every host removed here -- the selection plus what goes with
+        # it (a wall's / slab's openings, a node's pipes and head) -- takes its
+        # hosted dependents (gridline-hosted and element-bound blocks) and its
+        # design-area membership along, inside the caller's undo step.
+        doomed = list(selected)
+        for it in selected:
+            if isinstance(it, (WallSegment, FloorSlab)):
+                doomed.extend(it.openings)
+            elif isinstance(it, Node):
+                doomed.extend(it.pipes)
+                if it.has_sprinkler():
+                    doomed.append(it.sprinkler)
+        cascade = hosted_dependents.cascade(self, doomed)
+        grid_uids = {g._uid for g in gls}
+        names = [g.grid_label for g in gls
+                 if any(b.host and b.host.get("gridline") == g._uid for b in cascade)]
         selected = list(selected) + cascade
         selected_set = set(selected_set) | set(cascade)
         # Collect all pipes and nodes for batch removal from sprinkler_system
@@ -1222,6 +1232,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     self.removeItem(node)
             except RuntimeError:
                 pass
+
+        # Orphaned nodes (pass 3) are removed hosts too (SB5 D6).
+        doomed_set = set(doomed)
+        for b in hosted_dependents.cascade(
+                self, [n for n in nodes_to_remove if n not in doomed_set]):
+            if b not in selected_set:
+                self.remove_block_instance(b)
+                cascade.append(b)
+                selected_set.add(b)
+        if any(not (b.host and b.host.get("gridline") in grid_uids) for b in cascade):
+            names = []          # an element-bound dependent went too: Q13 generic wording
 
         # ── Batch cleanup of sprinkler_system lists ───────────────────────
         ss = self.sprinkler_system
