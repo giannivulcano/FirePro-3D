@@ -32,7 +32,7 @@ from .geometry_2d import (
 )
 from .gridline import GridlineItem
 from .water_supply import WaterSupply
-from .wall import WallSegment
+from .wall import WallSegment, join_neighbourhoods
 from .floor_slab import FloorSlab
 from .view_cube import ViewCube
 from .theme import detect, theme_bus
@@ -946,9 +946,9 @@ class View3D(QWidget):
         centroids = []
         pool = [w for w in getattr(scene_obj, "_walls", [])
                 if self._is_visible(w)]
+        rings = join_neighbourhoods(pool)       # once per rebuild (G9)
         for wall in pool:
-            mesh_data = wall.get_3d_mesh(
-                level_manager=lm, pool=[w for w in pool if w is not wall])
+            mesh_data = wall.get_3d_mesh(level_manager=lm, pool=rings[id(wall)])
             if mesh_data is None:
                 continue
             verts = np.array(mesh_data["vertices"], dtype=np.float32)

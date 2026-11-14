@@ -433,3 +433,54 @@ def test_g8_thermal_run_on_wall_solids(qapp, model_scene):
     assert res.total_receiver_area > 0.0
     assert b in res.per_receiver_mesh and b in res.per_receiver_flux
     assert np.isfinite(res.max_radiation)
+
+
+def _mesh_key(m):
+    if m is None:
+        return None
+    pts = sorted(tuple(round(c, 6) for c in v) for v in m["vertices"])
+    segs = sorted(tuple(sorted(tuple(round(c, 6) for c in p) for p in seg))
+                  for seg in m["edges"])
+    return pts, len(m["faces"]), segs
+
+
+def _parity_scene(s):
+    """Pies, an off-axis tee, a mixed-height L, a face-aligned host with a
+    tee into its body, and an opening -- every join kind the ring feeds."""
+    from firepro3d.wall_opening import WallOpening
+    walls = []
+    for i in range(3):
+        for j in range(3):
+            x, y = i * 4000.0, j * 4000.0
+            walls.append(_wall(s, (x, y), (x + 4000, y)))
+            walls.append(_wall(s, (x, y), (x, y + 4000)))
+    walls.append(_wall(s, (2000, 90), (2000, 1500)))           # off-axis tee
+    walls.append(_wall(s, (0, 0), (0, -3000), top=2000.0))     # mixed height
+    host = _wall(s, (0, 20000), (3000, 20000))
+    host._alignment = "Left"                                   # body off the line
+    host.invalidate_geometry()
+    walls.append(host)
+    walls.append(_wall(s, (1500, 20100), (1500, 22000)))
+    walls.append(_wall(s, (1500, 19900), (1500, 18000)))
+    op = WallOpening(wall=walls[0], feature_id="door_914", offset_along=3800.0)
+    s.addItem(op); walls[0].openings.append(op)
+    return walls
+
+
+def test_join_neighbourhood_parity(qapp, model_scene):
+    """G9 fix: the ring pool gives the same mesh as the whole pool."""
+    from firepro3d.wall import join_neighbourhoods
+    s = model_scene()
+    walls = _parity_scene(s)
+    lm = s._level_manager
+    rings = join_neighbourhoods(walls)
+    assert max(len(r) for r in rings.values()) < len(walls) - 1   # it filters
+    hosted = [w for w in walls if any(w._join_ends(
+        pool=[o for o in walls if o is not w])["hosts"])]
+    assert len(hosted) >= 2              # precondition: the tees really tee
+    for w in walls:
+        full = _mesh_key(w.get_3d_mesh(level_manager=lm, pool=walls))
+        assert full is not None
+        assert _mesh_key(w.get_3d_mesh(level_manager=lm,
+                                       pool=rings[id(w)])) == full
+        assert _mesh_key(w.get_3d_mesh(level_manager=lm)) == full

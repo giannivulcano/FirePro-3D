@@ -1215,11 +1215,20 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Bands of the plan body joined against *pool* (default ``pool_3d()``),
         minus the opening cuts; ``edges`` follow the plan outline rule (D7).
 
+        Args:
+            level_manager: Resolves the base / top levels to z.
+            pool: The 3D join pool. It must hold this wall's
+                ``join_neighbourhoods`` ring (the view passes exactly that);
+                walls beyond it are ignored at a cost. None: this wall's
+                ring within ``pool_3d()``.
+
         Returns:
             ``{"vertices", "faces", "color", "edges"}`` or None (degenerate).
         """
-        pool = self.pool_3d() if pool is None else [
-            w for w in pool if w is not self]
+        if pool is None:
+            pool = join_neighbourhoods([self, *self.pool_3d()])[id(self)]
+        else:
+            pool = [w for w in pool if w is not self]
         bands = self._solid_bands(pool, level_manager)
         if not bands:
             return None
@@ -1994,3 +2003,51 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         d_l = math.hypot(ref.x() - face_l.x(), ref.y() - face_l.y())
         d_r = math.hypot(ref.x() - face_r.x(), ref.y() - face_r.y())
         return face_l if d_l <= d_r else face_r
+
+
+def _reach_box(wall: WallSegment) -> tuple[float, float, float, float]:
+    """Scene box bounding every join reach of *wall* (3D join neighbourhood).
+
+    The end points grown by twice the half thickness plus ``MITER_TOL``:
+    an aligned centerline sits at most one half thickness off the
+    ``_pt1``-``_pt2`` line, so the box holds both faces, the centerline,
+    and every endpoint-partner, tee-host and tee-guest reach.
+    """
+    r = 2.0 * wall.half_thickness_scene() + MITER_TOL
+    a, b = wall._pt1, wall._pt2
+    return (min(a.x(), b.x()) - r, min(a.y(), b.y()) - r,
+            max(a.x(), b.x()) + r, max(a.y(), b.y()) + r)
+
+
+def join_neighbourhoods(walls) -> dict[int, list[WallSegment]]:
+    """Per wall (keyed by ``id``): the 3D join pool it needs.
+
+    The walls whose reach box overlaps its own (first ring) or a first-ring
+    wall's (second ring): ``get_3d_mesh`` joins against the first ring and
+    its edge pass re-joins each neighbour, which reads that neighbour's
+    first ring. Passing this ring instead of every wall gives the same mesh
+    without the per-wall scan of the whole pool (G9). Sort-and-sweep on x;
+    each list keeps the order of *walls*.
+    """
+    walls = list(walls)
+    order = {id(w): i for i, w in enumerate(walls)}
+    boxes = [(_reach_box(w), w) for w in walls]
+    boxes.sort(key=lambda bw: bw[0][0])
+    ring1: dict[int, set[int]] = {id(w): set() for w in walls}
+    active: list = []
+    for box, w in boxes:
+        active = [(b, o) for b, o in active if b[2] >= box[0]]
+        for b, o in active:
+            if b[1] <= box[3] and box[1] <= b[3]:
+                ring1[id(w)].add(id(o))
+                ring1[id(o)].add(id(w))
+        active.append((box, w))
+    by_id = {id(w): w for w in walls}
+    out: dict[int, list[WallSegment]] = {}
+    for w in walls:
+        keep = set(ring1[id(w)])
+        for o in ring1[id(w)]:
+            keep |= ring1[o]
+        keep.discard(id(w))
+        out[id(w)] = [by_id[i] for i in sorted(keep, key=order.__getitem__)]
+    return out
