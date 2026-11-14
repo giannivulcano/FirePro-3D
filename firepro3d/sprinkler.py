@@ -42,6 +42,9 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
 
         if node is not None:
             self.setParentItem(node)
+            sc = node.scene()                  # SB5: a child joining by setParentItem
+            if sc is not None and hasattr(sc, "_uid_gen"):    # never reaches addItem: drop
+                sc._uid_gen += 1               # a memoized element_by_uid miss
             self.setZValue(Z_SPRINKLER)
             # No ItemIgnoresTransformations — the block is real size (scales with zoom)
 

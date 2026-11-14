@@ -133,3 +133,39 @@ def door_scene(ms):
     w.openings.append(op)
     ms.addItem(op)
     return op
+
+
+def bound_def(ms, category, keys, name=None):
+    """A registered block definition whose texts ``@[K]`` bind host keys
+    (*keys*: {attr key: host key}) of element *category* -- the
+    tests/test_sb2a_binding.py / tests/test_sb3_parity.py definition shape."""
+    from firepro3d.block_attributes import normalise_attr
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.geometry_2d import LineItem
+    prims = [LineItem(QPointF(0, 0), QPointF(20, 0)).to_dict()]
+    prims += [{"type": "text", "text": "@[" + k + "]", "x": 0.0, "y": -10.0 * i,
+               "height_mm": 5.0, "angle": 0.0} for i, k in enumerate(keys)]
+    d = BlockDefinition.new(name=name or category + "Tag", library="", series="",
+                            origin=(0.0, 0.0), primitives=prims)
+    d.attributes = [normalise_attr({"key": k, "source": "host", "host_key": hk})
+                    for k, hk in keys.items()]
+    d.host_category = category
+    ms.register_block_definition(d)
+    return d
+
+
+def bound_tag(ms, host, category, keys, pos=(0.0, 0.0)):
+    """A placed instance of ``bound_def(...)`` bound to *host* (element_host)."""
+    d = bound_def(ms, category, keys)
+    inst = ms.place_block_instance(d.id, pos)
+    inst.element_host = host
+    inst.refresh_bound()
+    return inst
+
+
+def painted_values(inst) -> dict:
+    """The strings *inst* paints for its keys: ``block_attributes.resolve_values``
+    over the live host values -- the exact input ``bound_text_ops`` draws."""
+    from firepro3d.block_attributes import resolve_values
+    d = inst.definition()
+    return resolve_values(d.effective_attributes(), inst.attributes, inst.host_values())

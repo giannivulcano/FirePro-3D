@@ -125,6 +125,12 @@ _NO_MEMBERS = _NoMembers()
 _STACK_SEQ = itertools.count(1)    # scene-entry order: Qt paints equal z in this order
 
 
+def _record_host_uid(rec: dict) -> Optional[str]:
+    """A record's ``host_uid`` (SB5 D5), or None when absent / not a string."""
+    hu = rec.get("host_uid")
+    return hu if isinstance(hu, str) and hu else None
+
+
 class BlockInstance(QGraphicsObject):
     """A placed instance of a BlockDefinition (flyweight consumer)."""
 
@@ -152,9 +158,12 @@ class BlockInstance(QGraphicsObject):
         # scene mm, D14). An instance with it set is a Note.
         self.note: Optional[dict] = None
         self._note_geom = None     # (box, box item, bound prims) -- _note_geometry
-        # Element host (element-parameters.md, SB2a D-a): the element whose
-        # keyed values feed host-sourced attributes. Code-set only (SB3 / SB6
-        # set it), never serialized (ledger D3). Distinct from ``host`` above.
+        # Element host (element-parameters.md, SB2a D-a; SB5 D5): the element
+        # whose keyed values feed host-sourced attributes. ``_host_uid`` is the
+        # truth (saved as ``host_uid`` on both paths); ``_element_host`` is the
+        # cached ref read off a Model_Space (Block Editor, tests) or for a host
+        # without a uid. Distinct from ``host`` above.
+        self._host_uid: Optional[str] = None
         self._element_host = None
         self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
         self._display_overrides: dict = {}   # LevelManager user-hidden guard reads this
@@ -222,7 +231,15 @@ class BlockInstance(QGraphicsObject):
 
     @property
     def element_host(self):
-        """The element feeding host-sourced attributes (code-set; see __init__)."""
+        """The element feeding host-sourced attributes: resolved by uid through
+        the scene index while placed in a Model_Space (SB5 D5; a pipe split's
+        node1 half is picked up automatically), else the cached ref."""
+        uid = self._host_uid
+        if uid is not None:
+            sc = self.scene()
+            find = getattr(sc, "element_by_uid", None) if sc is not None else None
+            if find is not None:
+                return find(uid)
         return self._element_host
 
     @element_host.setter
@@ -230,6 +247,8 @@ class BlockInstance(QGraphicsObject):
         if host is not self._element_host:
             self._bound_values = None     # force the next refresh_bound() to re-shape
         self._element_host = host
+        uid = getattr(host, "_uid", None) if host is not None else None
+        self._host_uid = uid if isinstance(uid, str) and uid else None
 
     def host_values(self) -> Optional[dict]:
         """The host-value provider seam (SB1a A2): ``{host_key: HostValue}``
@@ -2427,6 +2446,8 @@ class BlockInstance(QGraphicsObject):
             d["overrides"] = dict(self.overrides)
         if self.host:
             d["host"] = dict(self.host)
+        if self._host_uid:
+            d["host_uid"] = self._host_uid        # SB5 D5: sparse; closes element-parameters D3
         if self.note:
             d["note"] = copy.deepcopy(self.note)
         phase_registry.write_element(self, d)
@@ -2451,6 +2472,8 @@ class BlockInstance(QGraphicsObject):
             inst._uid = str(data["uid"])
         if data.get("host"):
             inst.host = dict(data["host"])
+        hu = data.get("host_uid")
+        inst._host_uid = hu if isinstance(hu, str) and hu else None
         inst.note = copy.deepcopy(data["note"]) if data.get("note") else None
         inst.layer_height = clamp_layer_height(data.get("layer_height", 0))
         inst._opaque = data["opaque"] if isinstance(data.get("opaque"), bool) else None
@@ -2469,8 +2492,9 @@ class BlockInstance(QGraphicsObject):
                 never does -- C3); None lets the scene use its active level.
 
         Returns:
-            The pose / level / override / phase kwargs (``uid`` stays the caller's:
-            only restore paths carry it).
+            The pose / level / override / host (gridline record and element
+            ``host_uid``) / phase kwargs (``uid`` stays the caller's: only
+            restore paths carry it).
         """
         return {"rotation": float(rec.get("rotation", 0.0)),
                 "mirrored": bool(rec.get("mirrored", False)),
@@ -2479,6 +2503,7 @@ class BlockInstance(QGraphicsObject):
                 "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
                 "overrides": rec.get("overrides"),
                 "host": rec.get("host"),
+                "host_uid": _record_host_uid(rec),
                 "note": rec.get("note"),
                 "phase": phase_registry.read_id(rec.get("phase")),
                 "layer_height": clamp_layer_height(rec.get("layer_height", 0)),

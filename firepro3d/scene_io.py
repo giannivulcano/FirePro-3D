@@ -634,11 +634,15 @@ class SceneIOMixin:
         self._undo_stack = []
         self._undo_pos = -1
         self.push_undo_state()
+        dangling = sum(1 for b in self._block_instances
+                       if b._host_uid is not None and self.element_by_uid(b._host_uid) is None)
         msg = f"Loaded from {filename}"
         if orphan_hosts:
             msg += f" -- dropped {orphan_hosts} hosted block(s) whose gridline is missing"
         if getattr(self, "_uid_repairs", 0):
             msg += f" -- {self._uid_repairs} duplicate element ids repaired"
+        if dangling:
+            msg += f" -- {dangling} hosted item(s) whose host is missing"
         if heads_kept:
             msg += (f" -- {heads_kept} edited section/detail head block(s) keep Mark "
                     f"in the top slot")

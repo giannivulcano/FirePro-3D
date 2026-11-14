@@ -3074,7 +3074,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              scale: float = 1.0, level_offset_mm: float = 0.0,
                              host: dict | None = None, note: dict | None = None,
                              layer_height: int = 0, opaque: bool | None = None,
-                             constraint_points_off: bool = False, phase: str = phase_registry.PHASE_NEW):
+                             constraint_points_off: bool = False, phase: str = phase_registry.PHASE_NEW,
+                             host_uid: str | None = None):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -3092,6 +3093,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             host: Gridline host record (hosted-blocks D2); pos is then derived
                 from it. An unresolved gridline places nothing and returns
                 None.
+            host_uid: The element host's uid (SB5 D5) -- an element-bound
+                block; resolved lazily through ``element_by_uid``.
             note: A Note record (text-leader-annotations D8): owning view, box
                 and leader. None for every ordinary block.
             layer_height: Stacking height in a ``block_editor`` scene (block
@@ -3117,6 +3120,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              level_offset_mm=level_offset_mm)
         if uid:
             inst._uid = str(uid)
+        if host_uid:
+            inst._host_uid = str(host_uid)
         inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
         if mirrored:

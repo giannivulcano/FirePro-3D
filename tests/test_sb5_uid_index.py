@@ -118,3 +118,16 @@ def test_uid_less_add_remove_keeps_the_miss_memo_but_a_uid_item_drops_it(qapp):
     add_room(ms)                                         # carries a uid
     assert ms.element_by_uid(missing) is None
     assert ms._uid_rebuilds == n0 + 1                    # the uid item did rebuild
+
+
+def test_a_memoized_miss_is_dropped_when_a_sprinkler_joins_its_node(qapp, monkeypatch):
+    from firepro3d import sprinkler as sprinkler_mod
+    ms = scene()
+    n = ms.add_node(0.0, 0.0)
+    uid = "a" * 32
+    assert ms.element_by_uid(uid) is None
+    assert ms.element_by_uid(uid) is None               # the miss is memoized
+    monkeypatch.setattr(sprinkler_mod.element_uid, "new_uid", lambda: uid)
+    n.add_sprinkler()                                    # joins by setParentItem only
+    monkeypatch.undo()
+    assert ms.element_by_uid(uid) is n.sprinkler
