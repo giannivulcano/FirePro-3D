@@ -1,7 +1,7 @@
 ---
 status: proposal
-last-verified: 2026-11-13
-verified-commit: 2509b668
+last-verified: 2026-11-14
+verified-commit: b5f653ea
 applies-to:
   - firepro3d/project_tables.py
   - firepro3d/scene_io.py
@@ -90,10 +90,10 @@ the session (DD6).
 
 | Case | Input | Entry point |
 |------|-------|-------------|
-| pre-LT1 | new `tests/fixtures/project_tables/pre_lt1_tableless.fpd` | `MainWindow._load_project` |
-| schema-1 x2 | `tests/fixtures/hf5_legacy.fpd`, `tests/fixtures/ph1_pre_phasing_v12.fpd` | `_load_project` |
-| schema-2 | new `tests/fixtures/project_tables/schema2.fpd` | `_load_project` |
-| second open | schema-2, then pre-LT1, same window | `_load_project` x2 |
+| pre-LT1 | new `tests/fixtures/project_tables/pre_lt1_tableless.fpd` | `MainWindow._apply_loaded_file` (via `_guarded_load`) |
+| schema-1 x2 | `tests/fixtures/hf5_legacy.fpd`, `tests/fixtures/ph1_pre_phasing_v12.fpd` | `_apply_loaded_file` |
+| schema-2 | new `tests/fixtures/project_tables/schema2.fpd` | `_apply_loaded_file` |
+| second open | schema-2, then pre-LT1, same window | `_apply_loaded_file` x2 |
 | crash recovery | schema-1 copied to the autosave `recovery.FPD` | `_check_recovery` (prompt patched to accept) |
 | New | after opening schema-2 | `new_file` (save prompt patched) |
 | startup | -- | `MainWindow()` |
@@ -129,16 +129,17 @@ undo baseline -> apply_styles), the three entry points (from file, fresh, save),
 
 ## Acceptance Criteria
 
-- [ ] AC1: all eight characterisation cases match the goldens committed at base 2509b668
+- [x] AC1: all eight characterisation cases match the goldens committed at base 2509b668
       (tables, DM and paper rows, holder weight names, re-save bytes).
-- [ ] AC2: `_PENDING_LW_MIGRATION` and `scene._loaded_*` are gone; `scene_io` and `main` call no
+- [x] AC2: `_PENDING_LW_MIGRATION` and `scene._loaded_*` are gone; `scene_io` and `main` call no
       table load/migrate/reset/save function directly, only `project_tables` (grep at Account).
-- [ ] AC3: New and startup share `start_fresh`.
-- [ ] AC4: the DD7 tests are rewritten against the module's interface and named in the done
+- [x] AC3: New and startup share `start_fresh`.
+- [x] AC4: the DD7 tests are rewritten against the module's interface and named in the done
       evidence.
 - [ ] AC5: the 1b before-baseline (42 files from `D:/Custom Code/FPD/pt-baseline-files.txt`: 561
       passed, 1 skipped) and the full `run-suite.ps1` gate against base 2509b668 pass.
-- [ ] AC6: DD8 spec wiring landed and stamped.
+      *(1b before-baseline passed (561 passed, 1 skipped); full run-suite gate not run (user ruling, 2026-11-14).)*
+- [x] AC6: DD8 spec wiring landed and stamped.
 
 ## Verification Checklist
 

@@ -1,7 +1,7 @@
 ---
 status: current           # built 2026-11-06, v0.94.0
-last-verified: 2026-11-06  # Materials Account: as built, Build notes dropped
-verified-commit: b9ce2e00   # Materials merge on main (v0.94.0)
+last-verified: 2026-11-14  # project-tables Account: HF5 R9 label pointer only, rest not re-audited; prior 2026-11-06  # Materials Account: as built, Build notes dropped
+verified-commit: b5f653ea  # project-tables refactor (pointer only); prior b9ce2e00   # Materials merge on main (v0.94.0)
 applies-to:
   - firepro3d/materials.py        # new: the project table, cut resolver, starters, load conversion
   - firepro3d/materials_tab.py    # new: Display Manager Materials tab
@@ -26,7 +26,7 @@ concrete from brick.
 ## Architecture & Constraints
 
 - **One module, one table.** `materials.py` mirrors `fill_types.py`: a project-wide store outside
-  undo (HF5 R9), replaced on load. No second bus: a change calls `fill_types.notify_changed()`.
+  undo ([`hatch-and-fill.md`](hatch-and-fill.md) D-A14), replaced on load (install order: [`scene-io.md`](scene-io.md) §3a "Project tables"). No second bus: a change calls `fill_types.notify_changed()`.
 - **Material row:** `id`, `name`, `fill_type` (a Fill Type id, or `None` = draws nothing).
 - **Table extras:** `defaults` = `{"Wall": material id, "Floor": material id}`.
 - **`None` material:** a fixed id (`MATERIAL_NONE_ID`, `constants.py`), always present, cannot be
