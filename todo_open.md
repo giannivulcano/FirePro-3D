@@ -19,29 +19,8 @@
 
 ## Project tables (open / new / save)
 
-- [ ] [type:maint] One `project_tables` module owns migrating, installing and saving the project tables on open, New, startup and Save, so callers no longer have to know the ordering [P2] [subject:Architecture]
-  - Details: architecture review 2026-11-13, candidate 1, grilled the same day (all 11 rulings user-agreed). Term: **project tables** (`GLOSSARY.md`): line weights and aliases, fill types, materials, phases, Display Manager rows and paper categories. Land it before PH3 adds phase graphics.
-    - **Problem.** The "migrate, then install, then read" order is spread over:
-      - `scene_io.load_from_file`: `migrate_project_payload`, `phase_registry.migrate_payload`, `apply_project_weights(stash=True)`, fill types, materials, `load_project_phases`, `pending_weight_mapping` + `migrate_underlay_entry`, then `apply_pending_weight_migration` at the end
-      - `main._apply_loaded_file`: `apply_project_display_settings` / `apply_saved_display_settings`, `apply_paper_display_from_project` (installs the weight table a second time)
-      - the module global `paper_display._PENDING_LW_MIGRATION`
-      - `apply_pending_weight_migration` changes the `_loaded_paper_display` / `_loaded_display_settings` payloads in place for the later re-apply
-      - the reset sequence for New and startup, repeated word for word at `main.py` ~770 and ~4048 (fill types, materials, phases, `apply_default_display_settings`, `reset_project_line_weights`, then `apply_template_settings`, which loads phases again)
-      - Commits F3-F6 (LW-DC) were all bugs in this ordering.
-    - **Rulings:**
-      - **Q1 scope:** every project table plus its migration (HF1 colour, D-PH6 phases, LW-DC-8 weights and aliases, fill types, materials, DM rows, paper categories). OUT: QSettings migrations that run at app start (`migrate_settings_weights`, `_migrate_display_keys`).
-      - **Q2 weight migration:** a load-session object replaces `_PENDING_LW_MIGRATION`. Beginning the load returns the session, which carries the underlay map. Finishing it runs the live-holder retarget (`weight_refs.retarget_weight_refs`, scratch QSettings) and fixes the payload. The LW-DC-8 rule that the mapping is computed when it is used, after the block-library merge (`_merge_bundled_weights`), stays as it is. Do NOT rewrite the payload before parse.
-      - **Q4 fully styled open:** the session's finish applies the DM rows (QSettings fallback included) and the paper categories, so `load_from_file` returns a fully styled scene. `main._apply_loaded_file` keeps only `_refresh_weight_canvases` (window re-pen).
-      - **Q5 fresh projects:** a fresh entry point (seed set + template) replaces the duplicated New/startup sequence.
-      - **Q8 shape:** `project_tables` orchestrates. Each table module keeps its storage and its load/migrate functions as internal seams that only `project_tables` calls. No single stored `ProjectTables` value.
-      - **Q9 save:** saving goes through it too (`get_paper_display_for_save`, fill types, materials, phases, display settings), so the module round-trips: file data in, saved data out, identical.
-      - **Q10 undo:** `_restore_network` stays OUT (see the DM Ctrl+Z bug, which carries a cross-reference).
-    - **Q6 gate (do this first):** write characterisation tests before moving any code:
-      - Open each of: a pre-LT1 file with no weight table, a schema-1 file with a table, a schema-2 file, the template clone, crash recovery, and New.
-      - Snapshot the resolved tables, every holder's weight name, and the bytes of an immediate re-save; these must match exactly after the change.
-      - Then rewrite the tests that read `pd._PENDING_LW_MIGRATION` or monkeypatch `apply_pending_weight_migration` (`tests/test_lwdc_open_migration.py`, the F8 MainWindow test) against the module's interface.
-    - **Q11 spec:** add a new "Project tables" section in `docs/specs/scene-io.md` that owns the order (migrate, install, build, finish) and the three entry points (from file, fresh, save). `linetypes.md` LW-DC-8, `project-phasing.md` D-PH6, `hatch-and-fill.md` R9 and `materials.md` link to it instead of restating their step. Add a `SPEC-INDEX.md` applies-to line for `project_tables.py`.
-    - Files: `firepro3d/scene_io.py`, `main.py`, `firepro3d/paper_display.py`, `firepro3d/display_manager.py`, `firepro3d/phase_registry.py`, `firepro3d/colour_migration.py`, `firepro3d/fill_types.py`, `firepro3d/materials.py`, `firepro3d/settings/template.py`, `firepro3d/weight_refs.py`.
+- [ ] [type:maint] `tools/perf_probe_underlay.py` loads a project with no settings isolation, so since project_tables Q4 (`load_from_file` now applies DM rows and paper categories through `LoadSession.apply_styles`) a probe run writes those rows into the developer's real QSettings [P4] [subject:Tooling]
+  - Details: found in the project_tables T3 review (2026-11-14, commit 7adf3f64). The fix is to run the probe under a scratch QSettings location (as `tests/conftest.py` does). `clone_template_into` (no production caller) gains the same apply.
 
 ## Paper-space sheet output
 
