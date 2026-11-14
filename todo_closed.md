@@ -2,6 +2,14 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## 3D view -- exact wall solids: mitred corners, pies, tees, height bands, opening cuts -- 2026-11-14
+
+- [x] [type:feature] 3D: true solid CSG + re-mitre wall corners [P1] [subject:CAD] [done:2026-11-14]
+  - Built 2026-11-14 on feat/3d-solid-csg: design `docs/superpowers/specs/2026-11-14-3d-wall-solids-design.md` (7ac866b7), plan local; `wall_solid.py` c9f75518 (manifold3d band prisms + cuts), pool/bands e0819746, band solids b89da00e, plan-rule edges cda6f17d, fixes fdf15d89, view pool + wall edges d996c335, G8/G9 tests d516c189; G9 perf fix 055d75da (per-rebuild 2-hop join ring, `join_neighbourhoods` / `join_ring`; bar re-set to <= 5 ms/wall by the user); VC9 fix 5c167cc0, stale-ring fix 201a4ab2. G9 interleaved on an idle host: L scene base 0.27-0.47 / HEAD 2.8-3.7 ms/wall; pie grid base 0.01-0.02 / HEAD 4.5-9.1 (measured only). Smoke all good (selection overlay drawing feature edges accepted as is). Full suite not run (user ruling, 2026-11-14).
+  - Details: Phase A caps opening reveals (watertight shell) and switched `wall.get_3d_mesh` to `quad_points` so opening jambs stay perpendicular on joined walls, but 3D wall corners now butt-join (not mitred). Optionally rebuild walls+openings via PyVista `boolean_difference` (true watertight solids, mitred corners) — grounded as the alternative to reveal-capping; also sets up the future Create-tab "operations". `wall.py`, `view_3d.py`.
+  - +1 occurrence 2026-10-23 (wall polish VC9 M6): `get_3d_mesh` still builds unmitered quads, so 3D corners stay butt-joined while plan corners are now seamless pies; reuse `WallSegment.outline()` bodies for the 3D footprint.
+  - Re-scoped 2026-11-13 (Phase 2 grill Q1-Q10, all user-agreed; run on `feat/3d-solid-csg`): goal = 3D matches plan with downstream-grade solids (watertight, exact volume), no general boolean engine. P4 probe: PyVista 0.47.1 / VTK 9.6.0 `boolean_difference` ~200 ms per boolean, non-manifold, wrong volumes -- not the engine. Rulings: 3D footprint = the plan `body` at every joint kind; joins by height band (taller wall's end squares above a shorter partner); opening cut = plan gap rect on the host body only; walls + wall openings only; thermal results allowed to change (code untouched); no seam lines inside joined junctions (stops keep theirs); 3D join pool = walls the 3D view shows; perf bar <= 1.5 ms per wall with 2 openings (base 0.73 ms at `2509b668`, 200-wall scene) -- re-set to <= 5 ms per wall 2026-11-14 (Phase 5, manifold3d alone costs ~1-1.5 ms); guards G1-G9.
+
 ## Block System -- SB4g sprinkler, water supply and riser symbols as System symbol blocks -- 2026-11-13
 
 - [x] [type:feature] SB4g — Convert sprinkler (3 variants), water-supply and riser symbols to System *symbol* blocks (real size) [subject:CAD] [P1] [done:2026-11-13]
