@@ -63,7 +63,6 @@ class SceneIOMixin:
                 autosave).
         """
         self._project_path = os.path.abspath(filename)
-        from .display_manager import get_display_settings_for_save
         from .linked_document import relativize_sheet_links
 
         # --- Nodes (assign temp IDs) ---
@@ -135,16 +134,9 @@ class SceneIOMixin:
                                   for bid, d in self._block_definitions.items()}
         blocks_data = [inst.to_dict() for inst in self._block_instances]
 
-        # --- Display settings (per-project) ---
-        display_settings_data = get_display_settings_for_save()
-        from .paper_display import get_paper_display_for_save
-        paper_display_data = get_paper_display_for_save()
-        from . import fill_types
-        fill_types_data = fill_types.project_table().to_payload()
-        from . import materials
-        materials_data = materials.project_table().to_payload()
-        from . import phase_registry
-        phases_data = phase_registry.to_list()
+        # --- Project tables (scene-io "Project tables") ---
+        from . import project_tables
+        tables = project_tables.tables_for_save()
 
         # --- Assemble and write ---
         payload = {
@@ -155,11 +147,7 @@ class SceneIOMixin:
             "project_settings_size": (list(self.project_settings_size)
                                       if self.project_settings_size else None),
             "scale":               self.scale_manager.to_dict(),
-            "display_settings":    display_settings_data,
-            "paper_display":       paper_display_data,
-            "fill_types":          fill_types_data,
-            "materials":           materials_data,
-            "phases":              phases_data,
+            **tables,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
                                     if self._plan_view_manager else []),

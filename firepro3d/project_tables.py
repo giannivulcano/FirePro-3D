@@ -82,7 +82,12 @@ def begin_load(payload: dict) -> LoadSession:
 def start_fresh(scene) -> None:
     """A new project's tables (New and startup): the seed fill types,
     materials and phases, the Display Manager defaults, the app's weight
-    table, then the template's settings (which overlay its phases, D-PH11)."""
+    table, then the template's settings (which overlay its phases, D-PH11).
+
+    Args:
+        scene: The (cleared) scene that receives the Display Manager defaults
+            and the template's settings.
+    """
     from . import fill_types, materials, phase_registry
     from .display_manager import apply_default_display_settings
     from .paper_display import reset_project_line_weights
@@ -93,3 +98,18 @@ def start_fresh(scene) -> None:
     apply_default_display_settings(scene)
     reset_project_line_weights()
     _settings_template.apply_template_settings(scene)
+
+
+def tables_for_save() -> dict:
+    """The tables' part of a saved payload, in file order: display_settings,
+    paper_display, fill_types, materials, phases."""
+    from .display_manager import get_display_settings_for_save
+    from .paper_display import get_paper_display_for_save
+    from . import fill_types, materials, phase_registry
+    return {
+        "display_settings": get_display_settings_for_save(),
+        "paper_display": get_paper_display_for_save(),
+        "fill_types": fill_types.project_table().to_payload(),
+        "materials": materials.project_table().to_payload(),
+        "phases": phase_registry.to_list(),
+    }
