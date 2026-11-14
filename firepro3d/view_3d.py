@@ -604,6 +604,7 @@ class View3D(QWidget):
         Repeat requests within the 100 ms window coalesce into one rebuild.
         """
         self._dirty = True
+        self._wall_rings = {}       # model changed: the highlight rescans
         if self.isVisible() and not self._rebuild_timer.isActive():
             self._rebuild_timer.start()
 

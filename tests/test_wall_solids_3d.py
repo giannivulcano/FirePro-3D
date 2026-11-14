@@ -543,3 +543,7 @@ def test_highlight_reuses_rebuild_ring(real3d, monkeypatch):
     assert len(seen) == 1
     assert seen[0] is v._wall_rings[id(a)][1]
     assert len(v._actors["sel_overlay"]) == 1
+    v.request_rebuild()              # an edit before the debounced rebuild
+    seen.clear()
+    v._highlight_mesh_selection([a])
+    assert seen == [None]            # stale ring dropped: fresh join_ring
