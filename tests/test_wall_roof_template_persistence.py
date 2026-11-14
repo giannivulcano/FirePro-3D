@@ -178,3 +178,36 @@ def test_roof_load_with_garbage_keeps_factory(qapp, ini_settings):
     assert t._roof_type == "flat"
     assert t._pitch_deg == pytest.approx(20.0)
     assert t._overhang_mm == pytest.approx(0.0)  # negative clamps to 0 (set_property rule)
+
+
+@pytest.fixture
+def main_window(qapp, tmp_path, monkeypatch):
+    """The real MainWindow (precedent: tests/test_ph1_phase_mainwindow.py)."""
+    import main as _main_module
+    from firepro3d.view_3d import View3D      # heavy import required before MainWindow
+    _main_module.View3D = View3D
+    from main import MainWindow
+    from firepro3d import app_data
+    from tests._mainwindow_helpers import dispose_main_window
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    monkeypatch.setattr(MainWindow, "_maybe_offer_template_push", lambda self: None)
+    w = MainWindow()
+    yield w
+    dispose_main_window(w)
+
+
+def test_mainwindow_save_and_restore_settings_carry_wall_and_roof(main_window):
+    """AC6 through the real entry points: MainWindow.save_settings writes both
+    templates and restore_settings brings them back."""
+    w = main_window
+    wt = w.scene._get_wall_template()
+    rt = w.scene._get_roof_template()
+    wt._thickness_mm, wt._top_offset_mm = 228.6, -120.0
+    rt._roof_type, rt._pitch_deg = "gable", 35.0
+    w.save_settings()
+    wt._thickness_mm, wt._top_offset_mm = 152.4, 0.0
+    rt._roof_type, rt._pitch_deg = "flat", 20.0
+    w.restore_settings()
+    wt, rt = w.scene._get_wall_template(), w.scene._get_roof_template()
+    assert (wt._thickness_mm, wt._top_offset_mm) == (pytest.approx(228.6), pytest.approx(-120.0))
+    assert (rt._roof_type, rt._pitch_deg) == ("gable", pytest.approx(35.0))
