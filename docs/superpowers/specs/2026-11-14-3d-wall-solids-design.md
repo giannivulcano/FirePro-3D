@@ -1,7 +1,7 @@
 ---
-status: proposal
+status: implemented   # built 2026-11-14 on feat/3d-solid-csg, merged to main (v0.103.0); as-built contract now in wall-room-floor-system.md s6.5 + view-3d.md s5
 last-verified: 2026-11-14
-verified-commit: 2509b668
+verified-commit: 432e11e9
 applies-to:
   - firepro3d/wall.py
   - firepro3d/wall_solid.py      # new: pure manifold3d band-solid builder
@@ -148,39 +148,39 @@ first named here. Measured: L scene about 3 ms per wall, pie grid about 5 ms.
 Every guard drives the real `get_3d_mesh` / `View3D._extract_walls` with real
 `WallSegment`s and is shown RED with its rule reverted (VC3).
 
-- [ ] **G1** L joint: each wall mesh is closed and manifold (PyVista: 0 open
+- [x] **G1** L joint: each wall mesh is closed and manifold (PyVista: 0 open
   edges, manifold), its top-face vertices equal the plan body, volume = body
   area x height minus cuts. RED: 3D footprint from `quad_points` / pool ignored.
-- [ ] **G2** 3-way and 4-way pies: the sum of wall volumes = union body area x
+- [x] **G2** 3-way and 4-way pies: the sum of wall volumes = union body area x
   height. RED: pie dropped in 3D.
-- [ ] **G3** Tee: the stub's end vertices lie on the host's near face. RED: cope off.
-- [ ] **G4** Mixed height/base: band volumes exact; above the shorter wall's top
+- [x] **G3** Tee: the stub's end vertices lie on the host's near face. RED: cope off.
+- [x] **G4** Mixed height/base: band volumes exact; above the shorter wall's top
   the taller wall's end is square (or mitred against a still-present third wall).
   RED: band split off.
-- [ ] **G5** Door over a mitre wedge: the host loses exactly the cut volume, the
+- [x] **G5** Door over a mitre wedge: the host loses exactly the cut volume, the
   partner's volume is unchanged. RED: cut applied to the partner.
-- [ ] **G6** Edge set from the real edge-building path: no segment on a mitre
+- [x] **G6** Edge set from the real edge-building path: no segment on a mitre
   diagonal or pie spoke, the stop seam present, reveal edges present. RED:
   feature-edge path restored.
-- [ ] **G7** A wall hidden in 3D -> the neighbour's end goes square; shown
+- [x] **G7** A wall hidden in 3D -> the neighbour's end goes square; shown
   again -> restored. RED: 3D pool = all walls.
-- [ ] **G8** Mesh dict contract (keys, types) holds and a thermal run on a
+- [x] **G8** Mesh dict contract (keys, types) holds and a thermal run on a
   sample model completes. RED: a dict key removed.
-- [ ] **G9** Perf marker, two bench shapes (200 L-joined walls x 2 openings,
+- [x] **G9** Perf marker, two bench shapes (200 L-joined walls x 2 openings,
   bar <= 5 ms/wall; pie-junction grid with 4-way ends, no openings, measured
   only), interleaved base/HEAD. Plus: the ring gives the whole-pool mesh
   (parity guard) and the selection highlight reuses the rebuild's ring.
-- [ ] User smoke in the real 3D tab: mitred L, pies, tees, stops, mixed heights,
+- [x] User smoke in the real 3D tab: mitred L, pies, tees, stops, mixed heights,
   openings near a corner, hidden-wall toggle.
 
 ## Verification Checklist
 
-- [ ] All acceptance criteria met; G1-G8 shown RED with their rule reverted
-- [ ] Coupled tests (VC5 grep: `get_3d_mesh`, `view_3d`, opening watertight
+- [x] All acceptance criteria met; G1-G8 shown RED with their rule reverted
+- [x] Coupled tests (VC5 grep: `get_3d_mesh`, `view_3d`, opening watertight
   tests) green; tests asserting the old mesh layout rewritten to volume/closure
-- [ ] Plan joinery unchanged (plan-path tests green with no pool passed)
-- [ ] Full suite (VC6); G9 bench after smoke on an idle host
-- [ ] Account: wall-room-floor-system §6.5 rewritten as-built + §7.8.3
+- [x] Plan joinery unchanged (plan-path tests green with no pool passed)
+- [x] Full suite (VC6); G9 bench after smoke on an idle host
+- [x] Account: wall-room-floor-system §6.5 rewritten as-built + §7.8.3
   pointer; view-3d §5 wall edge source; manifold3d noted as a dependency
 
 ## Existing Code Context
