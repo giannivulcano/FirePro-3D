@@ -518,21 +518,23 @@ def test_g9_v10_project_file_round_trip(qapp, tmp_path):
     assert ms2.block_registry.get("leg").primitives[0]["style"]["colour"] == TOKEN_AUTO
 
 
-def test_g9_v10_project_sheet_text_and_display_colour_load(qapp, tmp_path):
+def test_g9_v10_project_sheet_text_and_display_colour_load(qapp, tmp_path, monkeypatch):
     """Real load path: a v10 file's black sheet text and white 2D Geometry
     display colour reach the live objects as Automatic."""
     import json
     from firepro3d.model_space import Model_Space
+    from tests._project_tables_helpers import capture_sessions
     p = tmp_path / "v10b.fpd"
     p.write_text(json.dumps({"version": 10, "display_settings": {
         "2D Geometry": {"color": "#ffffff"}},
         "sheets": [{"number": "A1", "name": "S", "paper_size": "ANSI D",
                     "annotations": [{"type": "text", "text": "hi",
                                      "color": "#000000"}]}]}), encoding="utf-8")
+    sessions = capture_sessions(monkeypatch)
     ms = Model_Space()
     ms.load_from_file(str(p))
     assert ms._sheets[0].annotations[0].color == TOKEN_AUTO
-    assert ms._loaded_display_settings["2D Geometry"]["color"] == TOKEN_AUTO
+    assert sessions[-1].display_settings["2D Geometry"]["color"] == TOKEN_AUTO
 
 
 def test_fpdb_round_trip_marks_and_reloads(qapp, tmp_path):

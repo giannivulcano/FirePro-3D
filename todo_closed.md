@@ -2,6 +2,41 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## 3D view -- exact wall solids: mitred corners, pies, tees, height bands, opening cuts -- 2026-11-14
+
+- [x] [type:feature] 3D: true solid CSG + re-mitre wall corners [P1] [subject:CAD] [done:2026-11-14]
+  - Built 2026-11-14 on feat/3d-solid-csg: design `docs/superpowers/specs/2026-11-14-3d-wall-solids-design.md` (7ac866b7), plan local; `wall_solid.py` c9f75518 (manifold3d band prisms + cuts), pool/bands e0819746, band solids b89da00e, plan-rule edges cda6f17d, fixes fdf15d89, view pool + wall edges d996c335, G8/G9 tests d516c189; G9 perf fix 055d75da (per-rebuild 2-hop join ring, `join_neighbourhoods` / `join_ring`; bar re-set to <= 5 ms/wall by the user); VC9 fix 5c167cc0, stale-ring fix 201a4ab2. G9 interleaved on an idle host: L scene base 0.27-0.47 / HEAD 2.8-3.7 ms/wall; pie grid base 0.01-0.02 / HEAD 4.5-9.1 (measured only). Smoke all good (selection overlay drawing feature edges accepted as is). Full suite not run (user ruling, 2026-11-14).
+  - Details: Phase A caps opening reveals (watertight shell) and switched `wall.get_3d_mesh` to `quad_points` so opening jambs stay perpendicular on joined walls, but 3D wall corners now butt-join (not mitred). Optionally rebuild walls+openings via PyVista `boolean_difference` (true watertight solids, mitred corners) — grounded as the alternative to reveal-capping; also sets up the future Create-tab "operations". `wall.py`, `view_3d.py`.
+  - +1 occurrence 2026-10-23 (wall polish VC9 M6): `get_3d_mesh` still builds unmitered quads, so 3D corners stay butt-joined while plan corners are now seamless pies; reuse `WallSegment.outline()` bodies for the 3D footprint.
+  - Re-scoped 2026-11-13 (Phase 2 grill Q1-Q10, all user-agreed; run on `feat/3d-solid-csg`): goal = 3D matches plan with downstream-grade solids (watertight, exact volume), no general boolean engine. P4 probe: PyVista 0.47.1 / VTK 9.6.0 `boolean_difference` ~200 ms per boolean, non-manifold, wrong volumes -- not the engine. Rulings: 3D footprint = the plan `body` at every joint kind; joins by height band (taller wall's end squares above a shorter partner); opening cut = plan gap rect on the host body only; walls + wall openings only; thermal results allowed to change (code untouched); no seam lines inside joined junctions (stops keep theirs); 3D join pool = walls the 3D view shows; perf bar <= 1.5 ms per wall with 2 openings (base 0.73 ms at `2509b668`, 200-wall scene) -- re-set to <= 5 ms per wall 2026-11-14 (Phase 5, manifold3d alone costs ~1-1.5 ms); guards G1-G9.
+
+## Project tables -- one project_tables module owns open / new / startup / save -- 2026-11-14
+
+- [x] [type:maint] One `project_tables` module owns migrating, installing and saving the project tables on open, New, startup and Save, so callers no longer have to know the ordering [P2] [subject:Architecture] [done:2026-11-14]
+  - Built 2026-11-14 on refactor/project-tables: design `docs/superpowers/specs/2026-11-13-project-tables-design.md` (8d2b9b94), plan local; T1-2 a69687dc + 6ec730e0 + 96090b4b (harness, inputs and goldens at base 2509b668), T3 7adf3f64 (LoadSession, global and `scene._loaded_*` removed), T4 1c12e17a (`start_fresh`), T5 b5f653ea (`tables_for_save`). Keep-green 42-file before-baseline 561 passed / 1 skipped, same as base. DD7 rewritten baseline tests: `test_lwdc_open_migration.py` (3 tests + 2 kind asserts), `test_hf1_colour_tokens.py` g9, `test_lt1_project_weights.py` fpd round trip, `test_lt2_rename.py` open-ignores-previous-project-aliases. VC9 seam review APPROVED. Full suite not run (user ruling, 2026-11-14).
+  - Details: architecture review 2026-11-13, candidate 1, grilled the same day (all 11 rulings user-agreed). Term: **project tables** (`GLOSSARY.md`): line weights and aliases, fill types, materials, phases, Display Manager rows and paper categories. Land it before PH3 adds phase graphics.
+    - **Problem.** The "migrate, then install, then read" order is spread over:
+      - `scene_io.load_from_file`: `migrate_project_payload`, `phase_registry.migrate_payload`, `apply_project_weights(stash=True)`, fill types, materials, `load_project_phases`, `pending_weight_mapping` + `migrate_underlay_entry`, then `apply_pending_weight_migration` at the end
+      - `main._apply_loaded_file`: `apply_project_display_settings` / `apply_saved_display_settings`, `apply_paper_display_from_project` (installs the weight table a second time)
+      - the module global `paper_display._PENDING_LW_MIGRATION`
+      - `apply_pending_weight_migration` changes the `_loaded_paper_display` / `_loaded_display_settings` payloads in place for the later re-apply
+      - the reset sequence for New and startup, repeated word for word at `main.py` ~770 and ~4048 (fill types, materials, phases, `apply_default_display_settings`, `reset_project_line_weights`, then `apply_template_settings`, which loads phases again)
+      - Commits F3-F6 (LW-DC) were all bugs in this ordering.
+    - **Rulings:**
+      - **Q1 scope:** every project table plus its migration (HF1 colour, D-PH6 phases, LW-DC-8 weights and aliases, fill types, materials, DM rows, paper categories). OUT: QSettings migrations that run at app start (`migrate_settings_weights`, `_migrate_display_keys`).
+      - **Q2 weight migration:** a load-session object replaces `_PENDING_LW_MIGRATION`. Beginning the load returns the session, which carries the underlay map. Finishing it runs the live-holder retarget (`weight_refs.retarget_weight_refs`, scratch QSettings) and fixes the payload. The LW-DC-8 rule that the mapping is computed when it is used, after the block-library merge (`_merge_bundled_weights`), stays as it is. Do NOT rewrite the payload before parse.
+      - **Q4 fully styled open:** the session's finish applies the DM rows (QSettings fallback included) and the paper categories, so `load_from_file` returns a fully styled scene. `main._apply_loaded_file` keeps only `_refresh_weight_canvases` (window re-pen).
+      - **Q5 fresh projects:** a fresh entry point (seed set + template) replaces the duplicated New/startup sequence.
+      - **Q8 shape:** `project_tables` orchestrates. Each table module keeps its storage and its load/migrate functions as internal seams that only `project_tables` calls. No single stored `ProjectTables` value.
+      - **Q9 save:** saving goes through it too (`get_paper_display_for_save`, fill types, materials, phases, display settings), so the module round-trips: file data in, saved data out, identical.
+      - **Q10 undo:** `_restore_network` stays OUT (see the DM Ctrl+Z bug, which carries a cross-reference).
+    - **Q6 gate (do this first):** write characterisation tests before moving any code:
+      - Open each of: a pre-LT1 file with no weight table, a schema-1 file with a table, a schema-2 file, the template clone, crash recovery, and New.
+      - Snapshot the resolved tables, every holder's weight name, and the bytes of an immediate re-save; these must match exactly after the change.
+      - Then rewrite the tests that read `pd._PENDING_LW_MIGRATION` or monkeypatch `apply_pending_weight_migration` (`tests/test_lwdc_open_migration.py`, the F8 MainWindow test) against the module's interface.
+    - **Q11 spec:** add a new "Project tables" section in `docs/specs/scene-io.md` that owns the order (migrate, install, build, finish) and the three entry points (from file, fresh, save). `linetypes.md` LW-DC-8, `project-phasing.md` D-PH6, `hatch-and-fill.md` R9 and `materials.md` link to it instead of restating their step. Add a `SPEC-INDEX.md` applies-to line for `project_tables.py`.
+    - Files: `firepro3d/scene_io.py`, `main.py`, `firepro3d/paper_display.py`, `firepro3d/display_manager.py`, `firepro3d/phase_registry.py`, `firepro3d/colour_migration.py`, `firepro3d/fill_types.py`, `firepro3d/materials.py`, `firepro3d/settings/template.py`, `firepro3d/weight_refs.py`.
+
 ## Block System -- SB4g sprinkler, water supply and riser symbols as System symbol blocks -- 2026-11-13
 
 - [x] [type:feature] SB4g — Convert sprinkler (3 variants), water-supply and riser symbols to System *symbol* blocks (real size) [subject:CAD] [P1] [done:2026-11-13]

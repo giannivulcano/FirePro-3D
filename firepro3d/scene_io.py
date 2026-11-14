@@ -19,7 +19,6 @@ import json
 import logging
 import os
 
-from .colour_migration import migrate_project_payload
 from .constants import DEFAULT_LEVEL
 from .underlay import Underlay
 from .network_codec import (
@@ -64,7 +63,6 @@ class SceneIOMixin:
                 autosave).
         """
         self._project_path = os.path.abspath(filename)
-        from .display_manager import get_display_settings_for_save
         from .linked_document import relativize_sheet_links
 
         # --- Nodes (assign temp IDs) ---
@@ -136,16 +134,9 @@ class SceneIOMixin:
                                   for bid, d in self._block_definitions.items()}
         blocks_data = [inst.to_dict() for inst in self._block_instances]
 
-        # --- Display settings (per-project) ---
-        display_settings_data = get_display_settings_for_save()
-        from .paper_display import get_paper_display_for_save
-        paper_display_data = get_paper_display_for_save()
-        from . import fill_types
-        fill_types_data = fill_types.project_table().to_payload()
-        from . import materials
-        materials_data = materials.project_table().to_payload()
-        from . import phase_registry
-        phases_data = phase_registry.to_list()
+        # --- Project tables (scene-io "Project tables") ---
+        from . import project_tables
+        tables = project_tables.tables_for_save()
 
         # --- Assemble and write ---
         payload = {
@@ -156,11 +147,7 @@ class SceneIOMixin:
             "project_settings_size": (list(self.project_settings_size)
                                       if self.project_settings_size else None),
             "scale":               self.scale_manager.to_dict(),
-            "display_settings":    display_settings_data,
-            "paper_display":       paper_display_data,
-            "fill_types":          fill_types_data,
-            "materials":           materials_data,
-            "phases":              phases_data,
+            **tables,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
                                     if self._plan_view_manager else []),
@@ -247,6 +234,7 @@ class SceneIOMixin:
         from .roof import RoofItem
         from .room import Room
         from .wall_opening import WallOpening
+        from . import fill_types, project_tables
         from PyQt6.QtGui import QColor
 
         try:
@@ -258,30 +246,13 @@ class SceneIOMixin:
             return False
 
         version = payload.get("version", 1)
-        migrate_project_payload(payload)    # HF1 (D-A20): before display_settings is read
-        from . import phase_registry
-        phase_registry.migrate_payload(payload)   # D-PH6: before any deserializer
+        project_tables.migrate_payload(payload)   # HF1 colour, D-PH6 phases: before _clear_scene
         self._clear_scene()
         self._uid_repairs = 0               # SB5 Q6: count this file's duplicate uids only
         self._project_path = os.path.abspath(filename)
 
-        # --- Display settings ---
-        self._loaded_display_settings = payload.get("display_settings", None)
-        self._loaded_paper_display = payload.get("paper_display", None)
-        # Weight table + rename aliases BEFORE any definition / text parse:
-        # those canonicalise weight names, and must do so against THIS file's
-        # aliases, not the previous project's (LT2-8 / H-g). Open and crash
-        # recovery both come through here; apply_paper_display_from_project
-        # re-applies the same values afterwards.
-        from .paper_display import apply_project_weights
-        apply_project_weights(self._loaded_paper_display, stash=True)
-        # HF5 R9: the fill-type table loads at the same point -- block compile
-        # and region parse below resolve typed fills against THIS file's types.
-        from . import fill_types
-        fill_types.load_project_fill_types(payload.get("fill_types"))
-        from . import materials
-        materials.load_project_materials(payload.get("materials"))
-        phase_registry.load_project_phases(payload.get("phases"))   # before any element reads an id
+        # --- Project tables: installed before any parse (scene-io "Project tables") ---
+        session = project_tables.begin_load(payload)
 
         # --- Scale ---
         if "scale" in payload:
@@ -376,8 +347,8 @@ class SceneIOMixin:
         # LW-DC-8: underlays may be built asynchronously after this loader
         # returns (cache miss -> worker thread), so their weight names are
         # migrated here, from the payload, not by the end-of-load sweep.
-        from .paper_display import migrate_underlay_entry, pending_weight_mapping
-        lw_map = pending_weight_mapping()
+        from .paper_display import migrate_underlay_entry
+        lw_map = session.underlay_map
         for entry in payload.get("underlays", []):
             if lw_map:
                 entry = migrate_underlay_entry(entry, lw_map)
@@ -626,9 +597,7 @@ class SceneIOMixin:
         # LW-DC-8: a pre-schema-2 file's by-name weights merge into the new
         # Defaults now that every holder is built, before the undo baseline
         # (outside undo; the file re-saves as schema 2 on the next save).
-        from .paper_display import apply_pending_weight_migration
-        apply_pending_weight_migration(
-            self, self._loaded_paper_display, self._loaded_display_settings)
+        session.migrate_holders(self)
 
         # Start fresh undo history
         self._undo_stack = []
@@ -651,6 +620,8 @@ class SceneIOMixin:
         for _cat in ANNOTATION_CATEGORIES:
             self.annotation_block(_cat)
         self.refresh_annotation_tags()          # tags built before the mapping existed drop their cached rect
+        # DM rows + paper categories last: the scene comes back fully styled.
+        session.apply_styles(self)
         return True
 
     # ------------------------------------------------------------------

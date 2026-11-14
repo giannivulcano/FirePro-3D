@@ -332,6 +332,9 @@ WALL_JOIN_TOP_TOL_MM = 1.0    # wall tops closer than this count as equal for jo
 # (every real wall edge is >= the 25.4 mm minimum thickness).
 WALL_OUTLINE_ON_EDGE_TOL = 1e-3
 WALL_OUTLINE_MIN_SEG = MITER_TOL
+# 3D opening cut overshoots each wall face so the subtraction never shares a
+# face plane (3D wall solids D5).
+CUT_MARGIN_MM = 1.0
 # Two walls compute a shared miter vertex independently and can differ by
 # ~1e-12 mm; Qt's path clipper then drops a whole body.  Union operand
 # vertices are snapped to this grid (mm) so such pairs weld exactly.

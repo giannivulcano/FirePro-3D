@@ -32,7 +32,7 @@ from .geometry_2d import (
 )
 from .gridline import GridlineItem
 from .water_supply import WaterSupply
-from .wall import WallSegment
+from .wall import WallSegment, join_neighbourhoods
 from .floor_slab import FloorSlab
 from .view_cube import ViewCube
 from .theme import detect, theme_bus
@@ -123,6 +123,9 @@ class View3D(QWidget):
 
         # Wall / slab / roof pick maps
         self._wall_refs: list[WallSegment] = []
+        # id(wall) -> (wall, its join ring) from the last _extract_walls,
+        # reused by the selection highlight (G9)
+        self._wall_rings: dict[int, tuple] = {}
         self._slab_refs: list[FloorSlab] = []
         self._roof_refs: list = []
         self._wall_centroids_3d: np.ndarray | None = None
@@ -601,6 +604,7 @@ class View3D(QWidget):
         Repeat requests within the 100 ms window coalesce into one rebuild.
         """
         self._dirty = True
+        self._wall_rings = {}       # model changed: the highlight rescans
         if self.isVisible() and not self._rebuild_timer.isActive():
             self._rebuild_timer.start()
 
@@ -936,6 +940,7 @@ class View3D(QWidget):
         self._clear_actors("walls")
         self._clear_actors("wall_edges")
         self._wall_refs.clear()
+        self._wall_rings = {}
         self._original_wall_colors.clear()
 
         scene_obj = self._scene
@@ -944,10 +949,12 @@ class View3D(QWidget):
             return
         lm = self._lm
         centroids = []
-        for wall in getattr(scene_obj, "_walls", []):
-            if not self._is_visible(wall):
-                continue
-            mesh_data = wall.get_3d_mesh(level_manager=lm)
+        pool = [w for w in getattr(scene_obj, "_walls", [])
+                if self._is_visible(w)]
+        rings = join_neighbourhoods(pool)       # once per rebuild (G9)
+        self._wall_rings = {id(w): (w, rings[id(w)]) for w in pool}
+        for wall in pool:
+            mesh_data = wall.get_3d_mesh(level_manager=lm, pool=rings[id(wall)])
             if mesh_data is None:
                 continue
             verts = np.array(mesh_data["vertices"], dtype=np.float32)
@@ -971,12 +978,20 @@ class View3D(QWidget):
             # Store Z range for section cuts
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
-            # Edge wireframe via VTK feature edges (none for a "" wall; the
-            # list stays index-parallel)
-            if no_surface:
+            # Edge wireframe from the wall's own outline-rule edges (none for
+            # a "" wall; the list stays index-parallel)
+            edges = mesh_data.get("edges") or []
+            if no_surface or not edges:
                 self._add_actor("wall_edges", None)
             else:
-                self._add_edge_actor(mesh, "wall_edges")
+                pts = np.array([p for seg in edges for p in seg],
+                               dtype=np.float32)
+                lines = np.hstack([[2, 2 * k, 2 * k + 1]
+                                   for k in range(len(edges))])
+                poly = pv.PolyData(pts, lines=lines)
+                actor_e = self._plotter.add_mesh(
+                    poly, color=(0.0, 0.0, 0.0), line_width=1.0)
+                self._add_actor("wall_edges", actor_e)
 
         self._wall_centroids_3d = np.array(centroids) if centroids else None
 
@@ -1622,7 +1637,9 @@ class View3D(QWidget):
             log.debug("highlight: processing %s, has _roof_type=%s, has get_3d_mesh=%s",
                       type(sel).__name__, hasattr(sel, '_roof_type'), hasattr(sel, 'get_3d_mesh'))
             if isinstance(sel, WallSegment):
-                mesh_data = sel.get_3d_mesh(level_manager=lm)
+                cached = self._wall_rings.get(id(sel))
+                ring = cached[1] if cached and cached[0] is sel else None
+                mesh_data = sel.get_3d_mesh(level_manager=lm, pool=ring)
             elif isinstance(sel, FloorSlab):
                 mesh_data = sel.get_3d_mesh(level_manager=lm)
             elif hasattr(sel, 'get_3d_mesh'):

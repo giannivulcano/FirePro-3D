@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-10-18  # HF1 Account: theme-bus rebuild trigger + "" colour actor pointer only (rest not re-audited); prior 2026-09-30
-verified-commit: 084b43e0  # HF1 Account (pointers only); prior f1d8151
+last-verified: 2026-11-14  # 3D wall solids Account: s1 edge-slot note, s1.1 wall mesh + join-ring rows, s2.3 hiddenChanged gap, s5 wall edges; rest not re-audited; prior 2026-10-18  # HF1 Account: theme-bus rebuild trigger + "" colour actor pointer only (rest not re-audited); prior 2026-09-30
+verified-commit: 432e11e9  # 3D wall solids (v0.103.0; s1 / s1.1 / s2.3 / s5 only); prior 084b43e0  # HF1 Account (pointers only); prior f1d8151
 applies-to:
   - firepro3d/view_3d.py
   - firepro3d/view_cube.py
@@ -72,6 +72,7 @@ come together correctly in space.
   `"slab"`, `"roof"`), `_actor_z_range: actor → (zmin, zmax)` for section cuts.
   `_clear_actors(category)` removes via pyvista then a raw VTK `RemoveActor`
   fallback. `_add_edge_actor` appends `None` when a mesh has no feature edges
+  (and `_extract_walls` appends `None` for a wall with no `edges`)
   so mesh/edge lists stay index-aligned (relied on by `_apply_horizontal_cut`).
 - **Coordinates:** `_scene_to_3d(sx, sy, z_mm)` → `(sx/ppm, -sy/ppm, z_mm)` where
   `ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0`. World is
@@ -96,7 +97,8 @@ come together correctly in space.
 | `Node` | `scenePos()`, `z_pos`, `has_sprinkler()`, `sprinkler._properties["Orientation"]["value"]` | positions, sprinkler colour (Pendent red / Sidewall green / else blue) |
 | `Pipe` | `node1`, `node2`, `_properties["Colour"]["value"]`, `_properties["Diameter"]["value"]` | cylinder colour/radius |
 | any item | `_display_overrides.get("visible")` (via `_is_visible`) | hide filter (openings honour their own and their host wall's — I14) |
-| `WallSegment` / `FloorSlab` / `RoofItem` | `get_3d_mesh(level_manager=lm)` → dict `vertices`, `faces`, optional `color` (RGBA) | meshes + selection overlay |
+| `WallSegment` / `FloorSlab` / `RoofItem` | `get_3d_mesh(level_manager=lm)` → dict `vertices`, `faces`, optional `color` (RGBA); walls take `pool=` (their join ring) and add `edges` (3D segments, mm) — [`wall-room-floor-system.md`](wall-room-floor-system.md) §6.5 | meshes + selection overlay |
+| `wall` module | `join_neighbourhoods(pool)` → `{id(wall): ring}`, once per `_extract_walls`; the pool is the scene's walls passing `_is_visible`. The rings are cached in `_wall_rings` (cleared at `_extract_walls` start and in `request_rebuild`) and the selection overlay passes the cached ring | wall meshes + selection overlay |
 | `WallOpening` (via `wall.openings`) | `get_3d_meshes(level_manager=lm)` → list of same dicts | openings |
 | `LevelManager` | `levels` (each `.elevation`, `.name`), `get(name)` | floor planes, H-cut height, `_level_z_mm` |
 | `ScaleManager` | `is_calibrated`, `pixels_per_mm` | `_scene_to_3d` |
@@ -188,7 +190,10 @@ come together correctly in space.
   rebuild timer (the rebuild re-syncs the selection and renders); else a pending
   selection sync; else a pending render.
 - **Direct calls:** toolbar **Refresh** and the context-menu Refresh / Hide /
-  Show All call `rebuild()` directly (only reachable while visible).
+  Show All call `rebuild()` directly (only reachable while visible). Hide /
+  Show from the plan context menu or the Model Browser emits only
+  `hiddenChanged`, which `View3D` does not connect, so 3D stays stale until the
+  next model change (filed bug, `todo_open.md`).
   `delete_selected` does not rebuild itself — the scene's delete fires
   `sceneModified` → `request_rebuild`.
 
@@ -325,7 +330,11 @@ line mesh whose width derives from the **first** pipe's diameter. Water supply:
 and returns (loose 2D primitives no longer live in the plan scene). Level
 floors: translucent quads per level sized to the node extent + padding, with
 edge outline and name label, hidden unless Floors is on; absent when there are
-no nodes. Walls / slabs / roofs: `get_3d_mesh` meshes + feature-edge actors
+no nodes. Walls: `get_3d_mesh(pool=ring)` exact solids (manifold3d) + one line
+actor per wall from the mesh's `edges` key (the plan outline rule — no mitre or
+pie seams; [`wall-room-floor-system.md`](wall-room-floor-system.md) §6.5), not
+feature edges; the selection overlay still draws feature edges (ruled fine at
+smoke 2026-11-14). Slabs / roofs: `get_3d_mesh` meshes + feature-edge actors
 (walls & slabs backface culling off; roofs use the mesh alpha; HF1: a roof or
 wall with colour `""` is an opacity-0, unpickable actor with a `None` edge slot so
 the actor / edge lists stay index-parallel — [`hatch-and-fill.md`](hatch-and-fill.md)). Openings:

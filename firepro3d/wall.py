@@ -29,8 +29,10 @@ from .colour_tokens import normalize_colour, resolve_colour
 _DEFAULT_COLOUR = "#cccccc"
 from .constants import (DEFAULT_LEVEL, MATERIAL_NONE_ID,
                        MITER_TOL, MAX_MITER_FACTOR,
-                       WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL)
+                       WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL,
+                       CUT_MARGIN_MM)
 from .view_scale import scene_hit_width
+from .wall_solid import build_solid, clip_depth, subtract_collinear
 from PyQt6 import sip
 from .wall_outline import (JunctionArm, SeamStroke, WallOutline, _poly_path,
                            boundary_segments, cluster_union, intersect_lines,
@@ -381,11 +383,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     break
         return guests
 
-    def _rebuild_outline(self, extra=None) -> None:
-        """Recompute body, union body, faces, caps, centerline and
-        neighbours; set ``path()`` to the body (HALO, hit, bounds -- D9).
-        Stroke segments and corners are left for ``outline()`` (lazy)."""
-        e = self._join_ends(extra)
+    def _body_polygons(self, e: dict) -> tuple[QPolygonF, QPolygonF]:
+        """``(body, union_body)`` from a ``_join_ends`` result (D2)."""
         p1l, p1r, p2r, p2l = e["quad"]
         w1, w2 = e["wedge"]
         body = QPolygonF([p1l, p2l, *w2, p2r, p1r, *w1])
@@ -401,6 +400,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             if e["tee_union"][i] is not None:
                 union_body = self._clip_tee_extension(
                     union_body, body, e["hosts"][i])
+        return body, union_body
+
+    def _rebuild_outline(self, extra=None) -> None:
+        """Recompute body, union body, faces, caps, centerline and
+        neighbours; set ``path()`` to the body (HALO, hit, bounds -- D9).
+        Stroke segments and corners are left for ``outline()`` (lazy)."""
+        e = self._join_ends(extra)
+        p1l, p1r, p2r, p2l = e["quad"]
+        w1, w2 = e["wedge"]
+        body, union_body = self._body_polygons(e)
         caps = []
         if not e["partners"][0] and e["hosts"][0] is None:
             caps.append((QPointF(p1l), QPointF(p1r)))
@@ -1082,279 +1091,255 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── 3D mesh generation ───────────────────────────────────────────────────
 
-    def get_3d_mesh(self, level_manager=None) -> dict | None:
-        """Return vertices and faces for the extruded wall box.
-
-        Returns dict with 'vertices' (Nx3 float list) and 'faces' (Mx3 int list),
-        or None if geometry is degenerate.
-
-        The wall is extruded from base_z to top_z (in mm, for vispy).
-        Openings are subtracted as rectangular holes.
-        """
-        # Determine base and top elevations in mm
-        base_z = 0.0
-        top_z = self._height_mm
+    def z_span_mm(self, level_manager=None) -> tuple[float, float]:
+        """``(base_z, top_z)`` exactly as the 3D mesh uses them (6.5)."""
+        base_z, top_z = 0.0, self._height_mm
         if level_manager is not None:
             base_lvl = level_manager.get(self._base_level)
             if base_lvl:
                 base_z = base_lvl.elevation + self._base_offset_mm
             top_lvl = level_manager.get(self._top_level)
-            if top_lvl:
-                top_z = top_lvl.elevation + self._top_offset_mm
-            else:
-                top_z = base_z + self._height_mm
-        if abs(top_z - base_z) < 1.0:
-            return None
+            top_z = (top_lvl.elevation + self._top_offset_mm if top_lvl
+                     else base_z + self._height_mm)
+        return base_z, top_z
 
-        # 2D quad corners (scene coords → mm via scale manager).
-        # Use the UN-mitered rectangle (parallel long edges) rather than
-        # mitered_quad: mitered corners skew the two long edges near joins, so
-        # same-parameter interpolation of an opening's jambs lands off-square
-        # (openings cut at an angle on connected walls). quad_points keeps the
-        # long edges parallel → opening jambs are perpendicular by construction.
-        # Trade-off: 3D wall corners butt-join instead of mitre (minor; a
-        # separate follow-up can re-mitre the 3D corners if wanted).
-        p1l, p1r, p2r, p2l = self.quad_points()
+    def pool_3d(self) -> list["WallSegment"]:
+        """Walls the 3D view shows (D2): the ``_display_overrides`` visible
+        flag only -- the plan's level visibility does not apply."""
+        sc = self.scene()
+        if sc is None or not hasattr(sc, "_walls"):
+            return []
+        return [w for w in sc._walls
+                if w is not self and not sip.isdeleted(w) and w.scene() is sc
+                and (getattr(w, "_display_overrides", None) or {}).get(
+                    "visible") is not False]
+
+    def _band_neighbours(self, e: dict, members) -> list["WallSegment"]:
+        """Walls joined, hosting or teeing into this wall in a band (*e* is
+        its ``_join_ends`` over *members*)."""
+        nbrs = [o for o, _ep in e["partners"][0] + e["partners"][1]]
+        nbrs += [h for h in e["hosts"] if h is not None]
+        nbrs += self._tee_guests(members)
+        return nbrs
+
+    def _solid_bands(self, pool, level_manager) -> list[tuple]:
+        """``[(body, z0, z1, e)]`` per height band (D4), identical bands merged.
+
+        Breakpoints: own span plus the spans of every endpoint partner, tee
+        host and tee guest reached through *pool*; each band joins only the
+        pool walls whose span covers the band's mid height.
+        """
+        pool = [w for w in pool if w is not self]
+        z0, z1 = self.z_span_mm(level_manager)
+        if z1 - z0 < 1.0:
+            return []
+        full = self._join_ends(pool=pool)
+        near = [o for o, _ep in full["partners"][0] + full["partners"][1]]
+        near += [h for h in full["hosts"] if h is not None]
+        near += self._tee_guests(pool)
+        cuts = {z0, z1}
+        spans = {id(w): w.z_span_mm(level_manager) for w in pool}
+        for w in near:
+            for z in spans[id(w)]:
+                if z0 < z < z1:
+                    cuts.add(z)
+        zs = sorted(cuts)
+        out: list[tuple] = []
+        for za, zb in zip(zs, zs[1:]):
+            zm = (za + zb) / 2.0
+            members = [w for w in pool
+                       if spans[id(w)][0] <= zm <= spans[id(w)][1]]
+            e = self._join_ends(pool=members)
+            body, _u = self._body_polygons(e)
+            # Merge only when the body AND the walls joined/unioned for the
+            # edges are equal: a neighbour that ends mid-wall must keep its
+            # own band so the outline above it is drawn without its union.
+            key = ([(round(p.x(), 6), round(p.y(), 6)) for p in body],
+                   frozenset(id(n) for n in self._band_neighbours(e, members)))
+            if out and out[-1][4] == key:
+                out[-1] = (out[-1][0], out[-1][1], zb, out[-1][3], key)
+            else:
+                out.append((body, za, zb, e, key))
+        return [(b, za, zb, e) for b, za, zb, e, _k in out]
+
+    def _to_mm(self):
+        """Scene point -> (x_mm, -y_mm) for 3D (Y negated, 6.5)."""
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        cal = sm is not None and sm.is_calibrated and sm.drawing_scale > 0
 
-        def to_mm(pt: QPointF) -> tuple[float, float]:
-            if sm and sm.is_calibrated and sm.drawing_scale > 0:
-                x_mm = sm.scene_to_real(pt.x())
-                y_mm = sm.scene_to_real(pt.y())
-            else:
-                x_mm = pt.x()
-                y_mm = pt.y()
-            return (x_mm, -y_mm)   # negate Y for 3D convention
+        def f(pt: QPointF) -> tuple[float, float]:
+            if cal:
+                return (sm.scene_to_real(pt.x()), -sm.scene_to_real(pt.y()))
+            return (pt.x(), -pt.y())
+        return f
 
-        corners_2d = [to_mm(p) for p in (p1l, p1r, p2r, p2l)]
+    def _opening_cuts(self, level_manager) -> list[tuple]:
+        """Per opening: the plan gap rect (width x full thickness, as
+        ``WallOpening._gap_rect`` draws it, measured along from
+        ``centerline_pt1``) centred on the wall axis, in scene coords,
+        sill..head clamped to the wall's span (D5):
+        ``[(QPointF x4, z0, z1)]``."""
+        base_z, top_z = self.z_span_mm(level_manager)
+        a, b = self.centerline_pt1, self.centerline_pt2
+        length = math.hypot(b.x() - a.x(), b.y() - a.y())
+        if length < 1e-9:
+            return []
+        ux, uy = (b.x() - a.x()) / length, (b.y() - a.y()) / length
+        nx, ny = -uy, ux
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        cal = sm is not None and sm.is_calibrated and sm.drawing_scale > 0
+        mm_per_scene = sm.scene_to_real(1.0) if cal else 1.0
+        half_t = self.half_thickness_scene() + CUT_MARGIN_MM / mm_per_scene
+        out = []
+        for op in self.openings:
+            half_w = (op._width_mm / mm_per_scene) / 2.0
+            # On the wall axis: the cut is full thickness, so the opening's
+            # cross offset / alignment shift (D5, Q4) does not move it.
+            cx = a.x() + ux * op._offset_along
+            cy = a.y() + uy * op._offset_along
+            z0 = max(base_z, base_z + op._sill_mm)
+            z1 = min(top_z, base_z + op._sill_mm + op._height_mm)
+            if z1 <= z0:
+                continue
+            rect = [QPointF(cx + ux * su * half_w + nx * sv * half_t,
+                            cy + uy * su * half_w + ny * sv * half_t)
+                    for su, sv in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+            out.append((rect, z0, z1))
+        return out
 
+    def get_3d_mesh(self, level_manager=None, pool=None) -> dict | None:
+        """Exact solid of this wall for the 3D view (3D wall solids design).
+
+        Bands of the plan body joined against *pool* (default ``pool_3d()``),
+        minus the opening cuts; ``edges`` follow the plan outline rule (D7).
+
+        Args:
+            level_manager: Resolves the base / top levels to z.
+            pool: The 3D join pool. It must hold this wall's
+                ``join_neighbourhoods`` ring (the view passes exactly that):
+                a narrower pool can change joins and edges (a wrong mesh);
+                walls beyond the ring only cost time. None: this wall's
+                ring within ``pool_3d()`` (``join_ring``).
+
+        Returns:
+            ``{"vertices", "faces", "color", "edges"}`` or None (degenerate).
+        """
+        if pool is None:
+            pool = join_ring(self, self.pool_3d())
+        else:
+            pool = [w for w in pool if w is not self]
+        bands = self._solid_bands(pool, level_manager)
+        if not bands:
+            return None
+        to_mm = self._to_mm()
+        cuts = self._opening_cuts(level_manager)
+        solid = build_solid(
+            [([to_mm(p) for p in body], z0, z1) for body, z0, z1, _e in bands],
+            [([to_mm(p) for p in rect], z0, z1) for rect, z0, z1 in cuts])
+        if solid is None:
+            return None
         # The 3D view has no paper: a token resolves with canvas semantics;
         # "" (no colour) is alpha 0 and View3D draws no surface for it.
         c = resolve_colour(self._colour)
-        color = (c.redF(), c.greenF(), c.blueF(), 0.0 if self._colour == "" else 0.9)
+        solid["color"] = (c.redF(), c.greenF(), c.blueF(),
+                          0.0 if self._colour == "" else 0.9)
+        solid["edges"] = self._solid_edges(bands, cuts, pool, level_manager)
+        return solid
 
-        if not self.openings:
-            # Simple box: 8 vertices, 12 triangles (6 faces × 2 tris)
-            verts = []
-            for x, y in corners_2d:
-                verts.append([x, y, base_z])
-            for x, y in corners_2d:
-                verts.append([x, y, top_z])
-            faces = [
-                [0, 1, 2], [0, 2, 3],       # bottom
-                [4, 6, 5], [4, 7, 6],       # top
-                [0, 1, 5], [0, 5, 4],       # side 1
-                [1, 2, 6], [1, 6, 5],       # side 2
-                [2, 3, 7], [2, 7, 6],       # side 3
-                [3, 0, 4], [3, 4, 7],       # side 4
-            ]
-            return {"vertices": verts, "faces": faces, "color": color}
+    def _solid_edges(self, bands, cuts, pool, level_manager) -> list:
+        """3D edge segments in mm following the plan outline rule (D7)."""
+        pool = [w for w in pool if w is not self]
+        to_mm = self._to_mm()
+        tol = WALL_OUTLINE_ON_EDGE_TOL
 
-        # ── Wall with openings ────────────────────────────────────────────
-        # Front face: corners_2d[0]→corners_2d[1] (p1l→p1r)
-        # Back  face: corners_2d[3]→corners_2d[2] (p2l→p2r)
-        # Wall axis runs from pt1 to pt2 (along the "left" and "right" edges).
-        # "side 1" (idx 0→1) is at pt1-end, "side 3" (idx 2→3) is at pt2-end.
-        # The two long faces are "side 2" (idx 1→2, right) and "side 4" (idx 3→0, left).
+        def seg2(line):
+            return (to_mm(line[0]), to_mm(line[1]))
 
-        # Wall length in scene units (used to normalise offset_along → 0..1)
-        import math as _m
-        wall_len = _m.hypot(self._pt2.x() - self._pt1.x(),
-                            self._pt2.y() - self._pt1.y())
-        if wall_len < 1e-6:
-            wall_len = 1.0
+        spans = {id(w): w.z_span_mm(level_manager) for w in pool}
+        per_band = []                 # (z0, z1, pieces 2D, corners 2D)
+        for body, z0, z1, e in bands:
+            zm = (z0 + z1) / 2.0
+            members = [w for w in pool
+                       if spans[id(w)][0] <= zm <= spans[id(w)][1]]
+            _b, union = self._body_polygons(e)
+            nbrs = self._band_neighbours(e, members)
+            polys = [union]
+            for n in nbrs:
+                ne = n._join_ends(pool=[m for m in members if m is not n] + [self])
+                polys.append(n._body_polygons(ne)[1])
+            boundary = boundary_segments(cluster_union(polys))
+            pieces = [seg2(l) for l in stroke_segments(body, boundary)]
+            pieces += [seg2(l) for l in e["seams"]]
+            corners = [to_mm(p) for p in visible_corners(body, boundary)]
+            for l in e["seams"]:
+                corners += [to_mm(l[0]), to_mm(l[1])]
+            per_band.append((z0, z1, pieces, corners))
 
-        # Collect normalised opening intervals along wall axis
-        openings_sorted = []
-        for op in self.openings:
-            # offset_along is scene-units from pt1 centre;  width is in mm.
-            # Convert width to scene units for fractional position.
-            if sm and sm.is_calibrated:
-                w_scene = op._width_mm / (sm._pixels_per_mm * sm._drawing_scale) if sm._pixels_per_mm else op._width_mm
-            else:
-                w_scene = op._width_mm   # assume 1 px = 1 mm
-            t_center = op._offset_along / wall_len
-            t_half = (w_scene / 2.0) / wall_len
-            t0 = max(0.0, t_center - t_half)
-            t1 = min(1.0, t_center + t_half)
-            if t1 <= t0:
+        cut_faces = []                # per cut: its two face lines (2D mm)
+        for rect, cz0, cz1 in cuts:
+            r = [to_mm(p) for p in rect]
+            cut_faces.append(([(r[0], r[1]), (r[3], r[2])], cz0, cz1, r))
+
+        def minus_cuts(pieces, z):
+            for faces, cz0, cz1, _r in cut_faces:
+                if cz0 - 1e-6 <= z <= cz1 + 1e-6:
+                    pieces = subtract_collinear(pieces, faces, CUT_MARGIN_MM + tol)
+            return pieces
+
+        out = []
+        levels = sorted({z for z0, z1, _p, _c in per_band for z in (z0, z1)})
+        for z in levels:
+            below = next((p for z0, z1, p, _c in per_band if z1 == z), [])
+            above = next((p for z0, z1, p, _c in per_band if z0 == z), [])
+            horiz = (subtract_collinear(below, above, tol)
+                     + subtract_collinear(above, below, tol))
+            for (ax, ay), (bx, by) in minus_cuts(horiz, z):
+                out.append(((ax, ay, z), (bx, by, z)))
+        verts: dict = {}
+        for z0, z1, _p, corners in per_band:
+            uniq = {(round(x, 3), round(y, 3)) for x, y in corners}
+            for k in sorted(uniq):
+                if k in verts and abs(verts[k][1] - z0) < 1e-6:
+                    verts[k] = (verts[k][0], z1)
+                else:
+                    if k in verts:
+                        out.append(((k[0], k[1], verts[k][0]),
+                                    (k[0], k[1], verts[k][1])))
+                    verts[k] = (z0, z1)
+        for (x, y), (z0, z1) in verts.items():
+            out.append(((x, y, z0), (x, y, z1)))
+        out += self._reveal_edges(bands, cut_faces)
+        return out
+
+    def _reveal_edges(self, bands, cut_faces) -> list:
+        """Per cut, the edges of its own surfaces inside the host body (D7.4)."""
+        out = []
+        to_mm = self._to_mm()
+        zlo, zhi = bands[0][1], bands[-1][2]
+        for _faces, cz0, cz1, r in cut_faces:
+            band = next((b for b, z0, z1, _e in bands
+                         if z0 <= (cz0 + cz1) / 2 <= z1), None)
+            if band is None:
                 continue
-            ob = base_z + op._sill_mm
-            ot = ob + op._height_mm
-            ob = max(ob, base_z)
-            ot = min(ot, top_z)
-            if ot <= ob:
-                continue
-            openings_sorted.append((t0, t1, ob, ot))
-        openings_sorted.sort(key=lambda x: x[0])
-
-        if not openings_sorted:
-            # All openings were degenerate — fall back to solid box
-            verts = []
-            for x, y in corners_2d:
-                verts.append([x, y, base_z])
-            for x, y in corners_2d:
-                verts.append([x, y, top_z])
-            faces = [
-                [0, 1, 2], [0, 2, 3],
-                [4, 6, 5], [4, 7, 6],
-                [0, 1, 5], [0, 5, 4],
-                [1, 2, 6], [1, 6, 5],
-                [2, 3, 7], [2, 7, 6],
-                [3, 0, 4], [3, 4, 7],
-            ]
-            return {"vertices": verts, "faces": faces, "color": color}
-
-        # Helper: interpolate between two 2D corners at parameter t
-        def lerp_2d(a, b, t):
-            return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
-
-        # Left edge: corners_2d[0]→corners_2d[3]  (p1l → p2l)
-        # Right edge: corners_2d[1]→corners_2d[2] (p1r → p2r)
-        c0, c1, c2, c3 = corners_2d  # p1l, p1r, p2r, p2l
-
-        verts = []
-        faces = []
-        _vert_cache: dict[tuple, int] = {}
-
-        def V(x, y, z):
-            # Round to sub-micron precision so geometrically identical points
-            # share a vertex index, enabling edge-sharing for watertightness.
-            key = (round(x, 4), round(y, 4), round(z, 4))
-            if key in _vert_cache:
-                return _vert_cache[key]
-            idx = len(verts)
-            verts.append([x, y, z])
-            _vert_cache[key] = idx
-            return idx
-
-        def quad(a, b, c, d):
-            faces.append([a, b, c])
-            faces.append([a, c, d])
-
-        # ── Structured mesh: t-columns × z-rows ──────────────────────────────
-        # Build t-breakpoints and z-breakpoints from all openings so that every
-        # cell boundary is shared correctly between adjacent faces.
-        #
-        # t-columns: [0..t0, t0..t1, t1..1] for each opening
-        # z-rows:    [base_z..ob, ob..ot, ot..top_z] for each opening
-        #
-        # The centre cell (t0..t1, ob..ot) is the aperture void — no face.
-        # All other cells emit one quad on each of the two long faces,
-        # plus the end caps and floor/ceiling close the box.
-
-        # Collect unique t-breakpoints and z-breakpoints
-        t_pts = sorted({0.0, 1.0} | {t for (t0, t1, _, __) in openings_sorted
-                                      for t in (t0, t1)})
-        z_pts = sorted({base_z, top_z} | {z for (_, __, ob, ot) in openings_sorted
-                                           for z in (ob, ot)})
-
-        # Build set of (t-col, z-row) cells that are void (aperture)
-        void_cells = set()
-        for (t0, t1, ob, ot) in openings_sorted:
-            ti = t_pts.index(t0)
-            zi = z_pts.index(ob)
-            void_cells.add((ti, zi))  # col=ti (t0→t1 segment), row=zi (ob→ot segment)
-
-        # End caps (side 1 at pt1-end t=0, side 3 at pt2-end t=1) — always solid.
-        # Side 1: c0(left)–c1(right) end cap
-        for zi in range(len(z_pts) - 1):
-            za, zb = z_pts[zi], z_pts[zi + 1]
-            quad(V(*c0, za), V(*c1, za), V(*c1, zb), V(*c0, zb))
-        # Side 3: c3(left)–c2(right) end cap
-        for zi in range(len(z_pts) - 1):
-            za, zb = z_pts[zi], z_pts[zi + 1]
-            quad(V(*c3, za), V(*c2, za), V(*c2, zb), V(*c3, zb))
-
-        # The bottom-face row index and top-face row index in z_pts.
-        bottom_zi = z_pts.index(base_z)   # always 0
-        top_zi = len(z_pts) - 2           # always the last row (z_pts[-2]→top_z)
-
-        # Bottom face (z = base_z): skip any t-column where the aperture goes
-        # all the way to the floor (ob == base_z), since there is no wall
-        # material on the floor at the opening position — the jamb provides the
-        # only face there, and including a bottom quad would share the edge with
-        # 3 faces instead of 2, creating a non-manifold mesh.
-        # Winding → normal DOWN (−Z).
-        for ti in range(len(t_pts) - 1):
-            if (ti, bottom_zi) in void_cells:
-                continue    # opening at floor level — no bottom face here
-            ta, tb = t_pts[ti], t_pts[ti + 1]
-            lA = lerp_2d(c0, c3, ta);  rA = lerp_2d(c1, c2, ta)
-            lB = lerp_2d(c0, c3, tb);  rB = lerp_2d(c1, c2, tb)
-            quad(V(*lA, base_z), V(*rA, base_z), V(*rB, base_z), V(*lB, base_z))
-
-        # Top face (z = top_z): skip any t-column where the aperture goes all
-        # the way to the ceiling (ot == top_z) — same reasoning as bottom face.
-        # Winding → normal UP (+Z).
-        for ti in range(len(t_pts) - 1):
-            if (ti, top_zi) in void_cells:
-                continue    # opening at ceiling level — no top face here
-            ta, tb = t_pts[ti], t_pts[ti + 1]
-            lA = lerp_2d(c0, c3, ta);  rA = lerp_2d(c1, c2, ta)
-            lB = lerp_2d(c0, c3, tb);  rB = lerp_2d(c1, c2, tb)
-            quad(V(*lB, top_z), V(*rB, top_z), V(*rA, top_z), V(*lA, top_z))
-
-        # ── Long faces (left c0→c3 and right c1→c2) with aperture voids ──────
-        # Each (t-col, z-row) cell that is NOT void gets a quad on EACH long face.
-        # Left face normal: outward (away from wall depth centre).
-        # Right face normal: outward (away from wall depth centre).
-        #
-        # Left face quad winding: (near-bot, far-bot, far-top, near-top) → outward −Y
-        # Right face quad winding: (near-bot, far-bot, far-top, near-top) but
-        #   for right face c1→c2 "near" = smaller t → same winding pattern.
-
-        for ti in range(len(t_pts) - 1):
-            ta, tb = t_pts[ti], t_pts[ti + 1]
-            for zi in range(len(z_pts) - 1):
-                if (ti, zi) in void_cells:
-                    continue        # aperture void — no face
-                za, zb = z_pts[zi], z_pts[zi + 1]
-
-                # Left long face (c0→c3 edge)
-                lA = lerp_2d(c0, c3, ta)
-                lB = lerp_2d(c0, c3, tb)
-                quad(V(*lA, za), V(*lB, za), V(*lB, zb), V(*lA, zb))
-
-                # Right long face (c1→c2 edge)
-                rA = lerp_2d(c1, c2, ta)
-                rB = lerp_2d(c1, c2, tb)
-                quad(V(*rA, za), V(*rB, za), V(*rB, zb), V(*rA, zb))
-
-        # ── Reveal caps: close the tunnel at each aperture depth-face ─────────
-        # At each aperture void cell (ti, zi), four faces close the tunnel:
-        #   sill cap (bottom of void), head cap (top of void),
-        #   near jamb (t=t0 face), far jamb (t=t1 face).
-        # Each cap face connects the left-face side to the right-face side.
-        for (ti, zi) in void_cells:
-            ta, tb = t_pts[ti], t_pts[ti + 1]    # t0, t1
-            za, zb = z_pts[zi], z_pts[zi + 1]    # ob, ot
-
-            oL0 = lerp_2d(c0, c3, ta)    # left face at t=t0
-            oL1 = lerp_2d(c0, c3, tb)    # left face at t=t1
-            oR0 = lerp_2d(c1, c2, ta)    # right face at t=t0
-            oR1 = lerp_2d(c1, c2, tb)    # right face at t=t1
-
-            # Sill cap (z = za = ob): quad facing UP into aperture.
-            # Only needed when ob > base_z; if ob == base_z the bottom face
-            # (emitted above) already covers this horizontal surface.
-            if za > base_z:
-                quad(V(*oL0, za), V(*oR0, za), V(*oR1, za), V(*oL1, za))
-
-            # Head cap (z = zb = ot): quad facing DOWN into aperture.
-            # Only needed when ot < top_z; if ot == top_z the top face
-            # (emitted above) already covers this horizontal surface.
-            if zb < top_z:
-                quad(V(*oL1, zb), V(*oR1, zb), V(*oR0, zb), V(*oL0, zb))
-
-            # Near jamb (t = ta = t0): quad facing toward t<t0.
-            quad(V(*oL0, za), V(*oL0, zb), V(*oR0, zb), V(*oR0, za))
-
-            # Far jamb (t = tb = t1): quad facing toward t>t1.
-            quad(V(*oR1, za), V(*oL1, za), V(*oL1, zb), V(*oR1, zb))
-
-        return {"vertices": verts, "faces": faces, "color": color}
+            poly = [to_mm(p) for p in band]
+            # r: [u0 face-, u1 face-, u1 face+, u0 face+] overshooting by
+            # CUT_MARGIN_MM; pull each corner back onto the body face
+            inner = clip_depth(r, poly)
+            for (x, y) in inner:
+                out.append(((x, y, cz0), (x, y, cz1)))                 # jambs
+            for z in (cz0, cz1):
+                # A sill/head on the wall's own bottom/top leaves the face
+                # open there: no face-line edge (i = 0, 2) -- the plan
+                # outline is broken across the opening.
+                open_face = z <= zlo + 1e-6 or z >= zhi - 1e-6
+                for i in range(4):
+                    if open_face and i in (0, 2):
+                        continue
+                    a, b = inner[i], inner[(i + 1) % 4]
+                    out.append(((a[0], a[1], z), (b[0], b[1], z)))      # sill/head
+        return out
 
     # ── Miter join ────────────────────────────────────────────────────────────
 
@@ -1705,8 +1690,13 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return (e["quad"], e["solid"][0], e["solid"][1],
                 e["wedge"][0], e["wedge"][1])
 
-    def _join_ends(self, extra=None) -> dict:
+    def _join_ends(self, extra=None, pool=None) -> dict:
         """Resolve both ends against the visible join pool.
+
+        Args:
+            extra: A wall in the scene but not yet in ``scene._walls``.
+            pool: Explicit join pool (the 3D view passes its own); default
+                is ``_join_pool(extra)``, the plan pool.
 
         Returns a dict: ``quad`` (p1l, p1r, p2r, p2l), ``solid`` (2 bools),
         ``wedge`` (2 vertex lists), ``partners`` (2 lists of
@@ -1723,7 +1713,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         tee_union: list = [None, None]
         union_wedge: list = [None, None]
         seams: list = []
-        pool = self._join_pool(extra)
+        pool = self._join_pool(extra) if pool is None else list(pool)
 
         if pool:
             MAX_MITER = self.half_thickness_scene() * MAX_MITER_FACTOR
@@ -2014,3 +2004,66 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         d_l = math.hypot(ref.x() - face_l.x(), ref.y() - face_l.y())
         d_r = math.hypot(ref.x() - face_r.x(), ref.y() - face_r.y())
         return face_l if d_l <= d_r else face_r
+
+
+def _reach_box(wall: WallSegment) -> tuple[float, float, float, float]:
+    """Scene box bounding every join reach of *wall* (3D join neighbourhood).
+
+    The end points grown by twice the half thickness plus ``MITER_TOL``:
+    an aligned centerline sits at most one half thickness off the
+    ``_pt1``-``_pt2`` line, so the box holds both faces, the centerline,
+    and every endpoint-partner, tee-host and tee-guest reach.
+    """
+    r = 2.0 * wall.half_thickness_scene() + MITER_TOL
+    a, b = wall._pt1, wall._pt2
+    return (min(a.x(), b.x()) - r, min(a.y(), b.y()) - r,
+            max(a.x(), b.x()) + r, max(a.y(), b.y()) + r)
+
+
+def join_neighbourhoods(walls) -> dict[int, list[WallSegment]]:
+    """Per wall (keyed by ``id``): the 3D join pool it needs.
+
+    The walls whose reach box overlaps its own (first ring) or a first-ring
+    wall's (second ring): ``get_3d_mesh`` joins against the first ring and
+    its edge pass re-joins each neighbour, which reads that neighbour's
+    first ring. Passing this ring instead of every wall gives the same mesh
+    without the per-wall scan of the whole pool (G9). Sort-and-sweep on x;
+    each list keeps the order of *walls*.
+    """
+    walls = list(walls)
+    order = {id(w): i for i, w in enumerate(walls)}
+    boxes = [(_reach_box(w), w) for w in walls]
+    boxes.sort(key=lambda bw: bw[0][0])
+    ring1: dict[int, set[int]] = {id(w): set() for w in walls}
+    active: list = []
+    for box, w in boxes:
+        active = [(b, o) for b, o in active if b[2] >= box[0]]
+        for b, o in active:
+            if b[1] <= box[3] and box[1] <= b[3]:
+                ring1[id(w)].add(id(o))
+                ring1[id(o)].add(id(w))
+        active.append((box, w))
+    by_id = {id(w): w for w in walls}
+    out: dict[int, list[WallSegment]] = {}
+    for w in walls:
+        keep = set(ring1[id(w)])
+        for o in ring1[id(w)]:
+            keep |= ring1[o]
+        keep.discard(id(w))
+        out[id(w)] = [by_id[i] for i in sorted(keep, key=order.__getitem__)]
+    return out
+
+
+def _boxes_overlap(a, b) -> bool:
+    return a[0] <= b[2] and b[0] <= a[2] and a[1] <= b[3] and b[1] <= a[3]
+
+
+def join_ring(wall: WallSegment, pool) -> list[WallSegment]:
+    """*wall*'s ``join_neighbourhoods`` ring within *pool*, built for that
+    wall alone: one box per pool wall instead of every wall's ring, for
+    callers meshing one wall (selection highlight, thermal extract)."""
+    mine = _reach_box(wall)
+    boxes = [(w, _reach_box(w)) for w in pool if w is not wall]
+    first = [b for _w, b in boxes if _boxes_overlap(mine, b)]
+    return [w for w, b in boxes
+            if any(_boxes_overlap(f, b) for f in first)]
