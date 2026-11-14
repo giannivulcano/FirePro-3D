@@ -104,3 +104,25 @@ def subtract_collinear(a: list[Seg], b: list[Seg], tol: float) -> list[Seg]:
         if length - t > tol:
             out.append(((p[0] + ux * t, p[1] + uy * t), q))
     return out
+
+
+def clip_depth(rect: list[Pt], poly: list[Pt]) -> list[Pt]:
+    """Move each cut-rect corner along its depth edge onto *poly*'s boundary.
+
+    rect = [u0-, u1-, u1+, u0+]; corners 0<->3 and 1<->2 are the depth edges.
+    Each corner is replaced by the nearest intersection of its depth edge
+    with *poly*'s edges (the wall face it overshoots).
+    """
+    def hit(p, q):
+        best, bt = p, 2.0
+        for a, b in zip(poly, poly[1:] + poly[:1]):
+            d = (q[0] - p[0]) * (b[1] - a[1]) - (q[1] - p[1]) * (b[0] - a[0])
+            if abs(d) < 1e-12:
+                continue
+            t = ((a[0] - p[0]) * (b[1] - a[1]) - (a[1] - p[1]) * (b[0] - a[0])) / d
+            s = ((a[0] - p[0]) * (q[1] - p[1]) - (a[1] - p[1]) * (q[0] - p[0])) / d
+            if 0.0 <= t <= 1.0 and 0.0 <= s <= 1.0 and t < bt:
+                best, bt = (p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])), t
+        return best
+    return [hit(rect[0], rect[3]), hit(rect[1], rect[2]),
+            hit(rect[2], rect[1]), hit(rect[3], rect[0])]

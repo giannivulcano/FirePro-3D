@@ -32,7 +32,7 @@ from .constants import (DEFAULT_LEVEL, MATERIAL_NONE_ID,
                        WALL_JOIN_TOP_TOL_MM, WALL_OUTLINE_ON_EDGE_TOL,
                        CUT_MARGIN_MM)
 from .view_scale import scene_hit_width
-from .wall_solid import build_solid, subtract_collinear
+from .wall_solid import build_solid, clip_depth, subtract_collinear
 from PyQt6 import sip
 from .wall_outline import (JunctionArm, SeamStroke, WallOutline, _poly_path,
                            boundary_segments, cluster_union, intersect_lines,
@@ -1223,7 +1223,98 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return solid
 
     def _solid_edges(self, bands, cuts, pool, level_manager) -> list:
-        return []
+        """3D edge segments in mm following the plan outline rule (D7)."""
+        to_mm = self._to_mm()
+        tol = WALL_OUTLINE_ON_EDGE_TOL
+
+        def seg2(line):
+            return (to_mm(line[0]), to_mm(line[1]))
+
+        spans = {id(w): w.z_span_mm(level_manager) for w in pool}
+        per_band = []                 # (z0, z1, pieces 2D, corners 2D)
+        for body, z0, z1, e in bands:
+            zm = (z0 + z1) / 2.0
+            members = [w for w in pool
+                       if spans[id(w)][0] <= zm <= spans[id(w)][1]]
+            _b, union = self._body_polygons(e)
+            nbrs = [o for o, _ep in e["partners"][0] + e["partners"][1]]
+            nbrs += [h for h in e["hosts"] if h is not None]
+            nbrs += self._tee_guests(members)
+            polys = [union]
+            for n in nbrs:
+                ne = n._join_ends(pool=[m for m in members if m is not n] + [self])
+                polys.append(n._body_polygons(ne)[1])
+            boundary = boundary_segments(cluster_union(polys))
+            pieces = [seg2(l) for l in stroke_segments(body, boundary)]
+            pieces += [seg2(l) for l in e["seams"]]
+            corners = [to_mm(p) for p in visible_corners(body, boundary)]
+            for l in e["seams"]:
+                corners += [to_mm(l[0]), to_mm(l[1])]
+            per_band.append((z0, z1, pieces, corners))
+
+        cut_faces = []                # per cut: its two face lines (2D mm)
+        for rect, cz0, cz1 in cuts:
+            r = [to_mm(p) for p in rect]
+            cut_faces.append(([(r[0], r[1]), (r[3], r[2])], cz0, cz1, r))
+
+        def minus_cuts(pieces, z):
+            for faces, cz0, cz1, _r in cut_faces:
+                if cz0 - 1e-6 <= z <= cz1 + 1e-6:
+                    pieces = subtract_collinear(pieces, faces, CUT_MARGIN_MM + tol)
+            return pieces
+
+        out = []
+        levels = sorted({z for z0, z1, _p, _c in per_band for z in (z0, z1)})
+        for z in levels:
+            below = next((p for z0, z1, p, _c in per_band if z1 == z), [])
+            above = next((p for z0, z1, p, _c in per_band if z0 == z), [])
+            horiz = (subtract_collinear(below, above, tol)
+                     + subtract_collinear(above, below, tol))
+            for (ax, ay), (bx, by) in minus_cuts(horiz, z):
+                out.append(((ax, ay, z), (bx, by, z)))
+        verts: dict = {}
+        for z0, z1, _p, corners in per_band:
+            for x, y in corners:
+                k = (round(x, 3), round(y, 3))
+                if k in verts and abs(verts[k][1] - z0) < 1e-6:
+                    verts[k] = (verts[k][0], z1)
+                else:
+                    if k in verts:
+                        out.append(((k[0], k[1], verts[k][0]),
+                                    (k[0], k[1], verts[k][1])))
+                    verts[k] = (z0, z1)
+        for (x, y), (z0, z1) in verts.items():
+            out.append(((x, y, z0), (x, y, z1)))
+        out += self._reveal_edges(bands, cut_faces)
+        return out
+
+    def _reveal_edges(self, bands, cut_faces) -> list:
+        """Per cut, the edges of its own surfaces inside the host body (D7.4)."""
+        out = []
+        to_mm = self._to_mm()
+        zlo, zhi = bands[0][1], bands[-1][2]
+        for _faces, cz0, cz1, r in cut_faces:
+            band = next((b for b, z0, z1, _e in bands
+                         if z0 <= (cz0 + cz1) / 2 <= z1), None)
+            if band is None:
+                continue
+            poly = [to_mm(p) for p in band]
+            # r: [u0 face-, u1 face-, u1 face+, u0 face+] overshooting by
+            # CUT_MARGIN_MM; pull each corner back onto the body face
+            inner = clip_depth(r, poly)
+            for (x, y) in inner:
+                out.append(((x, y, cz0), (x, y, cz1)))                 # jambs
+            for z in (cz0, cz1):
+                # A sill/head on the wall's own bottom/top leaves the face
+                # open there: no face-line edge (i = 0, 2) -- the plan
+                # outline is broken across the opening.
+                open_face = z <= zlo + 1e-6 or z >= zhi - 1e-6
+                for i in range(4):
+                    if open_face and i in (0, 2):
+                        continue
+                    a, b = inner[i], inner[(i + 1) % 4]
+                    out.append(((a[0], a[1], z), (b[0], b[1], z)))      # sill/head
+        return out
 
     # ── Miter join ────────────────────────────────────────────────────────────
 

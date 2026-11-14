@@ -209,3 +209,66 @@ def test_build_solid_failed_cut_falls_back_uncut(caplog):
         m = build_solid([(sq, 0.0, 1000.0)], [(huge, -10.0, 2000.0)])
     assert m is not None and _vol(m) == pytest.approx(1000 * 200 * 1000, rel=1e-9)
     assert "opening cut failed" in caplog.text
+
+
+def _segs2d(edges, z):
+    return [((round(a[0], 3), round(a[1], 3)), (round(b[0], 3), round(b[1], 3)))
+            for a, b in edges if abs(a[2] - z) < 1e-6 and abs(b[2] - z) < 1e-6]
+
+
+def _on_segment(pt, a, b, tol=1e-3):
+    (px, py), (ax, ay), (bx, by) = pt, a, b
+    cross = (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+    if abs(cross) / max(math.hypot(bx - ax, by - ay), 1e-9) > tol:
+        return False
+    return min(ax, bx) - tol <= px <= max(ax, bx) + tol and \
+        min(ay, by) - tol <= py <= max(ay, by) + tol
+
+
+def test_g6_no_mitre_seam_in_top_outline(qapp, model_scene):
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0))
+    _wall(s, (3000, 0), (3000, 3000))
+    top = _segs2d(_mesh(a, s)["edges"], 3000.0)
+    # mitre diagonal runs inner corner (2900, -100) -> outer corner (3100, 100)
+    # in 3D coords (Y negated); no top segment may lie along it
+    mid = (3000.0, 0.0)
+    assert not any(_on_segment(mid, p, q) for p, q in top)
+    assert top                       # the outer faces do draw
+
+
+def test_g6_stop_seam_draws(qapp, model_scene):
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0), top=3000.0)
+    b = _wall(s, (3000, 0), (3000, 3000), top=2000.0)
+    seams = b.outline_geometry().seams
+    assert seams, "precondition: unequal L gives the lower wall a seam"
+    top = _segs2d(_mesh(b, s)["edges"], 2000.0)
+    (p, q) = seams[0]
+    mid = ((p.x() + q.x()) / 2, -(p.y() + q.y()) / 2)
+    assert any(_on_segment(mid, sp, sq) for sp, sq in top)
+
+
+def test_g6_reveal_edges(qapp, model_scene):
+    from firepro3d.wall_opening import WallOpening
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0))
+    op = WallOpening(wall=a, feature_id="door_914", offset_along=1500.0)
+    s.addItem(op); a.openings.append(op)
+    edges = _mesh(a, s)["edges"]
+    head = 0.0 + op._sill_mm + op._height_mm
+    hw = op._width_mm / 2
+    verticals = [(a3, b3) for a3, b3 in edges
+                 if abs(a3[0] - b3[0]) < 1e-6 and abs(a3[1] - b3[1]) < 1e-6]
+    jamb_x = {round(a3[0], 3) for a3, _b in verticals}
+    assert {round(1500 - hw, 3), round(1500 + hw, 3)} <= jamb_x
+    assert _segs2d(edges, head)      # head reveal edges
+    base = _segs2d(edges, 0.0)       # bottom outline broken across the door
+    assert not any(_on_segment((1500.0, -T / 2), p, q) for p, q in base)
+
+
+def test_clip_depth_pulls_corners_to_faces():
+    from firepro3d.wall_solid import clip_depth
+    rect = [(1, -1), (2, -1), (2, 201), (1, 201)]
+    poly = [(0, 0), (10, 0), (10, 200), (0, 200)]
+    assert clip_depth(rect, poly) == [(1.0, 0.0), (2.0, 0.0), (2.0, 200.0), (1.0, 200.0)]
