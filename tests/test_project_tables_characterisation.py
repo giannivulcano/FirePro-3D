@@ -9,7 +9,7 @@ import pytest
 
 from tests._mainwindow_helpers import dispose_main_window
 from tests._project_tables_helpers import (
-    FIXDIR, GOLDEN, PT_DIR, normalise_ids, open_main_window, prepared_copy, resave_text, snapshot,
+    FIXDIR, GOLDEN, add_extra_tables, PT_DIR, normalise_ids, open_main_window, prepared_copy, resave_text, snapshot,
 )
 
 REGEN = os.environ.get("FP3D_REGEN_GOLDENS") == "1"
@@ -30,15 +30,15 @@ def test_resave_is_deterministic(qapp, monkeypatch, tmp_path):
 def _check(case, scene, tmp_path):
     snap, text = snapshot(scene, tmp_path)
     snap_text = normalise_ids(json.dumps(snap, indent=1, sort_keys=True))
-    text = normalise_ids(text)
+    text = normalise_ids(text).replace("\r\n", "\n")
     gj, gt = GOLDEN / f"{case}.json", GOLDEN / f"{case}.resave.fpd"
     if REGEN:
         GOLDEN.mkdir(parents=True, exist_ok=True)
         gj.write_bytes(snap_text.encode("utf-8"))
         gt.write_bytes(text.encode("utf-8"))
         return
-    assert snap_text == gj.read_bytes().decode("utf-8")
-    assert text.encode("utf-8") == gt.read_bytes()
+    assert snap_text == gj.read_bytes().decode("utf-8").replace("\r\n", "\n")
+    assert text == gt.read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 OPEN_CASES = {
@@ -88,10 +88,15 @@ def test_recovery_matches_base(qapp, monkeypatch, tmp_path):
 
 
 def test_new_matches_base(qapp, monkeypatch, tmp_path):
+    from firepro3d import fill_types, phase_registry
     a = prepared_copy(OPEN_CASES["schema2"], tmp_path, "a.fpd")
+    add_extra_tables(a)
     w = open_main_window(monkeypatch, tmp_path)
     try:
         assert w._apply_loaded_file(str(a)) is not False
+        assert len(phase_registry.to_list()) == 4
+        assert any(r["name"] == "PT extra fill"
+                   for r in fill_types.project_table().to_payload())
         monkeypatch.setattr(w, "_confirm_discard_dirty_schematics", lambda *a: True)
         monkeypatch.setattr(w, "_ask_save_changes", lambda *a: True)
         w.new_file()

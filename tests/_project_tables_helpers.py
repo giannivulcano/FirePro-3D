@@ -61,6 +61,23 @@ def resave_text(scene, tmp_path: Path) -> str:
     return text
 
 
+def add_extra_tables(path: Path) -> None:
+    """Append one extra phase and one extra fill type to the file at *path* so
+    its tables differ from the seed (a New project must then visibly reset them)."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["phases"].append({
+        "id": "pt-extra-phase", "name": "PT extra phase", "builtin": False,
+        "graphics": {"colour": None, "fill": None, "weight": None,
+                     "linetype": None, "opacity": None},
+        "include_in_calc": True,
+    })
+    fill = json.loads(json.dumps(payload["fill_types"][0]))
+    fill["id"] = "0123456789abcdef0123456789abcdef"
+    fill["name"] = "PT extra fill"
+    payload["fill_types"].append(fill)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def normalise_ids(text: str) -> str:
     """Replace every 32-hex id token with ``<ID{n}>`` (n = order of first
     appearance; the same token always gets the same n). Seeded fill-type and
