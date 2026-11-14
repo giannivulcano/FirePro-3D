@@ -944,10 +944,11 @@ class View3D(QWidget):
             return
         lm = self._lm
         centroids = []
-        for wall in getattr(scene_obj, "_walls", []):
-            if not self._is_visible(wall):
-                continue
-            mesh_data = wall.get_3d_mesh(level_manager=lm)
+        pool = [w for w in getattr(scene_obj, "_walls", [])
+                if self._is_visible(w)]
+        for wall in pool:
+            mesh_data = wall.get_3d_mesh(
+                level_manager=lm, pool=[w for w in pool if w is not wall])
             if mesh_data is None:
                 continue
             verts = np.array(mesh_data["vertices"], dtype=np.float32)
@@ -971,12 +972,20 @@ class View3D(QWidget):
             # Store Z range for section cuts
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
-            # Edge wireframe via VTK feature edges (none for a "" wall; the
-            # list stays index-parallel)
-            if no_surface:
+            # Edge wireframe from the wall's own outline-rule edges (none for
+            # a "" wall; the list stays index-parallel)
+            edges = mesh_data.get("edges") or []
+            if no_surface or not edges:
                 self._add_actor("wall_edges", None)
             else:
-                self._add_edge_actor(mesh, "wall_edges")
+                pts = np.array([p for seg in edges for p in seg],
+                               dtype=np.float32)
+                lines = np.hstack([[2, 2 * k, 2 * k + 1]
+                                   for k in range(len(edges))])
+                poly = pv.PolyData(pts, lines=lines)
+                actor_e = self._plotter.add_mesh(
+                    poly, color=(0.0, 0.0, 0.0), line_width=1.0)
+                self._add_actor("wall_edges", actor_e)
 
         self._wall_centroids_3d = np.array(centroids) if centroids else None
 

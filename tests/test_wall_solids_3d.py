@@ -354,3 +354,57 @@ def test_calibrated_scene_cut_exact_mm(qapp, model_scene):
     jx = {round(a3[0], 3) for a3, b3 in m["edges"]
           if abs(a3[0] - b3[0]) < 1e-6 and abs(a3[1] - b3[1]) < 1e-6}
     assert {round(1500 - hw, 3), round(1500 + hw, 3)} <= jx
+
+
+# -- View3D (Task 5) ---------------------------------------------------------
+
+@pytest.fixture()
+def real3d(qapp):
+    """(Model_Space, View3D) with a real LevelManager (copy of the
+    test_view3d_lifecycle.py fixture)."""
+    pytest.importorskip("pyvistaqt")
+    from PyQt6.QtTest import QTest
+    from firepro3d.model_space import Model_Space
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.view_3d import View3D
+    ms = Model_Space()
+    lm = LevelManager()
+    ms._level_manager = lm
+    v = View3D(ms, lm, ms.scale_manager)
+    yield ms, v
+    v.hide()
+    v.cleanup()
+    v.deleteLater()
+    ms.deleteLater()
+    QTest.qWait(0)
+
+
+def test_g6_view_draws_wall_edges_from_mesh(real3d):
+    ms, v = real3d
+    a = _wall(ms, (0, 0), (3000, 0))
+    _wall(ms, (3000, 0), (3000, 3000))
+    v.rebuild()
+    assert len(v._actors["walls"]) == len(v._actors["wall_edges"]) == 2
+    i = v._wall_refs.index(a)
+    actor = v._actors["wall_edges"][i]
+    poly = pv.wrap(actor.GetMapper().GetInput())
+    edges = a.get_3d_mesh(ms._level_manager)["edges"]
+    pts = poly.points
+    got = {frozenset((tuple(np.round(pts[i0], 3)), tuple(np.round(pts[i1], 3))))
+           for _, i0, i1 in poly.lines.reshape(-1, 3)}
+    exp = {frozenset((tuple(np.round(p, 3)), tuple(np.round(q, 3))))
+           for p, q in edges}
+    assert poly.n_cells == len(edges)
+    assert got == exp
+
+
+def test_g7_view_hidden_wall_squares_neighbour(real3d):
+    ms, v = real3d
+    a = _wall(ms, (0, 0), (3000, 0))
+    b = _wall(ms, (3000, 0), (3000, 3000))
+    b._display_overrides = {"visible": False}
+    v.rebuild()
+    assert v._wall_refs == [a]
+    actor = v._actors["walls"][0]
+    vol = abs(pv.wrap(actor.GetMapper().GetInput()).volume)
+    assert vol == pytest.approx(3000 * T * 3000, rel=1e-6)
