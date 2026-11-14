@@ -57,7 +57,6 @@ from firepro3d import __version__ as APP_VERSION
 from firepro3d import theme as th
 from firepro3d import colour_picker
 from firepro3d import fill_types
-from firepro3d import materials
 from firepro3d import phase_registry
 from firepro3d.network_codec import SYMBOL_KEY, read_symbol_id
 
@@ -765,17 +764,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         pass  # level indicator removed
         self._place_default_gridlines()
         self.section_manager.seed_cardinals()
-        # HF5 R9: startup = the seed set, then the display defaults.
-        fill_types.reset_project_table()
-        materials.reset_project_table()
-        phase_registry.reset_project_table()   # PH1: startup
-        from firepro3d.display_manager import apply_default_display_settings
-        apply_default_display_settings(self.scene)
-        # LT1-3: a new project's weight table copies the template.
-        from firepro3d.paper_display import reset_project_line_weights
-        reset_project_line_weights()
-        from firepro3d.settings import template as _settings_template
-        _settings_template.apply_template_settings(self.scene)
+        # A new project's tables: seed set, display defaults, weights, template.
+        from firepro3d import project_tables
+        project_tables.start_fresh(self.scene)
         # Render the linked default title block on the startup sheet (Task A);
         # the CEL DXF/PDF fallback was removed, so without this the startup
         # paper view would be blank even when the .fpdt links a template.
@@ -4032,18 +4023,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self.section_manager.seed_cardinals()
         self._refresh_section_browser()
 
-        # Apply saved display defaults to the new project
-        # HF5 R9: a new project = the seed set, then the display defaults.
-        fill_types.reset_project_table()
-        materials.reset_project_table()
-        phase_registry.reset_project_table()   # PH1: New project
-        from firepro3d.display_manager import apply_default_display_settings
-        apply_default_display_settings(self.scene)
-        # LT1-3: a new project's weight table copies the template.
-        from firepro3d.paper_display import reset_project_line_weights
-        reset_project_line_weights()
-        from firepro3d.settings import template as _settings_template
-        _settings_template.apply_template_settings(self.scene)
+        # A new project's tables: seed set, display defaults, weights, template.
+        from firepro3d import project_tables
+        project_tables.start_fresh(self.scene)
         # _clear_scene + template replaced/set the units — re-seed open editors.
         self._sync_editor_units()
         # Re-seat the keep-alive 3D view on the new project (I9) — after the

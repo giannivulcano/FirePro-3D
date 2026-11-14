@@ -503,8 +503,9 @@ def set_project_line_weights(defs: list[LineWeightDef]) -> None:
 
 
 def reset_project_line_weights() -> None:
-    """Re-seed the project table from the app's line-weight table in QSettings
-    (``load_line_weights()``) (New Project / old files).
+    """Re-seed the project table (New Project / old files) as a copy of the
+    app's weight table, i.e. ``load_line_weights()``, which reads QSettings
+    and falls back to the factory defaults.
 
     Also clears the rename aliases (they are project-scoped, LT2-8).
     """
