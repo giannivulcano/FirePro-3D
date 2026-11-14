@@ -66,3 +66,33 @@ def test_subtract_collinear():
     b = [((3.0, 0.0), (5.0, 0.0)), ((0.0, 1.0), (10.0, 1.0))]
     got = sorted(subtract_collinear(a, b, 1e-6))
     assert got == [((0.0, 0.0), (3.0, 0.0)), ((5.0, 0.0), (10.0, 0.0))]
+
+
+def test_band_bodies_mixed_height_l(qapp, model_scene):
+    """G4 (band part): below the short wall's top the tall wall has the plan
+    stop body; above it the tall wall's end is square (quad_points)."""
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0), top=3000.0)
+    b = _wall(s, (3000, 0), (3000, 3000), top=2000.0)
+    bands = a._solid_bands(a.pool_3d(), s._level_manager)
+    assert [(z0, z1) for _p, z0, z1, _e in bands] == [(0.0, 2000.0), (2000.0, 3000.0)]
+    low, high = bands[0][0], bands[1][0]
+    assert [(round(p.x(), 6), round(p.y(), 6)) for p in low] == \
+        [(round(p.x(), 6), round(p.y(), 6)) for p in a.outline_geometry().body]
+    sq = a.quad_points()
+    assert {(round(p.x(), 6), round(p.y(), 6)) for p in high} == \
+        {(round(p.x(), 6), round(p.y(), 6)) for p in sq}
+
+
+def test_uniform_wall_is_one_band(qapp, model_scene):
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0))
+    _wall(s, (3000, 0), (3000, 3000))
+    assert len(a._solid_bands(a.pool_3d(), s._level_manager)) == 1
+
+
+def test_plan_join_unchanged_without_pool(qapp, model_scene):
+    s = model_scene()
+    a = _wall(s, (0, 0), (3000, 0))
+    _wall(s, (3000, 0), (3000, 3000))
+    assert a._join_ends()["quad"] == a._join_ends(pool=a._join_pool())["quad"]

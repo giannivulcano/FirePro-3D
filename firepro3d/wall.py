@@ -381,11 +381,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     break
         return guests
 
-    def _rebuild_outline(self, extra=None) -> None:
-        """Recompute body, union body, faces, caps, centerline and
-        neighbours; set ``path()`` to the body (HALO, hit, bounds -- D9).
-        Stroke segments and corners are left for ``outline()`` (lazy)."""
-        e = self._join_ends(extra)
+    def _body_polygons(self, e: dict) -> tuple[QPolygonF, QPolygonF]:
+        """``(body, union_body)`` from a ``_join_ends`` result (D2)."""
         p1l, p1r, p2r, p2l = e["quad"]
         w1, w2 = e["wedge"]
         body = QPolygonF([p1l, p2l, *w2, p2r, p1r, *w1])
@@ -401,6 +398,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             if e["tee_union"][i] is not None:
                 union_body = self._clip_tee_extension(
                     union_body, body, e["hosts"][i])
+        return body, union_body
+
+    def _rebuild_outline(self, extra=None) -> None:
+        """Recompute body, union body, faces, caps, centerline and
+        neighbours; set ``path()`` to the body (HALO, hit, bounds -- D9).
+        Stroke segments and corners are left for ``outline()`` (lazy)."""
+        e = self._join_ends(extra)
+        p1l, p1r, p2r, p2l = e["quad"]
+        w1, w2 = e["wedge"]
+        body, union_body = self._body_polygons(e)
         caps = []
         if not e["partners"][0] and e["hosts"][0] is None:
             caps.append((QPointF(p1l), QPointF(p1r)))
@@ -1082,6 +1089,64 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── 3D mesh generation ───────────────────────────────────────────────────
 
+    def z_span_mm(self, level_manager=None) -> tuple[float, float]:
+        """``(base_z, top_z)`` exactly as the 3D mesh uses them (6.5)."""
+        base_z, top_z = 0.0, self._height_mm
+        if level_manager is not None:
+            base_lvl = level_manager.get(self._base_level)
+            if base_lvl:
+                base_z = base_lvl.elevation + self._base_offset_mm
+            top_lvl = level_manager.get(self._top_level)
+            top_z = (top_lvl.elevation + self._top_offset_mm if top_lvl
+                     else base_z + self._height_mm)
+        return base_z, top_z
+
+    def pool_3d(self) -> list["WallSegment"]:
+        """Walls the 3D view shows (D2): the ``_display_overrides`` visible
+        flag only -- the plan's level visibility does not apply."""
+        sc = self.scene()
+        if sc is None or not hasattr(sc, "_walls"):
+            return []
+        return [w for w in sc._walls
+                if w is not self and not sip.isdeleted(w) and w.scene() is sc
+                and (getattr(w, "_display_overrides", None) or {}).get(
+                    "visible") is not False]
+
+    def _solid_bands(self, pool, level_manager) -> list[tuple]:
+        """``[(body, z0, z1, e)]`` per height band (D4), identical bands merged.
+
+        Breakpoints: own span plus the spans of every endpoint partner, tee
+        host and tee guest reached through *pool*; each band joins only the
+        pool walls whose span covers the band's mid height.
+        """
+        z0, z1 = self.z_span_mm(level_manager)
+        if z1 - z0 < 1.0:
+            return []
+        full = self._join_ends(pool=pool)
+        near = [o for o, _ep in full["partners"][0] + full["partners"][1]]
+        near += [h for h in full["hosts"] if h is not None]
+        near += self._tee_guests(pool)
+        cuts = {z0, z1}
+        spans = {id(w): w.z_span_mm(level_manager) for w in pool}
+        for w in near:
+            for z in spans[id(w)]:
+                if z0 < z < z1:
+                    cuts.add(z)
+        zs = sorted(cuts)
+        out: list[tuple] = []
+        for za, zb in zip(zs, zs[1:]):
+            zm = (za + zb) / 2.0
+            members = [w for w in pool
+                       if spans[id(w)][0] <= zm <= spans[id(w)][1]]
+            e = self._join_ends(pool=members)
+            body, _u = self._body_polygons(e)
+            key = [(round(p.x(), 6), round(p.y(), 6)) for p in body]
+            if out and out[-1][4] == key:
+                out[-1] = (out[-1][0], out[-1][1], zb, out[-1][3], key)
+            else:
+                out.append((body, za, zb, e, key))
+        return [(b, za, zb, e) for b, za, zb, e, _k in out]
+
     def get_3d_mesh(self, level_manager=None) -> dict | None:
         """Return vertices and faces for the extruded wall box.
 
@@ -1705,8 +1770,13 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return (e["quad"], e["solid"][0], e["solid"][1],
                 e["wedge"][0], e["wedge"][1])
 
-    def _join_ends(self, extra=None) -> dict:
+    def _join_ends(self, extra=None, pool=None) -> dict:
         """Resolve both ends against the visible join pool.
+
+        Args:
+            extra: A wall in the scene but not yet in ``scene._walls``.
+            pool: Explicit join pool (the 3D view passes its own); default
+                is ``_join_pool(extra)``, the plan pool.
 
         Returns a dict: ``quad`` (p1l, p1r, p2r, p2l), ``solid`` (2 bools),
         ``wedge`` (2 vertex lists), ``partners`` (2 lists of
@@ -1723,7 +1793,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         tee_union: list = [None, None]
         union_wedge: list = [None, None]
         seams: list = []
-        pool = self._join_pool(extra)
+        pool = self._join_pool(extra) if pool is None else list(pool)
 
         if pool:
             MAX_MITER = self.half_thickness_scene() * MAX_MITER_FACTOR
