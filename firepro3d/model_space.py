@@ -9380,6 +9380,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "sprinkler_phase": item.sprinkler.phase if item.has_sprinkler() else None,
                     "fitting_phase_override": item.fitting.phase_override,
                     "pipes": pipes,
+                    "uid": item._uid,                       # SB5: paste maps, never adopts
+                    "sprinkler_uid": item.sprinkler._uid if item.has_sprinkler() else None,
                 })
             elif isinstance(item, WaterSupply):
                 data.append({"type": "water_supply", **serialize_water_supply(item)})
@@ -9388,6 +9390,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 # paste can rebind them to the sprinklers it created (G-P1).
                 data.append({
                     "type": "design_area",
+                    "uid": item._uid,                       # SB5: paste maps, never adopts
                     "sprinkler_xy": [[s.node.pos().x(), s.node.pos().y()]
                                      for s in item.sprinklers if s.node is not None],
                     "properties": {k: v["value"] for k, v in item._properties.items()},
@@ -9496,6 +9499,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             return WATER_SUPPLY_ONE
         return None
 
+    def _paste_block_record(self, obj: dict, offset, **over):
+        """Place one clipboard ``block_instance`` record translated by *offset*
+        (``paste_items``' block branch). *over* replaces record keys: the SB5
+        Q9 hosted remap (``host`` / ``host_uid``).
+
+        Returns:
+            The new instance (selected), or None when placement refused.
+        """
+        from .block_instance import BlockInstance
+        p = obj.get("pos", [0.0, 0.0])
+        obj = {**obj, **over}               # the remap rides the record, so place_kwargs carries it
+        inst = self.place_block_instance(
+            obj["block_id"], (p[0] + offset.x(), p[1] + offset.y()),
+            **BlockInstance.place_kwargs(obj, default_level=self.active_level))
+        if inst is None:
+            return None
+        inst.attributes = dict(obj.get("attributes", {}))
+        if inst.note is not None:
+            self._join_active_view(inst)                    # the copy joins this view
+            inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
+        inst.setSelected(True)
+        return inst
+
     def paste_items(self, offset, data=None, constraints=None, rotation_deg=None):
         """Add clipboard records translated by *offset*.
 
@@ -9532,6 +9558,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         pasted_spr = {}       # (x, y) of a sprinkler node created here -> node (design areas)
         da_records = []       # design-area records, resolved once every node exists
         made_nodes = set()    # id() of every node this paste created (record order is free)
+        hosted_records = []   # SB5 Q9: hosted / bound blocks, placed once every host exists
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -9570,6 +9597,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 # only counts as pasted if it created something (the node,
                 # a sprinkler, a pipe or a pipe end node).
                 created = existing is None
+                if (existing is None or id(existing) in made_nodes) and obj.get("uid"):
+                    uid_map[obj["uid"]] = node1._uid    # SB5 D4: incl. a node made as a pipe far end
                 if existing is None or id(existing) in made_nodes:
                     # A node this paste made (here, or as an earlier record's
                     # pipe far end) is this record's copy: its override lands.
@@ -9609,6 +9638,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     if self.add_sprinkler(node1, template) is not None:
                         created = True
                         pasted_spr[(round(new_x, 3), round(new_y, 3))] = node1
+                        if obj.get("sprinkler_uid"):
+                            uid_map[obj["sprinkler_uid"]] = node1.sprinkler._uid
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
@@ -9630,13 +9661,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                         if isinstance(rec, dict):           # D-PH16 ruling: the source's fields
                             from .network_codec import apply_pipe_record
                             apply_pipe_record(new_pipe, rec, skip=("Mark",))
+                            if rec.get("uid"):
+                                uid_map[rec["uid"]] = new_pipe._uid
                         created = True
                 node1.fitting.update()
                 if created:
                     new_items.append(node1)
 
             elif obj_type == "block_instance":
-                _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
                 from .capabilities import place_refusal
                 _why = place_refusal(_d)
@@ -9650,18 +9682,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     pattern_skipped += 1
                     skip_reason = _note_paste_refusal(obj)
                 elif _d is not None:
-                    from .block_instance import BlockInstance
-                    inst = self.place_block_instance(
-                        obj["block_id"],
-                        (_p[0] + offset.x(), _p[1] + offset.y()),
-                        **BlockInstance.place_kwargs(obj, default_level=self.active_level))
+                    if obj.get("host") or obj.get("host_uid"):
+                        hosted_records.append(obj)          # placed after every host (Q9)
+                        continue
+                    inst = self._paste_block_record(obj, offset)
                     if inst is None:
                         continue
-                    inst.attributes = dict(obj.get("attributes", {}))
-                    if inst.note is not None:
-                        self._join_active_view(inst)                    # the copy joins this view
-                        inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
-                    inst.setSelected(True)
                     if obj.get("uid"):
                         uid_map[obj["uid"]] = inst._uid
                     new_items.append(inst)
@@ -9685,6 +9711,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 marks.mint(self, wall)
                 for op_data in obj.get("openings", []):
                     op = WallOpening.from_dict(element_uid.without_uid(op_data), wall=wall)
+                    if op_data.get("uid"):
+                        uid_map[op_data["uid"]] = op._uid
                     op.level = wall.level
                     wall.openings.append(op)
                     self.addItem(op)
@@ -9693,6 +9721,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 new_items.append(wall)
             elif obj_type == "room":
                 room = Room.from_dict(element_uid.without_uid(obj))   # a copy mints (SB5 D4)
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = room._uid
                 self._retarget_level_refs(room, obj.get("level"), "_ceiling_level")
                 room.level = self.active_level
                 room._scale_manager_ref = self.scale_manager
@@ -9705,6 +9735,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 slab = FloorSlab.from_dict({        # a copy mints, voids too (SB5 D4)
                     **element_uid.without_uid(obj),
                     "openings": [element_uid.without_uid(o) for o in obj.get("openings", [])]})
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = slab._uid
+                for rec_op, op in zip(obj.get("openings", []), slab.openings):
+                    if rec_op.get("uid"):
+                        uid_map[rec_op["uid"]] = op._uid
                 # pure z-range: refs naming the source retarget
                 self._retarget_level_refs(slab, obj.get("source_level"),
                                           "_top_level", "_bottom_level")
@@ -9717,6 +9752,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 new_items.append(slab)
             elif obj_type == "roof":
                 roof = RoofItem.from_dict(element_uid.without_uid(obj))   # a copy mints (SB5 D4)
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = roof._uid
                 roof.level = self.active_level      # its only level ref (eave level)
                 roof._scale_manager_ref = self.scale_manager
                 roof.translate(offset.x(), offset.y())
@@ -9733,6 +9770,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 ws = deserialize_water_supply(self, {**element_uid.without_uid(obj),
                                                      "x": obj["x"] + offset.x(),
                                                      "y": obj["y"] + offset.y()})
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = ws._uid
                 new_items.append(ws)
             elif obj_type == "design_area":
                 da_records.append(obj)              # resolved after every node is pasted
@@ -9772,7 +9811,36 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "badge_angle": rec.get("badge_angle"),
                 }, id_to_node)
                 da.compute_area(self.scale_manager)
+                if rec.get("uid"):
+                    uid_map[rec["uid"]] = da._uid
                 new_items.append(da)
+
+        # SB5 Q9: a hosted / bound block rebinds to its pasted host; else it
+        # keeps its live original host; else it is skipped (footer reason).
+        host_gone = 0
+        for obj in hosted_records:
+            over = {}
+            h = obj.get("host")
+            if h:
+                src = h.get("gridline")
+                if src in uid_map:
+                    over["host"] = {**h, "gridline": uid_map[src]}
+                elif not isinstance(self.element_by_uid(src), GridlineItem):
+                    host_gone += 1
+                    continue
+            hu = obj.get("host_uid")
+            if hu:
+                if hu in uid_map:
+                    over["host_uid"] = uid_map[hu]
+                elif self.element_by_uid(hu) is None:
+                    host_gone += 1
+                    continue
+            inst = self._paste_block_record(obj, offset, **over)
+            if inst is None:
+                continue
+            if obj.get("uid"):
+                uid_map[obj["uid"]] = inst._uid
+            new_items.append(inst)
 
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
@@ -9787,13 +9855,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 from . import auto_constrain as _ac
                 _ac.join_gridlines(self, pasted_gls, None)
         # The Paste / Duplicate commits show their own count status after this
-        # returns; they append this reason so it is not lost (PH1 T8 M4).
-        self._last_paste_skip_reason = skip_reason if pattern_skipped else None
+        # returns; they append these reasons so none is lost (PH1 T8 M4; SB5 AC11).
+        reasons = []          # every skip reason, for the Paste / Duplicate footer (AC11)
+        if pattern_skipped:
+            reasons.append(skip_reason)
+        if da_skipped:
+            reasons.append(f"{da_skipped} design area(s) skipped - their sprinklers "
+                           f"were not copied")
+        if host_gone:
+            from .constants import HOSTED_HOST_GONE
+            reasons.append(HOSTED_HOST_GONE.format(n=host_gone))
+        self._last_paste_skip_reason = reasons
         if pattern_skipped:
             self._show_status(skip_reason)
         elif da_skipped:
             self._show_status(f"Pasted {len(data) - da_skipped} item(s); {da_skipped} design area(s) "
                               f"skipped - their sprinklers were not copied")
+        elif host_gone:
+            self._show_status(reasons[-1])
         else:
             self._show_status(f"Pasted {len(data)} item(s)")
         from .marks import request_duplicate_refresh
