@@ -472,6 +472,7 @@ class SectionManager(QObject):
         for key, d in want.items():
             if d.get("cardinal"):
                 continue
+            # Duplicate-uid records rely on load-time collision repair (unreachable after it).
             m = placed.get(d.get("uid")) if d.get("uid") else self.markers.get(key)
             if m is not None and not m.cardinal:
                 paired[key] = m

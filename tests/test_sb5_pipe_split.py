@@ -38,12 +38,23 @@ def test_g_split_vertical_keeps_the_uid_on_the_node1_half(qapp, shown_model_view
     pipe = ms.add_pipe(na, nb, _propagate_ceiling=False)
     tag = bound_tag(ms, pipe, "Pipe", {"M": "Mark"}, pos=(500.0, -500.0))
     uid0 = pipe._uid
+    ms.push_undo_state()                                   # the pre-split snapshot
     mid = ms._pipe_ctl._find_or_split_vertical_at_z(QPointF(0, 0), 1500.0, _pipe_template())
     assert mid is not None
     keep = next(p for p in ms.sprinkler_system.pipes if p.node1 is na)
     other = next(p for p in ms.sprinkler_system.pipes if p is not keep)
     assert keep._uid == uid0 and other._uid != uid0
     assert tag.element_host is keep
+    assert ms.element_by_uid(uid0) is keep                 # the uid index follows the node1 half
+    ms.push_undo_state()                                   # the post-split snapshot
+    ms.undo()                                              # back to the whole pipe
+    assert ms.element_by_uid(uid0) in ms.sprinkler_system.pipes
+    ms.redo()
+    keep2 = ms.element_by_uid(uid0)
+    assert keep2 is not None and keep2 in ms.sprinkler_system.pipes
+    assert len(ms.sprinkler_system.pipes) == 2
+    (tag2,) = ms._block_instances
+    assert tag2.element_host is keep2                      # the bound tag re-links to the node1 half
 
 
 def test_q2_head_delete_keeps_the_node_uid_and_q3_fitting_has_none(qapp, shown_model_view):

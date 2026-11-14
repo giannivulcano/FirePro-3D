@@ -161,3 +161,38 @@ def test_ac11_footer_lists_every_skip_reason(qapp):
     assert WATER_SUPPLY_ONE in final
     assert "1 design area(s) skipped - their sprinklers were not copied" in final
     assert HOSTED_HOST_GONE.format(n=1) in final
+
+
+def _gl_hosted(ms):
+    gl = gridline(ms, (0, -3000), (6000, -3000), "B")
+    blk = ms.place_block_instance(defn(ms).id, (0, 0), host={
+        "gridline": gl._uid, "offset_mm": 0.0, "along_mm": 1500.0,
+        "elevation_mm": 0.0, "facing": 1})
+    return gl, blk
+
+
+def test_g_paste_gridline_hosted_block_alone_stays_on_its_original_gridline(qapp):
+    ms = scene()
+    gl, blk = _gl_hosted(ms)
+    _paste(ms, [blk])
+    new_blk = next(b for b in ms._block_instances if b is not blk)
+    assert new_blk.host["gridline"] == gl._uid
+    assert set(ms.hosted_blocks_on(gl)) == {blk, new_blk}
+    assert len(ms._gridlines) == 1                         # the gridline itself was not copied
+
+
+def test_g_paste_gridline_hosted_block_alone_whose_gridline_left_the_list_is_skipped(qapp):
+    """The liveness check is gridline_by_uid (needs membership in _gridlines),
+    the same lookup placement uses: a gridline still in the scene but dropped
+    from _gridlines is host-gone, not silently dropped without the reason."""
+    ms = scene()
+    gl, blk = _gl_hosted(ms)
+    ctl = ms._modify_ctl
+    assert ctl.write_clipboard([blk], QPointF(0.0, 0.0))
+    ms._gridlines.remove(gl)                               # still in the scene / uid index
+    assert ms.element_by_uid(gl._uid) is gl and ms.gridline_by_uid(gl._uid) is None
+    seen = _status(ms)
+    assert ctl.begin_paste()
+    ctl.commit_paste(QPointF(0.0, 8000.0))
+    assert ms._block_instances == [blk]
+    assert HOSTED_HOST_GONE.format(n=1) in seen[-1]

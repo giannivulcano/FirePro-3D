@@ -147,3 +147,52 @@ def test_g_da_delete_drops_the_sprinkler_from_its_area_one_undo(qapp):
     assert seen[-1] == "Deleted 1 item(s)"                 # membership is not a hosted item
     ms.undo()
     assert len(ms.design_areas[0].sprinklers) == 2
+
+
+def test_orphan_node_cascade_after_pipe_delete_is_one_undo_step(qapp):
+    """Deleting a pipe orphans its far node (pass 3); the block bound to that
+    node goes in the same step and Undo restores it re-linked."""
+    ms = scene()
+    a, b = ms.add_node(0.0, 0.0), ms.add_node(2000.0, 0.0)
+    pipe = ms.add_pipe(a, b)
+    tag = bound_tag(ms, b, "Hydraulic Node", {"F": "Flow"}, pos=(2000.0, -500.0))
+    ms.push_undo_state()
+    p0 = ms._undo_pos
+    ms.delete_items([pipe])
+    assert b.scene() is None                               # the node was orphaned and removed
+    assert tag.scene() is None and ms._block_instances == []
+    assert ms._undo_pos == p0 + 1
+    ms.undo()
+    (back,) = ms._block_instances
+    assert back.element_host is not None and back.host_values() is not None
+
+
+def test_deleting_a_node_removes_a_block_bound_to_one_of_its_pipes(qapp):
+    ms = scene()
+    a, b = ms.add_node(0.0, 0.0), ms.add_node(2000.0, 0.0)
+    pipe = ms.add_pipe(a, b)
+    tag = bound_tag(ms, pipe, "Pipe", {"F": "Size"}, pos=(1000.0, -500.0))
+    ms.push_undo_state()
+    p0 = ms._undo_pos
+    ms.delete_items([a])                                   # only the node is selected
+    assert tag.scene() is None and ms._block_instances == []
+    assert ms._undo_pos == p0 + 1
+    ms.undo()
+    (back,) = ms._block_instances
+    assert back.element_host in ms.sprinkler_system.pipes
+
+
+def test_deleting_a_slab_removes_a_block_bound_to_one_of_its_openings(qapp):
+    from tests._ph1_helpers import add_floor_opening
+    ms = scene()
+    void = add_floor_opening(ms)
+    slab = void.host
+    tag = bound_tag(ms, void, "Floor Opening", {"A": "Name"}, pos=(100.0, -500.0))
+    ms.push_undo_state()
+    p0 = ms._undo_pos
+    ms.delete_items([slab])                                # only the slab is selected
+    assert tag.scene() is None and ms._block_instances == []
+    assert ms._undo_pos == p0 + 1
+    ms.undo()
+    (back,) = ms._block_instances
+    assert back.element_host is ms._floor_slabs[0].openings[0]

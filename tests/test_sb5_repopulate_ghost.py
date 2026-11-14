@@ -21,7 +21,7 @@ REC = SimpleNamespace(manufacturer="Tyco", model="", type="Upright", k_factor=5.
                       coverage_area=130, min_pressure=7, temp_rating=155)
 
 
-@pytest.mark.xfail(strict=True, reason=(
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
     "todo_open: room re-populate leaves a ghost Sprinkler on a node that keeps "
     "its pipes (SB5 plan Task 1; pre-existing at 2509b668)"))
 def test_repopulate_removes_the_old_head_from_a_piped_node(qapp):

@@ -9846,7 +9846,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 src = h.get("gridline")
                 if src in uid_map:
                     over["host"] = {**h, "gridline": uid_map[src]}
-                elif not isinstance(self.element_by_uid(src), GridlineItem):
+                elif self.gridline_by_uid(src) is None:
                     host_gone += 1
                     continue
             hu = obj.get("host_uid")

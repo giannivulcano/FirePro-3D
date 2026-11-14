@@ -64,3 +64,34 @@ def test_delete_undo_restores_the_same_uid(ms):
     assert mgr.markers["Section 2"]._uid == uid_b
     assert mgr.markers["Section 1"] is a
     assert mgr.place_section(QPointF(0, 900), QPointF(5000, 900)).name == "Section 3"
+
+
+def test_uidless_legacy_record_pairs_by_name(ms):
+    """A record without a uid (none is written since SB5) pairs by name: the
+    live marker objects survive and take the record's geometry."""
+    mgr, a, b = _twins(ms)
+    recs = mgr.to_list()
+    for r in recs:
+        r.pop("uid", None)
+    b.apply_grip(1, QPointF(5000, 2000))                    # drift after the snapshot
+    mgr.restore_from_list(recs)
+    assert mgr.markers["Section 1"] is a and mgr.markers["Section 2"] is b
+    assert b.cut_b == QPointF(5000, 0)
+
+
+def test_two_records_sharing_a_uid_pair_to_one_marker_and_re_add_the_other(ms):
+    """Current behaviour, asserted as found: both records pair to the one live
+    marker carrying that uid; the second record renames it, so the first
+    record's name is re-added as a new marker, which comes back with a fresh
+    uid (the saved one is taken). Load-time collision repair makes duplicate
+    uids unreachable in a session."""
+    mgr, a, b = _twins(ms)
+    recs = mgr.to_list()
+    for r in recs:
+        r["uid"] = a._uid
+    mgr.restore_from_list(recs)
+    placed = {k: m for k, m in mgr.markers.items() if not m.cardinal}
+    assert set(placed) == {"Section 1", "Section 2"}
+    assert placed["Section 2"] is a                         # renamed by the later record
+    assert placed["Section 1"] is not a and placed["Section 1"] is not b
+    assert placed["Section 1"]._uid != a._uid               # the taken uid is not reused
