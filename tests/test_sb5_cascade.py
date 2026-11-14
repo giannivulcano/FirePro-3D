@@ -168,6 +168,7 @@ def test_orphan_node_cascade_after_pipe_delete_is_one_undo_step(qapp):
 
 
 def test_deleting_a_node_removes_a_block_bound_to_one_of_its_pipes(qapp):
+    """Deleting a node takes a block bound to one of its pipes in the same step."""
     ms = scene()
     a, b = ms.add_node(0.0, 0.0), ms.add_node(2000.0, 0.0)
     pipe = ms.add_pipe(a, b)
@@ -183,6 +184,7 @@ def test_deleting_a_node_removes_a_block_bound_to_one_of_its_pipes(qapp):
 
 
 def test_deleting_a_slab_removes_a_block_bound_to_one_of_its_openings(qapp):
+    """Deleting a slab takes a block bound to one of its openings in the same step."""
     from tests._ph1_helpers import add_floor_opening
     ms = scene()
     void = add_floor_opening(ms)

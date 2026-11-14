@@ -251,6 +251,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._uid_miss: dict = {}   # uid -> _uid_gen of its confirmed miss
         self._uid_repairs = 0       # register collisions re-minted (Q6; reset at load start)
         self._uid_rebuilds = 0      # index rebuilds from items() (G-index counter)
+        self._uid_rebuilt_gen = -1  # _uid_gen at the last rebuild (a miss at that gen is final)
         self.scene_role = scene_role
         self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
         self.editor_kind = "block"       # a block_editor scene: "block" or "schematic" (D-S14)
@@ -805,6 +806,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Rebuild the index from ``items()`` (covers children joined by
         ``setParentItem``); the first item met keeps a duplicated uid."""
         self._uid_rebuilds += 1
+        self._uid_rebuilt_gen = self._uid_gen
         idx = {}
         for it in self.items():
             uid = getattr(it, "_uid", None)
@@ -832,6 +834,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if it is not None and self._uid_live(it, uid):
             return it
         if self._uid_miss.get(uid) == self._uid_gen:
+            return None
+        if self._uid_rebuilt_gen == self._uid_gen:
+            # The index was already rebuilt at this generation: a further
+            # distinct dangling uid is a miss without another full rebuild.
+            self._uid_miss[uid] = self._uid_gen
             return None
         self._uid_rebuild()
         it = self._uid_index.get(uid)
@@ -9402,7 +9409,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "fitting_phase_override": item.fitting.phase_override,
                     "pipes": pipes,
                     "uid": item._uid,                       # SB5: paste maps, never adopts
-                    "sprinkler_uid": item.sprinkler._uid if item.has_sprinkler() else None,
+                    element_uid.SPRINKLER_UID_KEY: item.sprinkler._uid if item.has_sprinkler() else None,
                 })
             elif isinstance(item, WaterSupply):
                 data.append({"type": "water_supply", **serialize_water_supply(item)})
@@ -9659,8 +9666,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     if self.add_sprinkler(node1, template) is not None:
                         created = True
                         pasted_spr[(round(new_x, 3), round(new_y, 3))] = node1
-                        if obj.get("sprinkler_uid"):
-                            uid_map[obj["sprinkler_uid"]] = node1.sprinkler._uid
+                        if obj.get(element_uid.SPRINKLER_UID_KEY):
+                            uid_map[obj[element_uid.SPRINKLER_UID_KEY]] = node1.sprinkler._uid
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
@@ -9703,7 +9710,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     pattern_skipped += 1
                     skip_reason = _note_paste_refusal(obj)
                 elif _d is not None:
-                    if obj.get("host") or obj.get("host_uid"):
+                    if obj.get("host") or obj.get(element_uid.HOST_UID_KEY):
                         hosted_records.append(obj)          # placed after every host (Q9)
                         continue
                     inst = self._paste_block_record(obj, offset)
@@ -9849,10 +9856,10 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 elif self.gridline_by_uid(src) is None:
                     host_gone += 1
                     continue
-            hu = obj.get("host_uid")
+            hu = obj.get(element_uid.HOST_UID_KEY)
             if hu:
                 if hu in uid_map:
-                    over["host_uid"] = uid_map[hu]
+                    over[element_uid.HOST_UID_KEY] = uid_map[hu]
                 elif self.element_by_uid(hu) is None:
                     host_gone += 1
                     continue

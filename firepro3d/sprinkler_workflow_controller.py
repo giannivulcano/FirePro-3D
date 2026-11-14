@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QBrush, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsEllipseItem, QGraphicsRectItem
 
+from . import element_uid
 from . import marks
 from .node import Node
 from .pipe import Pipe
@@ -325,10 +326,13 @@ class SprinklerWorkflowController:
             sc._show_status("Click on a node or pipe to place water supply")
             return
 
-        if sc.water_supply_node is not None:
-            sc.removeItem(sc.water_supply_node)
+        old_ws = sc.water_supply_node
+        if old_ws is not None:
+            sc.removeItem(old_ws)
         ws = WaterSupply(target_node.scenePos().x(), target_node.scenePos().y())
         sc.addItem(ws)
+        if old_ws is not None:
+            element_uid.transfer_uid(sc, old_ws, ws)   # tags bound to the supply follow it (SB5 M1)
         sc.water_supply_node = ws
         sc.sprinkler_system.supply_node = ws
         sc.requestPropertyUpdate.emit(ws)

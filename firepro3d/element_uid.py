@@ -14,6 +14,7 @@ import uuid
 
 UID_KEY = "uid"
 SPRINKLER_UID_KEY = "sprinkler_uid"   # a node record's sibling key (the sprinkler_phase pattern)
+HOST_UID_KEY = "host_uid"             # a hosted block record's host-element uid key
 
 
 def new_uid() -> str:

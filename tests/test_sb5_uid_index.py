@@ -60,6 +60,20 @@ def test_a_miss_rebuilds_once_until_the_next_add_or_remove(qapp):
     assert ms._uid_rebuilds == n0 + 2                   # the add invalidated the memo
 
 
+def test_many_distinct_dangling_uids_rebuild_once_per_generation(qapp):
+    """K distinct dangling uids after one add / remove cost one rebuild, not K."""
+    ms = scene()
+    add_room(ms)                                        # bump the generation
+    n0 = ms._uid_rebuilds
+    for i in range(8):
+        assert ms.element_by_uid("%032x" % (i + 1)) is None
+    assert ms._uid_rebuilds == n0 + 1
+    add_room(ms)                                        # a new generation: one more rebuild
+    for i in range(8):
+        assert ms.element_by_uid("%032x" % (i + 1)) is None
+    assert ms._uid_rebuilds == n0 + 2
+
+
 def test_a_register_collision_re_mints_the_incoming_item(qapp):
     ms = scene()
     first = add_room(ms)

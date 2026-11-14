@@ -184,7 +184,11 @@ def test_g_paste_gridline_hosted_block_alone_stays_on_its_original_gridline(qapp
 def test_g_paste_gridline_hosted_block_alone_whose_gridline_left_the_list_is_skipped(qapp):
     """The liveness check is gridline_by_uid (needs membership in _gridlines),
     the same lookup placement uses: a gridline still in the scene but dropped
-    from _gridlines is host-gone, not silently dropped without the reason."""
+    from _gridlines is host-gone, not silently dropped without the reason.
+
+    The state is synthetic: no production path drops a gridline from
+    ``_gridlines`` while keeping it in the scene. It guards helper consistency
+    (paste liveness == the placement lookup), not a reachable user flow."""
     ms = scene()
     gl, blk = _gl_hosted(ms)
     ctl = ms._modify_ctl

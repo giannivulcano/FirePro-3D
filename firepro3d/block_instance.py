@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 
 from . import annotative as _an
 from . import element_params
+from . import element_uid
 from . import end_render as _er
 from . import hatch_render as _hr
 from . import linetype_render as _lr
@@ -127,7 +128,7 @@ _STACK_SEQ = itertools.count(1)    # scene-entry order: Qt paints equal z in thi
 
 def _record_host_uid(rec: dict) -> Optional[str]:
     """A record's ``host_uid`` (SB5 D5), or None when absent / not a string."""
-    hu = rec.get("host_uid")
+    hu = rec.get(element_uid.HOST_UID_KEY)
     return hu if isinstance(hu, str) and hu else None
 
 
@@ -160,11 +161,13 @@ class BlockInstance(QGraphicsObject):
         self._note_geom = None     # (box, box item, bound prims) -- _note_geometry
         # Element host (element-parameters.md, SB2a D-a; SB5 D5): the element
         # whose keyed values feed host-sourced attributes. ``_host_uid`` is the
-        # truth (saved as ``host_uid`` on both paths). Inside a Model_Space a
-        # set ``_host_uid`` resolves through ``element_by_uid`` and a miss
-        # returns None (dangling host -> '?'); the cached ``_element_host`` ref
-        # serves only when the block is not in a Model_Space (Block Editor, a
-        # bare instance) or the host has no uid. Distinct from ``host`` above.
+        # truth (saved as ``host_uid`` on both paths). In any Model_Space (the
+        # plan scene, and the Block Editor / schematic scenes, which are
+        # Model_Space subclasses) a set ``_host_uid`` resolves through the
+        # scene's ``element_by_uid`` and a miss returns None (dangling host ->
+        # '?'); the cached ``_element_host`` ref serves only when the block is
+        # not in a Model_Space (a bare instance) or the host has no uid.
+        # Distinct from ``host`` above.
         self._host_uid: Optional[str] = None
         self._element_host = None
         self._bound_values: Optional[tuple] = None  # last refresh_bound() (values, blank keys)
@@ -236,8 +239,9 @@ class BlockInstance(QGraphicsObject):
         """The element feeding host-sourced attributes. Inside a Model_Space a
         set ``_host_uid`` resolves through ``element_by_uid`` (SB5 D5; a pipe
         split's node1 half is picked up automatically) and a miss returns None
-        (dangling host -> '?'); the cached ``_element_host`` ref serves only
-        when the block is not in a Model_Space (Block Editor, a bare instance)
+        (dangling host -> '?'). This holds in every Model_Space, the Block
+        Editor and schematic scenes included; the cached ``_element_host`` ref
+        serves only when the block is not in a Model_Space (a bare instance)
         or the host has no uid."""
         uid = self._host_uid
         if uid is not None:
@@ -2452,7 +2456,7 @@ class BlockInstance(QGraphicsObject):
         if self.host:
             d["host"] = dict(self.host)
         if self._host_uid:
-            d["host_uid"] = self._host_uid        # SB5 D5: sparse; closes element-parameters D3
+            d[element_uid.HOST_UID_KEY] = self._host_uid        # SB5 D5: sparse; closes element-parameters D3
         if self.note:
             d["note"] = copy.deepcopy(self.note)
         phase_registry.write_element(self, d)
@@ -2477,7 +2481,7 @@ class BlockInstance(QGraphicsObject):
             inst._uid = str(data["uid"])
         if data.get("host"):
             inst.host = dict(data["host"])
-        hu = data.get("host_uid")
+        hu = data.get(element_uid.HOST_UID_KEY)
         inst._host_uid = hu if isinstance(hu, str) and hu else None
         inst.note = copy.deepcopy(data["note"]) if data.get("note") else None
         inst.layer_height = clamp_layer_height(data.get("layer_height", 0))
@@ -2508,7 +2512,7 @@ class BlockInstance(QGraphicsObject):
                 "level_offset_mm": float(rec.get("level_offset_mm", 0.0)),
                 "overrides": rec.get("overrides"),
                 "host": rec.get("host"),
-                "host_uid": _record_host_uid(rec),
+                element_uid.HOST_UID_KEY: _record_host_uid(rec),
                 "note": rec.get("note"),
                 "phase": phase_registry.read_id(rec.get("phase")),
                 "layer_height": clamp_layer_height(rec.get("layer_height", 0)),
