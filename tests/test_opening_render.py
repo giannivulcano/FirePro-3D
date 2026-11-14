@@ -227,8 +227,8 @@ def test_wall_with_opening_mesh_is_watertight(qapp, model_scene):
 
 def test_opening_perpendicular_on_joined_wall(qapp, model_scene):
     """#2 fix: on a mitered (joined) wall, the 3D opening jamb must stay
-    perpendicular. get_3d_mesh uses the UN-mitered quad_points (parallel long
-    edges → perpendicular jambs); the mitered_quad edges skew (the old bug).
+    perpendicular. The cut is the plan gap rect, perpendicular by construction
+    (the old mitered_quad edges skewed same-t jambs: the old bug).
     Asserts the geometric ground truth + watertightness on a real L-joint."""
     import math
     import numpy as np
