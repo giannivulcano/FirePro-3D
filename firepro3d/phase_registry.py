@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import math
 
 from .constants import (PHASE_DEMOLITION, PHASE_DEMOLITION_LINETYPE, PHASE_EXISTING,
                         PHASE_EXISTING_COLOUR, PHASE_EXISTING_FILL, PHASE_NEW)
@@ -48,6 +49,24 @@ def factory_statuses() -> list[dict]:
 _FACTORY_CALC = {r["id"]: r["include_in_calc"] for r in factory_statuses()}
 
 
+def _norm_graphic(key: str, value):
+    """DD6: one stored graphics slot as its type, else None ("--" = no override).
+
+    Opacity is an integer percent clamped 0-100 (a bool, a non-number or a
+    non-finite number reads None); every other slot (colour, fill, weight,
+    linetype) is a string or None.
+    """
+    if value is None:
+        return None
+    if key == "opacity":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if not math.isfinite(value):
+            return None
+        return max(0, min(100, int(round(value))))
+    return value if isinstance(value, str) else None
+
+
 def _parse_status(d) -> dict | None:
     """One stored row, or None when it has no usable id / name."""
     if not isinstance(d, dict):
@@ -58,7 +77,7 @@ def _parse_status(d) -> dict | None:
     g = d.get("graphics") if isinstance(d.get("graphics"), dict) else {}
     calc = d.get("include_in_calc", _FACTORY_CALC.get(sid, True))
     return {"id": sid, "name": name.strip(), "builtin": sid in BUILTIN_IDS,
-            "graphics": _graphics(**{k: g.get(k) for k in _GRAPHIC_KEYS}),
+            "graphics": _graphics(**{k: _norm_graphic(k, g.get(k)) for k in _GRAPHIC_KEYS}),
             "include_in_calc": bool(calc)}
 
 
@@ -331,11 +350,15 @@ def effective_phase(item) -> str | None:
     Section / elevation proxies -> their source element; a child of a block
     placement -> the outermost placement; a Note (annotation) -> None; a fitting
     -> its override, else the D-PH4 derivation; anything with ``phase`` -> it.
+    A sip-deleted item reads None (DD6).
     """
     if item is None:
         return None
     from PyQt6.QtWidgets import QGraphicsItem
     if isinstance(item, QGraphicsItem):
+        from PyQt6 import sip
+        if sip.isdeleted(item):         # DD6: a deleted wrapper reads as not phased
+            return None
         from .section_scene import section_source_of
         src = section_source_of(item)
         if src is not None and src is not item:
