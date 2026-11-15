@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QSettings
 
+from . import phase_display
 from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
@@ -1279,8 +1280,9 @@ def _apply_generic(item, cat, authored, lw_mm, paper_scale: float = 1.0):
     ``_paper_pen_width`` (true on-paper mm in model units, §9.9.1) is read by
     ``DisplayableItemMixin._outline_pen`` in the outline-painting items.
     """
-    if not authored:
+    if phase_display.writes(cat, authored, "color"):     # DD2: a phase-forced slot writes
         item._display_color = cat["color"]
+    if phase_display.writes(cat, authored, "fill"):      # in an As Authored row too
         if hasattr(item, "_display_fill_color") and cat["fill"] is not None:
             item._display_fill_color = cat["fill"]
         if hasattr(item, "_display_section_color") and cat["section_color"] is not None:
@@ -1356,7 +1358,7 @@ def _apply_pipe(pipe, cat, authored, lw_mm, paper_scale):
     scales (the line reads as invisible on the sheet). Dividing by ``paper_scale``
     makes it plot at exactly ``lw_mm`` on paper regardless of viewport scale.
     """
-    if not authored:
+    if phase_display.writes(cat, authored, "color"):     # DD2
         pipe._display_color = cat["color"]
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
@@ -1375,6 +1377,8 @@ def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
     two hooks instead. Fill / pattern ops stay under the hatch rules.
     *blocks_hook* (WM3 D3): True only from the "Blocks" category branch --
     caches the paper "Blocks" colour for ``token:blocks``.
+    A phase-forced colour applies in an As Authored row too (DD2); a phase Fill
+    sets ``_paper_fill_colour`` (DD4, "Blocks" branch only).
     """
     from PyQt6.QtGui import QColor
     from .annotative import is_annotative
@@ -1382,10 +1386,14 @@ def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
         inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
-    inst._paper_pen_color = None if authored else _paper_qcolor(cat["color"], inst)
+    inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
+                             if phase_display.writes(cat, authored, "color") else None)
     if blocks_hook:
         # WM3 D3 + task ruling 6: By Category on paper.
         inst._paper_blocks_colour = _paper_qcolor(paper_blocks_value(cat), inst)
+        # PH3 DD4: a phase Fill paints the instance's fill / pattern ops.
+        inst._paper_fill_colour = (_paper_qcolor(cat["fill"], inst)
+                                   if phase_display.forced(cat, "fill") else None)
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
 
@@ -1552,6 +1560,19 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
         _set_svg_tint(it, c if c is not None else getattr(owner, "_display_color", None),
                       f if f is not None else getattr(owner, "_display_fill_color", None))
         return True
+
+    def _svg_phase_tint(it, owner, key, colour):
+        """DD2: a row-ON SVG symbol whose status forces the colour -- the
+        stroke takes *colour*, the fill keeps its authored value (a token
+        fill re-resolves on the paper surface, as in _svg_paper_retint)."""
+        f = _model_colour_token(owner, key, _tok_cache, "fill")
+        _set_svg_tint(it, colour,
+                      f if f is not None else getattr(owner, "_display_fill_color", None))
+
+    def _phase_keys(it):
+        """D-PH13: SVG symbols take visibility, colour and opacity only."""
+        return (phase_display.SYMBOL_KEYS if isinstance(it, (Sprinkler, WaterSupply))
+                else phase_display.ALL_KEYS)
     # Drafting-tile scale for the hatch renderer during THIS viewport render
     # (D-A30); cleared by restore_model_display. First entry → cleared even if
     # the pass fails part-way.
@@ -1614,9 +1635,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             cat_key = _category_for_item(item)
             if cat_key is None:
                 continue
-            cat = cats.get(cat_key)
-            if cat is None:
+            row = cats.get(cat_key)
+            if row is None:
                 continue
+            cat = phase_display.merge(row, item, keys=_phase_keys(item))   # PH3 DD3
             authored = row_as_authored(cat)
             if getattr(item, "_paper_cat", None) is not None:
                 # Section / elevation proxy (AC2): the source category's
@@ -1736,7 +1758,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["block_paper"] = (item._paper_pen_width,
                                         item._paper_pen_color,
                                         item._paper_scale,
-                                        getattr(item, "_paper_blocks_colour", None))
+                                        getattr(item, "_paper_blocks_colour", None),
+                                        getattr(item, "_paper_fill_colour", None))
             from .room import Room as _Room
             if isinstance(item, _Room):
                 _tag = item._tag
@@ -1789,6 +1812,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 item._paper_scale = paper_scale
                 if not authored:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
+                elif phase_display.forced(cat, "color"):          # DD2: phase colour, authored fill
+                    _svg_phase_tint(item, item, cat_key, cat["color"])
                 else:
                     _svg_paper_retint(item, item, cat_key)
                 item.setOpacity(cat["opacity"] / 100.0)
@@ -2085,7 +2110,8 @@ def restore_model_display(saved: list[dict]):
             if is_annotative(item.definition()):
                 item.prepareGeometryChange()     # SB1c D6
             (item._paper_pen_width, item._paper_pen_color, item._paper_scale,
-             item._paper_blocks_colour) = entry.get("block_paper", (None, None, None, None))
+             item._paper_blocks_colour,
+             item._paper_fill_colour) = entry.get("block_paper", (None,) * 5)
             item.update()
 
         elif cat_key == "Construction":

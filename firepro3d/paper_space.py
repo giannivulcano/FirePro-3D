@@ -1611,12 +1611,16 @@ class SheetViewport(QGraphicsObject):
             iso = None
             try:
                 iso = self._begin_isolation()
-                saved = apply_paper_overrides(
-                    self._source_scene, crop,
-                    paper_scale=paper_scale,
-                    source_view_key=(f"{self._data.source_view_type}:"
-                                     f"{self._data.source_view_name}"),
-                    viewport_data=self._data)
+                _begin_phase_pass(self._data)    # PH3 DD3: this viewport's Phasing
+                try:
+                    saved = apply_paper_overrides(
+                        self._source_scene, crop,
+                        paper_scale=paper_scale,
+                        source_view_key=(f"{self._data.source_view_type}:"
+                                         f"{self._data.source_view_name}"),
+                        viewport_data=self._data)
+                finally:
+                    _end_phase_pass()
                 try:
                     self._source_scene.render(painter, fitted, crop)
                 finally:
