@@ -123,28 +123,22 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if key == "Level":
             self.level = str(value)  # attribute only, not in _properties
         elif key == "Ceiling Level":
-            self._properties[key]["value"] = str(value)
-            self.ceiling_level = str(value)
-            self._recompute_z_pos()
+            self.host(str(value), self.ceiling_offset)
         elif key == "Ceiling Offset":
             sc = self.scene()
             sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+            parsed = None
             if sm:
                 parsed = sm.parse_dimension(str(value), sm.bare_number_unit())
-                if parsed is not None:
-                    self.ceiling_offset = parsed
             else:
                 try:
-                    self.ceiling_offset = float(value)
+                    parsed = float(value)
                 except (ValueError, TypeError):
-                    pass
-            # Store canonical mm value back (not raw user input)
-            self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
-            self._recompute_z_pos()
+                    parsed = None
+            if parsed is not None:
+                self.host(self.ceiling_level, parsed)
         elif key in self._properties:
             self._properties[key]["value"] = str(value)
-        if key in ("Ceiling Level", "Ceiling Offset") and self.pipes:
-            self._refresh_network([self])         # the fitting type follows z
 
     def position_rows(self) -> dict:
         """X / Y / Z rows shared by the Node and Sprinkler panels (D7, D8, D10).
@@ -180,6 +174,13 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
 
     def _refresh_network(self, nodes) -> None:
         """Re-derive pipes and fittings at *nodes* and their neighbours."""
+        Node.refresh_nodes(nodes)
+
+    @staticmethod
+    def refresh_nodes(nodes) -> None:
+        """One network refresh over many nodes (load, undo, paste, level edits):
+        each node's pipes, and the fittings at the nodes and their neighbours."""
+        nodes = list(nodes)
         touched = set(nodes)
         for n in nodes:
             for p in n.pipes:
@@ -201,15 +202,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if key == "Z":
             if abs(v - self.z_pos) < 1e-6:
                 return
-            lm = getattr(self.scene(), "_level_manager", None) if self.scene() else None
-            lvl = lm.get(self.ceiling_level) if lm else None
-            if lvl is None:
-                self.z_pos = v
-            else:
-                self.ceiling_offset = v - lvl.elevation
-                self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
-                self._recompute_z_pos()
-            self._refresh_network([self])
+            self.set_z(v)
         else:
             x = v if key == "X" else p.x()
             y = CAD_Math.flip_y(v) if key == "Y" else p.y()
@@ -220,23 +213,66 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         if sc is not None and hasattr(sc, "request_undo_push"):
             sc.request_undo_push()
 
-    def _recompute_z_pos(self):
-        """Recompute z_pos from ceiling_level elevation + ceiling_offset.
+    def _level_elevation(self, name):
+        """Elevation (mm) of level *name*, or None with no scene / level manager
+        or an unknown name."""
+        sc = self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc is not None else None
+        lvl = lm.get(name) if lm is not None and name else None
+        return None if lvl is None else lvl.elevation
 
-        Called when the user changes Ceiling Level or Ceiling Offset via the
-        property panel so that the 3D view stays in sync without requiring a
-        full level_manager.update_elevations() pass.
-        """
-        scene = self.scene()
-        if scene is None:
-            return
-        lm = getattr(scene, "_level_manager", None)
-        if lm is None:
-            return
-        lvl = lm.get(self.ceiling_level)
-        if lvl is None:
-            return
-        self.z_pos = lvl.elevation + self.ceiling_offset  # both mm
+    def _recompute_z_pos(self):
+        """z = ceiling level elevation + offset; an unresolved level keeps z (Q2)."""
+        elev = self._level_elevation(self.ceiling_level)
+        if elev is not None:
+            self.z_pos = elev + self.ceiling_offset
+
+    # ── Node elevation: the only writer (sprinkler-system-components §7) ──
+
+    def _elevation_state(self):
+        return (self.ceiling_level, self.ceiling_offset, self.z_pos)
+
+    def _elevation_changed(self, before, refresh: bool) -> None:
+        # Panel mirror: kept in sync until Task 7 deletes it.
+        self._properties["Ceiling Level"]["value"] = self.ceiling_level
+        self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
+        if refresh and self._elevation_state() != before:
+            self._refresh_network([self])
+
+    def host(self, level, offset, *, refresh: bool = True) -> None:
+        """Re-host 1 (Q7): store *level* and *offset*; z follows the level."""
+        before = self._elevation_state()
+        self.ceiling_level = str(level)
+        self.ceiling_offset = float(offset)
+        self._recompute_z_pos()
+        self._elevation_changed(before, refresh)
+
+    def rehost_keep_z(self, level, *, refresh: bool = True) -> None:
+        """Re-host 2 (Q7): keep z, offset = z - *level* elevation. An
+        unresolved level stores the name and keeps the offset."""
+        before = self._elevation_state()
+        elev = self._level_elevation(str(level))
+        self.ceiling_level = str(level)
+        if elev is not None:
+            self.ceiling_offset = self.z_pos - elev
+        self._elevation_changed(before, refresh)
+
+    def set_z(self, z, *, refresh: bool = True) -> None:
+        """Re-host 2 on the node's own ceiling level (panel Z edit)."""
+        before = self._elevation_state()
+        elev = self._level_elevation(self.ceiling_level)
+        if elev is None:
+            self.z_pos = float(z)
+        else:
+            self.ceiling_offset = float(z) - elev
+            self._recompute_z_pos()
+        self._elevation_changed(before, refresh)
+
+    def rederive(self, *, refresh: bool = True) -> None:
+        """Recompute z from the stored level and offset (level elevation edit)."""
+        before = self._elevation_state()
+        self._recompute_z_pos()
+        self._elevation_changed(before, refresh)
 
     def z_range_mm(self) -> tuple[float, float] | None:
         """Node occupies a single elevation point at its z_pos."""
