@@ -17,7 +17,7 @@ def _node(scene, x, y, z=0.0):
 
 def _run(scene, x0=0, x1=2000):
     a, b = _node(scene, x0, 0), _node(scene, x1, 0)
-    return a, b, scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    return a, b, scene.add_pipe(a, b, None)
 
 
 def _zoom(view, z):
@@ -194,7 +194,7 @@ def _marker(scene):
 def _cross_pipe(scene):
     """A horizontal pipe through the origin (its ends are far from the probes)."""
     a, b = _node(scene, -300, 0), _node(scene, 300, 0)
-    return a, b, scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    return a, b, scene.add_pipe(a, b, None)
 
 
 @pytest.mark.parametrize("second", [False, True])
@@ -288,7 +288,7 @@ def test_zoom3_node_12_away_no_pipe_no_marker_and_a_new_node(shown_model_view, s
 def test_riser_hit_press_connects_to_the_nearest_z_node(shown_model_view):
     view, scene = shown_model_view
     low, high = _node(scene, 0, 0, 0.0), _node(scene, 0, 0, 3000.0)
-    scene.add_pipe(low, high, None, _propagate_ceiling=False).update_geometry()
+    scene.add_pipe(low, high, None).update_geometry()
     _zoom(view, 1.0)
     _pipe_mode(scene)
     n_nodes = len(_nodes(scene))
@@ -359,7 +359,7 @@ def test_chain_split_marker_sits_where_the_split_lands(shown_model_view):
     """45-snapped end: the marker is the projection of the snapped end."""
     view, scene = shown_model_view
     a, b = _node(scene, -500, 0), _node(scene, 500, 0)
-    scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    scene.add_pipe(a, b, None)
     start = _node(scene, 0, -400)
     _zoom(view, 1.0)
     _pipe_mode(scene)
@@ -409,7 +409,7 @@ def test_fixed_radius_callers_stay_fixed(shown_model_view):
 def test_riser_hit_resolves_to_nearest_z_node(shown_model_view):
     view, scene = shown_model_view
     low, high = _node(scene, 0, 0, 0.0), _node(scene, 0, 0, 3000.0)
-    pipe = scene.add_pipe(low, high, None, _propagate_ceiling=False)
+    pipe = scene.add_pipe(low, high, None)
     pipe.update_geometry()
     _zoom(view, 1.0)
     ctl = _pipe_mode(scene)
@@ -470,7 +470,7 @@ def test_equal_z_crossing_picks_the_later_added_pipe(shown_model_view):
     view, scene = shown_model_view
     _a, _b, first = _cross_pipe(scene)
     c, d = _node(scene, 0, -300), _node(scene, 0, 300)
-    second = scene.add_pipe(c, d, None, _propagate_ceiling=False)
+    second = scene.add_pipe(c, d, None)
     second.update_geometry()
     _zoom(view, 1.0)
     ctl = _pipe_mode(scene)
@@ -499,7 +499,7 @@ def test_sloped_pipe_hit_width_matches_the_shape(shown_model_view, zoom):
     """A 45 degree run: just inside / outside the half width, and past the cap."""
     view, scene = shown_model_view
     a, b = _node(scene, 0, 0), _node(scene, 1000, 1000)
-    pipe = scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    pipe = scene.add_pipe(a, b, None)
     pipe.update_geometry()
     _zoom(view, zoom)
     ctl = _pipe_mode(scene)
@@ -519,7 +519,7 @@ def test_display_scale_widens_the_hit_beyond_the_reject_margin(shown_model_view)
     """A Display Manager scale above 1 widens the stroke; the bbox reject follows."""
     view, scene = shown_model_view
     a, b = _node(scene, 0, 0), _node(scene, 1000, 1000)
-    pipe = scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    pipe = scene.add_pipe(a, b, None)
     pipe.update_geometry()
     pipe._display_scale = 8.0
     pipe.set_pipe_display()

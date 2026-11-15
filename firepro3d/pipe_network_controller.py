@@ -24,6 +24,14 @@ from .display_manager import apply_category_defaults
 from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_COPLANAR_TOL, PIPE_PREVIEW_LABEL_IN
 
 
+def template_ceiling(template, end: int) -> tuple[str, float]:
+    """The (ceiling level, offset mm) a pipe template gives its node *end*
+    (1 or 2): the one DEFAULT_LEVEL / DEFAULT_CEILING_OFFSET_MM fallback."""
+    lvl = getattr(template, f"node{end}_ceiling_level", None) or DEFAULT_LEVEL
+    off = getattr(template, f"node{end}_ceiling_offset", None)
+    return lvl, (DEFAULT_CEILING_OFFSET_MM if off is None else float(off))
+
+
 class PipeNetworkController:
     def __init__(self, scene):
         self._scene = scene
@@ -108,26 +116,22 @@ class PipeNetworkController:
             candidates = self._rank_candidates(candidates, x, y, z_hint)
         return candidates
 
-    def find_or_create_node(self, x, y, z_hint=None):
+    def find_or_create_node(self, x, y, z_hint=None, host=None):
         existing = self.find_nearby_node(x, y, z_hint=z_hint)
         if existing:
             return existing
-        return self.add_node(x, y, z_hint=z_hint)
+        return self.add_node(x, y, z_hint=z_hint, host=host)
 
-    def add_node(self, x, y, z_hint=None):
+    def add_node(self, x, y, z_hint=None, host=None):
+        """The node near (x, y), untouched, or a new node hosted with *host*
+        ``(level, offset)``, default (active level, DEFAULT_CEILING_OFFSET_MM) (D2)."""
         node = self.find_nearby_node(x, y, z_hint=z_hint)
         if not node:
             node = Node(x, y)
             node.level = self._scene.active_level
-            node.ceiling_level = self._scene.active_level
-
-            node._properties["Ceiling Level"]["value"] = self._scene.active_level
-            # Compute z_pos from ceiling level elevation + offset
-            if self._scene._level_manager:
-                lvl = self._scene._level_manager.get(self._scene.active_level)
-                if lvl:
-                    node.z_pos = lvl.elevation + node.ceiling_offset
             self._scene.addItem(node)
+            node.host(*(host or (self._scene.active_level, DEFAULT_CEILING_OFFSET_MM)),
+                      refresh=False)
             apply_category_defaults(node)
             node.setVisible(True)
             self._scene.sprinkler_system.add_node(node)
@@ -167,7 +171,7 @@ class PipeNetworkController:
         _set_svg_tint(fitting.symbol, color, fill)
         fitting.symbol.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
 
-    def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True, mint=True):
+    def add_pipe(self, n1, n2, template=None, mint=True):
         pipe = Pipe(n1, n2)
         # Apply template first so non-level properties are copied
         if template:
@@ -200,41 +204,9 @@ class PipeNetworkController:
         for v in self._scene.views():
             v.viewport().update()
 
-        # Propagate the pipe's ceiling properties to both endpoint nodes
-        # so their 3D elevation matches what the user set on the template.
-        # Skip during load — nodes already have authoritative ceiling data.
-        if _propagate_ceiling and template is not None:
-            # Use per-node ceiling values from template; fall back to defaults
-            for node, lvl_attr, off_attr in (
-                (n1, "node1_ceiling_level", "node1_ceiling_offset"),
-                (n2, "node2_ceiling_level", "node2_ceiling_offset"),
-            ):
-                if node is None:
-                    continue
-                c_lvl = getattr(template, lvl_attr, None)
-                c_off = getattr(template, off_attr, None)
-                if c_lvl is None:
-                    c_lvl = DEFAULT_LEVEL
-                if c_off is None:
-                    c_off = DEFAULT_CEILING_OFFSET_MM
-                node.ceiling_level = c_lvl
-                node._properties["Ceiling Level"]["value"] = c_lvl
-                node.ceiling_offset = c_off
-                node._properties["Ceiling Offset"]["value"] = str(c_off)
-                node._recompute_z_pos()
-        elif _propagate_ceiling:
-            # No template — apply defaults to both endpoint nodes
-            for node in (n1, n2):
-                if node is not None:
-                    node.ceiling_level = DEFAULT_LEVEL
-                    node._properties["Ceiling Level"]["value"] = DEFAULT_LEVEL
-                    node.ceiling_offset = DEFAULT_CEILING_OFFSET_MM
-                    node._properties["Ceiling Offset"]["value"] = str(DEFAULT_CEILING_OFFSET_MM)
-                    node._recompute_z_pos()
-
         return pipe
 
-    def _split_vertical_pipe(self, pipe, target_z: float, template) -> "Node":
+    def _split_vertical_pipe(self, pipe, target_z: float, template, end: int = 1) -> "Node":
         """Split a vertical pipe at *target_z*, returning the new mid-node.
 
         Creates a new node at the pipe's XY with the template's ceiling
@@ -242,21 +214,11 @@ class PipeNetworkController:
         with two shorter vertical pipes.
         """
         xy = pipe.node1.scenePos()
-        mid = Node(xy.x(), xy.y())
+        mid = Node(xy.x(), xy.y(), target_z)
         mid.level = self._scene.active_level
-
-        ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
-        ceiling_off = getattr(template, "node1_ceiling_offset", None)
-        if ceiling_off is None:
-            ceiling_off = DEFAULT_CEILING_OFFSET_MM
-        mid.ceiling_level = ceiling_lvl
-        mid._properties["Ceiling Level"]["value"] = ceiling_lvl
-        mid.ceiling_offset = ceiling_off
-        mid._properties["Ceiling Offset"]["value"] = str(ceiling_off)
-        mid.z_pos = target_z
-
         self._scene.addItem(mid)
         self._scene.sprinkler_system.add_node(mid)
+        mid.rehost_keep_z(template_ceiling(template, end)[0], refresh=False)   # Q7-2
 
         # Create two replacement vertical pipes preserving the original's properties
         node_a = pipe.node1
@@ -297,17 +259,10 @@ class PipeNetworkController:
         new_node = self.add_node(split_point.x(), split_point.y())
         node_a = pipe.node1
         node_b = pipe.node2
-        # Use _propagate_ceiling=False — pipe attributes can be stale.
-        # Copy ceiling from the authoritative source (endpoint nodes).
-        self.add_pipe(node_a, new_node, pipe, _propagate_ceiling=False, mint=False)   # n1 half keeps the Mark (R1)
-        self.add_pipe(new_node, node_b, pipe, _propagate_ceiling=False)
+        self.add_pipe(node_a, new_node, pipe, mint=False)   # n1 half keeps the Mark (R1)
+        self.add_pipe(new_node, node_b, pipe)
         self.delete_pipe(pipe)
-        # Set new_node's ceiling from node_a (authoritative endpoint)
-        new_node.ceiling_level = node_a.ceiling_level
-        new_node._properties["Ceiling Level"]["value"] = node_a.ceiling_level
-        new_node.ceiling_offset = node_a.ceiling_offset
-        new_node._properties["Ceiling Offset"]["value"] = str(node_a.ceiling_offset)
-        new_node._recompute_z_pos()
+        new_node.host(node_a.ceiling_level, node_a.ceiling_offset)
         new_node.fitting.update()
         node_a.fitting.update()
         node_b.fitting.update()
@@ -590,7 +545,9 @@ class PipeNetworkController:
         STUB_LENGTH = 304.8  # 1 ft in mm
         stub_x = jp.x() - through_dir[0] * STUB_LENGTH
         stub_y = jp.y() - through_dir[1] * STUB_LENGTH
-        stub_node = self.add_node(stub_x, stub_y)
+        stub_node = self.add_node(
+            stub_x, stub_y,
+            host=template_ceiling(template, 2) if template is not None else None)
 
         # Add stub pipe
         self.add_pipe(junction_node, stub_node, template)
@@ -608,80 +565,22 @@ class PipeNetworkController:
         Uses per-node ceiling attributes when available, falling back to the
         pipe-level Ceiling Level / Ceiling Offset properties.
         """
-        if node_idx == 1:
-            ceiling_lvl_name = getattr(template, "node1_ceiling_level", None)
-            offset = getattr(template, "node1_ceiling_offset", None)
-        else:
-            ceiling_lvl_name = getattr(template, "node2_ceiling_level", None)
-            offset = getattr(template, "node2_ceiling_offset", None)
-        # Fallback to defaults (pipe-level ceiling attrs were removed)
-        if not ceiling_lvl_name:
-            ceiling_lvl_name = DEFAULT_LEVEL
-        if offset is None:
-            offset = DEFAULT_CEILING_OFFSET_MM
-        if not ceiling_lvl_name or not self._scene._level_manager:
+        if not self._scene._level_manager:
             return None
-        lvl = self._scene._level_manager.get(ceiling_lvl_name)
-        if lvl is None:
-            return None
-        return lvl.elevation + offset
+        lvl_name, offset = template_ceiling(template, node_idx)
+        lvl = self._scene._level_manager.get(lvl_name)
+        return None if lvl is None else lvl.elevation + offset
 
-    def _make_intermediate_node(self, existing_node, template):
-        """Create a node at *existing_node*'s XY but at the template's ceiling level.
-
-        Bypasses ``add_node()`` because ``find_nearby_node()`` would return
-        *existing_node* (same XY within SNAP_RADIUS).  Returns the new node.
-        """
-        ex = existing_node.scenePos().x()
-        ey = existing_node.scenePos().y()
-
-        intermediate = Node(ex, ey)
-        intermediate.level = self._scene.active_level
-
-        ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
-        ceiling_off = getattr(template, "node1_ceiling_offset", None)
-        if ceiling_off is None:
-            ceiling_off = DEFAULT_CEILING_OFFSET_MM
-        intermediate.ceiling_level = ceiling_lvl
-        intermediate._properties["Ceiling Level"]["value"] = ceiling_lvl
-        intermediate.ceiling_offset = ceiling_off
-        intermediate._properties["Ceiling Offset"]["value"] = str(ceiling_off)
-        if self._scene._level_manager:
-            lvl = self._scene._level_manager.get(ceiling_lvl)
-            if lvl:
-                intermediate.z_pos = lvl.elevation + ceiling_off
-
-        self._scene.addItem(intermediate)
-        self._scene.sprinkler_system.add_node(intermediate)
-        return intermediate
-
-    def _make_intermediate_node_for_n2(self, existing_node, template):
-        """Create a node at *existing_node*'s XY using template's Node 2 ceiling.
-
-        Same as ``_make_intermediate_node`` but reads from the per-node
-        ``node2_ceiling_level`` / ``node2_ceiling_offset`` attributes.
-        """
-        ex = existing_node.scenePos().x()
-        ey = existing_node.scenePos().y()
-
-        node = Node(ex, ey)
+    def _make_intermediate_node(self, existing_node, template, end: int = 1):
+        """A new node at *existing_node*'s XY hosted at the template's node
+        *end* ceiling. Bypasses ``add_node()``, whose ``find_nearby_node()``
+        would return *existing_node*."""
+        p = existing_node.scenePos()
+        node = Node(p.x(), p.y())
         node.level = self._scene.active_level
-
-        ceiling_lvl = getattr(template, "node2_ceiling_level", None) or DEFAULT_LEVEL
-        ceiling_off = getattr(template, "node2_ceiling_offset", None)
-        if ceiling_off is None:
-            ceiling_off = DEFAULT_CEILING_OFFSET_MM
-        node.ceiling_level = ceiling_lvl
-        node._properties["Ceiling Level"]["value"] = ceiling_lvl
-        node.ceiling_offset = ceiling_off
-        node._properties["Ceiling Offset"]["value"] = str(ceiling_off)
-        if self._scene._level_manager:
-            lvl = self._scene._level_manager.get(ceiling_lvl)
-            if lvl:
-                node.z_pos = lvl.elevation + ceiling_off
-
         self._scene.addItem(node)
         self._scene.sprinkler_system.add_node(node)
+        node.host(*template_ceiling(template, end), refresh=False)
         return node
 
     def _create_vertical_connection(self, start_node, existing_end_node, template):
@@ -693,18 +592,17 @@ class PipeNetworkController:
         * horizontal pipe — between *start_node* and *intermediate_node*
           (carries the full template).
         """
-        intermediate = self._make_intermediate_node(existing_end_node, template)
+        intermediate = self._make_intermediate_node(existing_end_node, template, 2)
 
         # Vertical pipe (existing_end_node <-> intermediate) — same XY, different z
-        self.add_pipe(existing_end_node, intermediate, template,
-                      _propagate_ceiling=False)
+        self.add_pipe(existing_end_node, intermediate, template)
 
         # Horizontal pipe (start_node <-> intermediate) with full template
         self.add_pipe(start_node, intermediate, template)
 
     def _find_or_split_vertical_at_z(self, xy_pos: QPointF,
                                       target_z: float,
-                                      template) -> "Node | None":
+                                      template, end: int = 1) -> "Node | None":
         """Find an existing node or split a vertical pipe at *target_z* near *xy_pos*.
 
         Search order:
@@ -735,7 +633,7 @@ class PipeNetworkController:
             z_lo = min(pipe.node1.z_pos, pipe.node2.z_pos)
             z_hi = max(pipe.node1.z_pos, pipe.node2.z_pos)
             if z_lo + 0.5 < target_z < z_hi - 0.5:
-                return self._split_vertical_pipe(pipe, target_z, template)
+                return self._split_vertical_pipe(pipe, target_z, template, end)
         return None
 
     # ── End vertical pipe helpers ─────────────────────────────────────────
@@ -1005,7 +903,9 @@ class PipeNetworkController:
             else:
                 start_node = (existing_start if existing_start is not None
                               else self.find_or_create_node(
-                                  snapped.x(), snapped.y(), z_hint=template_z1))
+                                  snapped.x(), snapped.y(), z_hint=template_z1,
+                                  host=(template_ceiling(template, 1)
+                                        if template is not None else None)))
                 self._scene._pipe_node_was_new = (existing_start is None)
                 _check_elevation = existing_start is not None
 
@@ -1035,9 +935,8 @@ class PipeNetworkController:
             # Transition to phase 1: lock Node 1, allow Node 2 editing
             if template is not None:
                 if self._scene._pipe_node_was_new:
-                    # New node — apply template elevation TO the node
-                    start_node.ceiling_level = template.node1_ceiling_level
-                    start_node.ceiling_offset = template.node1_ceiling_offset
+                    # New or split node: the template hosts it (D3)
+                    start_node.host(*template_ceiling(template, 1))
                 else:
                     # Existing node — adopt its elevation for Node 1
                     template.node1_ceiling_level = start_node.ceiling_level
@@ -1139,11 +1038,15 @@ class PipeNetworkController:
 
         if isinstance(item_under, Pipe) and existing_end is None:
             end_node = self.split_pipe(item_under, self._scene.project_click_onto_pipe_segment(snapped_end, item_under))
+            end_was_split = True
             _check_end_elev = True  # split node inherits pipe's Z
         else:
             end_node = (tab_node if tab_node is not None
                         else self.find_or_create_node(
-                            snapped_end.x(), snapped_end.y(), z_hint=template_z2))
+                            snapped_end.x(), snapped_end.y(), z_hint=template_z2,
+                            host=(template_ceiling(template, 2)
+                                  if template is not None else None)))
+            end_was_split = False
             _check_end_elev = (existing_end is not None)
 
         # Block zero-length same-node pipe — unless template specifies
@@ -1154,8 +1057,8 @@ class PipeNetworkController:
                 z2 = self._compute_template_z_pos(template, node_idx=2)
                 if z1 is not None and z2 is not None and abs(z1 - z2) > 0.5:
                     # Create a new node at same XY with Node 2's elevation
-                    end_node = self._make_intermediate_node_for_n2(
-                        self._scene.pipe_start_node, template)
+                    end_node = self._make_intermediate_node(
+                        self._scene.pipe_start_node, template, 2)
                 else:
                     return False  # truly same position — wait for valid click
             else:
@@ -1178,6 +1081,9 @@ class PipeNetworkController:
                     f"The target node is at elevation {_fz(end_node.z_pos)} "
                     f"but the template targets {_fz(template_z)}.")
                 return True  # pending: the async dialog completes the commit
+
+        if end_was_split and template is not None:
+            end_node.host(*template_ceiling(template, 2))    # a split node is the tool's (D3)
 
         # ── Collinear extension check ─────────────────────────────
         extended = self._try_extend_collinear(
@@ -1227,14 +1133,13 @@ class PipeNetworkController:
                 xy = start_node.scenePos()
                 template_z = self._compute_template_z_pos(template, node_idx=1)
                 split_node = self._find_or_split_vertical_at_z(
-                    xy, template_z, template) if template_z is not None else None
+                    xy, template_z, template, 1) if template_z is not None else None
                 if split_node is not None:
                     # Reuse existing / split node — no new vertical pipe needed
                     self._scene.pipe_start_node = split_node
                 else:
-                    intermediate = self._make_intermediate_node(start_node, template)
-                    self.add_pipe(start_node, intermediate, template,
-                                  _propagate_ceiling=False)
+                    intermediate = self._make_intermediate_node(start_node, template, 1)
+                    self.add_pipe(start_node, intermediate, template)
                     self._scene.pipe_start_node = intermediate
                 self._scene.instructionChanged.emit("Pick end node")
 
@@ -1253,13 +1158,13 @@ class PipeNetworkController:
                 xy = start_node.scenePos()
                 template_z = self._compute_template_z_pos(template, node_idx=1)
                 target = self._find_or_split_vertical_at_z(
-                    xy, template_z, template) if template_z is not None else None
+                    xy, template_z, template, 1) if template_z is not None else None
                 if target is not None:
                     self._scene.pipe_start_node = target
                 else:
                     # No existing geometry — create standalone node at template Z
                     self._scene.pipe_start_node = self._make_intermediate_node(
-                        start_node, template)
+                        start_node, template, 1)
                 self._scene.instructionChanged.emit("Pick end node")
 
             # Transition to phase 1: N1 locked, N2 editable
@@ -1280,14 +1185,13 @@ class PipeNetworkController:
                 xy = end_node.scenePos()
                 template_z = self._compute_template_z_pos(template, node_idx=2)
                 split_node = self._find_or_split_vertical_at_z(
-                    xy, template_z, template) if template_z is not None else None
+                    xy, template_z, template, 2) if template_z is not None else None
                 if split_node is not None:
                     # Reuse existing / split node — connect horizontal pipe to it
                     intermediate = split_node
                 else:
-                    intermediate = self._make_intermediate_node(end_node, template)
-                    self.add_pipe(intermediate, end_node, template,
-                                  _propagate_ceiling=False)
+                    intermediate = self._make_intermediate_node(end_node, template, 2)
+                    self.add_pipe(intermediate, end_node, template)
                 # Place the horizontal pipe to the intermediate node
                 extended = self._try_extend_collinear(
                     start_node, intermediate, template)
@@ -1326,9 +1230,9 @@ class PipeNetworkController:
                 xy = end_node.scenePos()
                 template_z = self._compute_template_z_pos(template, node_idx=2)
                 target = self._find_or_split_vertical_at_z(
-                    xy, template_z, template) if template_z is not None else None
+                    xy, template_z, template, 2) if template_z is not None else None
                 if target is None:
-                    target = self._make_intermediate_node(end_node, template)
+                    target = self._make_intermediate_node(end_node, template, 2)
                 # Place horizontal pipe to the target node
                 extended = self._try_extend_collinear(
                     start_node, target, template)

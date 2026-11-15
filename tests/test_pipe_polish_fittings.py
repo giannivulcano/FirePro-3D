@@ -30,7 +30,7 @@ def _node(scene, x, y, z=0.0):
 
 
 def _pipe(scene, a, b):
-    return scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    return scene.add_pipe(a, b, None)
 
 
 def _plain(scene, ends):
@@ -277,7 +277,7 @@ def _floors(scene):
         return n
 
     def run(a, b, name):
-        scene.add_pipe(a, b, None, _propagate_ceiling=False).level = name
+        scene.add_pipe(a, b, None).level = name
 
     stack = [at(0, z, nm) for z, nm in zip((0.0, 3000.0, 6000.0), names)]
     run(stack[0], stack[1], names[0])

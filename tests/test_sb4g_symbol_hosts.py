@@ -134,7 +134,7 @@ def _riser(scene):
     for n in (a, b):
         scene.addItem(n)
         scene.sprinkler_system.add_node(n)
-    p = scene.add_pipe(a, b, None, _propagate_ceiling=False)
+    p = scene.add_pipe(a, b, None)
     a.fitting.update(), b.fitting.update()
     return p
 

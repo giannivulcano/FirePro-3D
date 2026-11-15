@@ -87,7 +87,7 @@ def test_vertical_split_keeps_its_phase(qapp):
     na, nb = Node(0, 0), Node(0, 0)
     for n, z in ((na, 0.0), (nb, 3000.0)):
         ms.addItem(n); ms.sprinkler_system.add_node(n); n.z_pos = z
-    pipe = ms.add_pipe(na, nb, _propagate_ceiling=False)
+    pipe = ms.add_pipe(na, nb)
     pipe.phase = "demolition"
     t = Pipe(None, None)
     t.node1_ceiling_level = t.node2_ceiling_level = DEFAULT_LEVEL

@@ -1621,11 +1621,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     def _emit_pipe_tab_readout(self):
         return self._pipe_ctl._emit_pipe_tab_readout()
 
-    def find_or_create_node(self, x, y, z_hint=None):
-        return self._pipe_ctl.find_or_create_node(x, y, z_hint=z_hint)
+    def find_or_create_node(self, x, y, z_hint=None, host=None):
+        return self._pipe_ctl.find_or_create_node(x, y, z_hint=z_hint, host=host)
 
-    def add_node(self, x, y, z_hint=None):
-        return self._pipe_ctl.add_node(x, y, z_hint=z_hint)
+    def add_node(self, x, y, z_hint=None, host=None):
+        return self._pipe_ctl.add_node(x, y, z_hint=z_hint, host=host)
 
     def remove_node(self, n):
         return self._pipe_ctl.remove_node(n)
@@ -3513,9 +3513,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     def _apply_fitting_dm_colors(fitting):
         return PipeNetworkController._apply_fitting_dm_colors(fitting)
 
-    def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True, mint=True):
-        return self._pipe_ctl.add_pipe(n1, n2, template=template,
-                                       _propagate_ceiling=_propagate_ceiling, mint=mint)
+    def add_pipe(self, n1, n2, template=None, mint=True):
+        return self._pipe_ctl.add_pipe(n1, n2, template=template, mint=mint)
 
     def _validate_4th_branch(self, node, new_pt: QPointF) -> str | None:
         return self._pipe_ctl._validate_4th_branch(node, new_pt)
@@ -3537,22 +3536,19 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     def _compute_template_z_pos(self, template, node_idx: int = 1) -> float | None:
         return self._pipe_ctl._compute_template_z_pos(template, node_idx)
 
-    def _make_intermediate_node(self, existing_node, template):
-        return self._pipe_ctl._make_intermediate_node(existing_node, template)
-
-    def _make_intermediate_node_for_n2(self, existing_node, template):
-        return self._pipe_ctl._make_intermediate_node_for_n2(existing_node, template)
+    def _make_intermediate_node(self, existing_node, template, end=1):
+        return self._pipe_ctl._make_intermediate_node(existing_node, template, end)
 
     def _create_vertical_connection(self, start_node, existing_end_node, template):
         return self._pipe_ctl._create_vertical_connection(start_node, existing_end_node, template)
 
     def _find_or_split_vertical_at_z(self, xy_pos: QPointF,
                                       target_z: float,
-                                      template) -> "Node | None":
-        return self._pipe_ctl._find_or_split_vertical_at_z(xy_pos, target_z, template)
+                                      template, end=1) -> "Node | None":
+        return self._pipe_ctl._find_or_split_vertical_at_z(xy_pos, target_z, template, end)
 
-    def _split_vertical_pipe(self, pipe, target_z, template):
-        return self._pipe_ctl._split_vertical_pipe(pipe, target_z, template)
+    def _split_vertical_pipe(self, pipe, target_z, template, end=1):
+        return self._pipe_ctl._split_vertical_pipe(pipe, target_z, template, end)
 
     # ── End vertical pipe helpers ─────────────────────────────────────────
 

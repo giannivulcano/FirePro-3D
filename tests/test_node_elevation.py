@@ -45,7 +45,7 @@ def _pair(s, off_a=-300.0, off_b=-600.0):
     """Two nodes on Level 1 with distinct offsets, joined by one pipe."""
     a = _node(s, 0, 0, offset=off_a)
     b = _node(s, 3000, 0, offset=off_b)
-    p = s.add_pipe(a, b, None, _propagate_ceiling=False)
+    p = s.add_pipe(a, b, None)
     return a, b, p
 
 
@@ -85,8 +85,8 @@ def _hub_stack_with_head(s):
     low = _node(s, 0, 0, offset=0.0)
     hub = _node(s, 0, 0)
     high = _node(s, 0, 0, offset=6000.0)
-    s.add_pipe(low, hub, None, _propagate_ceiling=False)
-    s.add_pipe(hub, high, None, _propagate_ceiling=False)
+    s.add_pipe(low, hub, None)
+    s.add_pipe(hub, high, None)
     s.add_sprinkler(hub, Sprinkler(None))     # at base the template re-hosts the node,
     hub.ceiling_offset, hub.z_pos = 3000.0, 3000.0   # so host it after the head lands
     hub.fitting.update()
@@ -127,3 +127,18 @@ def test_copy_to_level_retargets_the_ceiling(ms):
         cp = copies[0]
         assert cp.ceiling_offset == pytest.approx(src.ceiling_offset)
         assert cp.z_pos == pytest.approx(3000.0 + src.ceiling_offset)
+
+
+def test_drawing_onto_an_existing_node_keeps_its_ceiling(shown_model_view):
+    """Q14: an existing node at the template z on another ceiling level is
+    joined, never re-hosted."""
+    from firepro3d.pipe import Pipe
+    view, s = shown_model_view
+    s._level_manager.get("Level 2").elevation = 3000.0   # default Level 2 exists (3048)
+    s.set_mode("pipe", Pipe(None, None))           # template N1 = N2 = Level 1 / -50.8
+    end = _node(s, 3000, 0, level="Level 2", offset=-3050.8)   # z -50.8
+    s._pipe_ctl.press_pipe(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    assert s._pipe_ctl._commit_pipe_at(QPointF(3000, 0), None) is True
+    assert end.pipes, "the pipe joins the existing node"
+    assert (end.ceiling_level, end.ceiling_offset) == ("Level 2", -3050.8)
+    assert end.z_pos == pytest.approx(-50.8)

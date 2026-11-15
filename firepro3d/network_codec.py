@@ -344,8 +344,8 @@ def deserialize_pipe(scene, entry, id_to_node):
     """Create + register a Pipe via scene.add_pipe (the canonical creation path).
 
     Mirror of ``serialize_pipe``. Returns the pipe, or None if either endpoint node
-    id is missing. Uses ``_propagate_ceiling=False``: nodes already carry
-    authoritative ceiling data on load/restore. Routing both paths through add_pipe
+    id is missing. Nodes already carry authoritative ceiling data on
+    load/restore, and ``add_pipe`` never writes it. Routing both paths through add_pipe
     single-homes creation (geometry, visibility, label, category defaults, fitting
     DM colours) and removes _restore_network's hand-rolled variant.
     """
@@ -353,7 +353,7 @@ def deserialize_pipe(scene, entry, id_to_node):
     n2 = id_to_node.get(entry["node2_id"])
     if not (n1 and n2):
         return None
-    pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False, mint=False)
+    pipe = scene.add_pipe(n1, n2, mint=False)
     pipe.level = entry.get("level", DEFAULT_LEVEL)
     apply_pipe_record(pipe, entry)
     return pipe

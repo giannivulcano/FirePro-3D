@@ -60,8 +60,8 @@ def _labels(pm):
 def _riser(s):
     low, high = _node(s, 100, 200, 0.0), _node(s, 100, 200, 3000.0)
     branch = _node(s, 900, 200, 3000.0)
-    s.add_pipe(low, high, None, _propagate_ceiling=False)
-    s.add_pipe(high, branch, None, _propagate_ceiling=False)
+    s.add_pipe(low, high, None)
+    s.add_pipe(high, branch, None)
     s.push_undo_state()
     return low, high, branch
 
@@ -97,7 +97,7 @@ def test_stack_with_a_sprinkler_head_carries_it(ms):
 def test_sloped_riser_is_not_in_the_stack(ms):
     """A pipe 50 mm off plumb is a slope, not a riser: only this node moves."""
     low, high = _node(ms, 0, 0, 0.0), _node(ms, 50, 0, 3000.0)
-    ms.add_pipe(low, high, None, _propagate_ceiling=False)
+    ms.add_pipe(low, high, None)
     assert high.riser_stack() == [high]
     _panel(high)._apply_property("X", 400.0)
     assert high.scenePos() == QPointF(400, 0)
@@ -130,7 +130,7 @@ def test_z_edit_solves_offset_keeps_level_and_undo(ms, monkeypatch):
     n.ceiling_level = lvl.name
     other = _node(ms, 1000, 0, lvl.elevation - 50.8)
     other.ceiling_level = lvl.name
-    pipe = ms.add_pipe(n, other, None, _propagate_ceiling=False)
+    pipe = ms.add_pipe(n, other, None)
     ms.push_undo_state()
     repaints = []
     monkeypatch.setattr(pipe, "update_geometry", lambda: repaints.append(1))
@@ -194,7 +194,7 @@ def test_typed_text_reaches_the_node_through_the_row(ms):
 
 def test_rows_hidden_on_multi_select_and_pipe_sections(ms):
     a, b = _node(ms, 0, 0), _node(ms, 1000, 0)
-    p = ms.add_pipe(a, b, None, _propagate_ceiling=False)
+    p = ms.add_pipe(a, b, None)
     pm = _new_panel()
     pm.show_properties([a, b])
     assert "X" not in _labels(pm)
@@ -262,8 +262,8 @@ def _hub_stack(ms):
     for n in (low, hub, high):
         n.ceiling_level = lvl.name
     hub.ceiling_offset, high.ceiling_offset = 3000.0, 6000.0
-    ms.add_pipe(low, hub, None, _propagate_ceiling=False)
-    ms.add_pipe(hub, high, None, _propagate_ceiling=False)
+    ms.add_pipe(low, hub, None)
+    ms.add_pipe(hub, high, None)
     hub.fitting.update()
     assert hub.fitting.type == "riser_through"
     return hub
