@@ -2,6 +2,15 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Block System -- SB5 hosting foundation: element uids, uid index, HostedDependents hook, delete cascade -- 2026-11-15
+
+- [x] [type:feature] SB5 — Hosting foundation: stable `uid` on every model element (both serialization paths, re-applied on undo restore, new on copy/paste) + scene uid index + `HostedDependents` host-geometry hook + delete cascade [subject:Architecture] [P1] [done:2026-11-15]
+  - Built 2026-11-13..15 on feat/sb5-hosting-foundation: design `docs/superpowers/specs/2026-11-13-sb5-hosting-foundation-design.md` (1f63713a + Phase 4 amendments 28485108), plan local; T1-T12 (last 9217ddd1), VC9 seam fix round bc98c73b + a528defd, main merged 3b06c0f9. Keep-green tests/test_sb5_*.py 69 passed 1 xfailed; user smoke 2026-11-15 all good (10 rows); VC6 full suite waived by the user. AC8 bound text / Q13 hosted suffix have no UI entry yet (SB6 Tag tool) - guard-covered.
+  - Details: concept F7. Pull-on-paint for text (no per-element signals); push for position, generalized from wall→opening `_reposition`. Dangling `host_uid` on load → "?" placeholder + warning. Gated on the phase-4 outcome. Guards G2 (uid round-trip), G4 groundwork. Owning spec: `element-parameters.md` (hosting section). `model_space.py`, `scene_io.py`, `network_codec.py`, every element's `to_dict`/`from_dict`. Progress 2026-10-22: gridline uid shipped (gridline-hosted blocks D3, `gridline.py`; both save paths, undo restore, new uid on paste; grid-system.md s18) -- remaining: every other model element.
+- [x] [type:bug] Undo across a section rename pairs markers by geometry only: two identical-geometry deletions are order-dependent and a rename+grip in one step loses the tab; name counter may reuse a deleted highest number after undo [P4] [subject:CAD] [done:2026-11-15]
+  - Closed by SB5 T11 (57856e91, Q14b, AC10): `restore_from_list` pairs markers by uid; `_same_cut` retired; counter recount behaviour unchanged (the reused-highest-number half is split to its own open line, "Section name counter can re-issue...").
+  - Details: section-view G4 re-review 2026-10-21 (m2, m3): `SectionManager.restore_from_list` pairs a missing wanted name with an unwanted placed marker by `_same_cut`; a stable per-marker uid (SB5 hosting foundation) would replace the heuristic. `_recount()` sets `_counter` to the highest surviving N, so `Section 3` can be re-issued after undoing its deletion. Depends SB5. `firepro3d/section_manager.py`. ref: section-view-subsystem s8.
+
 ## 3D view -- exact wall solids: mitred corners, pies, tees, height bands, opening cuts -- 2026-11-14
 
 - [x] [type:feature] 3D: true solid CSG + re-mitre wall corners [P1] [subject:CAD] [done:2026-11-14]
