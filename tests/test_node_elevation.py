@@ -113,7 +113,7 @@ def test_sprinkler_panel_ceiling_edit_refreshes_fitting(ms, key, value, z):
 
 def test_copy_to_level_retargets_the_ceiling(ms):
     from firepro3d.level_manager import PlanViewManager
-    ms._level_manager.add_level("Level 2", 3000.0)
+    ms._level_manager.get("Level 2").elevation = 3000.0   # default Level 2 exists (3048)
     pvm = PlanViewManager()                 # the target level's view range, as in the app
     for name in ("Level 1", "Level 2"):
         pvm.create(name, ms._level_manager)
