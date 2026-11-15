@@ -405,6 +405,7 @@ class TestSheetViewData:
             "show_border", "view_number",
             "crop_rect", "hidden_detail_ids",
             "show_title", "title_offset", "title_line_mm",
+            "phase_display",                              # PH3 DD5
         }
 
 
