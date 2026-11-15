@@ -56,8 +56,9 @@ the demo plan and new-work plan deliverable from one model (D-PH1).
   around the pass). Active only when `viewport_data.phase_display.enabled` and
   `source_view_type != "schematic"`; otherwise inactive.
 - `merge(cat, item, *, keys=ALL_KEYS) -> dict`: inactive context -> returns `cat` itself
-  (identity; AC4 pixel-identical). Active: `sid = effective_phase(item)` (None -> `new`);
-  returns a shallow copy with:
+  (identity; AC4 pixel-identical). Active: `sid = effective_phase(item)`; None (an unphased
+  datum / annotation, D-PH3) -> returns `cat` itself, so gridlines, levels and notes always
+  plot (plan gate 2026-11-14); otherwise returns a shallow copy with:
   - `visible = False` when `sid in hidden`;
   - `color` <- graphics colour; `fill` and `section_color` <- graphics fill (AC15: in a paper
     pass `draw_section_type` draws hatch lines in the element colour and the background from
@@ -114,9 +115,11 @@ restore resets it. `BlockInstance.paint` uses it as the brush of filled ops when
 - `PhaseRegistry` normalises graphics on install / from_list: opacity -> int clamped 0-100, a
   non-numeric value -> None; colour / fill / weight / linetype not str -> None.
 - `weight_refs`: `iter_weight_refs` yields each phase graphics weight as
-  `(name, ("phase", sid))`; `retarget_weight_refs` renames it in the live registry; so the
-  Line Weights tab refuses deleting a weight a phase uses and a rename follows. The Phases
-  tab's weight combo rebuilds from `weight_names()` when the tab is shown.
+  `(name, ("phase", sid))`; `retarget_weight_refs` renames it in the live registry (and
+  `PhasesTab.retarget_weights` in the tab's working copy); so deleting a weight a phase uses
+  counts the phase and goes through the LW-DC-5 replace-then-delete dialog (the phase follows
+  the pick; there is no refuse path), and a rename follows. The Phases tab's weight combo
+  rebuilds from `weight_names()` when the tab is shown.
 
 ## Acceptance Criteria
 
@@ -129,7 +132,7 @@ From project-phasing.md (AC4 render half, AC5, AC9 minus dash, AC13 paper, AC14,
 - [ ] AC14 The exported PDF raster matches the on-screen sheet render.
 - [ ] AC15 A hatched Existing wall keeps its hatch; hatch lines = status colour, background = status fill.
 - [ ] DD2 A colour-only status in an As Authored row keeps the element's authored fill.
-- [ ] DD6 Deleting a weight a phase uses is refused; renaming it retargets the phase; a malformed opacity loads as None and the Display Manager opens.
+- [ ] DD6 Deleting a weight a phase uses counts the phase and replaces it with the pick; renaming it retargets the phase; a malformed opacity loads as None and the Display Manager opens.
 - [ ] Every render leaves model items' visibility, opacity and colour slots as before (restore).
 
 ## Verification Checklist (VC3 guards)
