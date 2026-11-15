@@ -19,6 +19,9 @@
 
 ## Project tables (open / new / save)
 
+- [ ] [type:bug] `tests/test_project_tables_characterisation.py` goldens embed the run date, so 8 tests fail on any day but 13 Nov 2026 [P2] [subject:Testing]
+  - Details: found in the PH3 Task 2 keep-green run, 2026-11-15. `test_open_matches_base[pre_lt1, schema1_hf5, schema1_ph1, schema2]`, `test_second_open_matches_base`, `test_recovery_matches_base`, `test_new_matches_base` and `test_startup_matches_base` diff only on `"Date": "13 Nov 2026` (golden) vs today's date. Proven pre-existing (VC7): `test_new_matches_base` fails the same way at base `0ef262a7` (detached worktree) and at PH3 HEAD `efbf6971`. Normalise the date field (or pin the clock) in the characterisation capture, the way the CRLF + seeded-uuid goldens are normalised.
+
 - [ ] [type:maint] `tools/perf_probe_underlay.py` loads a project with no settings isolation, so since project_tables Q4 (`load_from_file` now applies DM rows and paper categories through `LoadSession.apply_styles`) a probe run writes those rows into the developer's real QSettings [P4] [subject:Tooling]
   - Details: found in the project_tables T3 review (2026-11-14, commit 7adf3f64). The fix is to run the probe under a scratch QSettings location (as `tests/conftest.py` does). `clone_template_into` (no production caller) gains the same apply.
 
@@ -576,6 +579,7 @@
 - [ ] [type:maint] Room ceiling slab / calibrated area edges from the room-detection T7 review (2026-11-12) [P4] [subject:CAD]
   - Details: (a) `Room._ceiling_slab_mm` (`room.py`) behaves right for no slab, an absolute-top slab and two slabs at one top level (max thickness), but nothing guards those cases: add one parametrized test. (b) A level-mode slab with a non-zero `_top_offset_mm` still has its full thickness subtracted from the ceiling level's elevation (plan-specified); decide whether the ceiling should be slab top + offset - thickness. (c) `room.py` `get_properties` and `auto_populate_dialog.py` area label import the private `element_params._ppm`, and ppm == 0 divides by zero (same as `element_params`): promote `_ppm` to a public helper and guard 0. Keep-green `tests/test_room_l567_l1656.py`.
 - [ ] [type:bug] `tests/test_sb4c_level_datum.py::test_shipped_leveldatum_reproduces_todays_head` fails on main: the shipped LevelDatum block's name height reads 2.5252, the test expects 2.7016 [P2] [subject:CAD]
+  - +1 occurrence 2026-11-15: PH3 Task 3 keep-green; fails the same way at base 0ef262a7 (detached worktree) and HEAD 74be40bb.
   - Details: found by the room-detection run's keep-green, 2026-11-12. VC7-proven pre-existing at the branch base 119fbbf0 (main) in a detached worktree, with HEAD reproducing it as the positive control. Unrelated to rooms: the value comes from the shipped block JSON. Repro first: decide whether the shipped block JSON or the test's expected value drifted (check `git log` on the shipped LevelDatum block and the test since SB4c).
   - +1 occurrence (SB4g T1 keep-green, 2026-11-12): fails identically at the SB4g branch base 28039a0c (detached worktree).
 - [ ] [type:maint] `Model_Space._resolve_mapped` sets `_annot_resolving = False` on exit instead of restoring the caller's prior value; nested inside `symbol_block`'s embed window it would drop the outer flag (SB4g T5 review Minor, 2026-11-12) [P4] [subject:CAD]
@@ -1710,6 +1714,9 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
   - Details: found 2026-09-26 (paper/underlay doc fixes). The load warning (`scene_io.py`, "Missing Underlay Files") says "Use right-click → Relink in the browser tree", and the canvas placeholder label (`underlay_controller.py`) says "Missing — right-click to relink" — but neither the browser (Remove only) nor the canvas offers Relink; it lives only in the Underlay Manager (`underlay-workflow.md` §5.4). Fix the two strings to point at Underlay Manager → Relink… (or add the action where they point). Repro: open a project whose underlay file was moved.
 
 ## Code Health & Architectural Debt (from 2026-04-29 gap analysis)
+
+- [ ] [type:bug] Three canvas pen-width tests fail on main: `test_lt2_canvas_paper.py::test_canvas_by_block_follows_model_blocks_row`, `::test_block_editor_raw_primitive_canvas_weight` and `test_text_item.py::test_model_border_pen_is_cosmetic` [P2] [subject:Testing]
+  - Details: found by the PH3 Task 3 keep-green, 2026-11-15 (the implementer saw render / pen-width mismatches such as `2 != 1`). VC7-proven pre-existing: all three fail at base `0ef262a7` in a detached worktree, and HEAD `74be40bb` reproduces them. Root cause not investigated. Start by checking whether a recent lineweight or cosmetic-pen change on main re-baselined the canvas pen width these tests pin.
 
 - [ ] [type:maint] Level Manager review leftovers: `remove_levels` `{}` return ambiguity + missing guards [P3] [subject:Testing]
   - Details: Level Manager reviews 2026-10-30. T1 review: `LevelManager.remove_levels` returns `{}` both when nothing was removed and when no item moved, so callers can't tell the two apart; no test asserts a level's Number is unchanged after a delete. Fix-round review M1: `LevelWidget._refresh_order_roles` snapshot-before-setData has no guard (expressible: tie three levels on elevation via an edit and assert the view's row order equals `manager.levels`; check that Qt's row moves make it deterministic before relying on it). `level_manager.py`, `level_widget.py`, `tests/test_level_manager_order.py`, `tests/test_level_widget_actions.py`.
