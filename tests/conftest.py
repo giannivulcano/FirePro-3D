@@ -196,6 +196,16 @@ def _reset_phase_registry():
 
 
 @pytest.fixture(autouse=True)
+def _reset_phase_display():
+    """PH3: the paper-pass phase context is module global -- a test that dies
+    mid-pass never leaves a Phasing-on context for the next test."""
+    from firepro3d import phase_display as _phd
+    _phd._STACK.clear()
+    yield
+    _phd._STACK.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_current_stroke_style():
     """Reset the WM1 current Linetype/Weight store (stroke_style module
     global, linetypes.md WM-10) so one test's current can't leak."""
