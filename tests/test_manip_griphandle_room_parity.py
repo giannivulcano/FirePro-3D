@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication
 from firepro3d.room import Room
 from firepro3d.manip_handle import GripHandle
 from firepro3d.manip_math import HandleRole
+from firepro3d.element_uid import without_uid
 
 
 def _labeled_room(name="101"):
@@ -92,7 +93,7 @@ def test_label_grip_apply_matches_legacy(qapp):
     sc = _StubScene(); m = _StubM(sc)
     h.on_press(m)
     h.on_drag(m, QPointF(700, 400), Qt.KeyboardModifier.NoModifier)
-    assert migrated.to_dict() == legacy.to_dict()
+    assert without_uid(migrated.to_dict()) == without_uid(legacy.to_dict())   # SB5: two distinct items, two uids
 
 
 # --------------------------------------------------------------------------

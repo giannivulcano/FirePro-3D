@@ -15,7 +15,7 @@ def test_to_dict_round_trip_all_fields():
     d = m.to_dict()
     assert d == {"name": "Section 7", "cut_a": [100.0, 200.0], "cut_b": [900.0, 650.0],
                  "look_sign": -1, "depth": 3200.0, "cardinal": None,
-                 "auto_extent": False, "mark": "7",
+                 "auto_extent": False, "uid": m._uid, "mark": "7",
                  "gridline_z_overrides": {"uid-a": {"v_top": -5000.0, "v_bot": 500.0}},
                  "datum_ends": {"Level 1": {"left": -3000.0, "right": 4500.0}}}
     m2 = SectionMarker.from_dict(d)

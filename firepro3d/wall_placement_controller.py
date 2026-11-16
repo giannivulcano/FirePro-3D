@@ -164,6 +164,10 @@ class WallPlacementController:
             wall._base_level = _tmpl._base_level if _tmpl._base_level else self._scene.active_level
             wall._top_level = getattr(_tmpl, "_top_level", "")
             wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
+            wall._base_offset_mm = _tmpl._base_offset_mm   # every template row reaches the wall
+            wall._top_offset_mm = _tmpl._top_offset_mm
+            wall._join_mode_pt1 = _tmpl._join_mode_pt1
+            wall._join_mode_pt2 = _tmpl._join_mode_pt2
             # Keep scene alignment in sync with template
             self._scene._wall_alignment = _tmpl._alignment
             self._scene.addItem(wall)
@@ -658,6 +662,10 @@ class WallPlacementController:
             wall._base_level = _tmpl._base_level if _tmpl._base_level else self._scene.active_level
             wall._top_level = getattr(_tmpl, "_top_level", "")
             wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
+            wall._base_offset_mm = _tmpl._base_offset_mm   # every template row reaches the wall
+            wall._top_offset_mm = _tmpl._top_offset_mm
+            wall._join_mode_pt1 = _tmpl._join_mode_pt1
+            wall._join_mode_pt2 = _tmpl._join_mode_pt2
             self._scene._wall_alignment = _tmpl._alignment
             self._scene.addItem(wall)
             self._scene._walls.append(wall)

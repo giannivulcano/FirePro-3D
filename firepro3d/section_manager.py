@@ -50,19 +50,6 @@ def _valid_record(d) -> bool:
     return math.hypot(bx - ax, by - ay) >= MIN_CUT_LEN and depth > 0.0
 
 
-def _same_cut(m: "SectionMarker", d: dict, tol: float = 1e-6) -> bool:
-    """True when marker *m* has exactly the geometry of snapshot record *d*."""
-    try:
-        return (abs(m.cut_a.x() - float(d["cut_a"][0])) <= tol
-                and abs(m.cut_a.y() - float(d["cut_a"][1])) <= tol
-                and abs(m.cut_b.x() - float(d["cut_b"][0])) <= tol
-                and abs(m.cut_b.y() - float(d["cut_b"][1])) <= tol
-                and abs(m.depth - float(d["depth"])) <= tol
-                and m.look_sign == int(d["look_sign"]))
-    except (KeyError, TypeError, ValueError, IndexError):
-        return False
-
-
 class SectionManager(QObject):
     """Markers + views for every section (spec s7.1).
 
@@ -155,9 +142,10 @@ class SectionManager(QObject):
 
         Args:
             name: The section's name.
-            notes: Also remove its Notes (elevation-parity D4) inside the
-                caller's undo step. ``restore_from_list`` passes False: an undo
-                restore has already restored the blocks as they were.
+            notes: Also remove its Notes (elevation-parity D4) and its hosted
+                dependents (SB5 D6) inside the caller's undo step.
+                ``restore_from_list`` passes False: an undo restore has already
+                restored the blocks as they were.
         """
         key = self._key(name)
         m = self.markers.get(key)
@@ -170,6 +158,9 @@ class SectionManager(QObject):
         if notes:
             from .note_controller import remove_notes
             remove_notes(self._ms, f"section:{m.view_name}")
+            from . import hosted_dependents
+            for b in hosted_dependents.cascade(self._ms, [m]):   # SB5 D6 (restore passes notes=False)
+                self._ms.remove_block_instance(b)   # SB5 D6 section delete
         if m.scene() is self._ms:
             self._ms.removeItem(m)
         self.sectionsChanged.emit()
@@ -465,30 +456,37 @@ class SectionManager(QObject):
         self._counter = n
 
     def restore_from_list(self, data: list[dict]) -> None:
-        """Undo restore: diff by name -- update survivors in place, remove
-        deleted, re-add missing; open tabs are left alone (s8).
-
-        A wanted name that is missing is paired with an unwanted placed marker
-        of identical geometry and treated as a rename (``rename_section``), so
-        undoing a rename keeps the tab, the marker object and the sheet bindings.
-        """
+        """Undo restore: pair placed markers by uid (SB5 Q14b) -- a paired
+        marker is updated in place (renamed when the name differs), an unpaired
+        placed marker is deleted, a wanted record with no marker is re-added
+        with its saved uid; the four cardinals stay keyed by direction. Open
+        tabs, marker objects and sheet bindings survive a rename, move or
+        delete undo even when two markers share a cut (s8). A record without
+        a uid (none is written since SB5) pairs by name. Assumes one marker
+        change per undo step: ``rename_section`` refuses a taken name, so two
+        renames crossing in one step are not handled."""
         want = {(d.get("cardinal") or d["name"]): d
                 for d in data if isinstance(d, dict) and _valid_record(d)}
-        unwanted = [k for k, m in self.markers.items() if k not in want and not m.cardinal]
+        placed = {m._uid: m for m in self.markers.values() if not m.cardinal}
+        paired = {}                                   # record key -> live marker
         for key, d in want.items():
-            if key in self.markers or d.get("cardinal"):
+            if d.get("cardinal"):
                 continue
-            for old in unwanted:
-                if _same_cut(self.markers[old], d):
-                    self.rename_section(old, d["name"], notes=False)   # blocks already restored
-                    unwanted.remove(old)
-                    break
-        for key in unwanted:
-            self.delete_section(key, notes=False)                  # blocks already restored
+            # Duplicate-uid records rely on load-time collision repair (unreachable after it).
+            m = placed.get(d.get("uid")) if d.get("uid") else self.markers.get(key)
+            if m is not None and not m.cardinal:
+                paired[key] = m
+        keep = {id(m) for m in paired.values()}
+        for k, m in list(self.markers.items()):
+            if not m.cardinal and id(m) not in keep:
+                self.delete_section(k, notes=False)   # blocks already restored
+        for key, m in paired.items():
+            if m.name != want[key]["name"]:
+                self.rename_section(m.name, want[key]["name"], notes=False)
         for key, d in want.items():
             m = self.markers.get(key)
             if m is None:
-                new = self._marker_from_record(d)
+                new = self._marker_from_record(d)     # from_dict re-applies the saved uid
                 if new is not None:
                     self._adopt(new)
                 continue

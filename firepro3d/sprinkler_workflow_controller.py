@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QBrush, QColor, QTransform
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsEllipseItem, QGraphicsRectItem
 
+from . import element_uid
 from . import marks
 from .node import Node
 from .pipe import Pipe
@@ -130,6 +131,15 @@ class SprinklerWorkflowController:
 
         # Remove existing sprinklers in this room before placing new ones
         existing = room._detect_sprinklers()
+        # SB5 D6 / Q14a: the replaced heads (and any node leaving with its head)
+        # take their dependents and design-area membership along. The list is
+        # passed explicitly: cascade never relies on scene membership (the
+        # re-populate ghost head, SB5 plan Task 1).
+        from . import hosted_dependents
+        doomed = list(existing) + [s.node for s in existing
+                                   if s.node is not None and not s.node.pipes]
+        for b in hosted_dependents.cascade(self._scene, doomed):
+            self._scene.remove_block_instance(b)   # SB5 D6 re-populate
         for spr in existing:
             node = spr.node
             if node is not None:
@@ -316,10 +326,13 @@ class SprinklerWorkflowController:
             sc._show_status("Click on a node or pipe to place water supply")
             return
 
-        if sc.water_supply_node is not None:
-            sc.removeItem(sc.water_supply_node)
+        old_ws = sc.water_supply_node
+        if old_ws is not None:
+            sc.removeItem(old_ws)
         ws = WaterSupply(target_node.scenePos().x(), target_node.scenePos().y())
         sc.addItem(ws)
+        if old_ws is not None:
+            element_uid.transfer_uid(sc, old_ws, ws)   # tags bound to the supply follow it (SB5 M1)
         sc.water_supply_node = ws
         sc.sprinkler_system.supply_node = ws
         sc.requestPropertyUpdate.emit(ws)

@@ -595,10 +595,15 @@ def section_scene_for(qapp):
             v.deleteLater()
         elev.deleteLater()      # C++ side freed below; a manipulator child's bound-method hold can't keep it alive
         ms.cleanup()
-    made.clear()
     from PyQt6.QtCore import QEvent
+    # Keep ``made`` holding the scenes until their C++ side is gone: once the
+    # list drops them they are cycle garbage, and an automatic GC pass that
+    # starts inside a virtual Qt runs from processEvents (boundingRect ->
+    # shape -> an allocation) would free the scene under that frame (SB5 T4
+    # bisect: GridlineBubble deleted mid-ElevGridlineItem.shape, 0xC0000409).
     QApplication.processEvents()
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)   # deleteLater is a posted event
+    made.clear()
     gc.collect()
 
 

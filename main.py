@@ -979,6 +979,9 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Restore floor placement template (modes/offsets/thickness); level
         # names + absolute-Z re-seed from the active level inside the helper.
         self.scene.load_floor_template_settings(self.settings)
+        # Wall / roof placement templates (recipe only; levels re-seed).
+        self.scene.load_wall_template_settings(self.settings)
+        self.scene.load_roof_template_settings(self.settings)
 
     def showEvent(self, event):
         """Fit the view after the window is fully shown for the first time."""
@@ -6023,6 +6026,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         # Persist the floor placement template (modes/offsets/thickness only;
         # level names + absolute-Z are project-specific and stay out).
         self.scene.save_floor_template_settings(self.settings)
+        self.scene.save_wall_template_settings(self.settings)
+        self.scene.save_roof_template_settings(self.settings)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

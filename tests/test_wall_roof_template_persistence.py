@@ -1,0 +1,213 @@
+"""Wall / roof placement-template persistence (QSettings ``template/wall`` /
+``template/roof``) + wall placement taking every template row.
+
+Mirrors ``test_floor_template_persistence.py``: INI-backed QSettings, raw
+internal values, level names / material never stored.
+"""
+
+from __future__ import annotations
+
+import pytest
+from PyQt6.QtCore import QPointF, QSettings
+
+from firepro3d.constants import PHASE_EXISTING
+from firepro3d.level_manager import LevelManager
+from firepro3d.model_space import Model_Space
+from firepro3d.scale_manager import ScaleManager
+
+
+@pytest.fixture
+def ini_settings(tmp_path):
+    return QSettings(str(tmp_path / "wall_roof_template_test.ini"),
+                     QSettings.Format.IniFormat)
+
+
+def _scene(*levels: tuple[str, float]) -> Model_Space:
+    s = Model_Space()
+    lm = LevelManager()                     # seeds "Level 1" @ 0.0
+    for name, elev in levels:
+        if lm.get(name) is None:
+            lm.add_level(name, elevation=elev)
+        else:
+            lm.get(name).elevation = elev
+    s._level_manager = lm
+    s.scale_manager = ScaleManager()
+    if levels:
+        s.active_level = levels[0][0]
+    return s
+
+
+def _set_offsets_and_joins(ms):
+    t = ms._get_wall_template()
+    t._base_offset_mm = 150.0
+    t._top_offset_mm = -300.0
+    t._join_mode_pt1 = "Butt"
+    t._join_mode_pt2 = "Solid"
+
+
+def _assert_offsets_and_joins(wall):
+    assert wall._base_offset_mm == 150.0
+    assert wall._top_offset_mm == -300.0
+    assert wall._join_mode_pt1 == "Butt"
+    assert wall._join_mode_pt2 == "Solid"
+    # Ground truth: the placed wall's height reflects the offsets
+    # (Level 1 @ 0 → Level 2 @ 3000, base +150, top -300 → 2550).
+    assert wall._computed_height_mm() == pytest.approx(2550.0)
+
+
+def test_chain_wall_takes_template_offsets_and_joins(qapp):
+    ms = _scene(("Level 1", 0.0), ("Level 2", 3000.0))
+    _set_offsets_and_joins(ms)
+    ms._wall_ctl._press_wall(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    ms._wall_ctl._press_wall(None, QPointF(2000, 0), QPointF(2000, 0), None, None, None)
+    assert len(ms._walls) == 1
+    _assert_offsets_and_joins(ms._walls[0])
+
+
+def test_rect_walls_take_template_offsets_and_joins(qapp):
+    ms = _scene(("Level 1", 0.0), ("Level 2", 3000.0))
+    _set_offsets_and_joins(ms)
+    ms._wall_rect_sized_pt1, ms._wall_rect_sized_pt2 = QPointF(0, 0), QPointF(4000, 3000)
+    ms._wall_rect_pivot = QPointF(0, 0)
+    assert ms._wall_ctl._commit_wall_rect_rotated(0.0)
+    assert len(ms._walls) == 4
+    for w in ms._walls:
+        _assert_offsets_and_joins(w)
+
+
+WALL_KEY = "template/wall"
+
+
+def test_wall_template_round_trips_its_recipe(qapp, ini_settings):
+    a = _scene(("Level 1", 0.0), ("Level 2", 3000.0))
+    t = a._get_wall_template()
+    t._thickness_mm = 203.2
+    t._alignment = "Left"
+    t._colour = "#123456"
+    t._fill_mode = "Solid"
+    t._base_offset_mm = 50.0
+    t._top_offset_mm = -75.0
+    t.phase = PHASE_EXISTING
+    a.save_wall_template_settings(ini_settings)
+
+    blob = ini_settings.value(WALL_KEY, {})
+    # AC3: no project-specific keys are stored.
+    assert set(blob) == {"thickness_mm", "alignment", "colour", "fill_mode",
+                         "base_offset_mm", "top_offset_mm", "phase"}
+
+    b = _scene(("Level 3", 6000.0), ("Level 4", 9000.0))
+    b.load_wall_template_settings(ini_settings)
+    u = b._get_wall_template()
+    assert u._thickness_mm == pytest.approx(203.2)
+    assert u._alignment == "Left"
+    assert b._wall_alignment == "Left"          # scene alignment follows
+    assert u._colour == "#123456"
+    assert u._fill_mode == "Solid"
+    assert u._base_offset_mm == pytest.approx(50.0)
+    assert u._top_offset_mm == pytest.approx(-75.0)
+    assert u.phase == PHASE_EXISTING
+    # Levels re-seed from the new project's active level, not the old one.
+    assert u._base_level == "Level 3"
+    names = [l.name for l in b._level_manager.levels]   # raw source: level order
+    assert u._top_level == names[names.index("Level 3") + 1]
+
+
+def test_wall_load_without_key_or_with_garbage_keeps_factory(qapp, ini_settings):
+    ms = _scene()
+    ms.load_wall_template_settings(ini_settings)          # no key → no-op
+    ini_settings.setValue(WALL_KEY, {"alignment": "Diagonal", "fill_mode": "Plaid",
+                                     "thickness_mm": "abc"})
+    ms.load_wall_template_settings(ini_settings)
+    t = ms._get_wall_template()
+    assert t._alignment == "Center"
+    assert t._fill_mode == "None"
+    assert t._thickness_mm == pytest.approx(152.4)
+
+
+def test_restored_wall_template_drives_the_next_placed_wall(qapp, ini_settings):
+    a = _scene(("Level 1", 0.0), ("Level 2", 3000.0))
+    a._get_wall_template()._thickness_mm = 254.0
+    a._get_wall_template()._top_offset_mm = -500.0
+    a.save_wall_template_settings(ini_settings)
+    b = _scene(("Level 1", 0.0), ("Level 2", 3000.0))
+    b.load_wall_template_settings(ini_settings)
+    b._wall_ctl._press_wall(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    b._wall_ctl._press_wall(None, QPointF(2000, 0), QPointF(2000, 0), None, None, None)
+    w = b._walls[0]
+    assert w._thickness_mm == pytest.approx(254.0)
+    assert w._computed_height_mm() == pytest.approx(2500.0)
+
+
+ROOF_KEY = "template/roof"
+
+
+def test_roof_template_round_trips_its_recipe(qapp, ini_settings):
+    a = _scene()
+    t = a._get_roof_template()
+    t._roof_type = "hip"
+    t._pitch_deg = 30.0
+    t._eave_height_mm = 2400.0
+    t._overhang_mm = 450.0
+    t._thickness_mm = 200.0
+    t._colour = "#654321"
+    t.phase = PHASE_EXISTING
+    a.save_roof_template_settings(ini_settings)
+
+    assert set(ini_settings.value(ROOF_KEY, {})) == {
+        "roof_type", "pitch_deg", "eave_height_mm", "overhang_mm",
+        "thickness_mm", "colour", "phase"}
+
+    b = _scene(("Level 3", 6000.0))
+    b.load_roof_template_settings(ini_settings)
+    u = b._get_roof_template()
+    assert (u._roof_type, u._pitch_deg) == ("hip", pytest.approx(30.0))
+    assert u._eave_height_mm == pytest.approx(2400.0)
+    assert u._overhang_mm == pytest.approx(450.0)
+    assert u._thickness_mm == pytest.approx(200.0)
+    assert u._colour == "#654321"
+    assert u.phase == PHASE_EXISTING
+    assert u.level == "Level 3"                  # re-seeded, not stored
+
+
+def test_roof_load_with_garbage_keeps_factory(qapp, ini_settings):
+    ms = _scene()
+    ini_settings.setValue(ROOF_KEY, {"roof_type": "dome", "pitch_deg": "x",
+                                     "overhang_mm": -5})
+    ms.load_roof_template_settings(ini_settings)
+    t = ms._get_roof_template()
+    assert t._roof_type == "flat"
+    assert t._pitch_deg == pytest.approx(20.0)
+    assert t._overhang_mm == pytest.approx(0.0)  # negative clamps to 0 (set_property rule)
+
+
+@pytest.fixture
+def main_window(qapp, tmp_path, monkeypatch):
+    """The real MainWindow (precedent: tests/test_ph1_phase_mainwindow.py)."""
+    import main as _main_module
+    from firepro3d.view_3d import View3D      # heavy import required before MainWindow
+    _main_module.View3D = View3D
+    from main import MainWindow
+    from firepro3d import app_data
+    from tests._mainwindow_helpers import dispose_main_window
+    monkeypatch.setattr(app_data, "user_data_root", lambda: str(tmp_path))
+    monkeypatch.setattr(MainWindow, "_maybe_offer_template_push", lambda self: None)
+    w = MainWindow()
+    yield w
+    dispose_main_window(w)
+
+
+def test_mainwindow_save_and_restore_settings_carry_wall_and_roof(main_window):
+    """AC6 through the real entry points: MainWindow.save_settings writes both
+    templates and restore_settings brings them back."""
+    w = main_window
+    wt = w.scene._get_wall_template()
+    rt = w.scene._get_roof_template()
+    wt._thickness_mm, wt._top_offset_mm = 228.6, -120.0
+    rt._roof_type, rt._pitch_deg = "gable", 35.0
+    w.save_settings()
+    wt._thickness_mm, wt._top_offset_mm = 152.4, 0.0
+    rt._roof_type, rt._pitch_deg = "flat", 20.0
+    w.restore_settings()
+    wt, rt = w.scene._get_wall_template(), w.scene._get_roof_template()
+    assert (wt._thickness_mm, wt._top_offset_mm) == (pytest.approx(228.6), pytest.approx(-120.0))
+    assert (rt._roof_type, rt._pitch_deg) == ("gable", pytest.approx(35.0))
