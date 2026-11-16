@@ -159,6 +159,13 @@ class BlockInstance(QGraphicsObject):
         # scene mm, D14). An instance with it set is a Note.
         self.note: Optional[dict] = None
         self._note_geom = None     # (box, box item, bound prims) -- _note_geometry
+        # Placed-tag record (SB6 D1): None for every other block; else
+        # ``{offset: [u, v], orientation, leader, block}`` -- the offset in the
+        # host-anchor frame, mm (``hosted_tag``). Set with ``_host_uid``; the
+        # pose is derived from it (``hosted_dependents.repose_tag``).
+        self.tag: Optional[dict] = None
+        self._leader_cache = None    # (ops list, key, ops + leader) -- _with_tag_leader
+        self._tag_choices: dict = {}   # Tag row label -> Choice | None (_tag_block_row)
         # Element host (element-parameters.md, SB2a D-a; SB5 D5): the element
         # whose keyed values feed host-sourced attributes. ``_host_uid`` is the
         # truth (saved as ``host_uid`` on both paths). In any Model_Space (the
@@ -288,6 +295,62 @@ class BlockInstance(QGraphicsObject):
             return
         self._bound_values = values
         self.prepareGeometryChange()
+        self.update()
+
+    # -- Placed tag (SB6 D1 / D4 / D11) ----------------------------------------
+    def set_block_id(self, block_id: str) -> None:
+        """Re-point this placement at another definition (SB6 D11 per-tag swap,
+        D6 re-resolve). The definition backref moves with it (the
+        ``Model_Space.retarget_block_refs`` H1 rule); every cache keyed on the
+        old definition is dropped."""
+        if block_id == self.block_id:
+            return
+        old = self.definition()
+        if old is not None and self in old._instances:
+            old._instances.remove(self)
+        self.block_id = block_id
+        new = self.definition()
+        sc = self.scene()
+        store = getattr(sc, "_block_definitions", None) if sc is not None else None
+        if (new is not None and store is not None and store.get(block_id) is new
+                and self not in new._instances):
+            new._instances.append(self)
+        self._bound_values = None
+        self._bound_cache = None
+        self._combined_cache = None
+        self._ov_cache = None
+        self._leader_cache = None
+        self.on_definition_changed()
+
+    def set_tag_pose(self, x: float, y: float, rot: float) -> None:
+        """Set a tag's derived pose (SB6 D2 / D5); silent when unchanged, so a
+        committed step that did not move the host repaints nothing."""
+        x, y, rot = float(x), float(y), float(rot)
+        if (x, y, rot) == (self._pose_x, self._pose_y, self._pose_rot):
+            return
+        self.prepareGeometryChange()
+        self._pose_x, self._pose_y, self._pose_rot = x, y, rot
+        self.update()
+
+    def rebase_tag_offset(self) -> None:
+        """Store the current position as the tag's host-frame offset (SB6 D4:
+        a tag moved on its own; a pasted tag keeps where it was pasted). No-op
+        for a non-tag, a dangling host or an anchorless one."""
+        if self.tag is None:
+            return
+        host, sc = self.element_host, self.scene()
+        if host is None or sc is None:
+            return
+        from .hosted_blocks import ppm_of
+        from .hosted_tag import offset_from_scene
+        uv = offset_from_scene(host, ppm_of(sc), QPointF(self._pose_x, self._pose_y))
+        if uv is not None:
+            self.tag["offset"] = uv
+
+    def tag_changed(self) -> None:
+        """A tag's leader / knee / leader style changed: re-bound and repaint."""
+        self.prepareGeometryChange()
+        self._leader_cache = None
         self.update()
 
     # ── Note (text-leader-annotations D8 / D9 / D14) ─────────────────────
@@ -2459,6 +2522,8 @@ class BlockInstance(QGraphicsObject):
             d[element_uid.HOST_UID_KEY] = self._host_uid        # SB5 D5: sparse; closes element-parameters D3
         if self.note:
             d["note"] = copy.deepcopy(self.note)
+        if self.tag:
+            d["tag"] = copy.deepcopy(self.tag)          # SB6 D1: sparse
         phase_registry.write_element(self, d)
         d.update(self._stack_fields())
         return d
@@ -2484,6 +2549,8 @@ class BlockInstance(QGraphicsObject):
         hu = data.get(element_uid.HOST_UID_KEY)
         inst._host_uid = hu if isinstance(hu, str) and hu else None
         inst.note = copy.deepcopy(data["note"]) if data.get("note") else None
+        from .hosted_tag import normalise as _tag_record
+        inst.tag = _tag_record(data.get("tag")) if data.get("tag") else None
         inst.layer_height = clamp_layer_height(data.get("layer_height", 0))
         inst._opaque = data["opaque"] if isinstance(data.get("opaque"), bool) else None
         inst.constraint_points_off = data.get("constraint_points_off") is True
@@ -2502,7 +2569,7 @@ class BlockInstance(QGraphicsObject):
 
         Returns:
             The pose / level / override / host (gridline record and element
-            ``host_uid``) / phase kwargs (``uid`` stays the caller's: only
+            ``host_uid``) / note / tag (SB6) / phase kwargs (``uid`` stays the caller's: only
             restore paths carry it).
         """
         return {"rotation": float(rec.get("rotation", 0.0)),
@@ -2514,6 +2581,7 @@ class BlockInstance(QGraphicsObject):
                 "host": rec.get("host"),
                 element_uid.HOST_UID_KEY: _record_host_uid(rec),
                 "note": rec.get("note"),
+                "tag": rec.get("tag"),
                 "phase": phase_registry.read_id(rec.get("phase")),
                 "layer_height": clamp_layer_height(rec.get("layer_height", 0)),
                 "opaque": rec["opaque"] if isinstance(rec.get("opaque"), bool) else None,

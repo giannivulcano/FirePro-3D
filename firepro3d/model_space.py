@@ -3108,7 +3108,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              host: dict | None = None, note: dict | None = None,
                              layer_height: int = 0, opaque: bool | None = None,
                              constraint_points_off: bool = False, phase: str = phase_registry.PHASE_NEW,
-                             host_uid: str | None = None):
+                             host_uid: str | None = None, tag: dict | None = None):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -3128,6 +3128,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 None.
             host_uid: The element host's uid (SB5 D5) -- an element-bound
                 block; resolved lazily through ``element_by_uid``.
+            tag: A placed-tag record (SB6 D1, ``hosted_tag``): offset in the
+                host-anchor frame, orientation, leader, block swap. Stored
+                normalised (a copy; a malformed record stores None).
             note: A Note record (text-leader-annotations D8): owning view, box
                 and leader. None for every ordinary block.
             layer_height: Stacking height in a ``block_editor`` scene (block
@@ -3155,6 +3158,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             inst._uid = str(uid)
         if host_uid:
             inst._host_uid = str(host_uid)
+        if tag:
+            from .hosted_tag import normalise
+            inst.tag = normalise(tag)        # SB6 D1
         inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
         if mirrored:
@@ -9663,6 +9669,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if inst is None:
             return None
         inst.attributes = dict(obj.get("attributes", {}))
+        if inst.tag is not None:
+            inst.rebase_tag_offset()     # SB6: a pasted tag keeps where it lands, on its (remapped) host
         if inst.note is not None:
             self._join_active_view(inst)                    # the copy joins this view
             inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
