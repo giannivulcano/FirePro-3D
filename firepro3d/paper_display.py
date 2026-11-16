@@ -1511,11 +1511,13 @@ def _hide_phase_hidden_mask(item, saved: list) -> None:
     """PH3: an item with no paper category that only follows a host's Hide (a
     section slab's occlusion mask) must not occlude when the host's status is
     hidden. Saved first, so restore_model_display re-shows it."""
+    disp = phase_display.active()
+    if disp is None:                    # Phasing off: no lookups (AC4r)
+        return
     from PyQt6.QtWidgets import QGraphicsItem
     from .phase_registry import effective_phase
     from .section_scene import _ROLE_HIDE_SOURCE
-    disp = phase_display.active()
-    if disp is None or QGraphicsItem.data(item, _ROLE_HIDE_SOURCE) is None:
+    if QGraphicsItem.data(item, _ROLE_HIDE_SOURCE) is None:
         return
     if effective_phase(item) in disp.hidden:
         saved.append({"item": item, "cat_key": None, "visible": item.isVisible()})

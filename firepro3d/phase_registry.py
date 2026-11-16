@@ -348,7 +348,8 @@ def effective_phase(item) -> str | None:
     """The phase *item* plots and calculates with; None = not phased (D-PH3).
 
     Section / elevation proxies -> their source element (a sprinkler proxy is
-    sourced on its node -> the node's sprinkler); a child of a block
+    sourced on its node -> the node's sprinkler; an item carrying only a Hide
+    host, i.e. opening frame lines or a slab's mask -> that host); a child of a block
     placement -> the outermost placement; a Note (annotation) -> None; a fitting
     -> its override, else the D-PH4 derivation; anything with ``phase`` -> it.
     A sip-deleted item reads None (DD6).
