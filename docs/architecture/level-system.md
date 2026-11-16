@@ -42,7 +42,7 @@ Default levels shipped with every new document:
 - **remove_levels(names, items, scene)** -- deletes several levels in one action and re-points their items (delete targets: `specs/view-relationships.md` §12)
 - **rename_level(old, new, items)** -- renames a level and updates all scene items that referenced it
 - **repair_missing_refs(items)** -- on open, re-points level refs that name a missing level (`specs/wall-room-floor-system.md` §11.3); the item list for rename / delete / repair comes from `leveled_items(scene)`
-- **update_elevations(scene)** -- recomputes `z_pos` for all nodes using `ceiling_level` elevation + `ceiling_offset`
+- **update_elevations(scene)** -- re-derives `z_pos` for all nodes (`Node.rederive`, then one batched refresh); node elevation contract in `specs/sprinkler-system-components.md` section 7
 - **to_list() / from_list(data)** -- serialization for project save/load
 - **reset()** -- restores default levels (used on new file)
 
@@ -54,13 +54,7 @@ Every entity with `DisplayableItemMixin` has a `level` attribute (string). This 
 - On load, from the saved project data
 - Manually via the property panel's Level field
 
-For piping entities, there is an additional `ceiling_level` attribute. A node's 3D elevation is computed as:
-
-```
-z_pos = level_elevation(ceiling_level) + ceiling_offset
-```
-
-The default `ceiling_offset` is -50.8 mm (-2 inches), representing the sprinkler deflector position below the ceiling.
+For piping entities, there is an additional `ceiling_level` attribute on each node. A node's 3D elevation is derived from its `ceiling_level` and `ceiling_offset`, and only `Node` writes them; the formula, defaults and re-host rules are owned by `specs/sprinkler-system-components.md` section 7.
 
 ## Plan views and visibility
 

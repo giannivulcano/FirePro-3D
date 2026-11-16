@@ -1,5 +1,5 @@
 ---
-status: proposal
+status: implemented
 last-verified: 2026-11-14
 verified-commit: 7de45ab4
 applies-to:
@@ -18,6 +18,7 @@ source-tasks: ["todo_open.md: Node owns its node elevation (Q1-Q14)"]
 
 Governing home once built: `docs/specs/sprinkler-system-components.md` §7 (Q6). This doc is the
 build design; at Account its contract moves into §7 and this file is marked implemented.
+**Implemented 2026-11-15 (0.105.1):** the contract now lives in `docs/specs/sprinkler-system-components.md` §7; this doc is the historical build design.
 Rulings Q1-Q14 live on the task line in `todo_open.md`; this doc cites them and does not restate them.
 
 ## Goal
