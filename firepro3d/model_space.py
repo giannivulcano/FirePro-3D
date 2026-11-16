@@ -2985,6 +2985,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if inst.block_id != old_id:
                 continue
             inst.block_id = new_id
+            if inst.tag is not None:
+                inst.tag["block"] = new_id    # SB6 M2: a tag follows the copy (else repose_tag re-resolves the System default)
             if inst in old_d._instances:
                 old_d._instances.remove(inst)
             if inst not in new_d._instances:

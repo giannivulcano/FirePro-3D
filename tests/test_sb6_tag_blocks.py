@@ -63,3 +63,34 @@ def test_annotation_pane_lists_the_four_rows(qapp, real_system_library):
             assert bid in [combo.itemData(i) for i in range(combo.count())], cat
     finally:
         ms.cleanup()
+
+
+def test_m2_tags_follow_a_retargeted_system_copy(qapp, make_model_space, real_system_library,
+                                                  tmp_path):
+    """User ruling (VC9 M2): editing a System tag in Block Manager and saving it as a project
+    copy re-points the placed tags, and the next committed step (repose_tag ->
+    hosted_tag.resolve) keeps the copy instead of snapping back to the System default.
+    The copy is built as ``block_editor.run_duplicate_dialog`` / ``BlockManager
+    ._duplicate_and_retarget`` do (file copy under a new id, loaded, retargeted)."""
+    import uuid
+    from firepro3d.block_definition import BlockDefinition
+    from firepro3d.level_manager import LevelManager
+    from tests._sb6_helpers import add_wall, place_tag, tags_of
+    ms = make_model_space()
+    ms._level_manager = LevelManager()
+    w = add_wall(ms)
+    ms.push_undo_state()
+    tag = place_tag(ms, w)
+    src = ms.get_block_definition(tag.block_id)
+    copy = BlockDefinition.from_dict(src.to_dict())
+    copy.id, copy.version, copy.base_version = uuid.uuid4().hex, 1, None
+    copy.name, copy.library, copy.series = "Wall tag copy", "Mine", "Tags"
+    written = block_library.save_to_library(copy, root=str(tmp_path),
+                                            bundled=ms.block_registry.bundle_for(src.id))
+    assert copy.id in ms.load_blocks_outside_history([written], root=str(tmp_path))
+    assert eligible_definition(ms.get_block_definition(copy.id), "Wall")  # the copy is a valid tag
+    assert ms.retarget_block_refs(src.id, copy.id) >= 1
+    ms.push_undo_state()                                                  # re-poses every bound tag
+    (t,) = tags_of(ms)
+    assert t.block_id == copy.id                                          # [RED: tag["block"] write]
+    assert t.tag["block"] == copy.id
