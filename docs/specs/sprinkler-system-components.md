@@ -1,6 +1,6 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-15  # node-elevation Account: s7 rewritten (node elevation contract), s13.1 step 3, s13.3 Ceiling rows, s15.4 only, rest not re-audited; prior 2026-11-13  # SB4g Account: s3.1 diagram, s4.4 Symbol row, s8 (symbol blocks, size, centring, selection, display), s10.3, s13.3, s14 D7 re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+last-verified: 2026-11-15  # node-elevation Account: s7 rewritten (node elevation contract), s4.4 Ceiling row, s13.1 step 3, s13.3 Ceiling rows, s15.4 only, rest not re-audited; prior 2026-11-13  # SB4g Account: s3.1 diagram, s4.4 Symbol row, s8 (symbol blocks, size, centring, selection, display), s10.3, s13.3, s14 D7 re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
 verified-commit: 807cd649  # node-elevation (0.105.1; s7 / s13 / s15.4 only); prior e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior 7cdb7146  # room-detection rework (§11.5 room clip + §11.8 membership only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
@@ -380,7 +380,7 @@ z_pos = level_elevation(ceiling_level) + ceiling_offset
 Where:
 - `ceiling_level` -- name of the reference level (default: "Level 1")
 - `ceiling_offset` -- vertical offset from that level's elevation in mm (default: `DEFAULT_CEILING_OFFSET_MM`, -50.8 mm = -2")
-- Both are attributes on `Node` and nowhere else. Pipes store none (they derive from their end nodes), and a Sprinkler has no stored Ceiling rows (7.4).
+- A node's elevation is stored only on `Node`. Pipes store none (they derive from their end nodes), and a node-bound Sprinkler stores no Ceiling rows (7.4). Template values exist elsewhere and are only *read* by hosting: the node-less template sprinkler's own Ceiling rows (`Sprinkler.ceiling_host()`) and the pipe template's `node1_` / `node2_ceiling_*` (`template_ceiling`); see 7.2a.
 
 **Unresolved level.** Resolution is `scene._level_manager.get(ceiling_level).elevation`. With no scene, no level manager, or a level name the manager does not know, the level is *unresolved* and `z_pos` is **kept** (never `0 + offset`).
 
@@ -399,11 +399,11 @@ A call that changes none of (`ceiling_level`, `ceiling_offset`, `z_pos`) skips t
 **Callers.**
 - Level delete: `rehost_keep_z` (nothing moves, `view-relationships.md` section 12.4). Level rename: `host(new_name, offset)`. Level elevation edit: `rederive(refresh=False)` per node, then one `Node.refresh_nodes(moved)` (`level_manager.py`).
 - Panel: `Node.set_property` calls `host` for Ceiling Level / Offset and `set_z` for Z; `property_manager._change_level` calls `host`; Move to Level calls `host(target_level, offset)`.
-- Placement: `add_node(x, y, z_hint=None, host=None)` hosts a new node at creation, default `(active level, DEFAULT_CEILING_OFFSET_MM)`; `add_pipe` never writes a node's elevation. The template's ceiling for a node end is `template_ceiling(template, end)` (`pipe_network_controller.py`), the one `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` fallback ([`pipe-placement-methodology.md`](pipe-placement-methodology.md) section 5.2).
+- Placement: `add_node(x, y, z_hint=None, host=None)` hosts a new node at creation, default `(active level, DEFAULT_CEILING_OFFSET_MM)`; `add_pipe` never writes a node's elevation. The Sprinkler tool hosts a node it creates in empty space from the template head (`t.ceiling_host()`, `Model_Space._press_sprinkler`); room auto-populate hosts each new node with `node.host(ceiling_level, ceiling_offset, refresh=False)` (`sprinkler_workflow_controller.py`). The template's ceiling for a node end is `template_ceiling(template, end)` (`pipe_network_controller.py`), the one `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` fallback ([`pipe-placement-methodology.md`](pipe-placement-methodology.md) section 5.2).
 - Paste and copy-to-level: the record's `ceiling_level` and the owning `.level` are retargeted through `Model_Space._retarget_level_name` (a name equal to the source level becomes the active level; other names are kept), then `host(..., refresh=False)` and one `Node.refresh_nodes`.
 - Load and undo: `network_codec.deserialize_node` hosts with `refresh=False` before any pipe exists; the caller's existing fitting loop after the pipes are built is the batched refresh. Neither calls `refresh_nodes`.
 
-**Sprinkler.** A head never re-hosts its node: placing a sprinkler leaves the node's elevation alone, and a head placed on a pipe lands at the run elevation (Q15). A node-bound Sprinkler's panel Ceiling edits forward to `node.host` (refresh included, so the fitting type follows); a node-less *template* sprinkler keeps its own Ceiling rows as storage (the one exemption in 7.2a).
+**Sprinkler.** A head never re-hosts its node: placing one on an existing node or on a split node leaves that node's elevation alone. A head placed on a pipe splits it, and the split node is hosted at node 1's ceiling (`split_pipe` hosts at `node_a`), so the head lands at the run elevation (Q15). A node-bound Sprinkler's panel Ceiling edits forward to `node.host` (refresh included, so the fitting type follows); a node-less *template* sprinkler keeps its own Ceiling rows as storage (the one exemption in 7.2a).
 
 ### 7.2a Single-writer guard
 
@@ -714,7 +714,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 **Load migration:**
 1. Read `ceiling_level` and `ceiling_offset_mm` (current format)
 2. If `ceiling_offset_mm` absent, derive from legacy `ceiling_offset` field (inches → mm)
-3. `node.host(ceiling_level, offset, refresh=False)` (level defaults to the node's own `level`): `z_pos` is recomputed from the level manager, and an unresolved level keeps `z_pos` (7.1). The caller's post-pipe fitting loop is the refresh (7.2)
+3. `node.host(ceiling_level, offset, refresh=False)` (level defaults to the node's own `level`): `z_pos` is recomputed from the level manager, and an unresolved level keeps `z_pos` at the record's `elevation` (0 if absent; `Node(x, y, entry.get("elevation", 0))`) (7.1). The caller's post-pipe fitting loop is the refresh (7.2)
 4. Old `z_offset` field is ignored (read only for clipboard backward compat)
 
 ### 13.2 Pipe Serialization

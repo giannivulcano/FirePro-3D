@@ -434,7 +434,7 @@ Pipes do not store ceiling data. Ceiling level and offset are **node-only** attr
 
 **Placement notes (node-elevation run, D2 / D3).**
 - A new node whose template is `None` is hosted on the **active level** at `DEFAULT_CEILING_OFFSET_MM`, not on `DEFAULT_LEVEL` ("Level 1").
-- A collinear-extend end node takes the template's **node 2** ceiling (`template_ceiling(template, 2)`).
+- The pipe's end node, and the end-side split, intermediate and 45-degree wye-stub nodes, take the template's **node 2** ceiling (`template_ceiling(template, 2)`: the end `find_or_create_node(host=...)`, the split end `end_node.host(...)`, `_make_intermediate_node(..., 2)`, `_convert_45_elbow_to_wye`). `_try_extend_collinear` creates no node.
 
 | Scenario | Direction | Behavior |
 |---|---|---|
