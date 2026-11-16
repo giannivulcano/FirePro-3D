@@ -226,3 +226,26 @@ def test_swapped_block_survives_save_load_and_undo_redo(qapp, tmp_path, real_sys
     out.push_undo_state()                      # the first committed step after Open re-resolves
     (t,) = tags_of(out)
     assert t.tag["block"] == alt.id and t.block_id == alt.id      # save -> load keeps the swap
+
+
+def test_i1_paste_of_a_leader_tag_loads_its_end_into_a_fresh_project(qapp, make_model_space,
+                                                                     real_system_library):
+    """VC9 I1: copy a wall + a leader tag, paste into a project that lacks the End definition
+    -- the paste loads it, so the pasted leader's End is not an orphan."""
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.paper_display import tag_leader_end
+    src = make_model_space()
+    src._level_manager = LevelManager()
+    w = add_wall(src)
+    src.push_undo_state()
+    tag = place_tag(src, w, leader=True)
+    records = src._clipboard_item_dicts([w, tag])
+    dst = make_model_space()
+    dst._level_manager = LevelManager()
+    assert dst.annotation_block("Wall") is not None               # the tag block is there (embedded on demand)
+    end = tag_leader_end()
+    assert dst.get_block_definition(end) is None                     # the fresh project lacks the End
+    dst.paste_items(QPointF(0.0, 8000.0), data=records)
+    (t2,) = tags_of(dst)
+    assert t2.tag["leader"] is not None
+    assert dst.get_block_definition(end) is not None                 # [RED: ensure_end_available on paste]
