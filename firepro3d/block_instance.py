@@ -980,11 +980,26 @@ class BlockInstance(QGraphicsObject):
         return self._pose_rot
 
     def translate(self, dx: float, dy: float) -> None:
-        """Move by (dx, dy) in scene mm (SelectionManipulator bake contract)."""
+        """Move by (dx, dy) in scene mm (SelectionManipulator bake contract).
+
+        A placed tag keeps the new spot as its host-frame offset (SB6 D4),
+        unless its host moves in the same gesture -- the host's re-pose then
+        brings it along at the old offset."""
         self.prepareGeometryChange()
         self._pose_x += dx
         self._pose_y += dy
+        if self.tag is not None:
+            from .hosted_tag import moves_with_host
+            host = self.element_host
+            if host is not None and not moves_with_host(host):
+                self.rebase_tag_offset()
         self.update()
+
+    def manip_capabilities(self) -> set:
+        """SB6 D4: a placed tag only translates (its rotation is derived; the
+        Orientation row replaces Rotate); every other block keeps the
+        duck-typed set (``item_capabilities`` intersects with this)."""
+        return {"translate"} if self.tag is not None else {"translate", "rotate", "scale"}
 
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rotate by ``angle_deg`` (Y-up CCW+) about scene ``pivot``.
@@ -995,6 +1010,8 @@ class BlockInstance(QGraphicsObject):
         ``a1 + a2`` about it. Rotating about the insertion point itself only
         changes the rotation. Not normalised (matches ``set_block_rotation``).
         """
+        if self.tag is not None:
+            return                    # SB6 D4: a tag's rotation is derived (Orientation row)
         from .cad_math import CAD_Math
         p = CAD_Math.rotate_point(QPointF(self._pose_x, self._pose_y),
                                   pivot, -angle_deg)
@@ -1017,8 +1034,8 @@ class BlockInstance(QGraphicsObject):
         from .arc_math import yup_angle
         from .cad_math import CAD_Math
         from .geometry_2d import _degenerate_axis
-        if _degenerate_axis(p1, p2):
-            return
+        if self.tag is not None or _degenerate_axis(p1, p2):
+            return                    # SB6 D4: a tag never mirrors; its pose is derived
         p = CAD_Math.mirror_point(QPointF(self._pose_x, self._pose_y), p1, p2)
         rot, mir = reflect_pose(self._pose_rot, self._pose_mirrored,
                                 yup_angle(p1, p2))
