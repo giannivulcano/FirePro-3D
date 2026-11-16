@@ -1,5 +1,7 @@
 ---
-status: approved            # Phase 3 sections approved 2026-11-14 (approach A, partial-override rule, sections 1-5)
+status: implemented         # Implemented 2026-11-16 (0.106.0); Phase 3 sections approved 2026-11-14 (approach A, partial-override rule, sections 1-5)
+last-verified: 2026-11-16
+verified-commit: f5bf752f   # PH3 (0.106.0)
 governing-spec: docs/specs/project-phasing.md   # owns the what (D-PH*, AC*); this doc owns PH3's how
 concept: docs/superpowers/specs/2026-10-20-project-phasing-concept-design.md   # PD2, PD3, PH3 slice row
 applies-to:
@@ -13,6 +15,9 @@ applies-to:
 ---
 
 # PH3 -- Sheet viewport phasing (build design)
+
+**Implemented 2026-11-16 (0.106.0):** the contract now lives in `docs/specs/project-phasing.md` ("Sheet viewport phasing (PH3, as built)", D-PH8 / D-PH13 / D-PH17 notes); this doc is the historical build design.
+**As built:** `project-phasing.md` governs wherever it differs from this doc. In particular: `FORCED` names every slot the status set (colour, fill, line weight, opacity), not only the colour slots (DD1); a section / elevation proxy with no source reads its Hide host's status (opening frames, a slab's occlusion mask, which also hides with a hidden host); a sprinkler proxy reads its node's sprinkler, and the sprinkler / water supply key set follows the item's paper category so section proxies take it too; Display Manager OK with a Phases change re-plots an open sheet. The status Fill reaching section / elevation faces (DD1) shipped as built; its semantics are an open design follow-up (`todo_open.md` "Phase Fill semantics").
 
 ## Goal
 
