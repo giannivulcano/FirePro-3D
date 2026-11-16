@@ -1051,6 +1051,8 @@ class BlockInstance(QGraphicsObject):
     def manip_scale_about(self, base: "QPointF", factor: float) -> None:
         """Baked uniform scale about scene *base* (design DD3). Never named
         ``manip_scale`` -- that name enables manipulator resize handles."""
+        if self.tag is not None:
+            return                    # SB6 D4: a tag never scales (prints at its authored size)
         f = check_scale(factor, "scale factor")
         from .cad_math import CAD_Math
         p = CAD_Math.scale_point(QPointF(self._pose_x, self._pose_y), base, f)
@@ -2268,12 +2270,12 @@ class BlockInstance(QGraphicsObject):
         return props
 
     def _tag_rows(self, props: dict, sc) -> dict:
-        """SB6 D5 / D11: a placed tag drops Rotation / Mirrored (its pose is
+        """SB6 D5 / D11: a placed tag drops Rotation / Mirrored / Scale (its pose is
         derived) and gains Orientation, Tag (the block swap) and Leader."""
         from .constants import TAG_ORIENT_LABELS
         out = {"Type": {"type": "label", "value": "Tag"}}
         out.update({k: v for k, v in props.items()
-                    if k not in ("Type", "Rotation", "Mirrored")})
+                    if k not in ("Type", "Rotation", "Mirrored", "Scale")})
         out["Orientation"] = {"type": "enum",
                               "value": TAG_ORIENT_LABELS[self.tag["orientation"]],
                               "options": list(TAG_ORIENT_LABELS.values())}

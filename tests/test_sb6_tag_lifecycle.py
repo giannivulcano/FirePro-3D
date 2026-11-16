@@ -126,14 +126,15 @@ def test_g4_mark_edit_through_the_panel_updates_the_tag_text(qapp, tmp_path, rea
     try:
         pm = panel_for(host, tmp_path)
         p0 = scene._undo_pos
-        calls = []                       # glyphs re-resolve at paint time anyway (test_sb2a_binding),
-        real = tag.prepareGeometryChange  # so the re-shape trigger itself is what this pin gates
-        tag.prepareGeometryChange = lambda: (calls.append(1), real())[1]
-        pm._apply_property("Mark", "D7")
+        r0 = tag.sceneBoundingRect()
+        pm._apply_property("Mark", "D77777777")
         assert scene._undo_pos == p0 + 1
-        assert calls                     # the tag re-shaped
         ref = scene.place_block_instance(tag.block_id, tag.block_pos(), rotation=tag.block_rotation())
-        assert _painted_as(tag, ref, {"Mark": "D7"})
+        assert _painted_as(tag, ref, {"Mark": "D77777777"})
+        r1, rr = tag.sceneBoundingRect(), ref.sceneBoundingRect()
+        assert (r1.x(), r1.y(), r1.width(), r1.height()) == pytest.approx(
+            (rr.x(), rr.y(), rr.width(), rr.height()), abs=1e-6)       # the tag re-shaped to the new Mark
+        assert r1.width() != pytest.approx(r0.width(), abs=1e-6)
     finally:
         drop_panel(pm)
         close_view(view, scene)

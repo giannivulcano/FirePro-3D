@@ -6,6 +6,7 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QApplication
 
 from tests._sb6_helpers import U, V, add_wall, expected_pose, place_tag, pose_of
+from tests._modify_tools_helpers import add_primitive, grips
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 
@@ -72,5 +73,54 @@ def test_d4_rotate_tool_leaves_a_lone_tag(qapp, real_system_library):
             scene.dynamic_input._accept()
         assert scene._undo_pos == p0                          # "Nothing to rotate": no step   [RED]
         assert tag.block_rotation() == 0.0
+    finally:
+        close_view(view, scene)
+
+
+def _scale_by_two(scene, view):
+    scene._modify_ctl.start("scale")
+    click(view, QPointF(0.0, 0.0))                            # the base point
+    assert scene.begin_dynamic_input() is True
+    scene.dynamic_input.editor("Factor").setText("2")
+    scene.dynamic_input._accept()
+
+
+def test_d4_scale_tool_skips_a_tag_and_scales_the_rest(qapp, real_system_library):
+    view, scene = make_view(role="plan", scale=0.1)
+    try:
+        w = add_wall(scene)
+        line, _ = add_primitive(scene, "line")                # (0,0)-(100,0), a non-tag item
+        scene.push_undo_state()
+        tag = place_tag(scene, w)
+        size0 = tag.sceneBoundingRect().size()
+        scene.clearSelection()
+        tag.setSelected(True)
+        line.setSelected(True)
+        _scale_by_two(scene, view)
+        assert grips(line) == [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]   # the non-tag DID scale
+        assert tag._pose_scale == 1.0                                       # [RED: _scalable + guard]
+        assert pose_of(tag) == pytest.approx(expected_pose(w), abs=1e-6)
+        s1 = tag.sceneBoundingRect().size()
+        assert (s1.width(), s1.height()) == pytest.approx((size0.width(), size0.height()), abs=1e-6)
+    finally:
+        close_view(view, scene)
+
+
+def test_d4_scale_tool_on_a_lone_tag_pushes_no_undo_step(qapp, real_system_library):
+    view, scene = make_view(role="plan", scale=0.1)
+    try:
+        w = add_wall(scene)
+        scene.push_undo_state()
+        tag = place_tag(scene, w)
+        scene.clearSelection()
+        tag.setSelected(True)
+        n0, p0 = len(scene._undo_stack), scene._undo_pos
+        if scene._modify_ctl.start("scale"):
+            click(view, QPointF(0.0, 0.0))
+            if scene.begin_dynamic_input():
+                scene.dynamic_input.editor("Factor").setText("2")
+                scene.dynamic_input._accept()
+        assert tag._pose_scale == 1.0
+        assert (len(scene._undo_stack), scene._undo_pos) == (n0, p0)        # [RED]
     finally:
         close_view(view, scene)

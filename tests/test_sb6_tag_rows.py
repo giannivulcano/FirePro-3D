@@ -170,3 +170,46 @@ def test_aligned_tag_on_a_right_to_left_wall_reads_upright(qapp, tmp_path, real_
     finally:
         drop_panel(pm)
         close_view(view, scene)
+
+
+def test_tag_panel_has_no_scale_row_but_a_plain_block_does(qapp, real_system_library):
+    view, scene = make_view(role="plan", scale=0.1)
+    try:
+        w = add_wall(scene)
+        scene.push_undo_state()
+        tag = place_tag(scene, w)
+        plain = scene.place_block_instance(tag.block_id, (0.0, 0.0))
+        assert "Scale" in plain.get_properties()
+        assert "Scale" not in tag.get_properties()                          # [RED: _tag_rows]
+        assert "Rotation" not in tag.get_properties()
+    finally:
+        close_view(view, scene)
+
+
+def test_orientation_row_on_a_door_poses_the_tag_along_the_sloped_wall(qapp, tmp_path, real_system_library):
+    """M3: Aligned on a door in a sloped wall -- raw pose from the wall endpoints +
+    the door's offset_along; rotation = -degrees(wall angle); the Mark reads upright."""
+    import math
+    from firepro3d.render_op import TEXT
+    view, scene = make_view(role="plan", scale=0.1)
+    pm = None
+    try:
+        w = add_wall(scene, p1=(2000.0, -1000.0), p2=(-2000.0, 1000.0))   # a ~153.43 deg
+        door = add_door(scene, w, along=1200.0)
+        scene.push_undo_state()
+        tag = place_tag(scene, door)
+        pm = panel_for(tag, tmp_path)
+        pm._apply_property("Orientation", "Aligned to host")
+        a = math.atan2(2000.0, -4000.0)
+        x1, y1 = 2000.0, -1000.0
+        ax, ay = x1 + 1200.0 * math.cos(a), y1 + 1200.0 * math.sin(a)
+        ex = ax + 500.0 * math.cos(a) - (-800.0) * math.sin(a)
+        ey = ay + 500.0 * math.sin(a) + (-800.0) * math.cos(a)
+        assert pose_of(tag) == pytest.approx((ex, ey, -math.degrees(a)), abs=1e-6)
+        ops = [op for op in tag.render_ops() if op.kind == TEXT]
+        assert ops
+        for op in ops:
+            assert -90.0 < _reading_angle_deg(tag, op) <= 90.0
+    finally:
+        drop_panel(pm)
+        close_view(view, scene)
