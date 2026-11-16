@@ -96,3 +96,35 @@ def drop_panel(pm):
     if pm is not None:
         pm._refresh_timer.stop()
         pm.deleteLater()
+
+
+BG = 0xFF808080      # mid grey: black and white ink both differ from it
+
+
+def render(scene, rect, w_px, h_px):
+    """*scene* rendered over scene *rect* into a ``w_px`` x ``h_px`` image (no selection frame)."""
+    from PyQt6.QtCore import QRectF, Qt
+    from PyQt6.QtGui import QImage, QPainter
+    scene.clearSelection()
+    img = QImage(w_px, h_px, QImage.Format.Format_RGB32)
+    img.fill(BG)
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, w_px, h_px), rect, Qt.AspectRatioMode.IgnoreAspectRatio)
+    p.end()
+    return img
+
+
+def ink(img, rect, x0, y0, x1, y1):
+    """Pixels inside scene box (x0, y0)-(x1, y1) that differ from the background."""
+    sx, sy = img.width() / rect.width(), img.height() / rect.height()
+    c0 = max(0, int((min(x0, x1) - rect.left()) * sx))
+    c1 = min(img.width() - 1, int((max(x0, x1) - rect.left()) * sx))
+    r0 = max(0, int((min(y0, y1) - rect.top()) * sy))
+    r1 = min(img.height() - 1, int((max(y0, y1) - rect.top()) * sy))
+    n = 0
+    for r in range(r0, r1 + 1):
+        for c in range(c0, c1 + 1):
+            q = img.pixelColor(c, r)
+            if abs(q.red() - 128) + abs(q.green() - 128) + abs(q.blue() - 128) > 90:
+                n += 1
+    return n
