@@ -49,7 +49,8 @@ from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.blocks_browser import BlocksBrowser
 from firepro3d.constants import (DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM,
-                                 MODEL_WEIGHT_FACTOR, VIEW_3D_EDIT_REFUSED_HINT)
+                                 MODEL_WEIGHT_FACTOR, TAG_HOVER_HINT,
+                                 VIEW_3D_EDIT_REFUSED_HINT)
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from firepro3d.wall_opening import WallOpening
 from firepro3d.splash import FireProSplash
@@ -2841,6 +2842,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
         "text":           "Click first corner, then drag to define text area",
         "note":           "Click the arrow tip, then the elbow, then the box edge (Tab for exact input)",
+        "tag":            TAG_HOVER_HINT,          # SB6 D7
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
         "offset":         "Pick object to offset",
@@ -2877,7 +2879,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "draw_line": "Line", "draw_rectangle": "Rectangle",
         "draw_circle": "Circle", "draw_ellipse": "Ellipse", "draw_arc": "Arc",
         "draw_spline": "Spline", "polyline": "Polyline", "polygon": "Polygon",
-        "text": "Text", "note": "Note", "dimension": "Dimension", "pick_region": "Pick Point",
+        "text": "Text", "note": "Note", "tag": "Tag", "dimension": "Dimension", "pick_region": "Pick Point",
         # Edit / Modify (scene-tools.md)
         "copy_base": "Copy", ModifyToolsController.CUT_BUTTON_KEY: "Cut",
         "paste": "Paste", "duplicate": "Duplicate", "move": "Move",

@@ -88,6 +88,7 @@ from .wall_placement_controller import WallPlacementController
 from .modify_tools_controller import ModifyToolsController, flip_refusal_targets
 from .modify_host import ModifyHostMixin
 from .feature_placement_controller import FeaturePlacementController
+from .tag_placement_controller import TagPlacementController
 from .text_edit_controller import TextEditController
 from .note_controller import NoteController
 from .network_codec import (
@@ -277,6 +278,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._feature_ctl = FeaturePlacementController(self)  # feature-placement concern (slice 11)
         self._text_edit_ctl = TextEditController(self)  # inline text-edit session
         self._note_ctl = NoteController(self)           # Note placement + edit overlay (D13)
+        self._tag_ctl = TagPlacementController(self)    # SB6 "tag" mode (D7)
+        self.tag_leader_on: bool = False                # SB6 D8 / R5: the ribbon Leader toggle
         # Selection dimension readouts (selection-mode §15). Composed before
         # anything can emit selectionChanged/modeChanged/changed.
         from .selection_readouts import SelectionReadoutController
@@ -1563,6 +1566,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         if mode == "opening":
             self._feature_ctl.enter(template)
         self._feature_ctl.clear(mode)
+        self._tag_ctl.clear(mode)          # SB6: leaving "tag" drops the hover prototype
 
         # ── Block placement (Block S2 T3) ────────────────────────────────────
         # Entering "place_block" adopts the template block-id; the low-opacity
@@ -1634,7 +1638,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             v.viewport().update()
 
         # Emit initial step instruction for this mode
+        from .constants import TAG_HOVER_HINT
         _initial_steps = {
+            "tag":            TAG_HOVER_HINT,          # SB6 D7
             **self._MODIFY_INITIAL_STEPS,
             "select":         self._SELECT_INSTRUCTION,
             "pipe":           "Pick start node",
@@ -6050,6 +6056,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "room":                     "_move_room",
         "room_manual":              "_move_room_manual",
         "opening":                  "_move_opening",
+        "tag":                      "_move_tag",
         "door":                     "_move_door_window",
         "window":                   "_move_door_window",
         "detail":                   "_move_detail",
@@ -6204,6 +6211,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     def _move_note(self, event, snapped):
         self.preview_pipe.hide()
         self._note_ctl.tool_move(snapped)
+
+    def _move_tag(self, event, snapped):  # shell -> TagPlacementController (SB6 D7)
+        self.preview_pipe.hide()
+        self._tag_ctl.move(snapped)
+
+    def _press_tag(self, event, pos, snapped, item_under, node_under, pipe_under):  # shell -> TagPlacementController (SB6 D7)
+        self._tag_ctl.press(snapped)
 
     def _move_place_import(self, event, snapped):
         self.preview_node.hide()
@@ -6697,6 +6711,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         "roof":                     "_press_roof",
         "roof_rect":                "_press_roof_rect",
         "opening":                  "_press_opening",
+        "tag":                      "_press_tag",
         "door":                     "_press_door",
         "window":                   "_press_window",
         "detail":                   "_press_detail",
