@@ -2611,17 +2611,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         wall_rects: list[tuple[float, QGraphicsRectItem]] = []
 
         for wall in getattr(self._ms, "_walls", []):
-            # Get Z extents
-            base_z = 0.0
-            top_z = wall._height_mm
-            base_lvl = self._lm.get(wall._base_level)
-            if base_lvl:
-                base_z = base_lvl.elevation + wall._base_offset_mm
-            top_lvl = self._lm.get(wall._top_level)
-            if top_lvl:
-                top_z = top_lvl.elevation + wall._top_offset_mm
-            else:
-                top_z = base_z + wall._height_mm
+            base_z, top_z = wall.vertical_extent(self._lm)
             if abs(top_z - base_z) < 1.0:
                 continue
 
