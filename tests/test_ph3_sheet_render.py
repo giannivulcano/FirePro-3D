@@ -21,6 +21,7 @@ from tests._ph3_helpers import (EXISTING_FILL, EXISTING_GREY, PX, assert_status_
                                 model_box, near, phasing, pixels, render, set_row,
                                 set_status, to_px)
 from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
+from tests.test_sb4f_data import panels  # noqa: F401
 from tests.test_materials_cut import _fresh_tables  # noqa: F401  (autouse: fill types + materials)
 
 ROWS = [BW, FULL_COLOR]          # every row As Authored OFF / ON (R3)
@@ -32,7 +33,7 @@ def _phased(ms, kind, sid):
     item = h.ADD[kind](ms)
     item.phase = sid
     if kind == "opening":
-        ms._walls[0].phase = sid
+        next(w for w in ms._walls if item in w.openings).phase = sid   # its own host, not _walls[0]
     if kind == "pipe":
         item.set_property("Show Label", "False")   # Task 7 owns the label
     return item
@@ -271,3 +272,164 @@ def test_r5_hidden_underlay_is_not_drawn(qapp):
     assert inked(pixels(render(shown)))
     _ps2, hidden = make_viewport(ms, phase_display=phasing(PHASE_DEMOLITION))
     assert not inked(pixels(render(hidden)))
+
+
+# --- Task 9: AC4r, AC14, restore, AC13p (all kinds), panel -> render -------------
+
+def _mixed_scene():
+    """Existing wall / slab / pipe / block / underlay, a Demolition room."""
+    from tests._ph3_helpers import underlay
+    ms = h.scene()
+    for kind in ("wall", "floor_slab", "pipe"):
+        _phased(ms, kind, PHASE_EXISTING)
+    fill_block(ms).phase = PHASE_EXISTING
+    underlay(ms, PHASE_EXISTING)
+    _phased(ms, "room", PHASE_DEMOLITION)
+    return ms
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ac4r_phasing_off_and_legacy_viewports_render_identical_to_base(qapp, monkeypatch, mode):
+    from firepro3d import phase_display
+    from firepro3d.paper_space import SheetViewData
+    from firepro3d.phase_display import PhaseDisplay
+    from tests._ph3_helpers import add_viewport, viewport_data
+    set_paper_mode(mode)
+    ms = _mixed_scene()
+    rec = viewport_data().to_dict()
+    del rec["phase_display"]                                       # saved before phasing
+    legacy = SheetViewData.from_dict(rec)
+    off = viewport_data(phase_display=PhaseDisplay(False, frozenset({PHASE_DEMOLITION})))
+    got = [render(add_viewport(ms, d)[1]) for d in (legacy, off)]
+    # Base: the PH3 merge forced to identity (the pre-phasing pass).
+    monkeypatch.setattr(phase_display, "merge",
+                        lambda cat, item, *, keys=phase_display.ALL_KEYS: cat)
+    base = render(add_viewport(ms, viewport_data())[1])
+    assert inked(pixels(base))
+    assert got[0] == base
+    assert got[1] == base
+
+
+def test_ac14_exported_pdf_plots_what_the_sheet_shows(qapp, tmp_path):
+    import fitz
+    from unittest.mock import MagicMock
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QColor, QImage, QPainter
+    from firepro3d import paper_export
+    from firepro3d.paper_space import Sheet, SheetViewData, ViewResolver
+    from tests._ph3_helpers import SCALE
+    from tests._section_paper_helpers import VP_W, VP_X, VP_Y
+    dpi = 150
+    set_paper_mode(FULL_COLOR)                       # the slab body inks when shown (#8888cc)
+    ms = h.scene()
+    p = ms.add_pipe(ms.add_node(0.0, 4000.0), ms.add_node(6000.0, 4000.0))
+    p.set_property("Show Label", "False")
+    p.phase = PHASE_EXISTING
+    h.add_slab(ms).phase = PHASE_DEMOLITION          # (0,0)-(3000,2000)
+    set_status(PHASE_EXISTING, weight="Extra Thick")
+    crop = QRectF(-1000.0, -1000.0, VP_W / SCALE, VP_W / SCALE)
+    data = SheetViewData("plan", "Plan: Level 1", "T", SCALE, VP_X, VP_Y, VP_W, VP_W,
+                         show_border=False, crop_rect=QRectF(crop),
+                         phase_display=phasing(PHASE_DEMOLITION))
+    sheet = Sheet.create_default()
+    sheet.paper_size = "A4"
+    sheet.sheet_views = [data]
+    res = MagicMock(spec=ViewResolver)
+    res.resolve.side_effect = lambda vt, vn: (ms, QRectF(crop))
+    res.display_name.side_effect = lambda vt, vn: vn
+    out = tmp_path / "ph3.pdf"
+    paper_export.export_pdf([sheet], res, str(out), dpi=dpi)
+    pix = fitz.open(str(out))[0].get_pixmap(dpi=dpi)
+    screen = QImage(pix.width, pix.height, QImage.Format.Format_RGB32)
+    screen.fill(QColor("#ffffff"))
+    painter = QPainter(screen)
+    paper_export.render_sheet(sheet, res, painter, QRectF(0, 0, pix.width, pix.height))
+    painter.end()
+    per_mm = dpi / 25.4
+
+    def at(x, y):
+        px = int(round((VP_X + (x - crop.left()) * SCALE) * per_mm))
+        py = int(round((VP_Y + (y - crop.top()) * SCALE) * per_mm))
+        i = (py * pix.width + px) * pix.n
+        return tuple(pix.samples[i:i + 3]), QColor(screen.pixel(px, py)).getRgb()[:3]
+
+    for rgb in at(1000.0, 4000.0):                   # the Existing pipe centre (1 mm wide)
+        assert all(abs(ch - EXISTING_GREY) <= 12 for ch in rgb), rgb
+    for rgb in at(1500.0, 1000.0):                   # the hidden Demolition slab body
+        assert min(rgb) >= 245, rgb
+
+
+def test_restore_every_slot_after_a_phased_render(qapp, real_system_library):
+    from tests._ph3_helpers import underlay
+    set_paper_mode(BW)
+    ms = h.scene()
+    pipe = _labelled_pipe(ms, PHASE_EXISTING)
+    wall, slab, spr = (_phased(ms, k, PHASE_EXISTING) for k in ("wall", "floor_slab", "sprinkler"))
+    inst = fill_block(ms)
+    inst.phase = PHASE_EXISTING
+    room = _phased(ms, "room", PHASE_DEMOLITION)
+    _rec, group = underlay(ms, PHASE_EXISTING)
+    set_status(PHASE_EXISTING, opacity=50, weight="Extra Thick")
+    tracked = [wall, slab, pipe, pipe.label, inst, spr, room, room._tag, group]
+
+    def snap():
+        return [(it.isVisible(), it.opacity(),
+                 getattr(it, "_display_color", None),
+                 getattr(it, "_display_fill_color", None),
+                 getattr(it, "_display_section_color", None),
+                 getattr(it, "_paper_fill_colour", None),
+                 getattr(it, "_paper_pen_width", None),
+                 getattr(it, "_paper_pen_color", None)) for it in tracked]
+
+    before = snap()
+    _ps, vp = make_viewport(ms, phase_display=phasing(PHASE_DEMOLITION))
+    assert inked(pixels(render(vp)))                     # the pass ran
+    for it, b, a in zip(tracked, before, snap()):
+        assert a == b, (type(it).__name__, b, a)
+
+
+def test_ac13p_hidden_status_hides_every_kind_and_label(qapp, real_system_library, monkeypatch):
+    from firepro3d.fitting import Fitting
+    from tests._ph3_helpers import underlay
+    monkeypatch.setattr(Fitting, "SHOW_PLAIN_SYMBOLS", True)
+    set_paper_mode(FULL_COLOR)
+    ms = h.scene()
+    _labelled_pipe(ms, PHASE_DEMOLITION)
+    for kind in ("wall", "opening", "floor_slab", "roof", "room", "sprinkler", "water_supply"):
+        _phased(ms, kind, PHASE_DEMOLITION)
+    fill_block(ms).phase = PHASE_DEMOLITION
+    underlay(ms, PHASE_DEMOLITION)
+    a, b, c = ms.add_node(5000.0, 0.0), ms.add_node(6500.0, 0.0), ms.add_node(6500.0, 1500.0)
+    for p in (ms.add_pipe(a, b), ms.add_pipe(b, c)):
+        p.phase = PHASE_DEMOLITION                       # the elbow derives Demolition (D-PH4)
+        p.set_property("Show Label", "False")
+    _ps, shown = make_viewport(ms, phase_display=phasing())
+    assert inked(pixels(render(shown)))
+    _ps2, hidden = make_viewport(ms, phase_display=phasing(PHASE_DEMOLITION))
+    assert not inked(pixels(render(hidden)))             # elements, labels, symbols, underlay
+
+
+def test_panel_phasing_reaches_the_render_and_undo_takes_it_back(qapp, panels):
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtWidgets import QApplication
+    from firepro3d.paper_space import ViewportProperties
+    from firepro3d.property_manager import PropertyManager
+    set_paper_mode(BW)
+    ms = h.scene()
+    _phased(ms, "floor_slab", PHASE_DEMOLITION)
+    ps, vp = make_viewport(ms)
+    assert inked(pixels(render(vp)))                     # Phasing off: it plots
+    pm = PropertyManager()
+    panels.append(pm)
+    pm.resize(400, 600)
+    pm.show()
+    QTest.qWaitForWindowExposed(pm)
+    pm.show_properties(ViewportProperties(ps, vp))
+    QApplication.processEvents()
+    pm._prop_widgets["Phasing"].click()
+    QTest.qWait(300)
+    pm._prop_widgets["Show Demolition"].click()
+    QTest.qWait(300)
+    assert not inked(pixels(render(vp)))                 # D-PH17 through the panel
+    ps.undo_stack.undo()
+    assert inked(pixels(render(vp)))
