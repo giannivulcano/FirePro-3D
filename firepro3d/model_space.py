@@ -9569,7 +9569,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 # found on the network is never touched (Q4).
                 if existing is None or id(existing) in made_nodes:
                     if "level" in obj:
-                        node1.level = obj["level"]
+                        node1.level = self._retarget_level_name(obj["level"], src_level)
                     node1.host(rec_level, rec_off, refresh=False)
                     if _lvl is None and obj.get("elevation") is not None:
                         # unresolved level: z is the record's saved z, level + offset stored

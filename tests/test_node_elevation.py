@@ -125,6 +125,9 @@ def test_copy_to_level_retargets_the_ceiling(ms):
         cp = copies[0]
         assert cp.ceiling_offset == pytest.approx(src.ceiling_offset)
         assert cp.z_pos == pytest.approx(3000.0 + src.ceiling_offset)
+        assert cp.level == "Level 2"
+    assert all(n.level == "Level 2" for n in ms.sprinkler_system.nodes if n not in (a, b))
+    assert all(n.level == "Level 1" for n in (a, b))
 
 
 def test_drawing_onto_an_existing_node_keeps_its_ceiling(shown_model_view):
@@ -159,6 +162,21 @@ def test_cross_level_paste_retargets_only_the_source_ceiling(ms):
     assert ca.z_pos == pytest.approx(3000.0 + a.ceiling_offset)
     assert (cb.ceiling_level, cb.ceiling_offset) == ("Roof", b.ceiling_offset)
     assert cb.z_pos == pytest.approx(b.z_pos)
+    assert ca.level == "Level 2" and cb.level == "Level 2"
+    assert all(n.level == "Level 2" for n in ms.sprinkler_system.nodes if n not in (a, b))
+
+
+def test_same_level_paste_keeps_the_node_level(ms):
+    a, b, p = _pair(ms)
+    for n in (a, b):
+        n.level = "Level 1"
+    data = ms._clipboard_item_dicts([a, b, p])
+    ms.active_level = "Level 1"
+    ms.paste_items(QPointF(0, 5000), data=data)
+    for src in (a, b):
+        cp = _copy_of(ms, src, 0, 5000)
+        assert cp.level == "Level 1"
+        assert (cp.ceiling_level, cp.ceiling_offset) == ("Level 1", src.ceiling_offset)
 
 
 def test_legacy_node_records_keep_their_z(ms):
