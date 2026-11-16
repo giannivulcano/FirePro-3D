@@ -60,7 +60,7 @@ def _z_intersects(item, view_height, view_depth) -> bool:
     return z_top >= view_depth and z_bot <= view_height
 
 from .constants import (
-    DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, DEFAULT_LEVEL_GAP_MM,
+    DEFAULT_LEVEL, DEFAULT_LEVEL_GAP_MM,
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
     Z_CAT_CONSTRUCTION, Z_CAT_SYMBOL, Z_CATEGORY_BY_CLASS, Z_OPENING_ABOVE_HOST,
@@ -323,7 +323,6 @@ _LEVEL_OFFSETS = {
     "_base_level": ("_base_offset_mm", None),               # WallSegment
     "_top_level": ("_top_offset_mm", None),
     "_ceiling_level": ("_ceiling_offset", None),            # Room
-    "ceiling_level": ("ceiling_offset", "Ceiling Offset"),  # Node
     "node1_ceiling_level": ("node1_ceiling_offset", None),  # Pipe template
     "node2_ceiling_level": ("node2_ceiling_offset", None),
 }
@@ -420,7 +419,8 @@ class LevelManager:
         """Delete *names* (one action), re-pointing every level ref in *items* and the
         floor ``_top_level`` / ``_bottom_level`` refs on *scene* to each level's
         ``delete_targets`` entry; a ref with a paired offset keeps its absolute z
-        (``_rebase_offsets``). Each section marker's datum_ends entry for a deleted
+        (``_rebase_offsets``; a Node is re-hosted by the remap, ``rehost_keep_z``).
+        Each section marker's datum_ends entry for a deleted
         level is dropped (D7). Returns the targets (empty = refused: nothing left)."""
         targets = self.delete_targets(names)
         if not targets:
@@ -428,7 +428,7 @@ class LevelManager:
         items = list(items)
         self._rebase_offsets(items, targets, scene)
         for old, new in targets.items():
-            self._remap_level_refs(old, new, items, scene)
+            self._remap_level_refs(old, new, items, scene, keep_z=True)
         self._levels = [l for l in self._levels if l.name not in targets]
         sec_mgr = getattr(scene, "_section_manager", None)
         if sec_mgr is not None:
@@ -439,7 +439,8 @@ class LevelManager:
         """Before a delete re-points them, re-base each paired offset onto its target
         level so the absolute z is unchanged: ``old.elevation + off - new.elevation``.
         Runs while the deleted levels are still listed; the remap's ``set_property``
-        then recomputes node z and wall height from the new offset."""
+        then recomputes wall height from the new offset. Nodes are not rebased here:
+        the remap re-hosts them (``rehost_keep_z``)."""
         holders = [(i, _LEVEL_OFFSETS) for i in items
                    if not getattr(i, "_visibility_by_zrange", False)]
         holders += [(s, _SLAB_LEVEL_OFFSETS) for s in getattr(scene, "_floor_slabs", [])]
@@ -465,7 +466,8 @@ class LevelManager:
             setattr(item, attr, value)
 
     @staticmethod
-    def _remap_level_refs(old_name: str, new_name: str, items, scene) -> None:
+    def _remap_level_refs(old_name: str, new_name: str, items, scene,
+                          keep_z: bool = False) -> None:
         """Point every level reference at *old_name* to *new_name* (rename + delete share it)."""
         for item in items:
             # Floors (pure z-range visibility) have no meaningful owning
@@ -476,8 +478,15 @@ class LevelManager:
             if getattr(item, "level", None) == old_name:
                 item.level = new_name
             for attr, key in _LEVEL_REFS.items():
-                if getattr(item, attr, None) == old_name:
-                    LevelManager._set_level_ref(item, attr, key, new_name)
+                if getattr(item, attr, None) != old_name:
+                    continue
+                if attr == "ceiling_level" and hasattr(item, "rehost_keep_z"):    # Node (s7)
+                    if keep_z:
+                        item.rehost_keep_z(new_name)                     # delete: nothing moves
+                    else:
+                        item.host(new_name, item.ceiling_offset)         # rename: same level
+                    continue
+                LevelManager._set_level_ref(item, attr, key, new_name)
         for slab in getattr(scene, "_floor_slabs", []):
             if getattr(slab, "_top_level", None) == old_name:
                 slab._top_level = new_name
@@ -608,14 +617,16 @@ class LevelManager:
         return best if best is not None else self.fallback_view_height(level_name)
 
     def update_elevations(self, scene):
-        """Recompute z_pos for all nodes using ceiling_level + ceiling_offset."""
+        """Re-derive every node's z from its ceiling level + offset (Q12: an
+        unresolved level keeps z), then one network refresh over the moved nodes."""
         from .node import Node
-        lvl_map = {l.name: l for l in self._levels}
+        moved = []
         for node in scene.sprinkler_system.nodes:
-            # 3D elevation = ceiling level elevation (mm) + ceiling offset (mm)
-            ceil_lvl = lvl_map.get(getattr(node, "ceiling_level", DEFAULT_LEVEL))
-            ceil_elev = ceil_lvl.elevation if ceil_lvl else 0.0
-            node.z_pos = ceil_elev + getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM)
+            z0 = node.z_pos
+            node.rederive(refresh=False)
+            if node.z_pos != z0:
+                moved.append(node)
+        Node.refresh_nodes(moved)
         # A pipe's label shows its 3D Length and caches its bounds (B12)
         for pipe in scene.sprinkler_system.pipes:
             pipe.update_label()

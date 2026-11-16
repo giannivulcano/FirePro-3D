@@ -197,3 +197,14 @@ def test_head_on_a_pipe_keeps_the_run_elevation(ms):
     assert len(heads) == 1
     assert (heads[0].ceiling_level, heads[0].ceiling_offset) == ("Level 1", -300.0)
     assert heads[0].z_pos == pytest.approx(-300.0)
+
+
+def test_level_elevation_edit_keeps_z_for_an_unresolved_ceiling(ms):
+    """Q12: update_elevations never turns an unknown ceiling level into 0 + offset."""
+    n = _node(ms, 0, 0, offset=-300.0)
+    n.ceiling_level, n.z_pos = "Ghost", 1234.0
+    ok = _node(ms, 500, 0, offset=-300.0)
+    ms._level_manager.get("Level 1").elevation = 1000.0
+    ms._level_manager.update_elevations(ms)
+    assert n.z_pos == pytest.approx(1234.0)
+    assert ok.z_pos == pytest.approx(700.0)
