@@ -83,3 +83,11 @@ def test_d14_elevation_builds_no_copy_of_a_tag(qapp, section_scene_for, real_sys
     assert id(tag) not in sec._hosted_copies
     assert not any(it.data(_ROLE_SOURCE) is tag for it in sec.items())
     assert tags_of(ms) == [tag]                                  # the plan keeps it
+
+
+def test_d14_a_section_scene_refuses_tag_mode(qapp, section_scene_for):
+    """GC2: sections cannot host tags -- ``set_mode("tag")`` leaves the mode where it was."""
+    _ms, sec = section_scene_for("north")
+    sec.set_mode(None)
+    sec.set_mode("tag")
+    assert sec.mode in (None, "select")                           # [RED: "tag" in _HOST_EXTRA_MODES]

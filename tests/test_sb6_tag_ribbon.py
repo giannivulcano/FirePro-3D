@@ -41,7 +41,9 @@ def test_leader_toggle_is_off_by_default_and_drives_new_tags(main_window, real_s
     tb = main_window._tag_leader_btn
     sc = main_window.scene
     assert tb.isCheckable() and not tb.isChecked() and sc.tag_leader_on is False
-    sc._annot_memo.clear()   # the module-scoped window memoised "no System tier" before the fixture swapped it in
+    # Test isolation only: the module-scoped window memoised the annotation-block lookup (to "no System tier")
+    # before this fixture swapped the real System tier in; clear it so the lookup runs again.
+    sc._annot_memo.clear()
     w = add_wall(sc)
     sc.push_undo_state()
     try:
@@ -55,3 +57,39 @@ def test_leader_toggle_is_off_by_default_and_drives_new_tags(main_window, real_s
         assert off.tag["leader"] is None
     finally:
         sc.delete_items([w])                  # the cascade takes both tags (SB5 D6)
+
+
+def test_leader_button_then_tag_click_on_a_wall_places_a_leader_tag(main_window, real_system_library):
+    """GC1: the real Leader button, the real Tag button, a posted mouse click on a wall in the
+    shown view -> the placed tag carries a leader record (the whole ribbon -> tool chain)."""
+    from PyQt6.QtCore import QPointF
+    from tests._modify_tools_helpers import ignore_os_mouse
+    from tests._sb6_helpers import tags_of
+    from tests._snap_polish_helpers import click, move
+    main_window._set_canvas_context("plan")
+    sc, view = main_window.scene, main_window.view
+    sc._annot_memo.clear()                    # test isolation: see the Leader toggle test above
+    ignore_os_mouse(view)
+    w = add_wall(sc)
+    sc.push_undo_state()
+    tb = main_window._tag_leader_btn
+    try:
+        assert not tb.isChecked()
+        tb.click()                            # Leader on
+        assert tb.isChecked()
+        main_window._mode_buttons["tag"].click()
+        assert sc.mode == "tag"
+        view.resetTransform()
+        view.scale(0.1, 0.1)
+        view.centerOn(0, 0)
+        QTest.qWait(30)
+        pt = QPointF(800.0, 0.0)              # on the wall's 200 mm band
+        move(view, pt)
+        click(view, pt)
+        (tag,) = [t for t in tags_of(sc) if t._host_uid == w._uid]
+        assert tag.tag["leader"] == {"knee": None}
+    finally:
+        if tb.isChecked():
+            tb.click()
+        sc.set_mode(None)
+        sc.delete_items([w])
