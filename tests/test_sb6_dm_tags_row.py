@@ -6,6 +6,7 @@ from PyQt6.QtCore import QRectF
 from firepro3d import paper_display as pd
 from firepro3d.display_manager import (DisplayManager, apply_default_display_settings,
                                        apply_project_display_settings,
+                                       apply_saved_display_settings,
                                        get_display_settings_for_save)
 from tests._sb6_helpers import add_wall, ink, place_tag, render
 
@@ -92,18 +93,23 @@ def test_tags_row_saves_with_the_project_and_applies(qapp, make_model_space):
     assert pd.tag_leader_end() == "system-endtypes-arrow"            # constants.TEXT_LEADER_END_ID
 
 
-def test_m1_applying_a_project_tags_record_repaints_placed_leaders(qapp, make_model_space,
-                                                                   real_system_library):
-    """VC9 M1: Open / New / startup apply a saved Tags row to the process-wide style; the
-    leaders already placed repaint at it (no waiting for the next Display Manager edit)."""
-    ms, _tag = _leader_scene(make_model_space)
+def test_m1_applying_a_project_tags_record_restyles_placed_leaders(qapp, make_model_space,
+                                                                   real_system_library, monkeypatch):
+    """VC9 M1: Open / New / startup apply a saved Tags row to the process-wide style; every
+    leader already placed is re-shaped (``tag_changed``: re-bound + repaint) at that moment.
+    Not observable in pixels or the scene index (the leader op re-keys on the style at the
+    next paint, and the scene indexes lazily), so the real re-shape call is counted."""
+    from firepro3d.block_instance import BlockInstance
+    ms, tag = _leader_scene(make_model_space)
     lo, hi = _weights()
-    box = (-100.0, -1600.0, 100.0, -1400.0)
-    apply_project_display_settings(ms, {"Tags": {"leader_end": "system-endtypes-arrow",
-                                                 "leader_weight": lo}})
-    thin = ink(render(ms, RECT, 300, 450), RECT, *box)
-    apply_project_display_settings(ms, {"Tags": {"leader_end": "system-endtypes-arrow",
-                                                 "leader_weight": hi}})
-    assert pd.tag_leader_weight() == hi
-    thick = ink(render(ms, RECT, 300, 450), RECT, *box)
-    assert thick > thin > 0                                         # [RED: _restyle_tag_leaders]
+    calls = []
+    real = BlockInstance.tag_changed
+    monkeypatch.setattr(BlockInstance, "tag_changed",
+                        lambda self: (calls.append(self), real(self))[1])
+    for fn, args in ((apply_project_display_settings, (ms, {"Tags": {"leader_weight": hi}})),
+                     (apply_default_display_settings, (ms,)),
+                     (apply_saved_display_settings, (ms,))):
+        calls.clear()
+        fn(*args)
+        assert calls == [tag], fn.__name__                          # [RED: _restyle_tag_leaders]
+    assert pd.tag_leader_weight() is not None
