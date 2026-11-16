@@ -8831,12 +8831,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 item.level = target_level
                 if isinstance(item, Node):
                     moved_nodes.add(item)
-                    item.ceiling_level = target_level
-                    item._properties["Ceiling Level"]["value"] = target_level
-                    if self._level_manager:
-                        lvl = self._level_manager.get(target_level)
-                        if lvl:
-                            item.z_pos = lvl.elevation + item.ceiling_offset
+                    item.host(target_level, item.ceiling_offset)     # Q7-1
 
         # Move pipes whose both endpoints moved
         for item in items:
@@ -9399,24 +9394,32 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self._show_status(f"Copied {n} item(s)" if n is not None
                           else self._modify_ctl.CLIPBOARD_UNAVAILABLE)
 
+    def _retarget_level_name(self, name, source_level):
+        """*name*, or ``active_level`` when it names *source_level* and that
+        differs from the active level (Duplicate Level / cross-level paste:
+        element-parameters ruling 2026-10-24, SB2b T6 "retarget source refs")."""
+        if source_level and source_level != self.active_level and name == source_level:
+            return self.active_level
+        return name
+
     def _retarget_level_refs(self, item, source_level, *attrs):
         """Point *item*'s level refs that name *source_level* at ``active_level``.
 
         Duplicate Level pastes with ``active_level`` swapped to the target, so a
         copy's own-level refs must follow it; refs to other levels (a wall's Top
         Level, a room's Ceiling Level) are kept. No-op when the source is the
-        active level or unknown.
+        active level or unknown. See ``_retarget_level_name``.
 
         Args:
             item: The just-built wall / room / floor slab.
             source_level: The level the record was on (its own-level key).
             *attrs: Names of the item's level-ref attributes to compare.
         """
-        if not source_level or source_level == self.active_level:
-            return
         for attr in attrs:
-            if getattr(item, attr, None) == source_level:
-                setattr(item, attr, self.active_level)
+            cur = getattr(item, attr, None)
+            new = self._retarget_level_name(cur, source_level)
+            if new != cur:
+                setattr(item, attr, new)
 
     def _paste_accepts(self, obj: dict) -> bool:
         """Whether :meth:`paste_items` has a branch for record *obj*.
@@ -9511,6 +9514,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         pasted_spr = {}       # (x, y) of a sprinkler node created here -> node (design areas)
         da_records = []       # design-area records, resolved once every node exists
         made_nodes = set()    # id() of every node this paste created (record order is free)
+        hosted = []           # nodes this paste hosted; one batched refresh after the loop
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -9531,15 +9535,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             if obj_type == "node":
                 new_x = obj["x"] + offset.x()
                 new_y = obj["y"] + offset.y()
-                # Compute z_hint from clipboard elevation data
-                paste_z = obj.get("elevation")
-                if paste_z is None and "ceiling_level" in obj:
-                    if self._level_manager:
-                        _lvl = self._level_manager.get(obj["ceiling_level"])
-                        if _lvl:
-                            _off = obj.get("ceiling_offset_mm",
-                                           DEFAULT_CEILING_OFFSET_MM)
-                            paste_z = _lvl.elevation + _off
+                src_level = obj.get("level")
+                rec_level = self._retarget_level_name(
+                    obj.get("ceiling_level", src_level or DEFAULT_LEVEL), src_level)
+                if "ceiling_offset_mm" in obj:
+                    rec_off = float(obj["ceiling_offset_mm"])
+                elif "z_offset" in obj:
+                    rec_off = float(obj["z_offset"])      # old clipboard data
+                else:
+                    rec_off = DEFAULT_CEILING_OFFSET_MM
+                _lvl = self._level_manager.get(rec_level) if self._level_manager else None
+                paste_z = (_lvl.elevation + rec_off) if _lvl else obj.get("elevation")
                 existing = self.find_nearby_node(new_x, new_y, z_hint=paste_z)
                 node1 = existing if existing else self.add_node(
                     new_x, new_y, z_hint=paste_z)
@@ -9556,30 +9562,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     ov = obj.get("fitting_phase_override")
                     node1.fitting.phase_override = phase_registry.read_id(ov) if ov else None
 
-                # A node reused via find_nearby_node belongs to the network:
-                # never mutate it. Only a node created here takes the
-                # copied ceiling / level / elevation.
-                if existing is None:
-                    # Restore ceiling and layer from copied data
-                    if "ceiling_level" in obj:
-                        node1.ceiling_level = obj["ceiling_level"]
-                        node1._properties["Ceiling Level"]["value"] = obj["ceiling_level"]
-                    if "ceiling_offset_mm" in obj:
-                        node1.ceiling_offset = obj["ceiling_offset_mm"]
-                        node1._properties["Ceiling Offset"]["value"] = str(obj["ceiling_offset_mm"])
-                    elif "z_offset" in obj:
-                        # Old clipboard data: z_offset was raw elevation offset
-                        node1.ceiling_offset = obj["z_offset"]
-                        node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
+                # A node this paste made (here, or as an earlier record's pipe
+                # far end) is this record's copy and takes its host; a node
+                # found on the network is never touched (Q4).
+                if existing is None or id(existing) in made_nodes:
                     if "level" in obj:
                         node1.level = obj["level"]
-                    # Recompute z_pos from ceiling level + offset
-                    if self._level_manager:
-                        lvl = self._level_manager.get(node1.ceiling_level)
-                        if lvl:
-                            node1.z_pos = lvl.elevation + node1.ceiling_offset
-                        elif "elevation" in obj:
-                            node1.z_pos = obj["elevation"]
+                    node1.host(rec_level, rec_off, refresh=False)
+                    if _lvl is None and obj.get("elevation") is not None:
+                        # unresolved level: z is the record's saved z, level + offset stored
+                        node1.set_z(obj["elevation"], refresh=False)
+                    hosted.append(node1)
 
                 if obj.get("sprinkler"):
                     from .network_codec import sprinkler_template
@@ -9729,6 +9722,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 apply_duplicate_warnings(self._gridlines)
                 new_items.append(gl)
 
+        Node.refresh_nodes(hosted)
         da_skipped = 0
         if da_records:
             from .network_codec import deserialize_design_area

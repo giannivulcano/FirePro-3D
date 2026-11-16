@@ -142,3 +142,39 @@ def test_drawing_onto_an_existing_node_keeps_its_ceiling(shown_model_view):
     assert end.pipes, "the pipe joins the existing node"
     assert (end.ceiling_level, end.ceiling_offset) == ("Level 2", -3050.8)
     assert end.z_pos == pytest.approx(-50.8)
+
+
+def test_cross_level_paste_retargets_only_the_source_ceiling(ms):
+    """Q13: a ceiling level naming the record's own level follows the paste
+    level, offset kept; a ceiling on another level is kept."""
+    ms._level_manager.get("Level 2").elevation = 3000.0   # default Level 2 exists (3048)
+    ms._level_manager.add_level("Roof", 9000.0)
+    a, b, p = _pair(ms)
+    b.ceiling_level, b.z_pos = "Roof", 9000.0 + b.ceiling_offset
+    for n in (a, b):
+        n.level = "Level 1"
+    data = ms._clipboard_item_dicts([a, b, p])
+    ms.active_level = "Level 2"
+    ms.paste_items(QPointF(0, 5000), data=data)
+    ca, cb = _copy_of(ms, a, 0, 5000), _copy_of(ms, b, 0, 5000)
+    assert (ca.ceiling_level, ca.ceiling_offset) == ("Level 2", a.ceiling_offset)
+    assert ca.z_pos == pytest.approx(3000.0 + a.ceiling_offset)
+    assert (cb.ceiling_level, cb.ceiling_offset) == ("Roof", b.ceiling_offset)
+    assert cb.z_pos == pytest.approx(b.z_pos)
+
+
+def test_legacy_node_records_keep_their_z(ms):
+    """No format change: inches offset, z_offset and an unresolved level's
+    saved elevation load to the same z as before."""
+    from firepro3d.network_codec import deserialize_node
+    n = deserialize_node(ms, {"x": 0, "y": 0, "level": "Level 1",
+                              "ceiling_level": "Level 1", "ceiling_offset": -2.0})
+    assert n.ceiling_offset == pytest.approx(-50.8) and n.z_pos == pytest.approx(-50.8)
+    g = deserialize_node(ms, {"x": 9, "y": 9, "level": "Level 1", "ceiling_level": "Ghost",
+                              "ceiling_offset_mm": -300.0, "elevation": 1234.0})
+    assert (g.ceiling_level, g.ceiling_offset, g.z_pos) == ("Ghost", -300.0, 1234.0)
+    data = [{"type": "node", "x": 0, "y": 0, "level": "Level 1",
+             "ceiling_level": "Level 1", "z_offset": -400.0, "pipes": []}]
+    ms.paste_items(QPointF(0, 7000), data=data)
+    cp = [k for k in ms.sprinkler_system.nodes if k.scenePos() == QPointF(0, 7000)][0]
+    assert cp.ceiling_offset == pytest.approx(-400.0) and cp.z_pos == pytest.approx(-400.0)
