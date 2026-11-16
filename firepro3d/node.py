@@ -56,10 +56,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         self.badge_position: str = "Auto"   # SB4e R3, saved sparse
 
         # Property panel support — shown for plain (non-sprinkler) nodes
-        self._properties: dict = {
-            "Ceiling Level":  {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset": {"type": "string", "value": str(DEFAULT_CEILING_OFFSET_MM)},
-        }
+        self._properties: dict = {}
 
     # -------------------------------------------------------------------------
     # Property API (used by PropertyManager and hydraulic solver)
@@ -68,10 +65,9 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
 
     def get_properties(self) -> dict:
         props = self._properties.copy()
-        # Format ceiling offset for display using project units
-        props["Ceiling Offset"] = dict(props["Ceiling Offset"])
-        props["Ceiling Offset"]["value"] = self._fmt(self.ceiling_offset)
-        props["Ceiling Offset"]["label"] = "Offset"      # D9: key stays for files
+        props["Ceiling Level"] = {"type": "level_ref", "value": self.ceiling_level}
+        props["Ceiling Offset"] = {"type": "string", "value": self._fmt(self.ceiling_offset),
+                                   "label": "Offset"}          # D9: key stays for files
         props.update(self.position_rows())
         if self._room_name:
             props["Room"] = {"type": "string", "value": self._room_name,
@@ -233,9 +229,6 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         return (self.ceiling_level, self.ceiling_offset, self.z_pos)
 
     def _elevation_changed(self, before, refresh: bool) -> None:
-        # Panel mirror: kept in sync until Task 7 deletes it.
-        self._properties["Ceiling Level"]["value"] = self.ceiling_level
-        self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
         if refresh and self._elevation_state() != before:
             self._refresh_network([self])
 

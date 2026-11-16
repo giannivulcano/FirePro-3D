@@ -138,7 +138,6 @@ def test_z_edit_solves_offset_keeps_level_and_undo(ms, monkeypatch):
     assert n.z_pos == lvl.elevation + 300.0
     assert n.ceiling_level == lvl.name
     assert n.ceiling_offset == 300.0
-    assert float(n._properties["Ceiling Offset"]["value"]) == 300.0
     assert other.z_pos == lvl.elevation - 50.8
     assert repaints
     assert n.z_pos - other.z_pos == pytest.approx(350.8)     # the pipe now slopes

@@ -1025,11 +1025,7 @@ class PropertyManager(QWidget):
                 if isinstance(t, Sprinkler) and t.node:
                     node = t.node
                 if node is not None:
-                    node.ceiling_level = new_level
-                    node._properties["Ceiling Level"]["value"] = new_level
-                    lvl = self._level_manager.get(new_level)
-                    if lvl:
-                        node.z_pos = lvl.elevation + node.ceiling_offset
+                    node.host(new_level, node.ceiling_offset)     # Q7-1
                 scene = t.scene() if hasattr(t, "scene") else None
                 if scene:
                     self._level_manager.apply_to_scene(scene)
