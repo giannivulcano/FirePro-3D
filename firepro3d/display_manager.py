@@ -294,6 +294,8 @@ from .weight_refs import MODEL_BLOCKS_KEY as _MODEL_BLOCKS_KEY
 # SB6 D10 / R4: the Tags row (leader End + weight of every placed tag) -- a
 # Model-tree row like the Blocks weight row, NOT a _CATEGORIES entry.
 _TAGS_KEY = "Tags"
+_TAGS_LEADER_END_KEY = "leader_end"          # the Tags row's saved keys (QSettings + project dict)
+_TAGS_LEADER_WEIGHT_KEY = "leader_weight"
 
 # Line Weights tab "Model (px)" column header + cell tooltip (MW-11).
 _MODEL_PX_TIP = (
@@ -1116,8 +1118,8 @@ class DisplayManager(HouseDialog):
                 end, weight = self._tag_leader_snapshot
                 set_tag_leader_end(end)
                 set_tag_leader_weight(weight)
-                self._settings.setValue(f"display/{_TAGS_KEY}/leader_end", end)
-                self._settings.setValue(f"display/{_TAGS_KEY}/leader_weight", weight)
+                self._settings.setValue(f"display/{_TAGS_KEY}/{_TAGS_LEADER_END_KEY}", end)
+                self._settings.setValue(f"display/{_TAGS_KEY}/{_TAGS_LEADER_WEIGHT_KEY}", weight)
                 self._tags_changed()
 
         # Force scene repaint
@@ -1557,7 +1559,7 @@ class DisplayManager(HouseDialog):
             return                                  # a folder end failed to load: keep the old one
         from .paper_display import set_tag_leader_end
         set_tag_leader_end(ref)
-        self._settings.setValue(f"display/{_TAGS_KEY}/leader_end", ref)
+        self._settings.setValue(f"display/{_TAGS_KEY}/{_TAGS_LEADER_END_KEY}", ref)
         self._tags_changed()
 
     def _on_tag_leader_weight(self, name: str):
@@ -1565,7 +1567,7 @@ class DisplayManager(HouseDialog):
             return
         from .paper_display import set_tag_leader_weight, tag_leader_weight
         set_tag_leader_weight(name)
-        self._settings.setValue(f"display/{_TAGS_KEY}/leader_weight", tag_leader_weight())
+        self._settings.setValue(f"display/{_TAGS_KEY}/{_TAGS_LEADER_WEIGHT_KEY}", tag_leader_weight())
         self._tags_changed()
 
     def _tags_changed(self):
@@ -2955,6 +2957,7 @@ def apply_saved_display_settings(scene):
     _apply_model_blocks_weight(None, settings, prefer_default=False,
                                use_user_default=False)
     _apply_tag_leader(None, settings, prefer_default=False)
+    _restyle_tag_leaders(scene)
     settings.sync()
 
 
@@ -2983,6 +2986,7 @@ def apply_default_display_settings(scene):
         _apply_to_scene_items(scene, key, vals, respect_overrides=False)
     _apply_model_blocks_weight(None, settings, prefer_default=True)
     _apply_tag_leader(None, settings, prefer_default=True)
+    _restyle_tag_leaders(scene)
 
 
 def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
@@ -3025,6 +3029,13 @@ def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
     settings.setValue(f"display/{key}/color", model_blocks_colour())
 
 
+def _restyle_tag_leaders(scene) -> None:
+    """Re-shape every placed tag's leader after ``_apply_tag_leader`` changed the
+    process-wide Tags style (SB6 M1), as the Tags row does (``_tags_changed``)."""
+    from . import hosted_dependents
+    hosted_dependents.refresh_tag_leaders(scene)
+
+
 def _apply_tag_leader(project: dict | None, settings: QSettings,
                       prefer_default: bool) -> None:
     """Resolve the Tags row (SB6 D10): project -> current QSettings ->
@@ -3032,16 +3043,16 @@ def _apply_tag_leader(project: dict | None, settings: QSettings,
     from .paper_display import (set_tag_leader_end, set_tag_leader_weight,
                                 tag_leader_end, tag_leader_weight)
     rec = (project or {}).get(_TAGS_KEY) or {}
-    end = rec.get("leader_end")
-    weight = rec.get("leader_weight")
+    end = rec.get(_TAGS_LEADER_END_KEY)
+    weight = rec.get(_TAGS_LEADER_WEIGHT_KEY)
     if not end and not prefer_default:
-        end = settings.value(f"display/{_TAGS_KEY}/leader_end")
+        end = settings.value(f"display/{_TAGS_KEY}/{_TAGS_LEADER_END_KEY}")
     if not weight and not prefer_default:
-        weight = settings.value(f"display/{_TAGS_KEY}/leader_weight")
+        weight = settings.value(f"display/{_TAGS_KEY}/{_TAGS_LEADER_WEIGHT_KEY}")
     set_tag_leader_end(end or None)
     set_tag_leader_weight(weight or None)
-    settings.setValue(f"display/{_TAGS_KEY}/leader_end", tag_leader_end())
-    settings.setValue(f"display/{_TAGS_KEY}/leader_weight", tag_leader_weight())
+    settings.setValue(f"display/{_TAGS_KEY}/{_TAGS_LEADER_END_KEY}", tag_leader_end())
+    settings.setValue(f"display/{_TAGS_KEY}/{_TAGS_LEADER_WEIGHT_KEY}", tag_leader_weight())
 
 
 def get_display_settings_for_save() -> dict:
@@ -3062,8 +3073,8 @@ def get_display_settings_for_save() -> dict:
     result[_MODEL_BLOCKS_KEY] = {"line_weight": model_blocks_weight(),
                                  "color": model_blocks_colour()}
     from .paper_display import tag_leader_end, tag_leader_weight
-    result[_TAGS_KEY] = {"leader_end": tag_leader_end(),
-                         "leader_weight": tag_leader_weight()}      # SB6 D10
+    result[_TAGS_KEY] = {_TAGS_LEADER_END_KEY: tag_leader_end(),
+                         _TAGS_LEADER_WEIGHT_KEY: tag_leader_weight()}      # SB6 D10
     return result
 
 
@@ -3098,6 +3109,7 @@ def apply_project_display_settings(scene, display_dict: dict):
         _apply_to_scene_items(scene, key, vals, respect_overrides=True)
     _apply_model_blocks_weight(display_dict, settings, prefer_default=False)
     _apply_tag_leader(display_dict, settings, prefer_default=False)
+    _restyle_tag_leaders(scene)
     settings.sync()
 
 

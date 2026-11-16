@@ -90,3 +90,20 @@ def test_tags_row_saves_with_the_project_and_applies(qapp, make_model_space):
     assert (pd.tag_leader_end(), pd.tag_leader_weight()) == ("none", hi)
     apply_default_display_settings(ms)                               # New project: factory
     assert pd.tag_leader_end() == "system-endtypes-arrow"            # constants.TEXT_LEADER_END_ID
+
+
+def test_m1_applying_a_project_tags_record_repaints_placed_leaders(qapp, make_model_space,
+                                                                   real_system_library):
+    """VC9 M1: Open / New / startup apply a saved Tags row to the process-wide style; the
+    leaders already placed repaint at it (no waiting for the next Display Manager edit)."""
+    ms, _tag = _leader_scene(make_model_space)
+    lo, hi = _weights()
+    box = (-100.0, -1600.0, 100.0, -1400.0)
+    apply_project_display_settings(ms, {"Tags": {"leader_end": "system-endtypes-arrow",
+                                                 "leader_weight": lo}})
+    thin = ink(render(ms, RECT, 300, 450), RECT, *box)
+    apply_project_display_settings(ms, {"Tags": {"leader_end": "system-endtypes-arrow",
+                                                 "leader_weight": hi}})
+    assert pd.tag_leader_weight() == hi
+    thick = ink(render(ms, RECT, 300, 450), RECT, *box)
+    assert thick > thin > 0                                         # [RED: _restyle_tag_leaders]
