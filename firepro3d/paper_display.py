@@ -1856,14 +1856,15 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
-            fitting_cat = cats.get("Fitting")
-            if fitting_cat is not None:
+            fitting_row = cats.get("Fitting")
+            if fitting_row is not None:
                 for node in scene.sprinkler_system.nodes:
                     f = node.fitting
                     if f is None or f.symbol is None or not f.symbol.isVisible():
                         continue
                     if not source_rect.contains(f.symbol.scenePos()):
                         continue
+                    fitting_cat = phase_display.merge(fitting_row, f, keys=phase_display.SYMBOL_KEYS)   # PH3 D-PH13
                     entry = {
                         "item": f.symbol,
                         "cat_key": "Fitting",
@@ -1884,13 +1885,15 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         f._display_color = fitting_cat["color"]
                         f._display_fill_color = fitting_cat.get("fill")
                         entry["retinted"] = True
+                    elif phase_display.forced(fitting_cat, "color"):   # DD2: fitting phase colour
+                        _svg_phase_tint(f.symbol, f, "Fitting", fitting_cat["color"])
+                        entry["retinted"] = True
                     else:
                         entry["retinted"] = _svg_paper_retint(f.symbol, f, "Fitting")
                     f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
         # ── Underlays (§16.5) — records drive per-layer paper appearance ──
-        und_cat = cats.get("Underlay") or factory_paper_categories()["Underlay"]
-        und_auth = row_as_authored(und_cat)
+        und_row = cats.get("Underlay") or factory_paper_categories()["Underlay"]
         for record, group in getattr(scene, "underlays", []):
             if group is None:
                 continue
@@ -1900,11 +1903,19 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 continue
             if not group.sceneBoundingRect().intersects(source_rect):
                 continue
+            und_cat = phase_display.merge(und_row, record, keys=phase_display.UNDERLAY_KEYS)   # PH3 R5
+            und_auth = row_as_authored(und_cat)
+            und_col = phase_display.writes(und_cat, und_auth, "color")
             entry = {"underlay_group": group, "visible": was_visible,
-                     "children": []}
+                     "opacity": group.opacity(), "children": []}
             saved.append(entry)
             if not was_visible:
                 continue          # model-side hidden: leave untouched
+            if not und_cat.get("visible", True):   # PH3 R5: a hidden status
+                group.setVisible(False)
+                continue
+            if phase_display.forced(und_cat, "opacity"):
+                group.setOpacity(und_cat["opacity"] / 100.0)   # PH3 R5 opacity
             for child in group.childItems():
                 layer = child.data(1)
                 if layer is None or not isinstance(child, QGraphicsPathItem):
@@ -1914,7 +1925,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["children"].append({"item": child, "pen": child.pen(),
                                           "brush": child.brush()})
                 src = getattr(child, "_colour_src", None)
-                if not und_auth and is_token(src):
+                if und_col and is_token(src):
                     # Row OFF: a token layer colour re-resolves at paint and
                     # would ignore the row colour set below; drop it for the
                     # pass (restore puts it back). "" (No Fill) stays hidden.
@@ -1922,8 +1933,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     child._colour_src = None
                 # D6: row ON -> the layer's effective colour; OFF -> the
                 # Underlay row colour (factory Automatic = black on paper).
-                colour = (_paper_qcolor(record.effective_layer_colour(layer))
-                          if und_auth else _paper_qcolor(und_cat["color"]))
+                colour = (_paper_qcolor(und_cat["color"]) if und_col
+                          else _paper_qcolor(record.effective_layer_colour(layer)))
                 if child.pen().style() == Qt.PenStyle.NoPen:
                     child.setBrush(QBrush(colour))      # text batch
                     continue
@@ -1994,6 +2005,8 @@ def restore_model_display(saved: list[dict]):
                     pass
             try:
                 entry["underlay_group"].setVisible(entry["visible"])
+                if "opacity" in entry:
+                    entry["underlay_group"].setOpacity(entry["opacity"])   # PH3 R5 restore
             except RuntimeError:
                 pass
             continue

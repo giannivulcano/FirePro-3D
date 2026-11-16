@@ -221,3 +221,53 @@ def test_ac15_section_cut_proxy_keeps_its_hatch_in_status_colours(
                             crop=r.adjusted(-2000.0, -2000.0, 2000.0, 2000.0),
                             phase_display=phasing())
     _assert_hatch_in_status_colours(pixels(render(vp), model_box(vp, r, inset=0.3)))
+
+
+# --- Task 8: fittings (D-PH13) and underlays (R5) --------------------------------
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ac9p_fitting_takes_status_colour(qapp, monkeypatch, mode):
+    from firepro3d.fitting import Fitting
+    monkeypatch.setattr(Fitting, "SHOW_PLAIN_SYMBOLS", True)   # D1 hides plain types (test_hf1_seam_fixes precedent)
+    set_paper_mode(mode)
+    set_row("Pipe", visible=False)                     # only the fitting symbol inks
+    ms = h.scene()
+    a, b, c = ms.add_node(0.0, 0.0), ms.add_node(3000.0, 0.0), ms.add_node(3000.0, 3000.0)
+    ms.add_pipe(a, b)
+    ms.add_pipe(b, c)                                  # b: a 90 elbow; a, c: caps (New)
+    b.fitting.phase_override = PHASE_EXISTING          # D-PH4 override; the pipes stay New
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+    x, y = to_px(vp, 3000.0, 0.0)
+    assert_status_grey(pixels(render(vp), (x - 20, y - 20, x + 21, y + 21)))
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_r5_underlay_takes_status_colour(qapp, mode):
+    from tests._ph3_helpers import underlay
+    set_paper_mode(mode)
+    ms = h.scene()
+    underlay(ms, PHASE_EXISTING)
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+    assert_status_grey(pixels(render(vp)))           # base: ON red layer, OFF black row
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_r5_underlay_takes_status_opacity(qapp, mode):
+    from tests._ph3_helpers import underlay
+    set_paper_mode(mode)
+    ms = h.scene()
+    underlay(ms, PHASE_EXISTING)
+    set_status(PHASE_EXISTING, opacity=50)
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+    d = darkest(inked(pixels(render(vp))))
+    assert is_grey(d) and abs(d.red() - (255 - (255 - EXISTING_GREY) * 0.50)) <= 3, d.name()
+
+
+def test_r5_hidden_underlay_is_not_drawn(qapp):
+    from tests._ph3_helpers import underlay
+    ms = h.scene()
+    underlay(ms, PHASE_DEMOLITION)
+    _ps, shown = make_viewport(ms, phase_display=phasing())
+    assert inked(pixels(render(shown)))
+    _ps2, hidden = make_viewport(ms, phase_display=phasing(PHASE_DEMOLITION))
+    assert not inked(pixels(render(hidden)))
