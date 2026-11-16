@@ -2772,6 +2772,7 @@ class DisplayManager(HouseDialog):
             phase_registry.set_project_table(work.copy())
             self._scene._dirty = True
             self._scene.sceneModified.emit()
+            self._apply_paper_preview()     # PH3: an open sheet re-plots the new graphics
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
             # One writer (HF5): the shared helper stores the category's values.

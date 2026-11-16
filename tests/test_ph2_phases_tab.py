@@ -239,3 +239,18 @@ def test_combo_and_opacity_cells_reach_the_registry_on_ok(main_window):
     assert g_existing["weight"] == name                   # factory None -> a real name
     assert g_demo["linetype"] is None                     # factory "Demolition" -> "—"
     assert g_demo["opacity"] is None
+
+
+def test_ph3_ok_on_a_phases_edit_repaints_the_open_sheet(main_window, monkeypatch):
+    """VC9 PH3: a status edit OK'd in the Display Manager asks the open sheet to
+    re-plot. Headless, the scene's ``changed`` signal stops firing once its views
+    take direct updates (probed), so the repaint request itself is recorded."""
+    sheet = main_window.paper_space_widget.paper_scene
+    dlg = main_window._make_display_manager("model")
+    _tab(dlg).cell(pr.PHASE_EXISTING, "opacity").setValue(40)   # a net change (factory "—")
+    asked = []
+    real_update = sheet.update
+    monkeypatch.setattr(sheet, "update", lambda *a: (asked.append(a), real_update(*a)))
+    dlg.accept()
+    assert pr.project_table().graphics_of(pr.PHASE_EXISTING)["opacity"] == 40
+    assert asked, "the open sheet was not asked to repaint"

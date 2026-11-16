@@ -13,7 +13,7 @@ from collections import Counter
 
 import pytest
 from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtGui import QColor, QImage, QPainter
 
 from firepro3d.constants import PHASE_DEMOLITION, PHASE_EXISTING
 from tests import _ph1_helpers as h
@@ -553,3 +553,46 @@ def test_ph3_section_pipe_label_takes_its_hosts_status_opacity(qapp, section_sce
     expected = 255 - (255 - EXISTING_GREY) * 0.50              # #808080 at 50 % on white
     d = darkest(inked(pixels(render(vp), _pipe_box(vp))))                     # an opaque label would be darker
     assert is_grey(d) and abs(d.red() - expected) <= 3, d.name()
+
+
+def _section_sprinkler_view(section_scene_for, mode, *hidden):
+    """A section viewport over two Existing sprinklers' proxies (VC9: the proxy is
+    sourced on the node, the phase lives on the sprinkler); ``(vp, proxy rect)``."""
+    from tests.test_section_classification import _placed_scene
+    set_paper_mode(mode)
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    for y in (-1000.0, 1000.0):                                # one is in front of the cut
+        ms.add_sprinkler(ms.add_node(5000.0, y)).phase = PHASE_EXISTING
+    set_status(PHASE_EXISTING, weight="Extra Thick")           # DEFAULT_LINE_WEIGHTS: 1.00 mm
+    sec.rebuild()
+    proxies = [it for it in sec.items() if getattr(it, "_paper_cat", None) == "Sprinkler"]
+    assert proxies
+    r = proxies[0].sceneBoundingRect()
+    crop = r.adjusted(-1000.0, -1000.0, 1000.0, 1000.0)
+    _ps, vp = make_viewport(sec, kind="section", name="Section 1", crop=crop,
+                            phase_display=phasing(*hidden))
+    c = r.center()                                             # the 60 mm circle's centre
+    # 1.5 paper mm either side and below; the top stops 20 mm above the centre,
+    # clear of the level datum dash-dot line 60 mm above it.
+    return vp, QRectF(c.x() - 150.0, c.y() - 20.0, 300.0, 170.0)
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_section_sprinkler_proxy_takes_colour_not_weight(qapp, section_scene_for, mode):
+    """D-PH13 on a section proxy: the status colour, the Sprinkler row's own weight."""
+    vp, r = _section_sprinkler_view(section_scene_for, mode)
+    img = render(vp)
+    colours = pixels(img, model_box(vp, r))
+    assert_status_grey(colours)                                # unphased: the row colour
+    x0, y0, x1, y1 = model_box(vp, r)
+    xs = [x for x in range(x0, x1) for y in range(y0, y1)
+          if QColor(img.pixel(x, y)).rgb() != QColor("#ffffff").rgb()]
+    width_px = max(xs) - min(xs) + 1                           # the circle's ink width
+    # 60 mm circle at 1:100 = 0.60 paper mm; + Fine 0.25 = 8.5 px, + Extra Thick 1.00 = 16 px
+    assert width_px <= round((0.60 + 0.25) * PX) + 2, width_px
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_hidden_status_hides_a_section_sprinkler_proxy(qapp, section_scene_for, mode):
+    vp, r = _section_sprinkler_view(section_scene_for, mode, PHASE_EXISTING)
+    assert not inked(pixels(render(vp), model_box(vp, r)))

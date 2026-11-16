@@ -1569,9 +1569,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
         _set_svg_tint(it, colour,
                       f if f is not None else getattr(owner, "_display_fill_color", None))
 
-    def _phase_keys(it):
-        """D-PH13: SVG symbols take visibility, colour and opacity only."""
-        return (phase_display.SYMBOL_KEYS if isinstance(it, (Sprinkler, WaterSupply))
+    def _phase_keys(cat_key):
+        """D-PH13: sprinklers and water supplies (the plan SVG symbol and its
+        section / elevation proxy alike) take visibility, colour and opacity only."""
+        return (phase_display.SYMBOL_KEYS if cat_key in ("Sprinkler", "Water Supply")
                 else phase_display.ALL_KEYS)
     # Drafting-tile scale for the hatch renderer during THIS viewport render
     # (D-A30); cleared by restore_model_display. First entry → cleared even if
@@ -1638,7 +1639,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             row = cats.get(cat_key)
             if row is None:
                 continue
-            cat = phase_display.merge(row, item, keys=_phase_keys(item))   # PH3 DD3
+            cat = phase_display.merge(row, item, keys=_phase_keys(cat_key))   # PH3 DD3
             authored = row_as_authored(cat)
             if getattr(item, "_paper_cat", None) is not None:
                 # Section / elevation proxy (AC2): the source category's

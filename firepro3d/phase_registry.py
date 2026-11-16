@@ -347,7 +347,8 @@ def set_fitting_from_row(node, value) -> bool:
 def effective_phase(item) -> str | None:
     """The phase *item* plots and calculates with; None = not phased (D-PH3).
 
-    Section / elevation proxies -> their source element; a child of a block
+    Section / elevation proxies -> their source element (a sprinkler proxy is
+    sourced on its node -> the node's sprinkler); a child of a block
     placement -> the outermost placement; a Note (annotation) -> None; a fitting
     -> its override, else the D-PH4 derivation; anything with ``phase`` -> it.
     A sip-deleted item reads None (DD6).
@@ -362,6 +363,10 @@ def effective_phase(item) -> str | None:
         from .section_scene import section_source_of
         src = section_source_of(item)
         if src is not None and src is not item:
+            if getattr(item, "_paper_cat", None) == "Sprinkler":
+                # The proxy's source is the node (Hide / D8 act on it); the
+                # phase lives on the sprinkler it carries (VC9 PH3).
+                src = getattr(src, "sprinkler", None) or src
             return effective_phase(src)
         from .block_instance import BlockInstance
         outer, parent = None, item.parentItem()
