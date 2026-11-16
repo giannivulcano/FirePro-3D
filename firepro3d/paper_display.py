@@ -1663,8 +1663,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     if lab is not None:
                         lab.setVisible(False)
                     continue
-                if not authored:
+                if phase_display.writes(cat, authored, "color"):     # proxy pen (DD2)
                     item._pen_src = cat["color"]
+                if phase_display.writes(cat, authored, "fill"):      # proxy body (DD2)
                     if hasattr(item, "_section_src"):          # cut wall / slab
                         if cat.get("section_color") is not None:
                             item._section_src = cat["section_color"]
@@ -1681,9 +1682,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                          / max(paper_scale, 1e-9))
                 item.setOpacity(cat["opacity"] / 100.0)
                 if lab is not None and lab.isVisible():
-                    _apply_block(lab, cat, authored,
-                                 resolve_line_weight_mm(cat["line_weight"]), paper_scale)
-                    lab.setOpacity(1.0)
+                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # proxy label (R4)
+                    _apply_block(lab, lab_cat, authored,
+                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
+                    lab.setOpacity(phase_display.label_opacity(lab_cat))
                 item.update()
                 continue
             if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
@@ -1739,6 +1741,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _l = item.label
                 entry["tag_paper"] = (_l._paper_pen_width, _l._paper_pen_color,
                                       _l._paper_scale)
+                entry["tag_opacity"] = _l.opacity()   # PH3 R4: a status opacity reaches the label
             elif isinstance(item, (Sprinkler, WaterSupply)):
                 entry["symbol_paper"] = (item._paper_pen_width, item._paper_scale)
             elif isinstance(item, GridlineItem):
@@ -1791,8 +1794,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # is a BoundLabelItem and takes _apply_block's hooks; its
                 # opacity stays 1. A hidden label is skipped.
                 if item.label.isVisible():
-                    _apply_block(item.label, cat, authored, lw_mm, paper_scale)
-                    item.label.setOpacity(1.0)
+                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # pipe label (R4)
+                    _apply_block(item.label, lab_cat, authored,
+                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
+                    item.label.setOpacity(phase_display.label_opacity(lab_cat))
             elif isinstance(item, GridlineItem):
                 _apply_gridline(item, cat, authored, lw_mm, paper_scale,
                                 _auth_tok(item, cat_key, authored))
@@ -1844,8 +1849,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # from the parent). A hidden tag is skipped.
                 from .room import Room as _Room
                 if isinstance(item, _Room) and item._tag.isVisible():
-                    _apply_block(item._tag, cat, authored, lw_mm, paper_scale)
-                    item._tag.setOpacity(1.0)
+                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # room tag (R4)
+                    _apply_block(item._tag, lab_cat, authored,
+                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
+                    item._tag.setOpacity(phase_display.label_opacity(lab_cat))
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
@@ -2052,6 +2059,8 @@ def restore_model_display(saved: list[dict]):
                     _l.prepareGeometryChange()       # SB1c D6
                 (_l._paper_pen_width, _l._paper_pen_color,
                  _l._paper_scale) = entry["tag_paper"]
+                if "tag_opacity" in entry:
+                    _l.setOpacity(entry["tag_opacity"])   # PH3 R4 restore
                 _l.update()
             item.update()
             item.repaint_riser()            # SB4g R4: colour restored above

@@ -160,3 +160,64 @@ def test_ac13p_hidden_status_is_not_drawn(qapp, real_system_library, kind):
     assert inked(pixels(render(shown)))                         # it plots when shown
     _ps2, hidden = make_viewport(ms, phase_display=phasing(PHASE_DEMOLITION))
     assert not inked(pixels(render(hidden)))                    # D-PH17: not drawn
+
+# --- Task 7: host labels (R4) and section proxies (AC15) -----------------------
+
+def _labelled_pipe(ms, sid):
+    """A 6000 mm pipe at y=2000 with a real Pipe label (two 3 mm bound texts,
+    authored black on paper: tests/test_sb4a_pipe_label._pipe_def)."""
+    from tests.test_sb4a_pipe_label import _pipe_def
+    _pipe_def(ms)
+    p = ms.add_pipe(ms.add_node(0.0, 2000.0), ms.add_node(6000.0, 2000.0))
+    p.phase = sid
+    return p
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ac13p_shown_label_takes_its_hosts_status_colour(qapp, mode):
+    set_paper_mode(mode)
+    ms = h.scene()
+    _labelled_pipe(ms, PHASE_EXISTING)
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+    img = render(vp)
+    assert_status_grey(pixels(img))                   # pipe AND label text: no black
+    _x, py = to_px(vp, 0.0, 2000.0)
+    off_band = (inked(pixels(img, (0, 0, img.width(), py - 4)))
+                + inked(pixels(img, (0, py + 5, img.width(), img.height()))))
+    assert off_band                                   # the label printed (off the pipe's band)
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ac13p_shown_label_takes_its_hosts_status_opacity(qapp, mode):
+    set_paper_mode(mode)
+    ms = h.scene()
+    _labelled_pipe(ms, PHASE_EXISTING)
+    set_status(PHASE_EXISTING, opacity=50)
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+    img = render(vp)
+    expected = 255 - (255 - EXISTING_GREY) * 0.50     # 191.5: #808080 at 50 % on white
+    _x, py = to_px(vp, 0.0, 2000.0)
+    label_ink = (inked(pixels(img, (0, 0, img.width(), py - 4)))
+                 + inked(pixels(img, (0, py + 5, img.width(), img.height()))))
+    d = darkest(label_ink)
+    assert is_grey(d) and abs(d.red() - expected) <= 3, d.name()
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ac15_section_cut_proxy_keeps_its_hatch_in_status_colours(
+        qapp, section_scene_for, shipped_hatches, mode):
+    from firepro3d.hatch_patterns import BUILTIN_DIAGONAL
+    from tests.test_materials_cut import _mat
+    from tests.test_section_classification import _placed_scene, _source_rects, _wall
+    set_paper_mode(mode)
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    shipped_hatches(ms)
+    w = _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))       # straddles the cut
+    w.material_id = _mat("H", "#ff0000", BUILTIN_DIAGONAL).id
+    w.phase = PHASE_EXISTING
+    sec.rebuild()
+    r = _source_rects(sec, w)[0].sceneBoundingRect()
+    _ps, vp = make_viewport(sec, kind="section", name="Section 1",
+                            crop=r.adjusted(-2000.0, -2000.0, 2000.0, 2000.0),
+                            phase_display=phasing())
+    _assert_hatch_in_status_colours(pixels(render(vp), model_box(vp, r, inset=0.3)))
