@@ -101,4 +101,4 @@ def test_m2_unmoved_host_committed_step_does_not_reshape_leaders(
     assert tag._leader_cache is not built            # re-shaped (cleared; rebuilt at the next paint)
     img = _img(ms)
     end_box = (500.0 - 100.0, -400.0, 500.0 + 100.0, -110.0)
-    assert ink(img, RECT, *end_box) > 0              # ink at the new anchor: the end followed
+    assert ink(img, RECT, *end_box) > 0              # the shaft now arrives at the new anchor: the leader re-shaped
