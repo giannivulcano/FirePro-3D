@@ -31,7 +31,7 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
             "Temperature":     {"type": "label",  "value": "155°F"},
             "Design Density":  {"type": "string", "value": "0.10"},
             "Ceiling Level":   {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset":  {"type": "string", "value": "-50.8"},
+            "Ceiling Offset":  {"type": "string", "value": str(DEFAULT_CEILING_OFFSET_MM)},
         }
 
         # Selection is handled by the parent Node — the Node's shape() covers
@@ -82,7 +82,7 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
             try:
                 raw_mm = float(props["Ceiling Offset"]["value"])
             except (ValueError, TypeError):
-                raw_mm = -50.8
+                raw_mm = DEFAULT_CEILING_OFFSET_MM
             props["Ceiling Offset"]["value"] = self._fmt(raw_mm)
             props["Ceiling Offset"]["label"] = "Offset"
         props[phase_registry.ROW_KEY] = phase_registry.property_row(self)   # PD1

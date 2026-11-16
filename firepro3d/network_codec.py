@@ -304,8 +304,10 @@ def deserialize_node(scene, entry):
     node.badge_position = entry.get("badge_position", "Auto")
     if "ceiling_offset_mm" in entry:
         offset = entry["ceiling_offset_mm"]
+    elif "ceiling_offset" in entry:
+        offset = entry["ceiling_offset"] * 25.4   # legacy inches -> mm
     else:
-        offset = entry.get("ceiling_offset", -2.0) * 25.4   # legacy inches -> mm
+        offset = DEFAULT_CEILING_OFFSET_MM
     # Batched: the caller's post-pipe fitting loop is the refresh (load, undo).
     node.host(entry.get("ceiling_level", node.level), offset, refresh=False)
     return node
