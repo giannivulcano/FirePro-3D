@@ -17,6 +17,7 @@ from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPen, QColor, QFont
 
 from .cad_math import CAD_Math
+from . import element_uid
 from . import marks
 from .node import Node
 from .pipe import Pipe
@@ -223,8 +224,11 @@ class PipeNetworkController:
         # Create two replacement vertical pipes preserving the original's properties
         node_a = pipe.node1
         node_b = pipe.node2
+        n1_half = None
         for (na, nb) in ((node_a, mid), (mid, node_b)):
             seg = Pipe(na, nb)
+            if na is node_a:
+                n1_half = seg
             seg.level = pipe.level
             seg._tag_block = pipe._tag_block
             for key in ("Diameter", "Schedule", "C-Factor",
@@ -240,6 +244,7 @@ class PipeNetworkController:
             seg.set_pipe_display()
 
         self.delete_pipe(pipe)
+        element_uid.transfer_uid(self._scene, pipe, n1_half)   # SB5 Q4 (vertical split)
         mid.fitting.update()
         node_a.fitting.update()
         node_b.fitting.update()
@@ -259,9 +264,10 @@ class PipeNetworkController:
         new_node = self.add_node(split_point.x(), split_point.y())
         node_a = pipe.node1
         node_b = pipe.node2
-        self.add_pipe(node_a, new_node, pipe, mint=False)   # n1 half keeps the Mark (R1)
+        n1_half = self.add_pipe(node_a, new_node, pipe, mint=False)   # n1 half keeps the Mark (R1)
         self.add_pipe(new_node, node_b, pipe)
         self.delete_pipe(pipe)
+        element_uid.transfer_uid(self._scene, pipe, n1_half)   # SB5 Q4: and the uid (dependents follow)
         new_node.host(node_a.ceiling_level, node_a.ceiling_offset)
         new_node.fitting.update()
         node_a.fitting.update()
@@ -489,6 +495,9 @@ class PipeNetworkController:
 
         # Remove orphaned start_node
         if len(start_node.pipes) == 0:
+            from . import hosted_dependents
+            for b in hosted_dependents.cascade(self._scene, [start_node]):   # SB5 D6
+                self._scene.remove_block_instance(b)   # SB5 D6 collinear
             self._scene.sprinkler_system.remove_node(start_node)
             self._scene.removeItem(start_node)
 

@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
 )
 
 from . import paper_display as _pd
+from . import element_uid
 from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .gridline import BUBBLE_RADIUS_MM, GRID_COLOR
 from .view_marker_head import ViewMarkerHead
@@ -297,6 +298,7 @@ class SectionMarker(QGraphicsItem):
                  cardinal: "str | None" = None, auto_extent: bool = False,
                  parent: QGraphicsItem | None = None):
         super().__init__(parent)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self._name = name
         self._a = QPointF(cut_a)
         self._b = QPointF(cut_b)
@@ -825,6 +827,7 @@ class SectionMarker(QGraphicsItem):
                "cardinal": self._cardinal, "auto_extent": self._auto_extent,
                "gridline_z_overrides": copy_gridline_overrides(self.gridline_z_overrides),
                "datum_ends": copy_datum_ends(self.datum_ends)}
+        element_uid.uid_to_dict(self, out)
         if not self._cardinal:
             # Always written for a placed section, "" included (SB4d D3, Phase 5
             # ruling): an absent key is the pre-SB4d signal that adopts the name
@@ -838,6 +841,7 @@ class SectionMarker(QGraphicsItem):
         m = cls(d["name"], QPointF(*d["cut_a"]), QPointF(*d["cut_b"]),
                 int(d.get("look_sign", 1)), float(d.get("depth", DEFAULT_DEPTH)),
                 cardinal=d.get("cardinal"), auto_extent=bool(d.get("auto_extent", False)))
+        element_uid.uid_from_dict(m, d)
         m.gridline_z_overrides = copy_gridline_overrides(d.get("gridline_z_overrides", {}))
         m.datum_ends = copy_datum_ends(d.get("datum_ends", {}))
         if not m.cardinal:

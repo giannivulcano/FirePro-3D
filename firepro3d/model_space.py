@@ -66,6 +66,8 @@ from .system_blocks import SYSTEM_DEFAULTS
 from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
+from . import element_uid
+from . import hosted_dependents
 from .floor_opening import FloorOpening, drop_carried_voids
 from .feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
 from .dynamic_input import (SCHEMAS, effective_modifiers, resolve_line,
@@ -197,6 +199,16 @@ def _retarget_style(st: dict, old_id: str, new_id: str) -> dict:
     return out
 
 
+def _uid_tree(item):
+    """*item* and every descendant (the uid index registers children too: a
+    Sprinkler joins its Node by setParentItem, which addItem never sees)."""
+    stack = [item]
+    while stack:
+        it = stack.pop()
+        yield it
+        stack.extend(it.childItems())
+
+
 class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 13  # 13: project phasing -- pipe "Phase" text -> "phase" id + "phases" registry (phase_registry.migrate_payload); 12: old schematics turn Printed once (schematic_scene.migrate_old_schematics); 11: HF1 colour tokens (colour_migration); v10: 2D primitive style record (LT2; key-presence migration)
@@ -232,6 +244,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def __init__(self, scene_role: str = "plan"):
         super().__init__()
+        # SB5 D1 / D3: uid -> item index, kept by the addItem / removeItem /
+        # clear overrides; element_by_uid validates every hit.
+        self._uid_index: dict = {}
+        self._uid_gen = 0           # bumped by every add / remove (the miss memo key)
+        self._uid_miss: dict = {}   # uid -> _uid_gen of its confirmed miss
+        self._uid_repairs = 0       # register collisions re-minted (Q6; reset at load start)
+        self._uid_rebuilds = 0      # index rebuilds from items() (G-index counter)
+        self._uid_rebuilt_gen = -1  # _uid_gen at the last rebuild (a miss at that gen is final)
         self.scene_role = scene_role
         self.opaque_blocks = False       # Opaque's default here: True in a schematic (D3)
         self.editor_kind = "block"       # a block_editor scene: "block" or "schematic" (D-S14)
@@ -707,11 +727,129 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         events to Python (P4 probe), so the stroke-joint index (design D5a)
         is emptied here -- every ``self.clear()`` site (load / new reset)
         goes through this override. The opaque-block order drops here for the
-        same reason (``BlockInstance.itemChange`` is not told)."""
+        same reason (``BlockInstance.itemChange`` is not told). The SB5 uid
+        index is emptied here too."""
         self.stroke_joints.clear()
         self._opaque_stack = None
         self._stack_members = weakref.WeakSet()
+        self._uid_index.clear()          # SB5 D3: Qt clear() never calls removeItem
+        self._uid_miss.clear()
+        self._uid_gen += 1
         super().clear()
+        self._uid_gen += 1              # re-bump: a miss memoized during clear() is stale
+
+    def addItem(self, item) -> None:
+        """Qt add, then register *item* and its descendants in the uid index
+        (SB5 D1: the add choke point every Python ``addItem`` passes)."""
+        super().addItem(item)
+        self._uid_register(item)
+
+    def removeItem(self, item) -> None:
+        """Unregister *item* and its descendants from the uid index, then Qt
+        remove (SB5 D1)."""
+        self._uid_unregister(item)
+        super().removeItem(item)
+
+    def _uid_live(self, it, uid: str) -> bool:
+        """True while *it* is in this scene and still carries *uid*."""
+        try:
+            return it.scene() is self and getattr(it, "_uid", None) == uid
+        except RuntimeError:            # a C++-deleted wrapper
+            return False
+
+    def _uid_register_one(self, it) -> bool:
+        """Index *it* under its uid. A uid a different live item already holds
+        re-mints the incoming item (Q6: the first holder keeps it).
+
+        Returns:
+            True when the index changed (an entry added or re-minted).
+        """
+        uid = getattr(it, "_uid", None)
+        if not isinstance(uid, str) or not uid:
+            return False
+        held = self._uid_index.get(uid)
+        if held is not None and held is not it and self._uid_live(held, uid):
+            it._uid = element_uid.new_uid()
+            self._uid_repairs += 1
+            uid = it._uid
+        self._uid_index[uid] = it
+        return True
+
+    def _uid_register(self, item) -> None:
+        changed = False
+        for it in _uid_tree(item):
+            changed = self._uid_register_one(it) or changed
+        if changed:                     # uid-less preview items must not drop the miss memo
+            self._uid_gen += 1
+
+    def _uid_unregister(self, item) -> None:
+        changed = False
+        for it in _uid_tree(item):
+            uid = getattr(it, "_uid", None)
+            if isinstance(uid, str) and self._uid_index.get(uid) is it:
+                del self._uid_index[uid]
+                changed = True
+        if changed:
+            self._uid_gen += 1
+
+    def _uid_reindex(self, item, uid: str) -> None:
+        """Give in-scene *item* the saved / transferred *uid* (the
+        ``element_uid.uid_from_dict`` / ``transfer_uid`` hook)."""
+        old = getattr(item, "_uid", None)
+        if isinstance(old, str) and self._uid_index.get(old) is item:
+            del self._uid_index[old]
+        item._uid = uid
+        self._uid_register_one(item)
+        self._uid_gen += 1
+
+    def _uid_rebuild(self) -> None:
+        """Rebuild the index from ``items()`` (covers children joined by
+        ``setParentItem``); the first item met keeps a duplicated uid."""
+        self._uid_rebuilds += 1
+        self._uid_rebuilt_gen = self._uid_gen
+        idx = {}
+        for it in self.items():
+            uid = getattr(it, "_uid", None)
+            if isinstance(uid, str) and uid and uid not in idx:
+                idx[uid] = it
+        self._uid_index = idx
+
+    def element_by_uid(self, uid):
+        """The live element whose ``_uid`` is *uid*, or None (SB5 D3).
+
+        A hit is returned only while it is in this scene and still carries
+        *uid*. A miss rebuilds the index once; a confirmed miss is memoized
+        until the next add / remove, so a dangling host never rebuilds per
+        paint. At most one rebuild runs per ``_uid_gen``: after it, every
+        further miss at that generation is final. Invariant: every path that
+        gives a scene item a uid after ``addItem`` (a late ``_uid`` retag, a
+        uid-bearing child joining by ``setParentItem``) must bump
+        ``_uid_gen`` (or go through ``_uid_reindex``).
+
+        Args:
+            uid: An element uid (anything else -> None).
+
+        Returns:
+            The element, or None.
+        """
+        if not isinstance(uid, str) or not uid:
+            return None
+        it = self._uid_index.get(uid)
+        if it is not None and self._uid_live(it, uid):
+            return it
+        if self._uid_miss.get(uid) == self._uid_gen:
+            return None
+        if self._uid_rebuilt_gen == self._uid_gen:
+            # The index was already rebuilt at this generation: a further
+            # distinct dangling uid is a miss without another full rebuild.
+            self._uid_miss[uid] = self._uid_gen
+            return None
+        self._uid_rebuild()
+        it = self._uid_index.get(uid)
+        if it is not None and self._uid_live(it, uid):
+            return it
+        self._uid_miss[uid] = self._uid_gen
+        return None
 
     def cleanup(self) -> None:
         """Release background resources held by this scene (teardown seam).
@@ -951,11 +1089,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
         # Single scene refresh after all removals
         self.update()
-        if n_hosted:
-            self._show_status(f"Deleted gridline {', '.join(gl_names)} and "
-                              f"{n_hosted} hosted block(s)")
-        else:
-            self._show_status(f"Deleted {len(selected)} item(s)")
+        self._show_status(hosted_dependents.cascade_status(
+            "Deleted", len(selected), gl_names, n_hosted))   # SB5 Q13
         self.push_undo_state()
 
     def _bulk_delete(self, selected, selected_set):
@@ -966,16 +1101,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         Cut) gets it in the same undo step.
 
         Returns:
-            ``(names, count)``: labels of the gridlines that hosted blocks and
-            the number of hosted blocks removed by the cascade.
+            ``(names, count)``: labels of the gridlines whose hosted blocks
+            went (empty when any element-bound dependent went too, SB5 Q13),
+            and the number of dependents the cascade removed.
         """
         from .gridline import GridlineItem
         gls = [g for g in selected
                if isinstance(g, GridlineItem) and g in self._gridlines]
-        hosted = [(g, [b for b in self.hosted_blocks_on(g)
-                       if b not in selected_set]) for g in gls]
-        cascade = [b for _, bs in hosted for b in bs]
-        names = [g.grid_label for g, bs in hosted if bs]
+        # SB5 D6: every host removed here -- the selection plus what goes with
+        # it (a wall's / slab's openings, a node's pipes and head) -- takes its
+        # hosted dependents (gridline-hosted and element-bound blocks) and its
+        # design-area membership along, inside the caller's undo step.
+        doomed = list(selected)
+        for it in selected:
+            if isinstance(it, (WallSegment, FloorSlab)):
+                doomed.extend(it.openings)
+            elif isinstance(it, Node):
+                doomed.extend(it.pipes)
+                if it.has_sprinkler():
+                    doomed.append(it.sprinkler)
+        cascade = hosted_dependents.cascade(self, doomed)
+        grid_uids = {g._uid for g in gls}
+        names = [g.grid_label for g in gls
+                 if any(b.host and b.host.get("gridline") == g._uid for b in cascade)]
         selected = list(selected) + cascade
         selected_set = set(selected_set) | set(cascade)
         # Collect all pipes and nodes for batch removal from sprinkler_system
@@ -1095,6 +1243,17 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     self.removeItem(node)
             except RuntimeError:
                 pass
+
+        # Orphaned nodes (pass 3) are removed hosts too (SB5 D6).
+        doomed_set = set(doomed)
+        for b in hosted_dependents.cascade(
+                self, [n for n in nodes_to_remove if n not in doomed_set]):
+            if b not in selected_set:
+                self.remove_block_instance(b)
+                cascade.append(b)
+                selected_set.add(b)
+        if any(not (b.host and b.host.get("gridline") in grid_uids) for b in cascade):
+            names = []          # an element-bound dependent went too: Q13 generic wording
 
         # ── Batch cleanup of sprinkler_system lists ───────────────────────
         ss = self.sprinkler_system
@@ -2948,7 +3107,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              scale: float = 1.0, level_offset_mm: float = 0.0,
                              host: dict | None = None, note: dict | None = None,
                              layer_height: int = 0, opaque: bool | None = None,
-                             constraint_points_off: bool = False, phase: str = phase_registry.PHASE_NEW):
+                             constraint_points_off: bool = False, phase: str = phase_registry.PHASE_NEW,
+                             host_uid: str | None = None):
         """Create + add a BlockInstance referencing an existing definition.
 
         Every rebuild-from-record site passes its pose through
@@ -2966,6 +3126,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             host: Gridline host record (hosted-blocks D2); pos is then derived
                 from it. An unresolved gridline places nothing and returns
                 None.
+            host_uid: The element host's uid (SB5 D5) -- an element-bound
+                block; resolved lazily through ``element_by_uid``.
             note: A Note record (text-leader-annotations D8): owning view, box
                 and leader. None for every ordinary block.
             layer_height: Stacking height in a ``block_editor`` scene (block
@@ -2991,6 +3153,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                              level_offset_mm=level_offset_mm)
         if uid:
             inst._uid = str(uid)
+        if host_uid:
+            inst._host_uid = str(host_uid)
         inst.set_block_pos(pos[0], pos[1])
         inst.set_block_rotation(rotation)
         if mirrored:
@@ -3025,8 +3189,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         return inst
 
     def gridline_by_uid(self, uid):
-        """The gridline whose ``_uid`` is *uid*, or None (hosted-blocks D3)."""
-        return next((g for g in self._gridlines if g._uid == uid), None)
+        """The gridline whose ``_uid`` is *uid*, or None (hosted-blocks D3;
+        resolved through the SB5 uid index)."""
+        it = self.element_by_uid(uid)
+        # still registered in _gridlines: a gridline dropped from the list is gone
+        return it if isinstance(it, GridlineItem) and it in self._gridlines else None
 
     def hosted_blocks_on(self, gl) -> list:
         """Block instances hosted on gridline *gl* (hosted-blocks D2)."""
@@ -3036,11 +3203,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
 
     def _sync_hosted_blocks(self, gl) -> None:
         """Re-derive hosted block positions from *gl* (D5; called by
-        ``GridlineItem._rebuild_geometry``)."""
-        from .hosted_blocks import ppm_of, scene_pos
-        ppm = ppm_of(self)
-        for b in self.hosted_blocks_on(gl):
-            b.set_block_pos(*scene_pos(gl, b.host, ppm))
+        ``GridlineItem._rebuild_geometry``) -- the SB5 HostedDependents hook,
+        which also re-shapes blocks bound to *gl*."""
+        hosted_dependents.push(self, gl)
 
     def _shift_hosted_along(self, gl, old_origin, new_origin) -> None:
         """Grip 0 slid *gl*'s origin along its axis: compensate ``along_mm``
@@ -4207,6 +4372,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """Snapshot current network state onto the undo stack."""
         if self._in_undo_restore or getattr(self, "_history_suspended", False):
             return
+        hosted_dependents.refresh_all_bound(self)   # SB5 Q10: a committed host edit re-shapes bound text
         cap_kind = self.block_capability[0] if self.block_capability else None
         if cap_kind == "repeat" and self._undo_stack:
             # LT4: Continuous lock + grow-to-fit join this commit's snapshot.
@@ -9353,6 +9519,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "sprinkler_phase": item.sprinkler.phase if item.has_sprinkler() else None,
                     "fitting_phase_override": item.fitting.phase_override,
                     "pipes": pipes,
+                    "uid": item._uid,                       # SB5: paste maps, never adopts
+                    element_uid.SPRINKLER_UID_KEY: item.sprinkler._uid if item.has_sprinkler() else None,
                 })
             elif isinstance(item, WaterSupply):
                 data.append({"type": "water_supply", **serialize_water_supply(item)})
@@ -9361,6 +9529,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 # paste can rebind them to the sprinklers it created (G-P1).
                 data.append({
                     "type": "design_area",
+                    "uid": item._uid,                       # SB5: paste maps, never adopts
                     "sprinkler_xy": [[s.node.pos().x(), s.node.pos().y()]
                                      for s in item.sprinklers if s.node is not None],
                     "properties": {k: v["value"] for k, v in item._properties.items()},
@@ -9477,6 +9646,29 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             return WATER_SUPPLY_ONE
         return None
 
+    def _paste_block_record(self, obj: dict, offset, **over):
+        """Place one clipboard ``block_instance`` record translated by *offset*
+        (``paste_items``' block branch). *over* replaces record keys: the SB5
+        Q9 hosted remap (``host`` / ``host_uid``).
+
+        Returns:
+            The new instance (selected), or None when placement refused.
+        """
+        from .block_instance import BlockInstance
+        p = obj.get("pos", [0.0, 0.0])
+        obj = {**obj, **over}               # the remap rides the record, so place_kwargs carries it
+        inst = self.place_block_instance(
+            obj["block_id"], (p[0] + offset.x(), p[1] + offset.y()),
+            **BlockInstance.place_kwargs(obj, default_level=self.active_level))
+        if inst is None:
+            return None
+        inst.attributes = dict(obj.get("attributes", {}))
+        if inst.note is not None:
+            self._join_active_view(inst)                    # the copy joins this view
+            inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
+        inst.setSelected(True)
+        return inst
+
     def paste_items(self, offset, data=None, constraints=None, rotation_deg=None):
         """Add clipboard records translated by *offset*.
 
@@ -9514,6 +9706,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         da_records = []       # design-area records, resolved once every node exists
         made_nodes = set()    # id() of every node this paste created (record order is free)
         hosted = []           # nodes this paste hosted; one batched refresh after the loop
+        hosted_records = []   # SB5 Q9: hosted / bound blocks, placed once every host exists
         for obj in data:
             if not self._paste_accepts(obj):
                 continue                      # no branch for this record type
@@ -9554,6 +9747,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 # only counts as pasted if it created something (the node,
                 # a sprinkler, a pipe or a pipe end node).
                 created = existing is None
+                if (existing is None or id(existing) in made_nodes) and obj.get("uid"):
+                    uid_map[obj["uid"]] = node1._uid    # SB5 D4: incl. a node made as a pipe far end
                 if existing is None or id(existing) in made_nodes:
                     # A node this paste made (here, or as an earlier record's
                     # pipe far end) is this record's copy: its override lands.
@@ -9580,6 +9775,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     if self.add_sprinkler(node1, template) is not None:
                         created = True
                         pasted_spr[(round(new_x, 3), round(new_y, 3))] = node1
+                        if obj.get(element_uid.SPRINKLER_UID_KEY):
+                            uid_map[obj[element_uid.SPRINKLER_UID_KEY]] = node1.sprinkler._uid
 
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
@@ -9601,13 +9798,14 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                         if isinstance(rec, dict):           # D-PH16 ruling: the source's fields
                             from .network_codec import apply_pipe_record
                             apply_pipe_record(new_pipe, rec, skip=("Mark",))
+                            if rec.get("uid"):
+                                uid_map[rec["uid"]] = new_pipe._uid
                         created = True
                 node1.fitting.update()
                 if created:
                     new_items.append(node1)
 
             elif obj_type == "block_instance":
-                _p = obj.get("pos", [0.0, 0.0])
                 _d = self.get_block_definition(obj.get("block_id"))
                 from .capabilities import place_refusal
                 _why = place_refusal(_d)
@@ -9621,18 +9819,12 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     pattern_skipped += 1
                     skip_reason = _note_paste_refusal(obj)
                 elif _d is not None:
-                    from .block_instance import BlockInstance
-                    inst = self.place_block_instance(
-                        obj["block_id"],
-                        (_p[0] + offset.x(), _p[1] + offset.y()),
-                        **BlockInstance.place_kwargs(obj, default_level=self.active_level))
+                    if obj.get("host") or obj.get(element_uid.HOST_UID_KEY):
+                        hosted_records.append(obj)          # placed after every host (Q9)
+                        continue
+                    inst = self._paste_block_record(obj, offset)
                     if inst is None:
                         continue
-                    inst.attributes = dict(obj.get("attributes", {}))
-                    if inst.note is not None:
-                        self._join_active_view(inst)                    # the copy joins this view
-                        inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7
-                    inst.setSelected(True)
                     if obj.get("uid"):
                         uid_map[obj["uid"]] = inst._uid
                     new_items.append(inst)
@@ -9655,7 +9847,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     wall.setVisible(False)      # L283: the category apply re-showed a carried Hide
                 marks.mint(self, wall)
                 for op_data in obj.get("openings", []):
-                    op = WallOpening.from_dict(op_data, wall=wall)
+                    op = WallOpening.from_dict(element_uid.without_uid(op_data), wall=wall)
+                    if op_data.get("uid"):
+                        uid_map[op_data["uid"]] = op._uid
                     op.level = wall.level
                     wall.openings.append(op)
                     self.addItem(op)
@@ -9663,7 +9857,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     marks.mint(self, op)
                 new_items.append(wall)
             elif obj_type == "room":
-                room = Room.from_dict(obj)
+                room = Room.from_dict(element_uid.without_uid(obj))   # a copy mints (SB5 D4)
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = room._uid
                 self._retarget_level_refs(room, obj.get("level"), "_ceiling_level")
                 room.level = self.active_level
                 room._scale_manager_ref = self.scale_manager
@@ -9673,7 +9869,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 marks.mint(self, room)
                 new_items.append(room)
             elif obj_type == "floor_slab":
-                slab = FloorSlab.from_dict(obj)     # pure z-range: refs naming the source retarget
+                slab = FloorSlab.from_dict({        # a copy mints, voids too (SB5 D4)
+                    **element_uid.without_uid(obj),
+                    "openings": [element_uid.without_uid(o) for o in obj.get("openings", [])]})
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = slab._uid
+                for rec_op, op in zip(obj.get("openings", []), slab.openings):
+                    if rec_op.get("uid"):
+                        uid_map[rec_op["uid"]] = op._uid
+                # pure z-range: refs naming the source retarget
                 self._retarget_level_refs(slab, obj.get("source_level"),
                                           "_top_level", "_bottom_level")
                 slab.translate(offset.x(), offset.y())   # carries its voids (A2)
@@ -9684,7 +9888,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     marks.mint(self, op)   # a pasted void gets a fresh Mark (A2)
                 new_items.append(slab)
             elif obj_type == "roof":
-                roof = RoofItem.from_dict(obj)
+                roof = RoofItem.from_dict(element_uid.without_uid(obj))   # a copy mints (SB5 D4)
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = roof._uid
                 roof.level = self.active_level      # its only level ref (eave level)
                 roof._scale_manager_ref = self.scale_manager
                 roof.translate(offset.x(), offset.y())
@@ -9698,8 +9904,11 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     skip_reason = WATER_SUPPLY_ONE
                     continue
                 from .network_codec import deserialize_water_supply
-                ws = deserialize_water_supply(self, {**obj, "x": obj["x"] + offset.x(),
+                ws = deserialize_water_supply(self, {**element_uid.without_uid(obj),
+                                                     "x": obj["x"] + offset.x(),
                                                      "y": obj["y"] + offset.y()})
+                if obj.get("uid"):
+                    uid_map[obj["uid"]] = ws._uid
                 new_items.append(ws)
             elif obj_type == "design_area":
                 da_records.append(obj)              # resolved after every node is pasted
@@ -9740,7 +9949,36 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                     "badge_angle": rec.get("badge_angle"),
                 }, id_to_node)
                 da.compute_area(self.scale_manager)
+                if rec.get("uid"):
+                    uid_map[rec["uid"]] = da._uid
                 new_items.append(da)
+
+        # SB5 Q9: a hosted / bound block rebinds to its pasted host; else it
+        # keeps its live original host; else it is skipped (footer reason).
+        host_gone = 0
+        for obj in hosted_records:
+            over = {}
+            h = obj.get("host")
+            if h:
+                src = h.get("gridline")
+                if src in uid_map:
+                    over["host"] = {**h, "gridline": uid_map[src]}
+                elif self.gridline_by_uid(src) is None:
+                    host_gone += 1
+                    continue
+            hu = obj.get(element_uid.HOST_UID_KEY)
+            if hu:
+                if hu in uid_map:
+                    over[element_uid.HOST_UID_KEY] = uid_map[hu]
+                elif self.element_by_uid(hu) is None:
+                    host_gone += 1
+                    continue
+            inst = self._paste_block_record(obj, offset, **over)
+            if inst is None:
+                continue
+            if obj.get("uid"):
+                uid_map[obj["uid"]] = inst._uid
+            new_items.append(inst)
 
         if constraints:
             self.constraint_ctl.paste_records(constraints, uid_map,
@@ -9755,13 +9993,24 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 from . import auto_constrain as _ac
                 _ac.join_gridlines(self, pasted_gls, None)
         # The Paste / Duplicate commits show their own count status after this
-        # returns; they append this reason so it is not lost (PH1 T8 M4).
-        self._last_paste_skip_reason = skip_reason if pattern_skipped else None
+        # returns; they append these reasons so none is lost (PH1 T8 M4; SB5 AC11).
+        reasons = []          # every skip reason, for the Paste / Duplicate footer (AC11)
+        if pattern_skipped:
+            reasons.append(skip_reason)
+        if da_skipped:
+            reasons.append(f"{da_skipped} design area(s) skipped - their sprinklers "
+                           f"were not copied")
+        if host_gone:
+            from .constants import HOSTED_HOST_GONE
+            reasons.append(HOSTED_HOST_GONE.format(n=host_gone))
+        self._last_paste_skip_reason = reasons
         if pattern_skipped:
             self._show_status(skip_reason)
         elif da_skipped:
             self._show_status(f"Pasted {len(data) - da_skipped} item(s); {da_skipped} design area(s) "
                               f"skipped - their sprinklers were not copied")
+        elif host_gone:
+            self._show_status(reasons[-1])
         else:
             self._show_status(f"Pasted {len(data)} item(s)")
         from .marks import request_duplicate_refresh

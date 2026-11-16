@@ -3,6 +3,7 @@ from PyQt6.QtGui import QPainterPath
 
 from .constants import DEFAULT_CEILING_OFFSET_MM, DEFAULT_LEVEL, Z_SPRINKLER
 from . import phase_registry
+from . import element_uid
 
 from .displayable_item import DisplayableItemMixin
 from .symbol_block import SymbolBlockItem
@@ -14,6 +15,7 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
 
     def __init__(self, node):
         SymbolBlockItem.__init__(self, "Sprinkler", owner=node)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self.node = node
         self.init_displayable()
         self._display_scale: float = 1.0       # DM scale column retired; not read for size
@@ -40,6 +42,9 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
 
         if node is not None:
             self.setParentItem(node)
+            sc = node.scene()                  # SB5: a child joining by setParentItem
+            if sc is not None and hasattr(sc, "_uid_gen"):    # never reaches addItem: drop
+                sc._uid_gen += 1               # a memoized element_by_uid miss
             self.setZValue(Z_SPRINKLER)
             # No ItemIgnoresTransformations — the block is real size (scales with zoom)
 

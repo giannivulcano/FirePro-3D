@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from . import phase_registry
+from . import element_uid
 from .fitting import Fitting
 from .sprinkler import Sprinkler
 from .constants import (DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE,
@@ -30,6 +31,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     def __init__(self, x, y, z=0):
         super().__init__(-self.RADIUS, -self.RADIUS,
                          self.RADIUS*2, self.RADIUS*2)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self.setPos(x, y)
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))

@@ -20,6 +20,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainterPath, QPen
 from .constants import DEFAULT_LEVEL, Z_WATER_SUPPLY
 from . import phase_registry
+from . import element_uid
 from .paper_display import shows_selection
 from .symbol_block import SymbolBlockItem
 
@@ -29,6 +30,7 @@ class WaterSupply(SymbolBlockItem):
 
     def __init__(self, x: float = 0, y: float = 0):
         super().__init__("Water Supply")
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self.setPos(x, y)
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # DM scale column retired; not read for size

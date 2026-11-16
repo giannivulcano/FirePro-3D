@@ -37,6 +37,7 @@ from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QPainterPathStroker
 
 from . import phase_registry
+from . import element_uid
 from .colour_tokens import resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .constants import (
@@ -116,6 +117,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
                  preset=None,
                  **_legacy):
         QGraphicsPathItem.__init__(self)
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self.init_displayable(level=DEFAULT_LEVEL)
 
         # ── Feature resolution ────────────────────────────────────────────────
@@ -614,6 +616,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             "level":           self.level,
             "mark":            self._mark,
         }
+        element_uid.uid_to_dict(self, d)
         phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283
 
@@ -648,6 +651,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             height_mm=float(data["height_mm"]) if "height_mm" in data else None,
             sill_mm=float(data["sill_mm"]) if "sill_mm" in data else None,
         )
+        element_uid.uid_from_dict(obj, data)
 
         # ── Placement-frame fields (absent in legacy dicts → defaults) ────────
         obj.cross_offset_mm = float(data.get("cross_offset_mm", 0.0))

@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 
 from . import phase_registry
+from . import element_uid
 from .colour_tokens import normalize_colour, resolve_colour
 from .geometry_utils import triangulate_polygon
 
@@ -127,6 +128,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     def __init__(self, points: list[QPointF] | None = None,
                  color: str | QColor = "#D2B48C"):
         super().__init__()
+        self._uid: str = element_uid.new_uid()     # SB5 D2: stable element id
         self._points: list[QPointF] = [QPointF(p) for p in (points or [])]
         self._colour: str = _stored_colour(color)
         self._thickness_mm: float = DEFAULT_THICKNESS_MM
@@ -616,6 +618,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             "level":           self.level,
             "name":            self.name,
         }
+        element_uid.uid_to_dict(self, d)
         phase_registry.write_element(self, d)
         return self.display_overrides_to_dict(d)       # L283
 
@@ -624,6 +627,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         FT = 304.8
         points = [QPointF(p[0], p[1]) for p in data.get("points", [])]
         roof = cls(points=points, color=data.get("color", "#D2B48C"))
+        element_uid.uid_from_dict(roof, data)
         roof._roof_type = data.get("roof_type", "flat")
         roof._pitch_deg = data.get("pitch_deg", DEFAULT_PITCH_DEG)
         # Accept new mm keys; fall back to old ft keys with conversion

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 from . import phase_registry
+from . import element_uid
 
 
 SYMBOL_KEY = "symbol_block"   # SB4g D6: sparse per-element symbol id, absent = System default
@@ -75,6 +76,7 @@ def pipe_record(pipe) -> dict:
         "level":      getattr(pipe, "level", DEFAULT_LEVEL),
         "properties": {k: v["value"] for k, v in pipe._properties.items()},
     }
+    element_uid.uid_to_dict(pipe, entry)          # SB5 D2 (file, undo and clipboard)
     phase_registry.write_element(pipe, entry)
     pipe_ovr = getattr(pipe, "_display_overrides", {})
     if pipe_ovr:
@@ -100,6 +102,9 @@ def serialize_node(node, node_id: dict) -> dict:
         "room_name":         getattr(node, "_room_name", ""),
         "sprinkler":         sprinkler_props(node.sprinkler) if node.has_sprinkler() else None,
     }
+    element_uid.uid_to_dict(node, entry)          # SB5 D2
+    if node.has_sprinkler():                      # Q2: the head has its own uid
+        element_uid.uid_to_dict(node.sprinkler, entry, element_uid.SPRINKLER_UID_KEY)
     if getattr(node, "badge_position", "Auto") != "Auto":
         entry["badge_position"] = node.badge_position      # SB4e R3: sparse, absent = Auto
     node_ovr = getattr(node, "_display_overrides", {})
@@ -152,6 +157,7 @@ def serialize_water_supply(ws) -> dict:
         "y":          ws.pos().y(),
         "properties": {k: v["value"] for k, v in ws._properties.items()},
     }
+    element_uid.uid_to_dict(ws, entry)            # SB5 D2
     phase_registry.write_element(ws, entry)
     if ws.symbol_block:
         entry[SYMBOL_KEY] = ws.symbol_block      # SB4g D6: sparse
@@ -166,7 +172,7 @@ def serialize_design_area(da, node_id: dict, active_design_area) -> dict:
     node is present are recorded. Uses ``da._properties`` (raw stored values)."""
     spr_node_ids = [node_id[s.node] for s in da.sprinklers
                     if s.node and s.node in node_id]
-    return {
+    entry = {
         "sprinkler_node_ids": spr_node_ids,
         # raw stored props — get_properties() adds synthesized display rows
         "properties": {k: v["value"] for k, v in da._properties.items()},
@@ -176,6 +182,7 @@ def serialize_design_area(da, node_id: dict, active_design_area) -> dict:
         "badge_angle": (da.badge._angle if getattr(da, "badge", None)
                         is not None else 0.0),
     }
+    return element_uid.uid_to_dict(da, entry)     # SB5 D2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +263,7 @@ def deserialize_water_supply(scene, entry):
     """
     from .water_supply import WaterSupply
     ws = WaterSupply(entry["x"], entry["y"])
+    element_uid.uid_from_dict(ws, entry)          # before the add: the index sees it
     scene.addItem(ws)
     scene.water_supply_node = ws
     scene.sprinkler_system.supply_node = ws
@@ -282,6 +290,7 @@ def deserialize_node(scene, entry):
     """
     from .node import Node
     node = Node(entry["x"], entry["y"], entry.get("elevation", 0))
+    element_uid.uid_from_dict(node, entry)        # before the add: the index sees it
     scene.addItem(node)
     scene.sprinkler_system.add_node(node)
     node._display_overrides = entry.get("display_overrides", {})
@@ -289,6 +298,7 @@ def deserialize_node(scene, entry):
     if entry.get("sprinkler"):
         template = sprinkler_template(entry["sprinkler"], entry.get("sprinkler_phase"))
         scene.add_sprinkler(node, template, mint=False)   # set_properties copies phase + symbol
+        element_uid.uid_from_dict(node.sprinkler, entry, element_uid.SPRINKLER_UID_KEY)
         node.sprinkler._display_overrides = entry.get(
             "sprinkler_display_overrides", {})
 
@@ -352,6 +362,7 @@ def deserialize_pipe(scene, entry, id_to_node):
     pipe = scene.add_pipe(n1, n2, mint=False)
     pipe.level = entry.get("level", DEFAULT_LEVEL)
     apply_pipe_record(pipe, entry)
+    element_uid.uid_from_dict(pipe, entry)        # re-indexed: add_pipe already added it
     return pipe
 
 
@@ -373,6 +384,7 @@ def deserialize_design_area(scene, entry, id_to_node):
         if node and node.has_sprinkler():
             sprs.append(node.sprinkler)
     da = DesignArea(sprs)
+    element_uid.uid_from_dict(da, entry)          # before the add: the index sees it
     lvl = entry.get("level")
     if not lvl:  # pre-2026-07 save: backfill from member sprinklers
         lvl = next((s.node.level for s in sprs if s.node), DEFAULT_LEVEL)

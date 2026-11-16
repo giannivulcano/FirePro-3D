@@ -50,7 +50,7 @@ def _slab_with_void(void=(1000, 1000, 2000, 2000)):
 # Today's FloorSlab.to_dict keys (AC7: a void-less slab writes exactly these).
 _SLAB_KEYS = {"type", "points", "color", "name", "top_mode", "top_level", "top_offset_mm",
               "top_abs_z_mm", "bottom_mode", "bottom_level", "bottom_offset_mm",
-              "bottom_abs_z_mm", "thickness_mm"}
+              "bottom_abs_z_mm", "thickness_mm", "uid"}
 _VOID_PTS = [(1000, 1000), (2000, 1000), (2000, 2000), (1000, 2000)]
 
 
@@ -84,6 +84,7 @@ def test_slab_nests_voids_and_round_trips(qapp):
         "feature_id": "floor_sketched",
         "points": [[1000.0, 1000.0], [2000.0, 1000.0], [2000.0, 2000.0], [1000.0, 2000.0]],
         "mark": "OP3",
+        "uid": op._uid,
         "display_overrides": {"color": "#00ff00"},
     }]
     s2 = FloorSlab.from_dict(d)

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
 from firepro3d.floor_slab import FloorSlab
 from firepro3d.manip_handle import GripHandle
 from firepro3d.manip_math import HandleRole
+from firepro3d.element_uid import without_uid
 
 
 def _make_floor():
@@ -54,7 +55,7 @@ def test_vertex_grip_apply_matches_legacy():
     m = _M()
     h.on_press(m)
     h.on_drag(m, QPointF(150, 30), Qt.KeyboardModifier.NoModifier)
-    assert migrated.to_dict() == legacy.to_dict()
+    assert without_uid(migrated.to_dict()) == without_uid(legacy.to_dict())   # SB5: two distinct items, two uids
 
 
 def _post_drag(view, scene, path):

@@ -52,18 +52,21 @@ def flip_refusal_targets(items) -> list:
 
 
 def _with_skip_reason(scene, msg: str) -> str:
-    """*msg* plus the reason the last ``paste_items`` refused a record.
+    """*msg* plus every reason the last ``paste_items`` refused a record.
 
-    ``paste_items`` shows its refusal (one water supply per project, a pattern
-    block, a Note in the wrong view) itself; the Paste / Duplicate commits then
-    show their count, which would hide it (PH1 T8 M4).
+    ``paste_items`` keeps a list (pattern / water supply / Note refusal, design
+    areas whose sprinklers were not copied, hosted items whose host is gone --
+    SB5 AC11); the Paste / Duplicate commits then show their count, which would
+    hide them (PH1 T8 M4).
 
     Args:
-        scene: The Model_Space that just ran ``paste_items``.
+        scene: The scene that just ran ``paste_items``.
         msg: The commit's own status text.
     """
-    reason = getattr(scene, "_last_paste_skip_reason", None)
-    return f"{msg} - {reason}" if reason else msg
+    reasons = getattr(scene, "_last_paste_skip_reason", None)
+    if isinstance(reasons, str):
+        reasons = [reasons]
+    return f"{msg} - {'; '.join(reasons)}" if reasons else msg
 
 
 class ModifyToolsController:
@@ -349,13 +352,13 @@ class ModifyToolsController:
             sel = list(items)
             s.blockSignals(True)
             try:
-                _names, n_hosted = s._bulk_delete(sel, set(sel))
+                names, n_hosted = s._bulk_delete(sel, set(sel))
             finally:
                 s.blockSignals(False)
             s.selectionChanged.emit()
             s.push_undo_state()
-            s._show_status(f"Cut {n} item(s)" + (
-                f" and {n_hosted} hosted block(s)" if n_hosted else ""))
+            from . import hosted_dependents
+            s._show_status(hosted_dependents.cascade_status("Cut", n, names, n_hosted))
         else:
             s._show_status(f"Copied {n} item(s)")
         s._copy_is_cut = False
