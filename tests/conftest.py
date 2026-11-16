@@ -190,18 +190,11 @@ def _reset_phase_registry():
     from firepro3d import phase_registry as _pr
     _pr._TABLE = None
     _pr._UNKNOWN_LOGGED.clear()
+    from firepro3d import phase_display as _phd  # PH3: pass context is module global too
+    _phd._STACK.clear()
     yield
     _pr._TABLE = None
     _pr._UNKNOWN_LOGGED.clear()
-
-
-@pytest.fixture(autouse=True)
-def _reset_phase_display():
-    """PH3: the paper-pass phase context is module global -- a test that dies
-    mid-pass never leaves a Phasing-on context for the next test."""
-    from firepro3d import phase_display as _phd
-    _phd._STACK.clear()
-    yield
     _phd._STACK.clear()
 
 
