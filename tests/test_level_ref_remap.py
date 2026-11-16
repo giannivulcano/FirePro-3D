@@ -103,7 +103,7 @@ def test_delete_ceiling_level_keeps_node_and_room_ceiling_in_place(qapp, shown_m
     assert node.ceiling_level == room._ceiling_level == "Level 1"
     assert node.z_pos == node_z
     assert node.get_properties()["Ceiling Level"]["value"] == "Level 1"
-    assert float(node._properties["Ceiling Offset"]["value"]) == node.ceiling_offset
+    assert node.get_properties()["Ceiling Offset"]["value"] == node._fmt(node.ceiling_offset)
     assert room.z_range_mm() == room_z
 
 

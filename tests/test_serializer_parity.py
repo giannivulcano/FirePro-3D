@@ -233,9 +233,7 @@ def test_sprinkler_ceiling_parity_across_paths(qapp, tmp_path):
         ms.add_sprinkler(n)
         n.ceiling_level = "Level 1"
         n.ceiling_offset = -101.6  # -4 in, non-default
-        n._properties["Ceiling Level"]["value"] = n.ceiling_level
-        n._properties["Ceiling Offset"]["value"] = str(n.ceiling_offset)
-        n._recompute_z_pos()
+        n.host(n.ceiling_level, n.ceiling_offset, refresh=False)
         return ms
     u, f = _capture_via_two_paths(build, tmp_path)
     un = next(iter(u.sprinkler_system.nodes))

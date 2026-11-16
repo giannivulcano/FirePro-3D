@@ -196,11 +196,7 @@ class SprinklerWorkflowController:
             # Set level, ceiling, and room assignment
             node.level = level
             node._room_name = room.name
-            node.ceiling_level = ceiling_level
-            node._properties["Ceiling Level"]["value"] = ceiling_level
-            node.ceiling_offset = ceiling_offset
-            node._properties["Ceiling Offset"]["value"] = str(ceiling_offset)
-            node._recompute_z_pos()
+            node.host(ceiling_level, ceiling_offset, refresh=False)
             self.add_sprinkler(node, temp_spr)
             count += 1
 

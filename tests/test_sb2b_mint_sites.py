@@ -172,7 +172,7 @@ def test_vertical_pipe_split_keeps_node_a_mark_and_mints_other(qapp, shown_model
     na, nb = Node(0, 0), Node(0, 0)
     for n, z in ((na, 0.0), (nb, 3000.0)):
         scene.addItem(n); scene.sprinkler_system.add_node(n); n.z_pos = z
-    pipe = scene.add_pipe(na, nb, _propagate_ceiling=False)
+    pipe = scene.add_pipe(na, nb)
     assert pipe._is_vertical() and marks.get_mark(pipe) == "P1"
     mid = scene._pipe_ctl._find_or_split_vertical_at_z(
         QPointF(0, 0), 1500.0, _pipe_template())

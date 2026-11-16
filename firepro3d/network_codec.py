@@ -40,11 +40,13 @@ def sprinkler_props(spr) -> dict:
     (written once as ``sprinkler_phase``, PD1), minus the node's badge rows
     (Badge Position + solver values are the node's, never copied -- SB4e I2)
     and minus the Symbol row (its label is a view of ``symbol_block``, which
-    is written sparsely beside the rows -- SB4g D6)."""
+    is written sparsely beside the rows -- SB4g D6), minus Ceiling Level /
+    Offset (the node's, saved on the node entry -- Q8; old records' copies are
+    ignored on load because ``set_properties`` skips them on a node)."""
     from .node import HYDRAULIC_ROW_KEYS
     from .system_blocks import SYMBOL_ROW_KEY
     rec = {k: v for k, v in spr.get_properties(with_symbol_row=False).items()
-           if k not in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY)
+           if k not in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY, "Ceiling Level", "Ceiling Offset")
            and k not in HYDRAULIC_ROW_KEYS}
     if spr.symbol_block:
         rec[SYMBOL_KEY] = spr.symbol_block
@@ -279,15 +281,15 @@ def deserialize_node(scene, entry):
     Mirror of ``serialize_node``. Scene-referencing: adds to *scene* and its
     sprinkler_system, and uses scene._level_manager to resolve z_pos.
 
-    Ordering (slice 4b): the sprinkler sub-block runs BEFORE ceiling application.
-    ``add_sprinkler`` does not read node ceiling, so applying ceiling afterward is a
-    single source of truth and drops load_from_file's historical save/restore dance.
+    Ordering: the sprinkler sub-block runs BEFORE the ceiling is hosted, so the
+    record's ceiling is the last writer (``add_sprinkler`` no longer writes it,
+    Q11, Task 5) and load_from_file needs no save/restore dance.
     The fitting-display pending flag is set here; the fitting display tail (update +
     DM colours) stays with each caller. Returns the node; caller stores it under
     entry["id"].
     """
     from .node import Node
-    node = Node(entry["x"], entry["y"])
+    node = Node(entry["x"], entry["y"], entry.get("elevation", 0))
     element_uid.uid_from_dict(node, entry)        # before the add: the index sees it
     scene.addItem(node)
     scene.sprinkler_system.add_node(node)
@@ -310,20 +312,14 @@ def deserialize_node(scene, entry):
     node.level = entry.get("level", DEFAULT_LEVEL)
     node._room_name = entry.get("room_name", "")
     node.badge_position = entry.get("badge_position", "Auto")
-    node.ceiling_level = entry.get("ceiling_level", node.level)
     if "ceiling_offset_mm" in entry:
-        node.ceiling_offset = entry["ceiling_offset_mm"]
+        offset = entry["ceiling_offset_mm"]
+    elif "ceiling_offset" in entry:
+        offset = entry["ceiling_offset"] * 25.4   # legacy inches -> mm
     else:
-        node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # inches -> mm
-    node._properties["Ceiling Level"]["value"] = node.ceiling_level
-    node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
-
-    lm = getattr(scene, "_level_manager", None)
-    lvl = lm.get(node.ceiling_level) if lm else None
-    if lvl:
-        node.z_pos = lvl.elevation + node.ceiling_offset
-    else:
-        node.z_pos = entry.get("elevation", 0)
+        offset = DEFAULT_CEILING_OFFSET_MM
+    # Batched: the caller's post-pipe fitting loop is the refresh (load, undo).
+    node.host(entry.get("ceiling_level", node.level), offset, refresh=False)
     return node
 
 
@@ -354,8 +350,8 @@ def deserialize_pipe(scene, entry, id_to_node):
     """Create + register a Pipe via scene.add_pipe (the canonical creation path).
 
     Mirror of ``serialize_pipe``. Returns the pipe, or None if either endpoint node
-    id is missing. Uses ``_propagate_ceiling=False``: nodes already carry
-    authoritative ceiling data on load/restore. Routing both paths through add_pipe
+    id is missing. Nodes already carry authoritative ceiling data on
+    load/restore, and ``add_pipe`` never writes it. Routing both paths through add_pipe
     single-homes creation (geometry, visibility, label, category defaults, fitting
     DM colours) and removes _restore_network's hand-rolled variant.
     """
@@ -363,7 +359,7 @@ def deserialize_pipe(scene, entry, id_to_node):
     n2 = id_to_node.get(entry["node2_id"])
     if not (n1 and n2):
         return None
-    pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False, mint=False)
+    pipe = scene.add_pipe(n1, n2, mint=False)
     pipe.level = entry.get("level", DEFAULT_LEVEL)
     apply_pipe_record(pipe, entry)
     element_uid.uid_from_dict(pipe, entry)        # re-indexed: add_pipe already added it

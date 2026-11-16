@@ -499,7 +499,7 @@ class TestNodeSerialization:
         node = Node(0, 0)
         node.set_property("Ceiling Level", "Level 2")
         assert node.ceiling_level == "Level 2"
-        assert node._properties["Ceiling Level"]["value"] == "Level 2"
+        assert node.get_properties()["Ceiling Level"]["value"] == "Level 2"
 
     def test_set_ceiling_offset_numeric(self, qapp):
         node = Node(0, 0)

@@ -1,7 +1,7 @@
 ---
 status: current          # documents as-built behaviour plus the bugs still open (§16.1)
-last-verified: 2026-11-13  # SB4g Account: s3.2.1 pick-disk rule, s9.1 riser pass-through symbol, s13 constants row re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # PH1 Account: §2.1 Phase row, §2.2 Fitting Phase row, §3.3 / §4.2 collinear extend phase, §7 add_pipe step 3, §11.1 pipe JSON + phase keys, §12.2 template row only, rest not re-audited; prior 2026-11-11  # SB4e Account: §2.2 Node panel rows pointer to the hydraulic badge rows and §11.1 sparse badge_position note only, rest not re-audited; prior 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
-verified-commit: e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior f2f0db3e  # PH1 (v0.101.0; §2.1 / §2.2 / §3.3 / §4.2 / §7 / §11.1 / §12.2 phase lines only); prior e991da71  # SB4e (v0.100.0; §2.2 / §11.1 notes only); prior 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
+last-verified: 2026-11-15  # node-elevation Account: s1.1 / s2.2 / s3.2 diagram / s5.1-s5.2 / s7 / s16 B1-B2 stale _propagate_ceiling and _create_vertical_connection refs only, rest not re-audited; prior 2026-11-13  # SB4g Account: s3.2.1 pick-disk rule, s9.1 riser pass-through symbol, s13 constants row re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # PH1 Account: §2.1 Phase row, §2.2 Fitting Phase row, §3.3 / §4.2 collinear extend phase, §7 add_pipe step 3, §11.1 pipe JSON + phase keys, §12.2 template row only, rest not re-audited; prior 2026-11-11  # SB4e Account: §2.2 Node panel rows pointer to the hydraulic badge rows and §11.1 sparse badge_position note only, rest not re-audited; prior 2026-11-05  # section piping Account: B12 rows only, rest not re-audited; prior 2026-11-05  # pipe polish Account: §2.2 / §2.3 / §3.2 / §3.3 / §4.4 / §6.3 / §6.4 / §9.1 / §13 / §16 only, rest not re-audited
+verified-commit: 807cd649  # node-elevation (0.105.1; sections above only); prior e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior f2f0db3e  # PH1 (v0.101.0; §2.1 / §2.2 / §3.3 / §4.2 / §7 / §11.1 / §12.2 phase lines only); prior e991da71  # SB4e (v0.100.0; §2.2 / §11.1 notes only); prior 539eda40  # section piping on main (v0.91.0); prior ff2b8636  # pipe polish merge on main (v0.90.0)
 applies-to:
   - firepro3d/pipe.py
   - firepro3d/node.py
@@ -39,7 +39,7 @@ These rules govern the entire pipe placement system:
 
 | Rule | Rationale |
 |---|---|
-| **All pipe creation MUST go through `add_pipe()`** | Prevents inconsistent state from manual `Pipe()` + `addItem()` construction. Use `_propagate_ceiling=False` when callers manage Z themselves. |
+| **All pipe creation MUST go through `add_pipe()`** | Prevents inconsistent state from manual `Pipe()` + `addItem()` construction. `add_pipe` never writes a node's elevation; callers host nodes through `Node.host` / `add_node(host=)` ([`sprinkler-system-components.md`](sprinkler-system-components.md) section 7). |
 | **Snapping is 2D (canvas input)** | The user clicks on a 2D canvas; snap constrains cursor position in plan view. |
 | **All geometry validation uses 3D vectors** | Backtrack detection, collinear checks, 4th-branch validation, fitting determination, and angle measurements must use `(x, y, z_pos)` vectors to correctly handle pipes at different elevations. |
 | **Bare nodes without pipes or sprinklers must not exist** | Auto-cleanup on pipe deletion is correct and intentional. |
@@ -86,7 +86,7 @@ On the template panel the offset rows read **N1 Offset** / **N2 Offset** (meta `
 | Attribute | Type | Default | Description |
 |---|---|---|---|
 | `x_pos`, `y_pos` | `float` | — | Position at creation, rewritten by the panel X / Y edit only. **No reader**: `scenePos()` is the live position (a drag does not update them) |
-| `z_pos` | `float` | — | 3D elevation = `level.elevation + ceiling_offset` |
+| `z_pos` | `float` | — | 3D elevation, derived and written only by `Node` ([`sprinkler-system-components.md`](sprinkler-system-components.md) section 7) |
 | `ceiling_level` | `str` | `"Level 1"` | Ceiling reference level |
 | `ceiling_offset` | `float` | `-50.8` mm | Offset from the ceiling level's elevation (not necessarily below a ceiling). Panel label **Offset**, property key `"Ceiling Offset"` |
 | `pipes` | `list[Pipe]` | `[]` | Connected pipes (**max 4**) |
@@ -191,8 +191,7 @@ User clicks on canvas
     │   └─ 3-option dialog (see §5.4)
     │
     ├─ If node is NEW: apply template elevation TO the node
-    │   node.ceiling_level = template.node1_ceiling_level
-    │   node.ceiling_offset = template.node1_ceiling_offset
+    │   node.host(*template_ceiling(template, 1))     (the node is hosted at creation)
     │
     ├─ If node is EXISTING: adopt its elevation INTO the template
     │   template.node1_ceiling_level = node.ceiling_level
@@ -427,17 +426,15 @@ placement are byte-identical, and commit reuses the mouse's post-snap body
 
 ### 5.1 Z-Position Computation
 
-```
-node.z_pos = level.elevation + node.ceiling_offset
-```
-
-- `ceiling_level` names a level (e.g., "Level 1") → looked up in `LevelManager`
-- `ceiling_offset` is typically `-50.8 mm` (2 inches below ceiling)
-- Elevation is stored in millimeters
+The formula, the unresolved-level rule and the only writer (`Node.host` / `rehost_keep_z` / `set_z` / `rederive`) are owned by [`sprinkler-system-components.md`](sprinkler-system-components.md) section 7 (7.1, 7.2); not restated here. Elevation is stored in millimeters.
 
 ### 5.2 Template Elevation Propagation
 
-Pipes do not store ceiling data. Ceiling level and offset are **node-only** attributes. During pipe placement, the template's per-node attrs (`node1_ceiling_level`, `node1_ceiling_offset`, `node2_ceiling_level`, `node2_ceiling_offset`) drive elevation propagation, falling back to `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` when absent.
+Pipes do not store ceiling data. Ceiling level and offset are **node-only** attributes. During pipe placement, the template's per-node attrs (`node1_ceiling_level`, `node1_ceiling_offset`, `node2_ceiling_level`, `node2_ceiling_offset`) drive the node hosting through `template_ceiling(template, end)`, the single fallback to `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` when absent (writer contract: [`sprinkler-system-components.md`](sprinkler-system-components.md) section 7).
+
+**Placement notes (node-elevation run, D2 / D3).**
+- A new node whose template is `None` is hosted on the **active level** at `DEFAULT_CEILING_OFFSET_MM`, not on `DEFAULT_LEVEL` ("Level 1").
+- The pipe's end node, and the end-side split, intermediate and 45-degree wye-stub nodes, take the template's **node 2** ceiling (`template_ceiling(template, 2)`: the end `find_or_create_node(host=...)`, the split end `end_node.host(...)`, `_make_intermediate_node(..., 2)`, `_convert_45_elbow_to_wye`). `_try_extend_collinear` creates no node.
 
 | Scenario | Direction | Behavior |
 |---|---|---|
@@ -464,7 +461,7 @@ When selecting an existing node whose `z_pos` differs from the template's target
 | **Match** | Adopt the existing node's elevation into the template. Abandons the template's target Z. |
 | **Template** | Keep template elevation. Find/split existing vertical geometry at that Z, or create a standalone node at the template's Z. |
 
-> ~~**BUG:** The "Riser" path manually constructs pipes.~~ **Fixed** for the Riser path (B1) and `_create_vertical_connection()` (B2): both use `add_pipe(n1, n2, template, _propagate_ceiling=False)` since they manage Z themselves. **Still open (B3):** `_split_vertical_pipe()` constructs its halves by hand (§16.1).
+> ~~**BUG:** The "Riser" path manually constructs pipes.~~ **Fixed** for the Riser path (B1); `_create_vertical_connection()` (B2) was deleted by the node-elevation run, so the riser path is the only auto-built vertical pipe through `add_pipe`. **Still open (B3):** `_split_vertical_pipe()` constructs its halves by hand (§16.1).
 
 ---
 
@@ -510,7 +507,7 @@ The through-run is identified by finding the collinear pair among existing pipes
 **Method:** `PipeNetworkController.add_pipe` (the `Model_Space.add_pipe` shell forwards to it)
 
 ```python
-add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
+add_pipe(n1, n2, template=None, mint=True)
 ```
 
 `mint` (SB2b): after the display defaults, a pipe created with `mint=True` receives the next Pipe Mark (so a template copy never keeps the source Mark); file load and undo restore pass `mint=False`, and a pipe split keeps the original Mark on its first half. Rules owned by `element-parameters.md` "Marks (SB2b)".
@@ -530,10 +527,8 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True, mint=True)
 10. Update fittings at **both endpoints and all their neighbors**
 11. Apply fitting display manager colors
 12. Force viewport repaint
-13. If `_propagate_ceiling`:
-    - **With template:** Use per-node ceiling values (`node1_ceiling_level/offset`, `node2_ceiling_level/offset`), falling back to `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM`
-    - **Without template:** Apply `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` to both nodes
-    - Recompute `z_pos` on both nodes
+
+`add_pipe` does **not** touch either node's elevation (the former `_propagate_ceiling` step is gone). A node is hosted when it is created (`add_node(..., host=)`, default: the active level at `DEFAULT_CEILING_OFFSET_MM`) or by the placement flow through `Node.host`; the template's ceiling for a node end comes from `template_ceiling(template, end)`. Contract: [`sprinkler-system-components.md`](sprinkler-system-components.md) section 7.
 
 ---
 
@@ -808,8 +803,8 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 
 | # | Issue | Severity | Location |
 |---|---|---|---|
-| B1 | ~~Riser auto-build bypasses `add_pipe()`~~ — **fixed**: the elevation-mismatch Riser path (`resume_elev_mismatch`) builds its vertical pipe through `add_pipe(..., _propagate_ceiling=False)`; the only direct `Pipe(n1, n2)` construction of a placed pipe left outside `add_pipe` is B3 | High | `PipeNetworkController` |
-| B2 | ~~`_create_vertical_connection()` bypasses `add_pipe()` partially~~ — **fixed**: both its pipes go through `add_pipe` | High | `PipeNetworkController._create_vertical_connection` |
+| B1 | ~~Riser auto-build bypasses `add_pipe()`~~ — **fixed**: the elevation-mismatch Riser path (`resume_elev_mismatch`) builds its vertical pipe through `add_pipe`; the only direct `Pipe(n1, n2)` construction of a placed pipe left outside `add_pipe` is B3 | High | `PipeNetworkController` |
+| B2 | ~~`_create_vertical_connection()` bypasses `add_pipe()` partially~~ — **resolved**: the method was deleted (node-elevation run, 0.105.1) | High | (removed) |
 | B3 | `_split_vertical_pipe()` bypasses `add_pipe()` — **still open**: it builds each half with `Pipe(na, nb)` + `sprinkler_system.add_pipe` + `addItem`, then `set_pipe_display()` and a Mark mint on the n2 half. It skips `apply_category_defaults`, `update_label` / `update_geometry`, the forced visibility and the neighbour-wide fitting update (only the mid node and the two ends update) | High | `PipeNetworkController._split_vertical_pipe` |
 | B4 | ~~`find_nearby_node()` Z-blind~~ — **fixed**: `z_hint` orders a stack (§6.3); the Sprinkler tool still passes none | High | `PipeNetworkController.find_nearby_node` |
 | B5 | ~~`snap_point_45` uses `pipes[0]` not contextual pipe — grid misaligned when branching~~ — **fixed 2026-08-17** (`25c7edb`): reference is now the coplanar pipe whose axis is angularly nearest the drag direction, with an explicit `reference_pipe` override; riser-only nodes fall through to free soft-snap (§4.1) | Medium | `Node.snap_point_45` |

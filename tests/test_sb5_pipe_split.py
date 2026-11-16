@@ -35,7 +35,7 @@ def test_g_split_vertical_keeps_the_uid_on_the_node1_half(qapp, shown_model_view
         ms.addItem(n)
         ms.sprinkler_system.add_node(n)
         n.z_pos = z
-    pipe = ms.add_pipe(na, nb, _propagate_ceiling=False)
+    pipe = ms.add_pipe(na, nb)                    # add_pipe never writes node elevation (Q4)
     tag = bound_tag(ms, pipe, "Pipe", {"M": "Mark"}, pos=(500.0, -500.0))
     uid0 = pipe._uid
     ms.push_undo_state()                                   # the pre-split snapshot

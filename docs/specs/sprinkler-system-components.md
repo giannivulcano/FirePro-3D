@@ -1,11 +1,11 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-11-13  # SB4g Account: s3.1 diagram, s4.4 Symbol row, s8 (symbol blocks, size, centring, selection, display), s10.3, s13.3, s14 D7 re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
-verified-commit: e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior 7cdb7146  # room-detection rework (§11.5 room clip + §11.8 membership only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
+last-verified: 2026-11-15  # node-elevation Account: s7 rewritten (node elevation contract), s4.4 Ceiling row, s13.1 step 3, s13.3 Ceiling rows, s15.4 only, rest not re-audited; prior 2026-11-13  # SB4g Account: s3.1 diagram, s4.4 Symbol row, s8 (symbol blocks, size, centring, selection, display), s10.3, s13.3, s14 D7 re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # room-detection Account: §11.5 tile room clip + §11.8 room membership only (holed rooms), rest not re-audited; prior 2026-11-12   # PH1 Account: §4.4 Phase row, §5.6 Phase row, §10.2 water supply Phase + paste note, §12.2-§12.4 template phase, §13.1-§13.2 phase keys only, rest not re-audited; prior 2026-11-11   # SB4e Account: §13.1 saved fields (badge_position, stripped badge rows) only, rest not re-audited; prior 2026-11-05   # pipe polish Account: §4.4 X/Y/Z + Offset rows, §6.2-§6.6 fitting visibility / scaling / clipping, §7.2, §7.4, §8.4, §12.4, §15.3-15.4 only, rest not re-audited; prior 2026-11-01   # SB4a Account: §5.6 Label Size row only
+verified-commit: 807cd649  # node-elevation (0.105.1; s7 / s13 / s15.4 only); prior e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior 7cdb7146  # room-detection rework (§11.5 room clip + §11.8 membership only); prior f2f0db3e   # PH1 (v0.101.0; §4.4 / §5.6 / §10.2 / §12.2-§12.4 / §13.1-§13.2 phase lines only); prior e991da71   # SB4e (v0.100.0; §13.1 only); prior ff2b8636   # pipe polish merge on main (v0.90.0); prior 0924bcd6   # SB4a (§5.6 only); prior e96b6ae   # 2026-09-26 headless cleanup: db path via app_data.app_data_dir; prior 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/symbol_block.py         # SB4g: SymbolBlockItem, the base of Sprinkler / WaterSupply (and the riser's RiserSymbolItem, pipe.py)
-  - firepro3d/node.py                 # panel X / Y / Z + Offset rows, pick shape (pipe polish)
+  - firepro3d/node.py                 # node elevation single writer (section 7), panel X / Y / Z + Offset rows, pick shape
   - firepro3d/sprinkler_db.py
   - firepro3d/sprinkler_system.py
   - firepro3d/fitting.py
@@ -196,7 +196,7 @@ Full-featured manager dialog with two tabs:
 | — | — | Design Density | Set by auto-populate, not from DB |
 | — | — | S Spacing / L Spacing | Computed by design_area |
 | — | — | Symbol | Panel row, not a `_properties` entry: the sprinkler's symbol block (SB4g; the row replaced the retired `Graphic` row in its slot, before Ceiling Level). Stored as the sparse `symbol_block` id on the head; section 8.1 |
-| — | — | Ceiling Level / Ceiling Offset | From parent Node. The panel row for `Ceiling Offset` is labelled **Offset** (meta `label`); the key is unchanged in `_properties`, files and `set_property`, which also accepts `"Offset"` |
+| — | — | Ceiling Level / Ceiling Offset | From parent Node (a node-less template sprinkler keeps them as its own rows; saved records drop them, section 13.3; writer contract section 7). The panel row for `Ceiling Offset` is labelled **Offset** (meta `label`); the key is unchanged in `set_property`, which also accepts `"Offset"` |
 | — | — | X / Y / Z | Editable panel rows from the parent Node (`Node.position_rows()`), shown only when the sprinkler has a node. X, Y in mm, **Y up-positive** (`CAD_Math.flip_y`); Z is absolute elevation. `Sprinkler.set_property("X" / "Y" / "Z")` forwards to `node.set_property`: X / Y move the node (and its riser stack), Z solves the node's Offset against its kept Ceiling Level and moves that node only. The rows carry `single_only` (not on a multi-selection). A node-less template sprinkler shows no position rows, and `set_properties(template)` skips them, so a template never moves a node. Semantics: [`pipe-placement-methodology.md`](pipe-placement-methodology.md) §2.2 |
 | — | — | Phase | Panel row, not a `_properties` entry: `sprinkler.phase` (status id, PH1). `set_properties(template)` copies it; "Use as Template" keeps the template's current phase. Rules: [`project-phasing.md`](project-phasing.md) D-PH5 |
 
@@ -369,6 +369,8 @@ scale_factor = target_mm / svg_natural_size
 
 ## 7. Node Z-Position Computation
 
+`Node` is the **single writer** of its own `ceiling_level`, `ceiling_offset` and `z_pos` (design: [`../superpowers/specs/2026-11-14-node-elevation-design.md`](../superpowers/specs/2026-11-14-node-elevation-design.md), D1-D5, rulings Q1-Q15). No other module assigns them; every caller goes through the 7.2 methods. This section is the contract; other specs link here and do not restate it.
+
 ### 7.1 Authoritative Formula
 
 ```
@@ -376,20 +378,36 @@ z_pos = level_elevation(ceiling_level) + ceiling_offset
 ```
 
 Where:
-- `ceiling_level` — name of the reference level (default: "Level 1")
-- `ceiling_offset` — vertical offset from that level's elevation in mm (default: -50.8mm = -2")
-- Both stored on Node and synced to child Sprinkler's property display
+- `ceiling_level` -- name of the reference level (default: "Level 1")
+- `ceiling_offset` -- vertical offset from that level's elevation in mm (default: `DEFAULT_CEILING_OFFSET_MM`, -50.8 mm = -2")
+- A node's elevation is stored only on `Node`. Pipes store none (they derive from their end nodes), and a node-bound Sprinkler stores no Ceiling rows (7.4). Template values exist elsewhere and are only *read* by hosting: the node-less template sprinkler's own Ceiling rows (`Sprinkler.ceiling_host()`) and the pipe template's `node1_` / `node2_ceiling_*` (`template_ceiling`); see 7.2a.
 
-### 7.2 Recomputation Trigger
+**Unresolved level.** Resolution is `scene._level_manager.get(ceiling_level).elevation`. With no scene, no level manager, or a level name the manager does not know, the level is *unresolved* and `z_pos` is **kept** (never `0 + offset`).
 
-`_recompute_z_pos()` is called when:
-- User changes Ceiling Level via property panel → resolves new level elevation
-- User changes Ceiling Offset (panel label **Offset**) via property panel → uses new offset value
-- User types a **Z** in the panel → the Offset is solved as `Z − level elevation` against the node's kept Ceiling Level, then `z_pos` is recomputed (`Node._edit_position`); the level never changes and only this node moves (attached pipes slope). If the level cannot be resolved, `z_pos` is set directly.
+### 7.2 Node Elevation API (`node.py`)
 
-Resolution: `scene._level_manager.get(ceiling_level).elevation + ceiling_offset`
+| Method | Semantics |
+|---|---|
+| `host(level, offset, *, refresh=True)` | **Re-host 1.** Stores `ceiling_level` and `ceiling_offset`; `z_pos` follows the level (7.1). The write for new nodes, panel Ceiling Level / Offset edits, level rename, split nodes and paste. |
+| `rehost_keep_z(level, *, refresh=True)` | **Re-host 2.** Stores the level and keeps `z_pos`; `ceiling_offset` becomes `z_pos` minus the new level's elevation. Level delete and the riser split mid-node use it. An unresolved new level stores the name and keeps the offset. |
+| `set_z(z, *, refresh=True)` | Panel Z edit: re-host 2 against the node's own level (offset solved as `z` minus level elevation; the level never changes). Unresolved level: `z_pos` is set directly. |
+| `rederive(*, refresh=True)` | Recomputes `z_pos` from the stored level and offset. A level-elevation edit calls it on each affected node. |
+| `Node.refresh_nodes(nodes)` (static) | One network refresh over many nodes: each node's pipes (geometry, label) and the fittings at the nodes and their neighbours. |
 
-Graceful fallback: no-op if scene is None, level_manager is None, or level not found.
+A call that changes none of (`ceiling_level`, `ceiling_offset`, `z_pos`) skips the refresh. `refresh=False` defers it to the caller's own batched refresh.
+
+**Callers.**
+- Level delete: `rehost_keep_z` (nothing moves, `view-relationships.md` section 12.4). Level rename: `host(new_name, offset)`. Level elevation edit: `rederive(refresh=False)` per node, then one `Node.refresh_nodes(moved)` (`level_manager.py`).
+- Panel: `Node.set_property` calls `host` for Ceiling Level / Offset and `set_z` for Z; `property_manager._change_level` calls `host`; Move to Level calls `host(target_level, offset)`.
+- Placement: `add_node(x, y, z_hint=None, host=None)` hosts a new node at creation, default `(active level, DEFAULT_CEILING_OFFSET_MM)`; `add_pipe` never writes a node's elevation. The Sprinkler tool hosts a node it creates in empty space from the template head (`t.ceiling_host()`, `Model_Space._press_sprinkler`); room auto-populate hosts each new node with `node.host(ceiling_level, ceiling_offset, refresh=False)` (`sprinkler_workflow_controller.py`). The template's ceiling for a node end is `template_ceiling(template, end)` (`pipe_network_controller.py`), the one `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` fallback ([`pipe-placement-methodology.md`](pipe-placement-methodology.md) section 5.2).
+- Paste and copy-to-level: the record's `ceiling_level` and the owning `.level` are retargeted through `Model_Space._retarget_level_name` (a name equal to the source level becomes the active level; other names are kept), then `host(..., refresh=False)` and one `Node.refresh_nodes`.
+- Load and undo: `network_codec.deserialize_node` hosts with `refresh=False` before any pipe exists; the caller's existing fitting loop after the pipes are built is the batched refresh. Neither calls `refresh_nodes`.
+
+**Sprinkler.** A head never re-hosts its node: placing one on an existing node or on a split node leaves that node's elevation alone. A head placed on a pipe splits it, and the split node is hosted at node 1's ceiling (`split_pipe` hosts at `node_a`), so the head lands at the run elevation (Q15). A node-bound Sprinkler's panel Ceiling edits forward to `node.host` (refresh included, so the fitting type follows); a node-less *template* sprinkler keeps its own Ceiling rows as storage (the one exemption in 7.2a).
+
+### 7.2a Single-writer guard
+
+`tests/test_node_elevation_single_writer.py` scans `main.py` and every `firepro3d/*.py` except `node.py`, and fails on any assignment to `.ceiling_level` / `.ceiling_offset` / `.z_pos`, a `setattr` of them, a `_recompute_z_pos` reference, or a touch of `<x>._properties["Ceiling Level" / "Ceiling Offset"]`. The exemption is a node-less template sprinkler's own rows (`sprinkler.py` `self`, `sprinkler_workflow_controller.py` `temp_spr`). `_recompute_z_pos` is a private helper of `node.py`.
 
 ### 7.3 Node Ownership
 
@@ -401,11 +419,9 @@ Graceful fallback: no-op if scene is None, level_manager is None, or level not f
 
 ### 7.4 Property Sync
 
-Ceiling Level and Ceiling Offset exist in two forms:
-- Instance attributes: `node.ceiling_level`, `node.ceiling_offset` (authoritative)
-- Properties dict: `node._properties["Ceiling Level"]`, `node._properties["Ceiling Offset"]` (for PropertyManager display, where the Offset row's label is "Offset" and the key stays; `Node.get_properties()` adds the label, it is not stored in `_properties`)
+`node.ceiling_level` / `node.ceiling_offset` are the only stored form. `Node.get_properties()` **builds** the Ceiling Level row (`level_ref`) and the Ceiling Offset row (label **Offset**; the key `"Ceiling Offset"` stays for files) from those attributes on every call; a Node has no `_properties` mirror of them. Panel edits go through `set_property` to the 7.2 methods.
 
-Both are updated together on `set_property()`. When a Sprinkler is present, its `get_properties()` reads ceiling values directly from the parent Node (Node is single source of truth).
+A node-bound Sprinkler's `get_properties()` reads both values from its Node. A saved sprinkler record no longer carries the Ceiling rows (13.3).
 
 Pipes do not store ceiling data; all Z positioning is derived from endpoint Node `ceiling_level` and `ceiling_offset` attributes.
 
@@ -698,7 +714,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 **Load migration:**
 1. Read `ceiling_level` and `ceiling_offset_mm` (current format)
 2. If `ceiling_offset_mm` absent, derive from legacy `ceiling_offset` field (inches → mm)
-3. Recompute `z_pos` from level manager; fall back to `elevation` field if level not found
+3. `node.host(ceiling_level, offset, refresh=False)` (level defaults to the node's own `level`): `z_pos` is recomputed from the level manager, and an unresolved level keeps `z_pos` at the record's `elevation` (0 if absent; `Node(x, y, entry.get("elevation", 0))`) (7.1). The caller's post-pipe fitting loop is the refresh (7.2)
 4. Old `z_offset` field is ignored (read only for clipboard backward compat)
 
 ### 13.2 Pipe Serialization
@@ -711,7 +727,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.3 Sprinkler Serialization
 
-Embedded within parent Node's serialization as a `_properties` dict snapshot. All values stored as strings. Legacy property names (`"Elevation"`, `"Elevation Offset"`, `"Ceiling Offset (in)"`) accepted on load and mapped to current names.
+Embedded within parent Node's serialization as a `_properties` dict snapshot. All values stored as strings. The snapshot carries no Ceiling Level / Ceiling Offset rows (`network_codec.sprinkler_props` strips them; the node's own `ceiling_level` / `ceiling_offset_mm` are the only copy, 13.1), and Ceiling rows in an old record are ignored on load. Legacy property names (`"Elevation"`, `"Elevation Offset"`, `"Ceiling Offset (in)"`) accepted on load and mapped to current names.
 
 **Symbol (SB4g).** The Symbol row is a view of `Sprinkler.symbol_block` and is never written as a row (`network_codec.sprinkler_props` strips it). A head with a non-default choice carries a sparse `"symbol_block": "<block id>"` key beside its rows in the same record (node entry, clipboard); absent = the System default. `network_codec.sprinkler_template(record, phase)` rebuilds the template for file load, undo and paste. The water supply's entry carries the same sparse `symbol_block` key at the top level of its record (`serialize_water_supply` / `deserialize_water_supply`). The placement template persists it in `QSettings` `template/sprinkler` under the same key (restored directly, not through `set_property`; a Sprinkler Manager catalog pick keeps it).
 
@@ -795,8 +811,11 @@ No format version bump required for any currently-flagged divergence. All migrat
 | Normal computation | level elev 3000mm + offset -50.8mm → z_pos = 2949.2mm |
 | Level not found | z_pos unchanged (no crash) |
 | No scene | z_pos unchanged (no crash) |
-| Ceiling Level change | triggers recomputation with new level elevation |
-| Ceiling Offset change | triggers recomputation with new offset |
+| `rehost_keep_z` | z kept, offset = z minus new level elevation |
+| No-change `host` | no refresh |
+| Single writer | `tests/test_node_elevation_single_writer.py` |
+| Ceiling Level change | `host` recomputes with new level elevation |
+| Ceiling Offset change | `host` recomputes with new offset |
 | Z edit | `z_pos` = typed value, `ceiling_level` kept, Offset solved, this node only |
 
 ### 15.5 Unit Tests — Record → Properties Transfer
