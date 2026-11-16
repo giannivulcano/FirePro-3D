@@ -301,8 +301,10 @@ def leveled_items(scene) -> list:
 
 
 # Secondary level refs, beyond the owning ``.level``, that follow a rename / delete /
-# open repair: attr -> the item's ``set_property`` key (keeps node ``_properties``
-# mirrors, node z and wall height in step). The open repair sends a missing base or
+# open repair: attr -> the item's ``set_property`` key (keeps wall height in step).
+# Rename and delete re-host a Node directly (``host`` / ``rehost_keep_z``); only the
+# open repair (``repair_missing_refs``) sends a node's ceiling ref through
+# ``Node.set_property`` -> ``host``. The open repair sends a missing base or
 # sprinkler ceiling ref to the item's own level, a missing upper ref to the next above.
 _BASE_LEVEL_REFS = {"_base_level": "Base Level"}            # WallSegment
 _UPPER_LEVEL_REFS = {

@@ -63,3 +63,11 @@ def test_the_scan_catches_a_write():
         assert len(_violations(p, "probe.py")) == 3
     finally:
         p.unlink()
+
+
+def test_a_node_ceiling_is_not_a_level_offsets_entry():
+    """Delete / rename re-host a Node through Node (rehost_keep_z / host); the
+    generic offset rebase must never also carry node ceiling_level."""
+    from firepro3d.level_manager import _LEVEL_OFFSETS, _SLAB_LEVEL_OFFSETS
+    assert "ceiling_level" not in _LEVEL_OFFSETS
+    assert "ceiling_level" not in _SLAB_LEVEL_OFFSETS
