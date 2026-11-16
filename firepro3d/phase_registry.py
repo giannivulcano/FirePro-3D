@@ -360,8 +360,10 @@ def effective_phase(item) -> str | None:
         from PyQt6 import sip
         if sip.isdeleted(item):         # DD6: a deleted wrapper reads as not phased
             return None
-        from .section_scene import section_source_of
+        from .section_scene import _ROLE_HIDE_SOURCE, section_source_of
         src = section_source_of(item)
+        if src is None:        # opening frame lines / a slab's occlusion mask (D5 host)
+            src = QGraphicsItem.data(item, _ROLE_HIDE_SOURCE)
         if src is not None and src is not item:
             if getattr(item, "_paper_cat", None) == "Sprinkler":
                 # The proxy's source is the node (Hide / D8 act on it); the

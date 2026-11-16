@@ -1507,6 +1507,21 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
     }
 
 
+def _hide_phase_hidden_mask(item, saved: list) -> None:
+    """PH3: an item with no paper category that only follows a host's Hide (a
+    section slab's occlusion mask) must not occlude when the host's status is
+    hidden. Saved first, so restore_model_display re-shows it."""
+    from PyQt6.QtWidgets import QGraphicsItem
+    from .phase_registry import effective_phase
+    from .section_scene import _ROLE_HIDE_SOURCE
+    disp = phase_display.active()
+    if disp is None or QGraphicsItem.data(item, _ROLE_HIDE_SOURCE) is None:
+        return
+    if effective_phase(item) in disp.hidden:
+        saved.append({"item": item, "cat_key": None, "visible": item.isVisible()})
+        item.setVisible(False)
+
+
 def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                           source_view_key: str = "", viewport_data=None) -> list[dict]:
     """Temporarily mutate visible items to paper-space display settings.
@@ -1635,6 +1650,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     continue
             cat_key = _category_for_item(item)
             if cat_key is None:
+                _hide_phase_hidden_mask(item, saved)
                 continue
             row = cats.get(cat_key)
             if row is None:

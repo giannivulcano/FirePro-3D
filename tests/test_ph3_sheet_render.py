@@ -596,3 +596,84 @@ def test_ph3_section_sprinkler_proxy_takes_colour_not_weight(qapp, section_scene
 def test_ph3_hidden_status_hides_a_section_sprinkler_proxy(qapp, section_scene_for, mode):
     vp, r = _section_sprinkler_view(section_scene_for, mode, PHASE_EXISTING)
     assert not inked(pixels(render(vp), model_box(vp, r)))
+
+
+def _section_opening_slab_view(section_scene_for, mode, sid, *hidden, opacity=None):
+    """A section viewport over a door in a wall plus a slab, all at status *sid*
+    (the fixture of test_section_sheet_plot); ``(sec, vp, op, slab, frame box)``."""
+    from firepro3d.section_scene import _ROLE_HIDE_SOURCE, _SrcRect
+    from tests.test_section_sheet_plot import _section_with_opening_and_slab
+    set_paper_mode(mode)
+    ms, sec, op, slab = _section_with_opening_and_slab(section_scene_for)
+    op.phase = op._wall.phase = slab.phase = sid
+    if opacity is not None:
+        set_status(sid, opacity=opacity)
+    frames = [it for it in sec.items() if isinstance(it, _SrcRect)
+              and it.data(_ROLE_HIDE_SOURCE) is op and it._paper_cat is not None]
+    assert frames                                              # the opening's frame lines
+    box = frames[0].sceneBoundingRect()
+    crop = box.adjusted(-1500.0, -1500.0, 1500.0, 1500.0)
+    _ps, vp = make_viewport(sec, kind="section", name="Section 1", crop=crop,
+                            phase_display=phasing(*hidden))
+    return sec, vp, op, slab, box
+
+
+def _head_strip(box):
+    """The frame's top edge, clear of the level datum line along the sill."""
+    return QRectF(box.left(), box.top() - 60.0, box.width(), 120.0)
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_hidden_status_hides_a_section_opening_frame(qapp, section_scene_for, mode):
+    """The frame lines are sourced on the opening only through _ROLE_HIDE_SOURCE."""
+    _sec, vp, _op, _slab, box = _section_opening_slab_view(
+        section_scene_for, mode, PHASE_DEMOLITION, PHASE_DEMOLITION)
+    assert not inked(pixels(render(vp), model_box(vp, _head_strip(box))))
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_section_opening_frame_takes_its_hosts_status_colour(qapp, section_scene_for, mode):
+    _sec, vp, _op, _slab, box = _section_opening_slab_view(section_scene_for, mode, PHASE_EXISTING)
+    assert_status_grey(pixels(render(vp), model_box(vp, _head_strip(box))))
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_section_opening_frame_takes_its_hosts_status_opacity(qapp, section_scene_for, mode):
+    """The frame plots over the cut wall, so compare 100 % (the full #808080) with 50 %."""
+    def darkest_frame_px(opacity):
+        _sec, vp, _op, _slab, box = _section_opening_slab_view(
+            section_scene_for, mode, PHASE_EXISTING, opacity=opacity)
+        return darkest(inked(pixels(render(vp), model_box(vp, _head_strip(box)))))
+    full, half = darkest_frame_px(100), darkest_frame_px(50)
+    assert near(full, EXISTING_GREY), full.name()
+    assert half.red() >= EXISTING_GREY + 40, (full.name(), half.name())   # an opaque frame stays dark
+
+
+def _slab_mask(sec, slab):
+    from firepro3d.section_scene import _ROLE_HIDE_SOURCE, _ROLE_SOURCE
+    masks = [it for it in sec.items() if it.data(_ROLE_HIDE_SOURCE) is slab
+             and it.data(_ROLE_SOURCE) is None and getattr(it, "_paper_cat", None) is None]
+    assert len(masks) == 1
+    return masks[0]
+
+
+@pytest.mark.parametrize("hidden,expected", [(PHASE_DEMOLITION, False), (PHASE_EXISTING, True)])
+def test_ph3_hidden_status_slab_mask_does_not_occlude(qapp, section_scene_for, hidden, expected):
+    """The mask is invisible during the pass only when the slab's status is hidden;
+    restore re-shows it (DD6: visibility writes are saved and restored)."""
+    from firepro3d import phase_display
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    sec, vp, _op, slab, _box = _section_opening_slab_view(
+        section_scene_for, FULL_COLOR, PHASE_DEMOLITION, PHASE_DEMOLITION)
+    slab.phase = hidden
+    mask = _slab_mask(sec, slab)
+    assert mask.isVisible()
+    phase_display.begin_pass(vp.data)
+    try:
+        saved = apply_paper_overrides(sec, sec.sceneRect(), 0.01, viewport_data=vp.data)
+        during = mask.isVisible()
+    finally:
+        phase_display.end_pass()
+    restore_model_display(saved)
+    assert during is expected
+    assert mask.isVisible()
