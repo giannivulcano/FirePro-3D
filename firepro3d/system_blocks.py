@@ -11,7 +11,8 @@ from __future__ import annotations
 # Project Settings > Annotation row each).
 ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe", "Gridline", "Level",
                                           "Elevation", "Section", "Detail",
-                                          "View Title", "Hydraulic Node")
+                                          "View Title", "Hydraulic Node",
+                                          "Wall", "Door", "Window", "Opening")   # SB6 D13: placed tags
 
 # category -> the host field whose empty raw value means "nothing to show"
 # (SB3 F1, ratified): an unresolved tag draws the orphan placeholder only
@@ -19,7 +20,9 @@ ANNOTATION_CATEGORIES: tuple[str, ...] = ("Room", "Pipe", "Gridline", "Level",
 LABEL_FIELD: dict[str, str] = {"Room": "Name", "Pipe": "Diameter", "Gridline": "Mark",
                                "Level": "Level.Name", "Elevation": "Direction",
                                "Section": "Mark", "Detail": "Mark",
-                               "View Title": "Scale", "Hydraulic Node": "NodeNumber"}
+                               "View Title": "Scale", "Hydraulic Node": "NodeNumber",
+                               "Wall": "Mark", "Door": "Mark", "Window": "Mark",      # SB6 D13
+                               "Opening": "Mark"}
 
 # Categories whose static geometry still draws when every host-bound field
 # is blank (SB4b D3, user ruling 2026-11-02: an unlabelled gridline keeps its
@@ -41,6 +44,10 @@ SYSTEM_DEFAULTS: dict[str, str] = {
     "Detail": "system-tags-detailcallout",
     "View Title": "system-tags-viewtitle",      # SB4f
     "Hydraulic Node": "system-tags-hydraulicnode",      # SB4e
+    "Wall": "system-tags-walltag",                      # SB6 D12 / D13: placed tags
+    "Door": "system-tags-doortag",
+    "Window": "system-tags-windowtag",
+    "Opening": "system-tags-openingtag",
 }
 
 # The shipped Note block (design 2026-11-04-text-leader-annotations D8). Kept out of
