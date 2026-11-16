@@ -583,23 +583,6 @@ class PipeNetworkController:
         node.host(*template_ceiling(template, end), refresh=False)
         return node
 
-    def _create_vertical_connection(self, start_node, existing_end_node, template):
-        """Insert an intermediate node + vertical pipe + horizontal pipe.
-
-        * intermediate_node — same XY as *existing_end_node* but at the
-          template's Ceiling Level / Offset.
-        * vertical pipe — between *existing_end_node* and *intermediate_node*.
-        * horizontal pipe — between *start_node* and *intermediate_node*
-          (carries the full template).
-        """
-        intermediate = self._make_intermediate_node(existing_end_node, template, 2)
-
-        # Vertical pipe (existing_end_node <-> intermediate) — same XY, different z
-        self.add_pipe(existing_end_node, intermediate, template)
-
-        # Horizontal pipe (start_node <-> intermediate) with full template
-        self.add_pipe(start_node, intermediate, template)
-
     def _find_or_split_vertical_at_z(self, xy_pos: QPointF,
                                       target_z: float,
                                       template, end: int = 1) -> "Node | None":

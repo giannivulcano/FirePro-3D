@@ -3539,9 +3539,6 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     def _make_intermediate_node(self, existing_node, template, end=1):
         return self._pipe_ctl._make_intermediate_node(existing_node, template, end)
 
-    def _create_vertical_connection(self, start_node, existing_end_node, template):
-        return self._pipe_ctl._create_vertical_connection(start_node, existing_end_node, template)
-
     def _find_or_split_vertical_at_z(self, xy_pos: QPointF,
                                       target_z: float,
                                       template, end=1) -> "Node | None":
