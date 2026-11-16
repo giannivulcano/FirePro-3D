@@ -98,7 +98,7 @@ def test_d4_scale_tool_skips_a_tag_and_scales_the_rest(qapp, real_system_library
         line.setSelected(True)
         _scale_by_two(scene, view)
         assert grips(line) == [(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]   # the non-tag DID scale
-        assert tag._pose_scale == 1.0                                       # [RED: _scalable + guard]
+        assert tag._pose_scale == 1.0              # [RED only with BOTH _scalable and the manip_scale_about guard reverted]
         assert pose_of(tag) == pytest.approx(expected_pose(w), abs=1e-6)
         s1 = tag.sceneBoundingRect().size()
         assert (s1.width(), s1.height()) == pytest.approx((size0.width(), size0.height()), abs=1e-6)
@@ -122,5 +122,22 @@ def test_d4_scale_tool_on_a_lone_tag_pushes_no_undo_step(qapp, real_system_libra
                 scene.dynamic_input._accept()
         assert tag._pose_scale == 1.0
         assert (len(scene._undo_stack), scene._undo_pos) == (n0, p0)        # [RED]
+    finally:
+        close_view(view, scene)
+
+
+def test_d4_direct_manip_scale_about_leaves_a_tag_unscaled(qapp, real_system_library):
+    """Defence in depth for direct callers (e.g. explode) that bypass the Scale tool's filter."""
+    view, scene = make_view(role="plan", scale=0.1)
+    try:
+        w = add_wall(scene)
+        scene.push_undo_state()
+        tag = place_tag(scene, w)
+        pose0, size0 = pose_of(tag), tag.sceneBoundingRect().size()
+        tag.manip_scale_about(QPointF(0.0, 0.0), 2.0)
+        assert tag._pose_scale == 1.0                                       # [RED]
+        assert pose_of(tag) == pytest.approx(pose0, abs=1e-6)
+        s1 = tag.sceneBoundingRect().size()
+        assert (s1.width(), s1.height()) == pytest.approx((size0.width(), size0.height()), abs=1e-6)
     finally:
         close_view(view, scene)
