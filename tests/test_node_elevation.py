@@ -226,3 +226,33 @@ def test_level_elevation_edit_keeps_z_for_an_unresolved_ceiling(ms):
     ms._level_manager.update_elevations(ms)
     assert n.z_pos == pytest.approx(1234.0)
     assert ok.z_pos == pytest.approx(700.0)
+
+
+def _assert_moved_to_level_2(n, offset):
+    assert n.ceiling_level == "Level 2"
+    assert n.ceiling_offset == pytest.approx(offset)       # Q7-1: the offset is kept
+    assert n.z_pos == pytest.approx(3000.0 + offset)       # Level 2 elevation + offset
+
+
+def test_move_to_level_rehosts_the_node_keeping_its_offset(ms):
+    """Q7-1: Move to Level re-hosts the node on the target level, offset kept."""
+    ms._level_manager.get("Level 2").elevation = 3000.0
+    a, b, p = _pair(ms)
+    ms.clearSelection()
+    for it in (a, b, p):
+        it.setSelected(True)
+    ms._move_selection_to_level("Level 2")
+    for n, off in ((a, -300.0), (b, -600.0)):
+        _assert_moved_to_level_2(n, off)
+
+
+def test_property_panel_level_change_rehosts_the_node_keeping_its_offset(ms):
+    """Q7-1: the panel's Level edit re-hosts the node, offset kept."""
+    ms._level_manager.get("Level 2").elevation = 3000.0
+    a, b, p = _pair(ms)
+    pm = PropertyManager()
+    _panels.append(pm)
+    pm.set_level_manager(ms._level_manager)
+    pm.show_properties(a)
+    pm._change_level("Level 2")
+    _assert_moved_to_level_2(a, -300.0)

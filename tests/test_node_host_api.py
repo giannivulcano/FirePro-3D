@@ -63,12 +63,21 @@ def test_set_z_keeps_the_level(ms, where, level, want):
     assert _state(n) == want
 
 
-def test_rederive_follows_a_level_elevation_change(ms):
-    n = _n(ms, "scene")
-    n.host("Level 2", -300.0)
-    ms._level_manager.get("Level 2").elevation = 4000.0
+@pytest.mark.parametrize("where,level,no_manager,want", [
+    ("scene", "Level 2", False, ("Level 2", -300.0, 3700.0)),   # follows the elevation edit
+    ("scene", "Ghost", False, ("Ghost", -300.0, 100.0)),        # unresolved: z kept (Q2, Q12)
+    ("off", "Level 2", False, ("Level 2", -300.0, 100.0)),      # off scene: z kept
+    ("scene", "Level 2", True, ("Level 2", -300.0, 100.0)),     # scene without a level manager
+])
+def test_rederive_recomputes_z_from_level_and_offset(ms, where, level, no_manager, want):
+    n = _n(ms, where)
+    if no_manager:
+        ms._level_manager = None
+    n.host(level, -300.0)
+    if where == "scene" and not no_manager:
+        ms._level_manager.get("Level 2").elevation = 4000.0     # the edit rederive follows
     n.rederive()
-    assert _state(n) == ("Level 2", -300.0, 3700.0)
+    assert _state(n) == want
 
 
 def test_no_change_skips_the_refresh(ms, monkeypatch):
