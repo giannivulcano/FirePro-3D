@@ -83,13 +83,11 @@ def test_far_end_node_takes_its_own_record(ms, order):
 
 def _hub_stack_with_head(s):
     low = _node(s, 0, 0, offset=0.0)
-    hub = _node(s, 0, 0)
+    hub = _node(s, 0, 0, offset=3000.0)
     high = _node(s, 0, 0, offset=6000.0)
     s.add_pipe(low, hub, None)
     s.add_pipe(hub, high, None)
-    s.add_sprinkler(hub, Sprinkler(None))     # at base the template re-hosts the node,
-    hub.ceiling_offset, hub.z_pos = 3000.0, 3000.0   # so host it after the head lands
-    hub.fitting.update()
+    s.add_sprinkler(hub, Sprinkler(None))     # Q11: the head never re-hosts the node
     return hub
 
 
@@ -178,3 +176,24 @@ def test_legacy_node_records_keep_their_z(ms):
     ms.paste_items(QPointF(0, 7000), data=data)
     cp = [k for k in ms.sprinkler_system.nodes if k.scenePos() == QPointF(0, 7000)][0]
     assert cp.ceiling_offset == pytest.approx(-400.0) and cp.z_pos == pytest.approx(-400.0)
+
+
+def test_adding_a_head_never_moves_an_existing_node(ms):
+    """Q11: the sprinkler tool on an existing node keeps its ceiling and z."""
+    hub = _node(ms, 0, 0, offset=3000.0)
+    ms.current_template = Sprinkler(None)           # the tool's template: Level 1 / -50.8
+    ms._press_sprinkler(None, QPointF(0, 0), QPointF(0, 0), hub, hub, None)
+    assert hub.has_sprinkler()
+    assert (hub.ceiling_level, hub.ceiling_offset, hub.z_pos) == ("Level 1", 3000.0, 3000.0)
+
+
+def test_head_on_a_pipe_keeps_the_run_elevation(ms):
+    """Q15 (plan gate 2026-11-15): the split node takes the run's ceiling;
+    the template never re-hosts it."""
+    a, b, p = _pair(ms, off_a=-300.0, off_b=-300.0)
+    ms.current_template = Sprinkler(None)
+    ms._press_sprinkler(None, QPointF(1500, 0), QPointF(1500, 0), p, None, p)
+    heads = [n for n in ms.sprinkler_system.nodes if n.has_sprinkler()]
+    assert len(heads) == 1
+    assert (heads[0].ceiling_level, heads[0].ceiling_offset) == ("Level 1", -300.0)
+    assert heads[0].z_pos == pytest.approx(-300.0)

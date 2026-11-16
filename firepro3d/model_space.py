@@ -6811,7 +6811,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 return
         else:
             # Empty space or non-pipe/non-node item (Room, Wall, Floor, etc.)
-            node = self.add_node(snapped.x(), snapped.y())
+            t = getattr(self, "current_template", None)
+            node = self.add_node(snapped.x(), snapped.y(),
+                                 host=t.ceiling_host() if isinstance(t, Sprinkler) else None)
         self.add_sprinkler(node, getattr(self, "current_template", None))
         node.fitting.update()
         self.push_undo_state()

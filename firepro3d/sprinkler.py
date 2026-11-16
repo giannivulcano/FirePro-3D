@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QGraphicsItem
 from PyQt6.QtGui import QPainterPath
 
-from .constants import DEFAULT_LEVEL, Z_SPRINKLER
+from .constants import DEFAULT_CEILING_OFFSET_MM, DEFAULT_LEVEL, Z_SPRINKLER
 from . import phase_registry
 
 from .displayable_item import DisplayableItemMixin
@@ -119,35 +119,33 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
             return
         if key not in self._properties:
             return
+        if key in ("Ceiling Level", "Ceiling Offset") and self.node is not None:
+            if key == "Ceiling Level":
+                self.node.host(str(value), self.node.ceiling_offset)   # refresh: Fitting.type (Q5)
+            else:
+                parsed_mm = self._parse_mm(value)
+                if parsed_mm is not None:
+                    self.node.host(self.node.ceiling_level, parsed_mm)
+            return
         self._properties[key]["value"] = value
-
         if key == "Level" and self.node is not None:
             self.node.level = str(value)
-        elif key == "Ceiling Level" and self.node is not None:
-            self.node.ceiling_level = str(value)
-            self.node._properties["Ceiling Level"]["value"] = str(value)
-            self.node._recompute_z_pos()
         elif key == "Ceiling Offset":
-            parsed_mm = None
-            if isinstance(value, (int, float)):
-                parsed_mm = float(value)
-            else:
-                sm = self._get_scale_manager()
-                if sm:
-                    parsed_mm = sm.parse_dimension(str(value), sm.bare_number_unit())
-                if parsed_mm is None:
-                    try:
-                        parsed_mm = float(value)
-                    except (ValueError, TypeError):
-                        parsed_mm = None
+            parsed_mm = self._parse_mm(value)
             if parsed_mm is not None:
-                if self.node is not None:
-                    self.node.ceiling_offset = parsed_mm
-                    self.node._properties["Ceiling Offset"]["value"] = str(parsed_mm)
-                    self.node._recompute_z_pos()
-                else:
-                    # Template sprinkler — store raw mm
-                    self._properties["Ceiling Offset"]["value"] = str(parsed_mm)
+                self._properties["Ceiling Offset"]["value"] = str(parsed_mm)   # template: raw mm
+
+    def _parse_mm(self, value):
+        if isinstance(value, (int, float)):
+            return float(value)
+        sm = self._get_scale_manager()
+        parsed = sm.parse_dimension(str(value), sm.bare_number_unit()) if sm else None
+        if parsed is None:
+            try:
+                parsed = float(value)
+            except (ValueError, TypeError):
+                parsed = None
+        return parsed
 
     def set_properties(self, template: "Sprinkler"):
         """Copy all property values, the phase (D-PH5) and the symbol choice
@@ -156,6 +154,18 @@ class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
         for key, meta in template.get_properties(with_symbol_row=False).items():
             if meta.get("single_only") or key in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY):
                 continue       # position rows never move this node; phase + symbol copied below
+            if self.node is not None and key in ("Ceiling Level", "Ceiling Offset"):
+                continue       # Q11: a head never re-hosts its node; the tool hosts nodes it creates
             self.set_property(key, meta["value"])
         self.phase = getattr(template, "phase", phase_registry.PHASE_NEW)
         self.set_symbol_block(getattr(template, "symbol_block", None))
+
+    def ceiling_host(self) -> tuple[str, float]:
+        """A node-less template's (Ceiling Level, Ceiling Offset mm): the host
+        for a node the sprinkler tool creates (Q11)."""
+        lvl = self._properties["Ceiling Level"]["value"] or DEFAULT_LEVEL
+        try:
+            off = float(self._properties["Ceiling Offset"]["value"])
+        except (ValueError, TypeError):
+            off = DEFAULT_CEILING_OFFSET_MM
+        return lvl, off

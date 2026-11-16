@@ -39,11 +39,13 @@ def sprinkler_props(spr) -> dict:
     (written once as ``sprinkler_phase``, PD1), minus the node's badge rows
     (Badge Position + solver values are the node's, never copied -- SB4e I2)
     and minus the Symbol row (its label is a view of ``symbol_block``, which
-    is written sparsely beside the rows -- SB4g D6)."""
+    is written sparsely beside the rows -- SB4g D6), minus Ceiling Level /
+    Offset (the node's, saved on the node entry -- Q8; old records' copies are
+    ignored on load because ``set_properties`` skips them on a node)."""
     from .node import HYDRAULIC_ROW_KEYS
     from .system_blocks import SYMBOL_ROW_KEY
     rec = {k: v for k, v in spr.get_properties(with_symbol_row=False).items()
-           if k not in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY)
+           if k not in (phase_registry.ROW_KEY, SYMBOL_ROW_KEY, "Ceiling Level", "Ceiling Offset")
            and k not in HYDRAULIC_ROW_KEYS}
     if spr.symbol_block:
         rec[SYMBOL_KEY] = spr.symbol_block
