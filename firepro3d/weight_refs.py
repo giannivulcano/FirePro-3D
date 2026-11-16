@@ -23,7 +23,8 @@ def iter_weight_refs(scene) -> Iterator[tuple[str, tuple[str, object]]]:
     primitives and stroke ``style.weight``; open Block Editors' texts and
     styled raw items, and the project scene's styled geometry
     (linetypes.md LT1-5 / LT2-8); placed blocks' Weight overrides and
-    definitions' nested-record Weight overrides (WM2).
+    definitions' nested-record Weight overrides (WM2); and each phase
+    status's Line Wt (PH3 DD6).
     """
     from .stroke_style import is_named_weight
     for sheet in getattr(scene, "_sheets", []) or []:
@@ -70,6 +71,13 @@ def iter_weight_refs(scene) -> Iterator[tuple[str, tuple[str, object]]]:
                 ov = prim.get("overrides")
                 if isinstance(ov, dict) and is_named_weight(ov.get("weight")):
                     yield ov["weight"], ("nrec", (bid, ov))
+    # PH3 DD6 / R7: each status's Line Wt in the live phase registry.
+    from . import phase_registry
+    reg_ph = phase_registry.project_table()
+    for sid in reg_ph.ids():
+        w = reg_ph.graphics_of(sid).get("weight")
+        if isinstance(w, str) and w:
+            yield w, ("phase", sid)
 
 
 def weight_ref_count(scene, settings, name: str) -> int:
@@ -144,6 +152,9 @@ def _apply_ref(kind: str, ref, new, canonical_blocks: bool, touched: set):
         bid, ov = ref
         ov["weight"] = new
         touched.add(bid)
+    elif kind == "phase":
+        from . import phase_registry
+        phase_registry.project_table().set_graphic(ref, "weight", new)
     else:
         bid, prim = ref
         prim["border_weight"] = new

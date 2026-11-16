@@ -47,3 +47,70 @@ def test_dd6_malformed_phase_graphics_load_normalised_and_the_display_manager_op
         assert d._phases_tab.cell_text(PHASE_DEMOLITION, "opacity") == "100"
     finally:
         d.reject()
+
+
+# --- Task 10: phase weights are by-name references (DD6 / R7a) -----------------
+from PyQt6.QtTest import QTest                                       # noqa: E402
+from PyQt6.QtWidgets import QApplication                             # noqa: E402
+
+from tests.test_lwdc_delete_replace import _Modal, _cleanup, _dm, _row, _setup  # noqa: E402,F401
+
+
+def test_dd6_deleting_a_weight_a_phase_uses_is_counted_and_replaced(qapp, tmp_path,
+                                                                    monkeypatch):
+    from firepro3d import weight_refs as wr
+    settings = _setup(tmp_path, [("Pen X", 0.40)])
+    ms = h.scene()
+    pr.project_table().set_graphic(PHASE_EXISTING, "weight", "Pen X")
+    assert wr.weight_ref_count(ms, settings, "Pen X") == 1        # the phase is the one holder
+    d = _dm(ms, settings)
+    modal = _Modal(monkeypatch, pick="Wide")
+    d._lw_table.setCurrentCell(_row(d, "Pen X"), 0)
+    d._on_lw_remove()
+    assert len(modal.seen) == 1                                   # LW-DC-5: replace, never a silent delete
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Wide"
+    assert d._phases_tab.table().graphics_of(PHASE_EXISTING)["weight"] == "Wide"
+    d.accept()
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Wide"
+
+
+def test_dd6_renaming_a_weight_retargets_the_phase_with_phase_edits_pending(qapp, tmp_path):
+    settings = _setup(tmp_path, [("Pen X", 0.40)])
+    ms = h.scene()
+    pr.project_table().set_graphic(PHASE_EXISTING, "weight", "Pen X")
+    d = _dm(ms, settings)
+    d._phases_tab.cell(PHASE_DEMOLITION, "opacity").setValue(40)   # a pending Phases edit
+    d._lw_table.item(_row(d, "Pen X"), 0).setText("Pen Y")
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Pen Y"
+    d.accept()                                         # installs the (dirty) working copy
+    reg = pr.project_table()
+    assert reg.graphics_of(PHASE_EXISTING)["weight"] == "Pen Y"
+    assert reg.graphics_of(PHASE_DEMOLITION)["opacity"] == 40
+
+
+def test_dd6_cancel_puts_the_phase_weight_back(qapp, tmp_path):
+    settings = _setup(tmp_path, [("Pen X", 0.40)])
+    ms = h.scene()
+    pr.project_table().set_graphic(PHASE_EXISTING, "weight", "Pen X")
+    d = _dm(ms, settings)
+    d._lw_table.item(_row(d, "Pen X"), 0).setText("Pen Y")
+    d.reject()
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Pen X"
+
+
+def test_dd6_phases_weight_combo_lists_a_weight_added_this_session(qapp, tmp_path):
+    settings = _setup(tmp_path, [])
+    ms = h.scene()
+    d = _dm(ms, settings)
+    try:
+        d.show()
+        QTest.qWaitForWindowExposed(d)
+        before = {lw.name for lw in d._lw_defs}
+        d._on_lw_add()
+        (added,) = {lw.name for lw in d._lw_defs} - before   # the one new weight
+        d._tabs.set_current("phases")
+        QApplication.processEvents()
+        combo = d._phases_tab.cell(PHASE_EXISTING, "weight")
+        assert added in [combo.itemText(i) for i in range(combo.count())]
+    finally:
+        d.reject()
