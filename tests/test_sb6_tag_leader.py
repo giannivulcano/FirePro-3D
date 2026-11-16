@@ -102,3 +102,19 @@ def test_m2_unmoved_host_committed_step_does_not_reshape_leaders(
     img = _img(ms)
     end_box = (500.0 - 100.0, -400.0, 500.0 + 100.0, -110.0)
     assert ink(img, RECT, *end_box) > 0              # the shaft now arrives at the new anchor: the leader re-shaped
+
+
+def test_m4_leader_tag_selection_frame_is_the_tag_box_only(qapp, make_model_space, real_system_library):
+    """User ruling (VC9 M4): the frame of a leader tag is the tag box, as a Note's is --
+    not stretched down the leader to a host 3 m away."""
+    from firepro3d.selection_manipulator import manip_bounds
+    ms, with_leader = _scene(make_model_space, leader=True)
+    plain = place_tag(ms, ms._walls[0], leader=False, u=0.0, v=-3000.0)
+    want = plain.manip_bounds()
+    got = with_leader.manip_bounds()
+    assert got.height() < 1500.0                                          # the box, not ~3000 to the host
+    assert (got.left(), got.top(), got.width(), got.height()) == pytest.approx(
+        (want.left(), want.top(), want.width(), want.height()))           # [RED: leader out of the frame]
+    f = manip_bounds(with_leader)                                         # the rect the manipulator draws
+    assert f.height() == pytest.approx(want.height())
+    assert with_leader._frame_rect(leader=False).height() < with_leader._frame_rect().height()

@@ -635,7 +635,7 @@ class BlockInstance(QGraphicsObject):
         self._bound_cache = c
         return out
 
-    def render_ops(self):
+    def render_ops(self, leader: bool = True):
         """The definition's compiled ops under this placement's mirror / scale
         variant (design DD4) with the override applied (WM2 H2) -- the
         variant list itself while As Authored; else one derived list memoised
@@ -643,7 +643,11 @@ class BlockInstance(QGraphicsObject):
         be recycled (the ``_posed_cache`` idiom). Followed by this instance's
         bound text ops (SB1a S2) when the definition has any -- the combined
         list is memoised so identity-keyed caches (posed path, shape, snap
-        stand-ins) rebuild only when the static or bound part changes."""
+        stand-ins) rebuild only when the static or bound part changes.
+
+        Args:
+            leader: False omits a placed tag's leader op (the tag box alone:
+                the selection frame, SB6 M4)."""
         d = self.definition()
         base = (d.render_ops_variant(self._pose_mirrored, self._variant_scale())
                 if d is not None else [])
@@ -657,15 +661,16 @@ class BlockInstance(QGraphicsObject):
             else:
                 static = apply_overrides(base, *a)
                 self._ov_cache = (base, a, static)
+        wrap = self._with_tag_leader if leader else (lambda ops: ops)
         bound = self._bound_ops()
         if not bound:
-            return self._with_tag_leader(static)
+            return wrap(static)
         cc = self._combined_cache
         if cc is not None and cc[0] is static and cc[1] is bound:
-            return self._with_tag_leader(cc[2])
+            return wrap(cc[2])
         out = static + bound
         self._combined_cache = (static, bound, out)
-        return self._with_tag_leader(out)
+        return wrap(out)
 
     def _with_tag_leader(self, ops):
         """*ops* plus this placed tag's leader (SB6 D9) as one STROKE op: from
@@ -1161,12 +1166,14 @@ class BlockInstance(QGraphicsObject):
         return _text_path_fn(op, self._pose_rot)
 
     # ── Geometry (pose-baked) ────────────────────────────────────────────
-    def _local_path(self) -> QPainterPath:
+    def _local_path(self, ops=None) -> QPainterPath:
         """Combined path of the posed ops before the rigid pose: TEXT ops as
         paint draws them (``_text_path``, DD6), so bounds / shape / halo /
         ghosts cover a turned glyph; an orphan's placeholder under this
-        placement's mirror / scale (S.M -- the caller adds T.R)."""
-        ops = self.render_ops()
+        placement's mirror / scale (S.M -- the caller adds T.R). *ops* is the
+        op list when the caller already has it (default ``render_ops()``)."""
+        if ops is None:
+            ops = self.render_ops()
         combined = QPainterPath()
         if not ops:
             if self.definition() is None:      # orphan placeholder
@@ -1256,21 +1263,28 @@ class BlockInstance(QGraphicsObject):
     def manip_bounds(self) -> QRectF:
         """Scene box the selection frame wraps (selection-manipulator
         ``manip_bounds``): the frame rect, independent of the hit band. A Note's
-        is its box alone, so the leader does not move the box handles (D5)."""
+        is its box alone, so the leader does not move the box handles (D5); so
+        is a placed tag's (SB6 M4: the frame is the tag box, not stretched to
+        the host)."""
         if self.note:
             box = self.note_box_scene()
             if not box.isNull():
                 return box
-        return self.sceneTransform().mapRect(self._frame_rect())
+        return self.sceneTransform().mapRect(self._frame_rect(leader=False))
 
-    def _frame_rect(self) -> QRectF:
+    def _frame_rect(self, leader: bool = True) -> QRectF:
         """Posed geometry + 2 mm pen margin (+ missing-linetype badge and
-        end-glyph pads): the bounds before the hit band."""
+        end-glyph pads): the bounds before the hit band. *leader* False leaves
+        a placed tag's leader out (:meth:`manip_bounds`)."""
         if _an.frame_scaled(self):
             # Bounds follow the zoom from the first read (ET1 spec C).
             _er.mark_screen_ends(self, True)
-        ops = self.render_ops()
-        r = self._posed_path(ops).boundingRect()
+        leader = leader or not (self.tag and self.tag.get("leader"))
+        ops = self.render_ops(leader)
+        # A leaderless read of a leader tag bypasses the single-slot posed cache
+        # (the full-ops path stays cached for boundingRect / shape / paint).
+        r = (self._posed_path(ops) if leader
+             else self.pose_transform().map(self._local_path(ops))).boundingRect()
         m = 2.0  # pen margin (mm)
         r = r.adjusted(-m, -m, m, m)
         if self.note:
