@@ -12,6 +12,8 @@ row OFF: black -- none passes assert_status_grey.
 from collections import Counter
 
 import pytest
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QImage, QPainter
 
 from firepro3d.constants import PHASE_DEMOLITION, PHASE_EXISTING
 from tests import _ph1_helpers as h
@@ -433,3 +435,121 @@ def test_panel_phasing_reaches_the_render_and_undo_takes_it_back(qapp, panels):
     assert not inked(pixels(render(vp)))                 # D-PH17 through the panel
     ps.undo_stack.undo()
     assert inked(pixels(render(vp)))
+
+
+# --- Group P review guards: fitting hide, pass pop, proxy hide / label -----------
+
+def _fitting_scene(monkeypatch, mode):
+    """A 90 elbow whose Fitting overrides to Existing (strong red status colour);
+    pipes hidden, so only the fitting symbol can ink."""
+    from firepro3d.fitting import Fitting
+    monkeypatch.setattr(Fitting, "SHOW_PLAIN_SYMBOLS", True)
+    set_paper_mode(mode)
+    set_row("Pipe", visible=False)
+    set_status(PHASE_EXISTING, colour="#ff0000")
+    ms = h.scene()
+    a, b, c = ms.add_node(0.0, 0.0), ms.add_node(3000.0, 0.0), ms.add_node(3000.0, 3000.0)
+    ms.add_pipe(a, b)
+    ms.add_pipe(b, c)
+    b.fitting.phase_override = PHASE_EXISTING
+    return ms
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_hidden_fitting_status_hides_the_fitting_symbol(qapp, monkeypatch, mode):
+    ms = _fitting_scene(monkeypatch, mode)
+    _ps, shown = make_viewport(ms, phase_display=phasing())
+    x, y = to_px(shown, 3000.0, 0.0)
+    box = (x - 20, y - 20, x + 21, y + 21)
+    assert inked(pixels(render(shown), box))                  # the fitting inks when shown
+    _ps2, hidden = make_viewport(ms, phase_display=phasing(PHASE_EXISTING))
+    assert not inked(pixels(render(hidden), box))             # its status hidden: not drawn
+
+
+def test_ph3_phase_pass_is_popped_after_a_phased_render(qapp):
+    from firepro3d import phase_display
+    set_paper_mode(FULL_COLOR)
+    ms = h.scene()
+    _phased(ms, "wall", PHASE_EXISTING)
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+    assert inked(pixels(render(vp)))
+    assert phase_display.active() is None
+    assert phase_display._STACK == []
+
+
+def test_ph3_phase_pass_is_popped_when_the_override_pass_raises(qapp, monkeypatch):
+    from firepro3d import paper_display, phase_display
+    set_paper_mode(FULL_COLOR)
+    ms = h.scene()
+    _phased(ms, "wall", PHASE_EXISTING)
+    _ps, vp = make_viewport(ms, phase_display=phasing())
+
+    def boom(*a, **kw):
+        assert phase_display.active() is not None         # the pass was pushed
+        raise RuntimeError("override pass failed")
+    monkeypatch.setattr(paper_display, "apply_paper_overrides", boom)
+    img = QImage(int(vp.data.w * PX), int(vp.data.h * PX), QImage.Format.Format_RGB32)
+    painter = QPainter(img)
+    try:                                   # end the painter ourselves: render() would
+        with pytest.raises(RuntimeError, match="override pass failed"):   # abort on a live one
+            vp.paint(painter, None, None)
+    finally:
+        painter.end()
+    assert phase_display.active() is None
+    assert phase_display._STACK == []
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_hidden_status_hides_a_section_proxy(qapp, section_scene_for, mode):
+    from tests.test_section_classification import _placed_scene, _source_rects, _wall
+    set_paper_mode(mode)
+    ms, sec = _placed_scene(section_scene_for, (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    w = _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))       # straddles the cut
+    w.phase = PHASE_DEMOLITION
+    sec.rebuild()
+    r = _source_rects(sec, w)[0].sceneBoundingRect()
+    crop = r.adjusted(-2000.0, -2000.0, 2000.0, 2000.0)
+    _ps, shown = make_viewport(sec, kind="section", name="Section 1", crop=crop,
+                               phase_display=phasing())
+    x0, y0, x1, y1 = model_box(shown, r)
+    box = (x0, y0 + 6, x1, y1 - 6)                            # the side outline, clear of the datum lines on its top / bottom edges
+    assert inked(pixels(render(shown), box))
+    _ps2, hidden = make_viewport(sec, kind="section", name="Section 1", crop=crop,
+                                 phase_display=phasing(PHASE_DEMOLITION))
+    assert not inked(pixels(render(hidden), box))
+
+
+PIPE_CROP = QRectF(1000.0, -4500.0, 6000.0, 4000.0)
+
+
+def _section_pipe_label_view(section_scene_for, mode, **status):
+    from tests.test_section_pipe_labels import _labels, _scene
+    from tests.test_section_pipe_symbols import _pipe
+    set_paper_mode(mode)
+    ms, sec = _scene(section_scene_for)
+    pipe = _pipe(ms, (2000.0, -1000.0, 2500.0), (6000.0, -1000.0, 2500.0))
+    pipe.phase = PHASE_EXISTING
+    set_status(PHASE_EXISTING, **status)
+    sec.rebuild()
+    assert _labels(sec, pipe)                                  # the proxy owns a label
+    return make_viewport(sec, kind="section", name="Section 1",
+                         crop=PIPE_CROP, phase_display=phasing())
+
+
+def _pipe_box(vp):
+    """The pipe + label band (the section's datums / grids sit outside it)."""
+    return model_box(vp, QRectF(2000.0, -3000.0, 4000.0, 1000.0))
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_section_pipe_label_takes_its_hosts_status_colour(qapp, section_scene_for, mode):
+    _ps, vp = _section_pipe_label_view(section_scene_for, mode)
+    assert_status_grey(pixels(render(vp), _pipe_box(vp)))   # line AND label: a black label fails
+
+
+@pytest.mark.parametrize("mode", ROWS)
+def test_ph3_section_pipe_label_takes_its_hosts_status_opacity(qapp, section_scene_for, mode):
+    _ps, vp = _section_pipe_label_view(section_scene_for, mode, opacity=50)
+    expected = 255 - (255 - EXISTING_GREY) * 0.50              # #808080 at 50 % on white
+    d = darkest(inked(pixels(render(vp), _pipe_box(vp))))                     # an opaque label would be darker
+    assert is_grey(d) and abs(d.red() - expected) <= 3, d.name()
