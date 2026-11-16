@@ -1871,6 +1871,16 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         _note_tip = "Place a text note owned by this view"
         _note_btn.setToolTip(_note_tip)
         self._arch_note_gate = (_note_btn, _note_tip)       # registered in _init_build_tab
+        # SB6 D8 / R5: Tag (a mode: stays armed until Esc) + the Leader toggle.
+        _tag_btn = _mode_btn(g_ann, "Tag", _I("tag_icon.svg"), "tag")
+        self._arch_tag_gate = (_tag_btn, "Tag a wall, door, window or opening "
+                                         "(stays armed; Esc to finish)")
+        self._tag_leader_btn = g_ann.add_small_button(
+            "Leader", _I("tag_leader_icon.svg"),
+            lambda: self._set_tag_leader(self._tag_leader_btn.isChecked()),
+            checkable=True)
+        self._arch_tag_leader_gate = (self._tag_leader_btn,
+                                      "New tags get a straight leader to their host")
         self._ann_dimension_btn = g_ann.add_small_button(
             "Dimension", _I("dimension_icon.svg"), None)
         self._ann_keyed_btn = g_ann.add_small_button(
@@ -4844,6 +4854,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         "annotate": frozenset({"plan", "detail", "section"}),
         # Build's Note: it saves as a text with a leader (notes design N26).
         "schematic_note": frozenset({"schematic"}),
+        # SB6 D14 / R7: placed tags live on plan + detail views (not sections).
+        "tag": frozenset({"plan", "detail"}),
     }
     # Edit-group caption -> ModifyToolsController tool (can_start / start).
     _TOOL_OF_LABEL = {"Copy": "copy", "Cut": "cut", "Paste": "paste",
@@ -4873,6 +4885,11 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             return
         sc.set_mode(mode)
 
+    def _set_tag_leader(self, on: bool) -> None:
+        """SB6 D8 / R5: the Annotations Leader toggle -- whether new tags get a
+        straight leader (the plan scene's ``tag_leader_on``; off by default)."""
+        self.scene.tag_leader_on = bool(on)
+
     def _init_build_tab(self, _I):
         """Build Tab 6: **Build** -- Block, Definition, 2D Geometry (design §1).
 
@@ -4891,6 +4908,8 @@ class MainWindow(FramelessShellMixin, QMainWindow):
         self._canvas_gated: list = []
         # The Architecture > Annotations Note button follows the canvas kind too (D11).
         self._gate(*self._arch_note_gate, "annotate")
+        self._gate(*self._arch_tag_gate, "tag")              # SB6 D14: plan + detail only
+        self._gate(*self._arch_tag_leader_gate, "tag")
 
         # --- Block (entry verbs; always live) ---
         gb = page.add_group("Block")
