@@ -163,6 +163,8 @@ def _reset_project_line_weights():
     pd._THIN_SUSPEND = 0
     pd._MODEL_FACTOR = pd.MODEL_WEIGHT_FACTOR
     pd._MODEL_BLOCKS_COLOUR = None
+    pd._TAG_LEADER_END = None          # SB6 Tags row
+    pd._TAG_LEADER_WEIGHT = None
     pd._clear_hatch_mm()
     yield
     pd._PROJECT_LW = None
@@ -170,6 +172,8 @@ def _reset_project_line_weights():
     pd._THIN_SUSPEND = 0
     pd._MODEL_FACTOR = pd.MODEL_WEIGHT_FACTOR
     pd._MODEL_BLOCKS_COLOUR = None
+    pd._TAG_LEADER_END = None          # SB6 Tags row
+    pd._TAG_LEADER_WEIGHT = None
     pd._clear_hatch_mm()
 
 

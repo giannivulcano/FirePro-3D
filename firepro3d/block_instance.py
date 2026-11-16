@@ -2261,9 +2261,93 @@ class BlockInstance(QGraphicsObject):
         props["Edit attributes"] = {
             "type": "button", "value": "Edit attributes\u2026",
             "callback": self._open_edit_attributes, "enabled": has_attrs}
+        if self.tag is not None:
+            props = self._tag_rows(props, sc)
         if self.host:
             props = self._hosted_rows(props, sc)
         return props
+
+    def _tag_rows(self, props: dict, sc) -> dict:
+        """SB6 D5 / D11: a placed tag drops Rotation / Mirrored (its pose is
+        derived) and gains Orientation, Tag (the block swap) and Leader."""
+        from .constants import TAG_ORIENT_LABELS
+        out = {"Type": {"type": "label", "value": "Tag"}}
+        out.update({k: v for k, v in props.items()
+                    if k not in ("Type", "Rotation", "Mirrored")})
+        out["Orientation"] = {"type": "enum",
+                              "value": TAG_ORIENT_LABELS[self.tag["orientation"]],
+                              "options": list(TAG_ORIENT_LABELS.values())}
+        out["Tag"] = self._tag_block_row(sc)
+        out["Leader"] = {"type": "bool", "value": bool(self.tag.get("leader"))}
+        return out
+
+    def _tag_block_row(self, sc) -> dict:
+        """The Tag enum row (SB6 D11, the Room Tag row's shape): "Project
+        default (<name>)" = no swap first, then the host category's eligible
+        blocks (``annotation_choices.choices``); the label -> Choice map is
+        kept for ``_set_tag_property``."""
+        from . import annotation_choices as ac
+        from . import element_params
+        host = self.element_host
+        cat = element_params.category_of(host) if host is not None else None
+        default = (ac.default_label(sc, cat) if cat
+                   else f"{ac.PROJECT_DEFAULT_PREFIX} (none)")
+        self._tag_choices = {default: None}
+        if cat and sc is not None and hasattr(sc, "_block_definitions"):
+            for c in ac.choices(sc, cat, current=self.tag.get("block")):
+                self._tag_choices.setdefault(c.label, c)
+        value = default
+        if self.tag.get("block"):
+            value = next((lbl for lbl, c in self._tag_choices.items()
+                          if c is not None and c.block_id == self.tag["block"]), default)
+        return {"type": "enum", "value": value, "options": list(self._tag_choices)}
+
+    def _set_tag_property(self, key: str, value) -> None:
+        """Apply an Orientation / Tag / Leader commit (SB6 D5 / D11 / R5): one
+        undo step when the record changed, none otherwise (G9)."""
+        from .constants import TAG_ORIENT_LABELS
+        sc = self.scene()
+        before = repr(self.tag)
+        if key == "Orientation":
+            v = next((k for k, lbl in TAG_ORIENT_LABELS.items() if lbl == value), None)
+            if v is None:
+                return
+            self.tag["orientation"] = v
+        elif key == "Tag":
+            if value not in self._tag_choices:
+                self._tag_block_row(sc)
+            if value not in self._tag_choices:
+                return                                  # "< mixed >" / a stale label
+            from .annotation_choices import pick_block_id
+            ok, bid = pick_block_id(sc, self._tag_choices[value])
+            if not ok:
+                return                                  # a Library load failed (message shown)
+            self.tag["block"] = bid
+        elif key == "Leader":
+            if not isinstance(value, bool):
+                return
+            if value and not self.tag.get("leader"):
+                from .capabilities import ensure_end_available
+                from .paper_display import tag_leader_end
+                ensure_end_available(tag_leader_end(), sc, outside_history=True)
+                self.tag["leader"] = {"knee": None}
+            elif not value:
+                self.tag["leader"] = None
+        if repr(self.tag) == before:
+            return
+        self.sync_tag()
+        req = getattr(sc, "request_undo_push", None) if sc is not None else None
+        if callable(req):
+            req()
+
+    def sync_tag(self) -> None:
+        """Re-resolve + re-pose this tag now (a row edit), then re-shape."""
+        sc, host = self.scene(), self.element_host
+        if sc is not None and host is not None and self.tag is not None:
+            from .hosted_dependents import repose_tag
+            repose_tag(sc, self, host)
+        self.tag_changed()
+        self.refresh_bound()
 
     def _hosted_rows(self, props: dict, sc) -> dict:
         """G13: a hosted block swaps Level / Level Offset for Reference /
@@ -2377,6 +2461,9 @@ class BlockInstance(QGraphicsObject):
         """
         if self.host and key in ("Reference", "Offset", "Elevation"):
             self._set_host_property(key, value)
+            return
+        if self.tag is not None and key in ("Orientation", "Tag", "Leader"):
+            self._set_tag_property(key, value)      # SB6: before the Note's Leader rows
             return
         if key == phase_registry.ROW_KEY:
             if self._phased():
