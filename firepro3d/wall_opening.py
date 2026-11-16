@@ -491,30 +491,32 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Z range ───────────────────────────────────────────────────────────────
 
-    def z_range_mm(self) -> tuple[float, float] | None:
-        """Return (z_bottom, z_top) in absolute mm from the assigned level.
+    def vertical_extent(self, level_manager) -> tuple[float, float]:
+        """``(bot, top)`` world-mm (wall-room-floor-system, Vertical extent).
 
-        Returns ``None`` when no LevelManager is reachable or the level name
-        is not registered.
+        Pure: sill measured from the opening's own level; a missing level
+        falls back to the host wall's base level, then elevation 0 (also
+        with no level manager).
         """
+        lvl = None
+        if level_manager is not None:
+            lvl = level_manager.get(self.level)
+            if lvl is None and self._wall is not None:
+                lvl = level_manager.get(self._wall._base_level)
+        bot = (0.0 if lvl is None else lvl.elevation) + self._sill_mm
+        return (bot, bot + self._height_mm)
+
+    def z_range_mm(self) -> tuple[float, float]:
+        """Vertical extent through the host wall's scene (or own scene)."""
         # Prefer the wall's scene (opening may not be in the scene itself yet)
         sc = (self._wall.scene() if self._wall is not None else None) or self.scene()
-        lm = getattr(sc, "_level_manager", None) if sc else None
-        if lm is None:
-            return None
-        lvl = lm.get(self.level)
-        if lvl is None:
-            return None
-        z_bot = lvl.elevation + self._sill_mm
-        z_top = lvl.elevation + self._sill_mm + self._height_mm
-        return (z_bot, z_top)
+        return self.vertical_extent(getattr(sc, "_level_manager", None) if sc else None)
 
     def fits_within_wall(self) -> bool:
-        """True when the opening's Z range lies within the host wall's Z range."""
-        zr = self.z_range_mm()
-        wr = self._wall.z_range_mm() if self._wall is not None else None
-        if zr is None or wr is None:
+        """True when the opening's extent lies within the host wall's."""
+        if self._wall is None:
             return True
+        zr, wr = self.z_range_mm(), self._wall.z_range_mm()
         return wr[0] - 1e-6 <= zr[0] and zr[1] <= wr[1] + 1e-6
 
     # ── Move support (for grip/drag) ──────────────────────────────────────────
@@ -739,7 +741,8 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         The coordinate convention matches ``WallSegment.get_3d_mesh``:
         * Scene X → world X via ``scale_manager.scene_to_real``
         * Scene Y → world Y via ``-scale_manager.scene_to_real`` (Y negated)
-        * Z = ``level.elevation + sill_mm`` (bottom) / ``+ height_mm`` (top)
+        * Z = :meth:`vertical_extent` (own level, else the wall's base
+          level, else 0; + sill, up by height)
 
         Args:
             level_manager: Optional LevelManager for elevation lookup.
@@ -762,13 +765,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             return v
 
         # ── Elevations ────────────────────────────────────────────────────────
-        base_z = 0.0
-        if level_manager is not None:
-            lvl = level_manager.get(self.level)
-            if lvl is not None:
-                base_z = lvl.elevation
-        z_bot = base_z + self._sill_mm
-        z_top = z_bot + self._height_mm
+        z_bot, z_top = self.vertical_extent(level_manager)
         if z_top <= z_bot:
             return []
 

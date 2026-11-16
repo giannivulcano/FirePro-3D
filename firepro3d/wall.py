@@ -1179,7 +1179,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         """Per opening: the plan gap rect (width x full thickness, as
         ``WallOpening._gap_rect`` draws it, measured along from
         ``centerline_pt1``) centred on the wall axis, in scene coords,
-        sill..head clamped to the wall's span (D5):
+        the opening's vertical extent clamped to the wall's (D5):
         ``[(QPointF x4, z0, z1)]``."""
         base_z, top_z = self.z_span_mm(level_manager)
         a, b = self.centerline_pt1, self.centerline_pt2
@@ -1200,8 +1200,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             # cross offset / alignment shift (D5, Q4) does not move it.
             cx = a.x() + ux * op._offset_along
             cy = a.y() + uy * op._offset_along
-            z0 = max(base_z, base_z + op._sill_mm)
-            z1 = min(top_z, base_z + op._sill_mm + op._height_mm)
+            o0, o1 = op.vertical_extent(level_manager)
+            z0, z1 = max(base_z, o0), min(top_z, o1)
             if z1 <= z0:
                 continue
             rect = [QPointF(cx + ux * su * half_w + nx * sv * half_t,
