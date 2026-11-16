@@ -68,3 +68,23 @@ def test_ac1_leader_toggle_on_gives_new_tags_a_leader(qapp, real_system_library)
         assert scene.get_block_definition(tag_leader_end()) is not None   # End loaded before placing
     finally:
         close_view(view, scene)
+
+
+def test_gc3_hidden_wall_is_not_taggable(qapp, real_system_library):
+    """A wall hidden (another level's) under the cursor gives no ghost and no tag."""
+    view, scene = make_view(role="plan", scale=0.1)
+    try:
+        w = _armed(view, scene)
+        move(view, QPointF(800.0, 0.0))
+        assert scene._tag_ctl.find_host_at(QPointF(800.0, 0.0)) is w      # visible: taggable
+        assert scene._move_ghost
+        w.setVisible(False)
+        move(view, QPointF(800.0, 500.0))                                 # off the wall: drops the ghost
+        move(view, QPointF(800.0, 0.0))
+        assert scene._tag_ctl.find_host_at(QPointF(800.0, 0.0)) is None   # [RED: _find_wall_at ignores visibility]
+        assert not scene._move_ghost
+        p0 = scene._undo_pos
+        click(view, QPointF(800.0, 0.0))
+        assert tags_of(scene) == [] and scene._undo_pos == p0
+    finally:
+        close_view(view, scene)

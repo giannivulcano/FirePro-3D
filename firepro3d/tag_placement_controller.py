@@ -50,13 +50,17 @@ class TagPlacementController:
 
     def find_host_at(self, pos):
         """The taggable element under *pos*: a wall opening first, else a wall
-        (``FeaturePlacementController._find_wall_at``), else None."""
+        (the ``_find_wall_at`` hit test, but only a wall that is on this scene and
+        visible -- a hidden wall on another level is not taggable), else None."""
         s = self._scene
         for wall in s._walls:
             for op in wall.openings:
                 if op.scene() is s and op.isVisible() and self._on_opening(op, pos):
                     return op
-        return s._feature_ctl._find_wall_at(pos)
+        for wall in s._walls:
+            if wall.scene() is s and wall.isVisible() and wall.shape().contains(pos):
+                return wall
+        return None
 
     # -- Hover / place ------------------------------------------------------------
     def _instruct(self, text: str) -> None:
