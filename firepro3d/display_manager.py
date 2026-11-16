@@ -291,6 +291,10 @@ _COL_RESET   = 5
 # Weight-only Model-tab row (linetypes.md LT2-6) -- NOT a _CATEGORIES entry.
 from .weight_refs import MODEL_BLOCKS_KEY as _MODEL_BLOCKS_KEY
 
+# SB6 D10 / R4: the Tags row (leader End + weight of every placed tag) -- a
+# Model-tree row like the Blocks weight row, NOT a _CATEGORIES entry.
+_TAGS_KEY = "Tags"
+
 # Line Weights tab "Model (px)" column header + cell tooltip (MW-11).
 _MODEL_PX_TIP = (
     "Canvas width of this weight in screen pixels (model views and the "
@@ -959,6 +963,8 @@ class DisplayManager(HouseDialog):
         from .paper_display import model_blocks_colour, model_blocks_weight
         self._model_blocks_snapshot = model_blocks_weight()
         self._model_blocks_colour_snapshot = model_blocks_colour()   # WM3 D5
+        from .paper_display import tag_leader_end, tag_leader_weight
+        self._tag_leader_snapshot = (tag_leader_end(), tag_leader_weight())   # SB6 D10
         for item in self._iter_all_items():
             entry: dict = {
                 "visible": item.isVisible(),
@@ -1101,6 +1107,18 @@ class DisplayManager(HouseDialog):
                     f"display/{_MODEL_BLOCKS_KEY}/color",
                     self._model_blocks_colour_snapshot)
                 self.lineWeightsChanged.emit()
+
+        # Tags row leader End + weight (SB6 D10)
+        if hasattr(self, "_tag_leader_snapshot"):
+            from .paper_display import (set_tag_leader_end, set_tag_leader_weight,
+                                        tag_leader_end, tag_leader_weight)
+            if (tag_leader_end(), tag_leader_weight()) != self._tag_leader_snapshot:
+                end, weight = self._tag_leader_snapshot
+                set_tag_leader_end(end)
+                set_tag_leader_weight(weight)
+                self._settings.setValue(f"display/{_TAGS_KEY}/leader_end", end)
+                self._settings.setValue(f"display/{_TAGS_KEY}/leader_weight", weight)
+                self._tags_changed()
 
         # Force scene repaint
         self._scene.update()
@@ -1485,6 +1503,93 @@ class DisplayManager(HouseDialog):
                     "category": key,
                 }
 
+        self._add_tags_row(group_items.get("Annotation & Geometry", self._tree))
+
+    def _add_tags_row(self, parent) -> None:
+        """SB6 D10 / R4: the Tags row -- every placed tag's leader End and
+        weight (one NAME-cell widget: label, End combo, Weight combo)."""
+        from .capabilities import end_choices
+        from .paper_display import (fill_weight_combo, picker_weight_name,
+                                    tag_leader_end, tag_leader_weight)
+        row = QTreeWidgetItem(parent)
+        row.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        for _c in range(self._tree.columnCount()):
+            row.setSizeHint(_c, QSize(0, th.M.DM_ROW_H))
+        host = QWidget(objectName="tableCell")          # transparent host (theme QSS)
+        lay = QHBoxLayout(host)
+        lay.setContentsMargins(0, 0, 0, 0)
+        name = QLabel("Tags")
+        f = name.font()
+        f.setBold(True)
+        name.setFont(f)
+        lay.addWidget(name)
+        lay.addWidget(QLabel("Leader end"))
+        end_combo = QComboBox()
+        reg = getattr(self._scene, "block_registry", None)
+        self._tag_end_choices = end_choices(reg, ())
+        end_combo.addItems([n for n, _r in self._tag_end_choices])
+        cur = next((n for n, r in self._tag_end_choices if r == tag_leader_end()), None)
+        if cur is not None:
+            end_combo.setCurrentText(cur)
+        end_combo.setToolTip("End block on the host end of every tag leader")
+        end_combo.currentTextChanged.connect(self._on_tag_leader_end)
+        lay.addWidget(end_combo)
+        lay.addWidget(QLabel("Weight"))
+        wc = QComboBox()
+        fill_weight_combo(wc)
+        wc.setCurrentText(picker_weight_name(tag_leader_weight()))
+        wc.setToolTip("Line weight of every tag leader")
+        wc.currentTextChanged.connect(self._on_tag_leader_weight)
+        lay.addWidget(wc)
+        lay.addStretch()
+        self._tree.setItemWidget(row, _COL_NAME, host)
+        self._tags_row = row
+        self._tag_end_combo, self._tag_weight_combo = end_combo, wc
+
+    def _on_tag_leader_end(self, label: str):
+        if self._suppress or not label:
+            return
+        ref = next((r for n, r in self._tag_end_choices if n == label), None)
+        if ref is None:
+            return
+        from .capabilities import ensure_end_available
+        if not ensure_end_available(ref, self._scene, outside_history=True):
+            return                                  # a folder end failed to load: keep the old one
+        from .paper_display import set_tag_leader_end
+        set_tag_leader_end(ref)
+        self._settings.setValue(f"display/{_TAGS_KEY}/leader_end", ref)
+        self._tags_changed()
+
+    def _on_tag_leader_weight(self, name: str):
+        if self._suppress or not name:
+            return
+        from .paper_display import set_tag_leader_weight, tag_leader_weight
+        set_tag_leader_weight(name)
+        self._settings.setValue(f"display/{_TAGS_KEY}/leader_weight", tag_leader_weight())
+        self._tags_changed()
+
+    def _tags_changed(self):
+        """Re-shape every tag leader, then dirty + repaint (LT1 H3 signal)."""
+        from . import hosted_dependents
+        hosted_dependents.refresh_tag_leaders(self._scene)
+        self.lineWeightsChanged.emit()
+
+    def _refresh_tag_weight_combo(self):
+        """Re-fill the Tags weight combo from the project table without firing
+        ``_on_tag_leader_weight``."""
+        combo = getattr(self, "_tag_weight_combo", None)
+        if combo is None:
+            return
+        from .paper_display import (fill_weight_combo, picker_weight_name,
+                                    tag_leader_weight)
+        was = self._suppress
+        self._suppress = True
+        try:
+            fill_weight_combo(combo)
+            combo.setCurrentText(picker_weight_name(tag_leader_weight()))
+        finally:
+            self._suppress = was
+
     def _on_model_blocks_weight(self, name: str):
         if self._suppress or not name:
             return
@@ -1513,6 +1618,7 @@ class DisplayManager(HouseDialog):
     def _refresh_model_blocks_combo(self):
         """Re-fill the Blocks combo from the project table (rename / add /
         remove / reset) without firing ``_on_model_blocks_weight``."""
+        self._refresh_tag_weight_combo()            # SB6: the Tags row's weight combo too
         combo = getattr(self, "_model_blocks_combo", None)
         if combo is None:
             return
@@ -2848,6 +2954,7 @@ def apply_saved_display_settings(scene):
     # Not the user default: this also runs at every undo restore (LT2-6).
     _apply_model_blocks_weight(None, settings, prefer_default=False,
                                use_user_default=False)
+    _apply_tag_leader(None, settings, prefer_default=False)
     settings.sync()
 
 
@@ -2875,6 +2982,7 @@ def apply_default_display_settings(scene):
 
         _apply_to_scene_items(scene, key, vals, respect_overrides=False)
     _apply_model_blocks_weight(None, settings, prefer_default=True)
+    _apply_tag_leader(None, settings, prefer_default=True)
 
 
 def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
@@ -2917,6 +3025,25 @@ def _apply_model_blocks_weight(project: dict | None, settings: QSettings,
     settings.setValue(f"display/{key}/color", model_blocks_colour())
 
 
+def _apply_tag_leader(project: dict | None, settings: QSettings,
+                      prefer_default: bool) -> None:
+    """Resolve the Tags row (SB6 D10): project -> current QSettings ->
+    factory; a New project (*prefer_default*) skips the current key."""
+    from .paper_display import (set_tag_leader_end, set_tag_leader_weight,
+                                tag_leader_end, tag_leader_weight)
+    rec = (project or {}).get(_TAGS_KEY) or {}
+    end = rec.get("leader_end")
+    weight = rec.get("leader_weight")
+    if not end and not prefer_default:
+        end = settings.value(f"display/{_TAGS_KEY}/leader_end")
+    if not weight and not prefer_default:
+        weight = settings.value(f"display/{_TAGS_KEY}/leader_weight")
+    set_tag_leader_end(end or None)
+    set_tag_leader_weight(weight or None)
+    settings.setValue(f"display/{_TAGS_KEY}/leader_end", tag_leader_end())
+    settings.setValue(f"display/{_TAGS_KEY}/leader_weight", tag_leader_weight())
+
+
 def get_display_settings_for_save() -> dict:
     """Return the current category-level display settings as a dict
     suitable for embedding in a project file.
@@ -2934,6 +3061,9 @@ def get_display_settings_for_save() -> dict:
     from .paper_display import model_blocks_colour, model_blocks_weight
     result[_MODEL_BLOCKS_KEY] = {"line_weight": model_blocks_weight(),
                                  "color": model_blocks_colour()}
+    from .paper_display import tag_leader_end, tag_leader_weight
+    result[_TAGS_KEY] = {"leader_end": tag_leader_end(),
+                         "leader_weight": tag_leader_weight()}      # SB6 D10
     return result
 
 
@@ -2967,6 +3097,7 @@ def apply_project_display_settings(scene, display_dict: dict):
 
         _apply_to_scene_items(scene, key, vals, respect_overrides=True)
     _apply_model_blocks_weight(display_dict, settings, prefer_default=False)
+    _apply_tag_leader(display_dict, settings, prefer_default=False)
     settings.sync()
 
 
