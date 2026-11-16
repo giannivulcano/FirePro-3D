@@ -94,6 +94,22 @@ def test_dd6_cancel_puts_the_phase_weight_back(qapp, tmp_path):
     pr.project_table().set_graphic(PHASE_EXISTING, "weight", "Pen X")
     d = _dm(ms, settings)
     d._lw_table.item(_row(d, "Pen X"), 0).setText("Pen Y")
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Pen Y"   # live mid-state
+    d.reject()
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Pen X"
+
+
+def test_dd6_cancel_after_delete_replace_puts_the_phase_weight_back(qapp, tmp_path,
+                                                                     monkeypatch):
+    """Delete-replace journals the phase holder; Cancel replays the journal (DD6)."""
+    settings = _setup(tmp_path, [("Pen X", 0.40)])
+    ms = h.scene()
+    pr.project_table().set_graphic(PHASE_EXISTING, "weight", "Pen X")
+    d = _dm(ms, settings)
+    _Modal(monkeypatch, pick="Wide")
+    d._lw_table.setCurrentCell(_row(d, "Pen X"), 0)
+    d._on_lw_remove()
+    assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Wide"    # live mid-state
     d.reject()
     assert pr.project_table().graphics_of(PHASE_EXISTING)["weight"] == "Pen X"
 
