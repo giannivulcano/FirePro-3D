@@ -164,6 +164,7 @@ def _underlay_layer_weight(s):
     group, _layers = s._build_batched_underlay_group(geoms, rec)
     group.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
                    | QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+    s.underlays.append((rec, group))        # as every real caller does after the build
     return group
 
 
@@ -274,6 +275,10 @@ def build(kind, request):
     request.node._pp_keep = [*getattr(request.node, "_pp_keep", []), ms]
     maker = _KINDS.get(kind) or _EXTRA.get(kind) or _PICK[kind]
     maker(ms)
+    if kind == "underlay_group":            # the _KINDS builder leaves the group unregistered
+        from firepro3d.underlay import Underlay
+        (grp,) = [i for i in ms.items() if type(i).__name__ == "_UnderlayGroup"]
+        ms.underlays.append((Underlay(type="dxf", path="x.dxf"), grp))
     return ms, QRectF(_CROP)
 
 
@@ -371,6 +376,77 @@ def snapshot(scene) -> dict:
 # AC2: round trip
 # ---------------------------------------------------------------------------
 
+def primary_item(kind, scene):
+    """The item the kind is about (not a Node, wall or pipe it happens to need)."""
+    def first(*names, cat=None):
+        for it in scene.items():
+            if type(it).__name__ in names and (
+                    cat is None or getattr(it, "_paper_cat", None) == cat):
+                return it
+        raise AssertionError(f"{kind}: no {names} in the scene")
+
+    def top_group():
+        return scene.underlays[-1][1]
+
+    def layer_child():
+        return next(c for c in top_group().childItems() if c.data(1) is not None)
+
+    by_kind = {
+        "wall": lambda: first("WallSegment"), "pipe": lambda: first("Pipe"),
+        "node": lambda: first("Node"), "roof": lambda: first("RoofItem"),
+        "room": lambda: first("Room"), "floor_slab": lambda: first("FloorSlab"),
+        "wall_opening": lambda: first("WallOpening"),
+        "detail_marker": lambda: first("DetailMarker"),
+        "hydraulic_badge": lambda: first("HydraulicNodeBadge"),
+        "filled_region": lambda: first("FilledRegionItem"),
+        "water_supply": lambda: first("WaterSupply"),
+        "underlay_pixmap": top_group, "underlay_placeholder": top_group,
+        # a vector underlay's pass writes its layer path children (pen / brush)
+        "underlay_group": layer_child, "underlay_layer_weight": layer_child,
+        "line": lambda: first("LineItem"), "rectangle": lambda: first("RectangleItem"),
+        "circle": lambda: first("CircleItem"), "arc": lambda: first("ArcItem"),
+        "polygon": lambda: first("RegularPolygonItem"),
+        "ellipse": lambda: first("EllipseItem"), "spline": lambda: first("SplineItem"),
+        "pipe_labelled": lambda: first("Pipe").label,
+        "room_tagged": lambda: first("Room")._tag,
+        "gridline": lambda: first("GridlineItem"),
+        "sprinkler": lambda: first("Sprinkler"),
+        "fitting_node": lambda: first("Node").fitting.symbol,
+        "marker_cardinal": lambda: first("SectionMarker"),
+        "marker_placed": lambda: first("SectionMarker"),
+        "block_instance": lambda: first("BlockInstance"),
+        "placed_tag": lambda: first("BlockInstance"),
+        "text_printed": lambda: first("TextItem"),
+        "line_named_weight": lambda: first("LineItem"),
+        "sec_walls": lambda: first("_ElevProxyRect", cat="Wall"),
+        "sec_pipe_label": lambda: first("_ElevProxyLine"),
+        "sec_elevation": lambda: first("ElevGridlineItem"),
+        "pick_excluded": lambda: first("LineItem"),
+        "pick_origin": lambda: first("LineItem"),
+        "pick_scaffold": lambda: first("LineItem"),
+        "pick_detail_hidden": lambda: first("DetailMarker"),
+        "pick_detail_self": lambda: first("DetailMarker"),
+    }
+    return by_kind[kind]()
+
+
+# (kind, mode) pairs where the base pass genuinely leaves the kind's own item
+# unchanged (filled in from the first run; each is explained here).
+_PRIMARY_UNCHANGED = {
+    # an underlay's pass writes its group (visibility / opacity) and its path
+    # children; a raster pixmap or the placeholder box has neither to change
+    # unless the row hides it
+    ("underlay_pixmap", "authored"), ("underlay_pixmap", "row_off"),
+    ("underlay_placeholder", "authored"), ("underlay_placeholder", "row_off"),
+    # the fitting symbol is only re-tinted when a model-side token or the row
+    # colour reaches it; an As Authored row with a hex colour leaves it alone
+    ("fitting_node", "authored"),
+    # a layer with no override keeps its own colour and weight on an As
+    # Authored row: the path child's pen is rewritten with equal values
+    ("underlay_group", "authored"),
+}
+
+
 def set_ac2_mode(env, mode: str) -> None:
     """authored: rows on; row_off: rows off with row colours; hidden: every row
     ``visible=False`` (the visibility-token path)."""
@@ -397,11 +473,21 @@ def test_ac2_round_trip(qapp, request, paper_env, real_system_library, kind, mod
     during = snapshot(scene)
     pd.restore_model_display(saved)
     after = snapshot(scene)
-    diff = {k: {a: (before[k][a], after[k][a]) for a in before[k]
-                if before[k][a] != after[k].get(a)}
-            for k in before if before[k] != after.get(k)}         if before.keys() == after.keys() else "item set changed"
+    if before.keys() != after.keys():
+        diff = "item set changed"
+    else:
+        diff = {k: {a: (before[k][a], after[k][a]) for a in before[k]
+                    if before[k][a] != after[k].get(a)}
+                for k in before if before[k] != after.get(k)}
     assert not diff, f"{kind}/{mode}: restore did not return {diff}"
-    assert _changed_by_pass(before, during),         f"{kind}/{mode}: the pass changed no item attribute (vacuous guard)"
+    assert _changed_by_pass(before, during), (
+        f"{kind}/{mode}: the pass changed no item attribute (vacuous guard)")
+    prim = primary_item(kind, scene)
+    if (kind, mode) not in _PRIMARY_UNCHANGED:
+        idx = next(i for i, it in enumerate(scene.items()) if it is prim)
+        assert before[("item", idx)] != during[("item", idx)], (
+            f"{kind}/{mode}: the pass left the kind's own item "
+            f"{type(prim).__name__} unchanged")
 
 
 # ---------------------------------------------------------------------------
@@ -594,13 +680,15 @@ def _label_after_apply(env, pipe_x0, pipe_x1, pipe_y=0.0):
     ms, p = _label_scene(pipe_x0, pipe_x1, pipe_y)
     crop = QRectF(_CROP)
     pipe_in = crop.intersects(p.sceneBoundingRect())
-    assert pipe_in == (pipe_x0 < crop.right() and pipe_x1 > crop.left()),         "setup: the pipe's crop membership is not the one the case names"
+    assert pipe_in == (pipe_x0 < crop.right() and pipe_x1 > crop.left()), (
+        "setup: the pipe's crop membership is not the one the case names")
     saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
     try:
         lab = p.label
         box = lab.mapRectToScene(lab.boundingRect())
         assert crop.intersects(box), "setup: the label box must lie in the crop"
-        assert not box.intersects(p.sceneBoundingRect()),             "setup: the pipe line runs under the label box (its ink would fool the probe)"
+        assert not box.intersects(p.sceneBoundingRect()), (
+            "setup: the pipe line runs under the label box (its ink would fool the probe)")
         img = _render_white(ms, crop, 600, 600)
         return lab._paper_scale, _ink_near(img, box, crop, (255, 0, 0))
     finally:
