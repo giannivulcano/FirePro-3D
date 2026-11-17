@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 
 import pytest
@@ -32,6 +33,48 @@ def test_order_tuples_cover_exactly_their_roles():
     assert set(es.CONSTRAINT_EDITOR_ORDER) == es.role_attrs("editor")
     assert set(es.CONSTRAINT_PRIMITIVE_ORDER) == es.role_attrs("editor") | es.role_attrs("primitive")
     assert set(es.CONSTRAINT_PLAN_ORDER) == es.role_attrs("plan")
+
+
+# -- table fields against the code they describe ---------------------------------
+@pytest.mark.parametrize("row", es.KINDS, ids=lambda r: r.attr)
+def test_row_fields_match_the_code(qapp, tmp_path, row):
+    from firepro3d.model_space import Model_Space
+    ms, items = build_every_kind()
+    item = items[row.attr]
+    assert isinstance(item, row.cls), row.attr
+    # undo key: the capture names this row's records under row.undo_key
+    snap = ms._capture_network()
+    assert row.undo_key in snap, row.undo_key
+    assert len(snap[row.undo_key]) == 1, row.undo_key
+    # file key: the saved payload names them under row.file_key; loose rows are not saved
+    assert ms.save_to_file(str(tmp_path / "x.fpd"), backup=False)
+    with open(tmp_path / "x.fpd", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    if row.file_key is not None:
+        assert len(payload[row.file_key]) == 1, row.file_key
+    else:
+        for key in (row.undo_key,) + tuple(row.legacy_keys):
+            assert key not in payload, key
+    # paste registry: the record type maps to this row's class and list
+    if row.record_type is not None:
+        assert Model_Space._GEOM_TYPE_REGISTRY[row.record_type] == (row.cls, row.attr)
+    if row.legacy_keys:                          # the legacy record type routes to the same row
+        assert Model_Space._GEOM_TYPE_REGISTRY.get("reference_line") == (row.cls, row.attr)
+    # children: only walls and floor slabs own sub-items (their openings)
+    assert (row.children is not None) == (row.attr in ("_walls", "_floor_slabs"))
+    if row.children is not None:
+        assert row.children(item) and list(row.children(item)) == list(item.openings)
+    # level: the row's accessor reads the level the level walk reads
+    if row.level_of is not None:
+        expect = item._top_level if row.attr == "_floor_slabs" else getattr(item, "level", None)
+        assert row.level_of(item) == expect
+
+
+@pytest.mark.parametrize("row", [r for r in es.KINDS if r.record_type], ids=lambda r: r.attr)
+def test_registry_record_types_are_all_rows(row):
+    from firepro3d.model_space import Model_Space
+    mapped = {rt for rt, (_c, a) in Model_Space._GEOM_TYPE_REGISTRY.items() if a == row.attr}
+    assert row.record_type in mapped
 
 
 @pytest.mark.parametrize("attr", ROW_ATTRS)
@@ -102,7 +145,7 @@ class _Scan(ast.NodeVisitor):
         self.generic_visit(node)
         self.stack.pop()
 
-    visit_FunctionDef = visit_ClassDef = _scoped
+    visit_FunctionDef = visit_AsyncFunctionDef = visit_ClassDef = _scoped
 
     def _check(self, elts, node):
         if len({a for a in map(_attr_of, elts) if a}) >= 2:
