@@ -253,6 +253,7 @@ def _migrated() -> tuple:
                               SplineItem)
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .node import Node
+    from .pipe import Pipe
     from .roof import RoofItem
     from .room import Room
     from .section_scene import _HostedBlockCopy, _SectionNoteCopy
@@ -264,15 +265,17 @@ def _migrated() -> tuple:
             EllipseItem, SplineItem, RegularPolygonItem, FilledRegionItem,
             # annotation blocks (Task 5); the section copies are the BlockInstance
             # subclasses the base ladder reached through isinstance
-            BlockInstance, HydraulicNodeBadge, _HostedBlockCopy, _SectionNoteCopy)
+            BlockInstance, HydraulicNodeBadge, _HostedBlockCopy, _SectionNoteCopy,
+            # pipe (Task 6): enters its riser symbol and its label (D5)
+            Pipe)
 
 
 def _owner_of(item):
     """The owner whose enter covers *item* (D5): its ``paper_owner``, else
-    itself. Until Task 15 only a migrated owner is mapped (the Room, for its
-    tag) -- a not-yet-migrated owner's child (a pipe label, a gridline bubble)
-    stays its own entry, as at base, so the legacy adapter never enters an
-    owner that base did not."""
+    itself. Until Task 15 only a migrated owner is mapped (the Room for its
+    tag; the Pipe for its label and riser) -- a not-yet-migrated owner's child
+    (a gridline bubble) stays its own entry, as at base, so the legacy adapter
+    never enters an owner that base did not."""
     o = getattr(item, "paper_owner", None)
     if o is None or type(o) not in _migrated():
         return item

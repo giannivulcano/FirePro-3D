@@ -217,12 +217,14 @@ def _construction(request, make):
 def test_construction_family_is_migrated_by_exact_type():
     """Every landed family, by exact type (subclasses take the legacy path):
     generic (Task 3), construction (Task 4), annotation blocks (Task 5, with
-    the two section BlockInstance subclasses the base ladder reached)."""
+    the two section BlockInstance subclasses the base ladder reached), pipe
+    (Task 6; no Pipe subclass exists)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
     from firepro3d.hydraulic_node_badge import HydraulicNodeBadge
     from firepro3d.node import Node
+    from firepro3d.pipe import Pipe
     from firepro3d.roof import RoofItem
     from firepro3d.room import Room
     from firepro3d.section_scene import _HostedBlockCopy, _SectionNoteCopy
@@ -232,7 +234,7 @@ def test_construction_family_is_migrated_by_exact_type():
                                    FloorSlab, RoofItem, Room, Node,
                                    *_construction_classes(),
                                    BlockInstance, HydraulicNodeBadge,
-                                   _HostedBlockCopy, _SectionNoteCopy}
+                                   _HostedBlockCopy, _SectionNoteCopy, Pipe}
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -544,15 +546,15 @@ def test_bound_label_host_in_another_scene_is_not_its_owner(qapp, request, paper
 def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env,
                                                         real_system_library):
     """Until each owner's family lands, a hit label whose owner is not yet
-    migrated stays its own (base) entry: the room tag maps to the Room, the
-    pipe label (Pipe: Task 6) and the gridline bubble (Task 9) do not."""
+    migrated stays its own (base) entry: the room tag maps to the Room and
+    the pipe label to the Pipe (Task 6); the gridline bubble (Task 9) does not."""
     from tests.test_paper_pass_characterization import _gridline, _pipe_labelled
     ms = _scene(request)
     room = _room_tagged(ms)
     pipe = _pipe_labelled(ms)
     gl = _gridline(ms)
     assert pp._owner_of(room._tag) is room
-    assert pp._owner_of(pipe.label) is pipe.label
+    assert pp._owner_of(pipe.label) is pipe
     assert pp._owner_of(gl.bubble1) is gl.bubble1
 
 
@@ -611,4 +613,128 @@ def test_room_hidden_tag_keeps_its_own_opacity(qapp, request, paper_env,
     assert "tag" not in tok and room._tag._paper_scale is None
     room.exit_paper_pass(tok)
     assert room._tag.opacity() == pytest.approx(0.4)
+    assert snapshot(ms) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 6: pipe (riser + label)
+# ---------------------------------------------------------------------------
+
+def _pipe_kind(request, make):
+    """("labelled") a horizontal pipe with its top-level label in the scene;
+    ("riser") a vertical pipe drawing its riser symbol."""
+    if make == "riser":
+        from tests._sb4g_helpers import riser_scene
+        ms, _nodes, p = riser_scene()
+        request.node._pp_keep = [*getattr(request.node, "_pp_keep", []), ms]
+        return ms, p
+    from tests.test_paper_pass_characterization import _pipe_labelled
+    ms = _scene(request)
+    return ms, _pipe_labelled(ms)
+
+
+def test_pipe_paper_category_drives_the_ladder(qapp, request, paper_env,
+                                               real_system_library):
+    _ms, p = _pipe_kind(request, "labelled")
+    assert p.paper_category == "Pipe"
+    assert pd._category_for_item(p) == "Pipe"
+
+
+def test_pipe_children_map_onto_the_pipe(qapp, request, paper_env,
+                                         real_system_library):
+    """D5: the top-level label and the riser symbol are entered by their pipe."""
+    _ms, p = _pipe_kind(request, "riser")
+    rs = p._riser_symbol
+    assert rs is not None and rs.scene() is p.scene()
+    assert rs.paper_owner is p
+    assert p.label.paper_owner is p
+    assert pp._owner_of(rs) is p
+    assert pp._owner_of(p.label) is p
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+@pytest.mark.parametrize("make", ["labelled", "riser"])
+def test_pipe_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                    make, authored):
+    """The base Pipe branch: pipe colour / weight / opacity, the riser's
+    named-weight hooks, the label's annotation hooks at the label opacity; the
+    exit puts every one back, the label's real prior opacity (0.4) included."""
+    from firepro3d import phase_display
+    set_rows(paper_env, authored)
+    ms, p = _pipe_kind(request, make)
+    p.label.setOpacity(0.4)
+    lab_vis = p.label.isVisible()
+    rs = p._riser_symbol
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    row = ctx.row("Pipe")
+    cat = ctx.merge(row, p, "Pipe")
+    cat["opacity"] = 60
+    tok = p.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert p._paper_pen_width == pytest.approx(ctx.lw_mm(cat) / SCALE)
+    assert p.opacity() == pytest.approx(0.6)
+    if not authored:
+        assert p._display_color == cat["color"]
+    if make == "riser":
+        assert rs._paper_pen_width == pytest.approx(ctx.lw_mm(cat) / SCALE)
+        assert rs._paper_scale == SCALE
+    if lab_vis:
+        lab_cat = ctx.merge(row, p, keys=phase_display.LABEL_KEYS)
+        assert p.label._paper_scale == pytest.approx(SCALE)
+        assert p.label._paper_pen_width == pytest.approx(ctx.lw_mm(row) / SCALE)
+        assert p.label.opacity() == pytest.approx(phase_display.label_opacity(lab_cat))
+    assert snapshot(ms) != before, "the enter changed nothing"
+    p.exit_paper_pass(tok)
+    assert p.label.opacity() == pytest.approx(0.4)
+    if rs is not None:
+        assert rs._paper_scale is None
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("make", ["labelled", "riser"])
+def test_pipe_owner_enters_itself_through_the_driver(qapp, request, paper_env,
+                                                     real_system_library, make):
+    """One token for the pipe (its own exit, never the adapter); the hit label
+    and riser are entered by it, never as entries of their own."""
+    set_rows(paper_env, False)
+    ms, p = _pipe_kind(request, make)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-1500, -1500, 3000, 3000),
+                                     paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is p] == [p.exit_paper_pass]
+        kids = [p.label, p._riser_symbol]
+        assert not [it for it, _fn, _tok in saved if any(it is k for k in kids)]
+        if p.label.isVisible():
+            assert p.label._paper_scale == pytest.approx(SCALE)
+        if p._riser_symbol is not None:
+            assert p._riser_symbol._paper_scale == SCALE
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_pipe_enter_raise_mid_write_unwinds_the_pipe(qapp, request, paper_env,
+                                                     real_system_library,
+                                                     monkeypatch):
+    """D2: a raise at the label (after the pipe and riser writes) leaves the
+    pipe, its riser and its label as they were, then re-raises."""
+    set_rows(paper_env, False)
+    ms, p = _pipe_kind(request, "riser")
+    p.update_label()
+    p.label.setVisible(True)
+    before = snapshot(ms)
+    seen = []
+
+    def boom(inst, *a, **kw):
+        seen.append(p._riser_symbol._paper_scale)
+        raise RuntimeError("label")
+
+    monkeypatch.setattr(pp, "enter_block_hooks", boom)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Pipe"), p, "Pipe")
+    with pytest.raises(RuntimeError, match="label"):
+        p.enter_paper_pass(ctx, cat)
+    assert seen == [SCALE], "the raise came after the riser write"
     assert snapshot(ms) == before

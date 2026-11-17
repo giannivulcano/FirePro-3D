@@ -704,7 +704,6 @@ def test_ac4_control_label_with_pipe_in_crop_plots_in_row_colour(
     assert ink > 0, "no Pipe-row-colour ink under the label box"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="AC4 - fixed in Task 7")
 def test_ac4_pipe_label_inside_crop_owner_outside(qapp, paper_env, real_system_library):
     scale, ink = _label_after_apply(paper_env, 3000.0, 5000.0)
     assert scale == pytest.approx(SCALE), "the label did not plot at paper size"

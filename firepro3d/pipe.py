@@ -196,6 +196,94 @@ class Pipe(TagBlockHost, DisplayableItemMixin, QGraphicsLineItem):
         if rs is not None:
             rs.update()
 
+    # -- Paper pass (paper-space.md s6.2) ------------------------------------
+
+    paper_category = "Pipe"     # paper row (R5)
+
+    def enter_paper_pass(self, ctx, cat):
+        """The pipe's paper look, then its riser symbol and its label (D5: both
+        map onto the pipe). Saves first (the token), then writes; a raise
+        mid-write unwinds the pipe, riser and label.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged Pipe paper row (``ctx.merge``), Visible on.
+
+        Returns:
+            The token :meth:`exit_paper_pass` takes.
+        """
+        from . import paper_pass
+        rs = self._riser_symbol
+        tok = {"display_color": getattr(self, "_display_color", None),
+               "opacity": self.opacity(),
+               # Base restore writes this back, so an absent hook comes back None.
+               "paper_pen_width": getattr(self, "_paper_pen_width", None),
+               "riser_paper": ((rs, rs._paper_pen_width, rs._paper_scale)
+                               if rs is not None else None),
+               "tag_opacity": self.label.opacity()}  # PH3 R4: a status opacity reaches the label
+
+        def write():
+            from . import phase_display
+            from .paper_display import row_as_authored
+            authored = row_as_authored(cat)
+            lw_mm = ctx.lw_mm(cat)
+            self._paper_pipe_write(cat, authored, lw_mm, ctx.paper_scale)
+            if rs is not None:            # SB4g R4: named weights plot mm / scale
+                rs._paper_pen_width = lw_mm / max(ctx.paper_scale, 1e-9)
+                rs._paper_scale = ctx.paper_scale
+                rs.update()               # colour: pulled from the pipe at paint (T10)
+            # Pipe label (SB4a D10): the one annotative path -- the label is a
+            # BoundLabelItem and takes the shared annotation-block hooks at the
+            # label opacity. A hidden label is skipped.
+            if self.label.isVisible():
+                row = ctx.row(self.paper_category)
+                lab_cat = ctx.merge(row, self, keys=phase_display.LABEL_KEYS)   # pipe label (R4)
+                tok["tag"] = paper_pass.enter_block_hooks(
+                    self.label, ctx, lab_cat, authored, ctx.lw_mm(row),
+                    opacity=phase_display.label_opacity(lab_cat))
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def _paper_pipe_write(self, cat, authored, lw_mm, paper_scale) -> None:
+        """Apply paper overrides to the pipe -- uses the _paper_pen_width hook.
+
+        The pen width is normalised to true ON-PAPER mm (s9.9.1, matching the
+        construction family / gridlines): ``paint`` applies ``_paper_pen_width``
+        as a **non-cosmetic** pen in model (scene) units, so the viewport plots
+        it at ``width x paper_scale``. A raw ``lw_mm`` would therefore plot at
+        ``lw_mm x paper_scale`` -- a sub-pixel hairline at architectural scales
+        (the line reads as invisible on the sheet). Dividing by ``paper_scale``
+        makes it plot at exactly ``lw_mm`` on paper regardless of viewport scale.
+        """
+        from . import phase_display
+        if phase_display.writes(cat, authored, "color"):     # DD2
+            self._display_color = cat["color"]
+        self._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+        self.setOpacity(cat["opacity"] / 100.0)
+        self.update()
+        self.repaint_riser()        # SB4g R4: the riser pulls its colour at paint
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass` (the base restore order: pipe, riser,
+        then the label); tolerates a partly-entered token. The label's real
+        prior opacity (R3) goes back even when it was hidden and never entered."""
+        from . import paper_pass
+        try:
+            self.setOpacity(tok["opacity"])
+            self._display_color = tok["display_color"]
+            self._paper_pen_width = tok["paper_pen_width"]
+            rp = tok["riser_paper"]
+            if rp is not None:
+                rs, rs._paper_pen_width, rs._paper_scale = rp
+                rs.update()
+        finally:
+            try:
+                if "tag" in tok:
+                    paper_pass.exit_block_hooks(tok["tag"])
+            finally:
+                self.label.setOpacity(tok["tag_opacity"])   # PH3 R4 restore
+                self.update()
+                self.repaint_riser()        # SB4g R4: colour restored above
+
     def set_pipe_display(self):
         colour = self._pen_colour()
         line_weight = self.display_width_mm() * self._display_scale
@@ -780,6 +868,11 @@ class RiserSymbolItem(SymbolBlockItem):
 
     def __init__(self, pipe):
         super().__init__("Riser", owner=pipe)
+
+    @property
+    def paper_owner(self):
+        """The pipe enters this symbol in the paper pass (paper-space.md s6.2, D5)."""
+        return self._owner
 
     def stroke_tint(self):
         return self._owner.effective_colour()
