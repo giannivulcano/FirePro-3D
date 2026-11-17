@@ -738,3 +738,72 @@ def test_pipe_enter_raise_mid_write_unwinds_the_pipe(qapp, request, paper_env,
         p.enter_paper_pass(ctx, cat)
     assert seen == [SCALE], "the raise came after the riser write"
     assert snapshot(ms) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 7: a label / tag inside the crop enters through its owner (D5, AC4)
+# ---------------------------------------------------------------------------
+
+def test_room_tag_inside_crop_enters_its_room_owner_outside(qapp, request, paper_env,
+                                                           real_system_library):
+    """User ruling 2026-11-17 (keep the Task 5 room-tag behaviour): a Room whose
+    boundary lies outside the crop and whose tag lies inside it is entered
+    once, through the hit tag -- the tag plots at paper size in the Room row
+    colour -- and both come back to their snapshot."""
+    from firepro3d.room import Room
+    from tests.test_paper_pass_characterization import _ink_near, _render_white
+    set_rows(paper_env, False)
+    paper_env.cats["Room"]["color"] = "#ff0000"      # the OWNER's row colour
+    paper_env.cats["Blocks"]["color"] = "#0000ff"    # another row: never the tag's
+    ms = _scene(request)
+    room = Room(boundary=[QPointF(3000, 3000), QPointF(5000, 3000),
+                          QPointF(5000, 5000), QPointF(3000, 5000)])
+    ms.addItem(room)
+    room.set_property("Room Name", "R1")
+    room._update_label()
+    tag = room._tag
+    room.apply_grip(0, QPointF(0.0, 0.0))     # the tag grip drags it into the crop
+    assert tag.pos() == QPointF(0.0, 0.0)
+    assert tag.scene() is ms and tag.isVisible()
+    crop = QRectF(-1500, -1500, 3000, 3000)
+    box = tag.mapRectToScene(tag.boundingRect())
+    assert not crop.intersects(room.sceneBoundingRect()), "setup: room in the crop"
+    assert crop.intersects(box), "setup: the tag box must lie in the crop"
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert tag._paper_scale == pytest.approx(SCALE), "the tag did not plot at paper size"
+        assert tag._paper_pen_color is not None
+        assert tag._paper_pen_color.name() == "#ff0000"
+        assert [fn for it, fn, _t in saved if it is room] == [room.exit_paper_pass]
+        assert not [it for it, _fn, _t in saved if it is tag]
+        img = _render_white(ms, crop, 600, 600)
+        assert tag.pos() == QPointF(0.0, 0.0), "setup: the tag moved during the render"
+        assert _ink_near(img, box, crop, (255, 0, 0)) > 0, (
+            "the tag did not plot in the Room row colour")
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_room_with_body_and_tag_in_crop_enters_once(qapp, request, paper_env,
+                                                   real_system_library):
+    """Both the room body and its tag are hit: the room is entered exactly
+    once (first-hit dedupe), the tag never as an entry of its own."""
+    set_rows(paper_env, False)
+    ms = _scene(request)
+    room = _room_tagged(ms)
+    tag = room._tag
+    crop = QRectF(-1500, -1500, 3000, 3000)
+    hits = ms.items(crop)
+    assert any(h is room for h in hits) and any(h is tag for h in hits), (
+        "setup: both the room and its tag must be hit")
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _t in saved if it is room] == [room.exit_paper_pass]
+        assert not [it for it, _fn, _t in saved if it is tag]
+        assert tag._paper_scale == pytest.approx(SCALE)
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
