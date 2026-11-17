@@ -259,8 +259,11 @@ def _migrated() -> tuple:
     from .detail_view import DetailMarker
     from .room import Room
     from .section_marker import SectionMarker
-    from .section_scene import (ElevDatumItem, ElevGridlineItem, _HostedBlockCopy,
-                                _SectionNoteCopy)
+    from .section_scene import (ElevDatumItem, ElevGridlineItem, _ElevCutEllipse,
+                                _ElevCutRect, _ElevEndOnSymbol, _ElevPipeSymbol,
+                                _ElevProxyEllipse, _ElevProxyLine, _ElevProxyRect,
+                                _HostedBlockCopy, _SectionNoteCopy, _SrcEllipse,
+                                _SrcLine, _SrcRect)
     from .sprinkler import Sprinkler
     from .wall import WallSegment
     from .wall_opening import WallOpening
@@ -282,15 +285,20 @@ def _migrated() -> tuple:
             SectionMarker, DetailMarker,
             # elevation gridline / level datum (Task 11): enter their bubbles /
             # head (D5); no subclass of either
-            ElevGridlineItem, ElevDatumItem)
+            ElevGridlineItem, ElevDatumItem,
+            # section proxies (Task 12): every _ColourSrcMixin class, by exact
+            # type; the line proxy enters its section pipe label (D5)
+            _SrcRect, _SrcLine, _SrcEllipse, _ElevProxyRect, _ElevProxyLine,
+            _ElevProxyEllipse, _ElevCutRect, _ElevPipeSymbol, _ElevCutEllipse,
+            _ElevEndOnSymbol)
 
 
 def _owner_of(item):
     """The owner whose enter covers *item* (D5): its ``paper_owner``, else
     itself. Until Task 15 only a migrated owner is mapped (the Room for its
     tag; the Pipe for its label and riser; the plan or elevation gridline
-    for its bubbles; a view marker for its heads; a level datum for its head)
-    -- a child of an owner not on the protocol stays its own entry, as at
+    for its bubbles; a view marker for its heads; a level datum for its head;
+    a section line proxy for its pipe label) -- a child of an owner not on the protocol stays its own entry, as at
     base, so the legacy adapter never enters an owner that base did not."""
     o = getattr(item, "paper_owner", None)
     if o is None or type(o) not in _migrated():

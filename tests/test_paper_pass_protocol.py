@@ -222,7 +222,9 @@ def test_construction_family_is_migrated_by_exact_type():
     subclass of either exists), plan gridline (Task 9; no GridlineItem
     subclass exists -- the elevation ElevGridlineItem is unrelated, Task 11),
     view markers (Task 10; no SectionMarker / DetailMarker subclass exists),
-    elevation gridline / level datum (Task 11; no subclass of either exists)."""
+    elevation gridline / level datum (Task 11; no subclass of either exists),
+    section proxies (Task 12: every _ColourSrcMixin class, each by exact
+    type)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.detail_view import DetailMarker
     from firepro3d.section_marker import SectionMarker
@@ -236,6 +238,7 @@ def test_construction_family_is_migrated_by_exact_type():
     from firepro3d.roof import RoofItem
     from firepro3d.room import Room
     from firepro3d.section_scene import _HostedBlockCopy, _SectionNoteCopy
+    import firepro3d.section_scene as ss
     from firepro3d.sprinkler import Sprinkler
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
@@ -247,7 +250,21 @@ def test_construction_family_is_migrated_by_exact_type():
                                    _HostedBlockCopy, _SectionNoteCopy, Pipe,
                                    Sprinkler, WaterSupply, GridlineItem,
                                    SectionMarker, DetailMarker,
-                                   ElevGridlineItem, ElevDatumItem}
+                                   ElevGridlineItem, ElevDatumItem,
+                                   *_proxy_classes(ss)}
+
+
+def _proxy_classes(ss):
+    """Every _ColourSrcMixin subclass in section_scene, read from the module
+    (so a new proxy class that is not migrated fails the exact-set test)."""
+    found = {c for c in vars(ss).values()
+             if isinstance(c, type) and issubclass(c, ss._ColourSrcMixin)
+             and c is not ss._ColourSrcMixin}
+    assert {c.__name__ for c in found} == {
+        "_SrcRect", "_SrcLine", "_SrcEllipse", "_ElevProxyRect", "_ElevProxyLine",
+        "_ElevProxyEllipse", "_ElevCutRect", "_ElevPipeSymbol", "_ElevCutEllipse",
+        "_ElevEndOnSymbol"}
+    return found
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -562,15 +579,17 @@ def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env
     migrated stays its own (base) entry: the room tag maps to the Room and
     the pipe label to the Pipe (Task 6), the gridline bubble to the plan
     gridline (Task 9), a view marker's head to its marker (Task 10), an
-    elevation gridline's bubble to its gridline (Task 11); a level datum's
-    head is never mapped (``LevelDatumHead.paper_owner`` None, base picking:
-    the datum enters it), nor is a bubble under a parent not on the
-    protocol."""
+    elevation gridline's bubble to its gridline (Task 11), a section pipe
+    label to its line proxy (Task 12); a level datum's head is never mapped
+    (``LevelDatumHead.paper_owner`` None, base picking: the datum enters it),
+    nor is a bubble under a parent not on the protocol."""
     from firepro3d.gridline import GridlineBubble
     from tests.test_paper_pass_characterization import (_gridline, _marker_placed,
                                                         _pipe_labelled)
     sec, eg, dt = _elev_items(request)
     assert pp._owner_of(eg.bubble1) is eg and pp._owner_of(dt.head) is dt.head
+    _psec, line, lab = _proxy_scene(request)
+    assert pp._owner_of(lab) is line
     ms = _scene(request)
     room = _room_tagged(ms)
     pipe = _pipe_labelled(ms)
@@ -1486,3 +1505,217 @@ def test_elev_enter_raise_mid_write_unwinds_the_owner(qapp, request, paper_env,
         "the raise came after the line, the opacity and the earlier bubbles")
     assert snapshot(sec) == before
     assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+
+
+# ---------------------------------------------------------------------------
+# Task 12: section proxies (_ColourSrcMixin) + the section pipe label
+# ---------------------------------------------------------------------------
+
+def _proxy_scene(request):
+    """One placed section holding every live proxy class: a cut wall
+    (``_ElevCutRect``), a wall beyond with a window (void ``_ElevProxyRect``,
+    frame ``_SrcRect``, sill ``_SrcLine``), a labelled line pipe
+    (``_ElevProxyLine`` + ``_ElevPipeLabel``), a cut pipe
+    (``_ElevCutEllipse``), an end-on pipe (``_ElevEndOnSymbol``) and a
+    sprinkler (``_ElevProxyEllipse``). Every proxy and the label carry a real
+    prior opacity 0.4. Returns ``(scene, line, label)``."""
+    import os
+
+    import firepro3d
+    from firepro3d import block_library
+    from firepro3d.section_scene import _ROLE_SOURCE, _ColourSrcMixin, _ElevProxyLine
+    from firepro3d.wall_opening import WallOpening
+    from tests.test_section_classification import _placed_scene, _wall
+    from tests.test_section_pipe_symbols import _pipe
+    ms, sec = _placed_scene(request.getfixturevalue("section_scene_for"),
+                            (0.0, 0.0), (10000.0, 0.0), 4000.0)
+    ms.register_block_definition(block_library.load_block_file(os.path.join(
+        os.path.dirname(firepro3d.__file__), "system_blocks", "Tags", "PipeLabel.fpdb")))
+    _wall(ms, (3000.0, -1000.0), (3000.0, 1000.0))              # crosses the cut
+    beyond = _wall(ms, (500.0, -2000.0), (6000.0, -2000.0))
+    beyond.openings.append(WallOpening(wall=beyond, feature_id="window_900",
+                                       offset_along=1000.0))
+    pipe = _pipe(ms, (2000.0, -1000.0, 2500.0), (6000.0, -1000.0, 2500.0))   # line + label
+    n1 = ms.add_node(8000.0, -1000.0); n2 = ms.add_node(8000.0, 1000.0)
+    ms.add_pipe(n1, n2)                                        # cut pipe
+    n1.z_pos = 2000.0; n2.z_pos = 3000.0
+    _pipe(ms, (9000.0, -1000.0, 2500.0), (9000.0, -3000.0, 2500.0))   # end-on "C"
+    ms.add_sprinkler(ms.add_node(5000.0, -1500.0))
+    sec.rebuild()
+    request.node._pp_keep = [*getattr(request.node, "_pp_keep", []), ms, sec]
+    (line,) = [i for i in sec.items()
+               if type(i) is _ElevProxyLine and i.data(_ROLE_SOURCE) is pipe]
+    lab = line.pipe_label
+    assert lab is not None and lab.isVisible(), "setup: the line owns a shown label"
+    for it in sec.items():
+        if isinstance(it, _ColourSrcMixin) or it is lab:
+            it.setOpacity(0.4)
+    return sec, line, lab
+
+
+_PROXY_CROP = QRectF(-1000.0, -6000.0, 12000.0, 12000.0)   # the whole section
+
+
+# The live _ColourSrcMixin classes (exact type) -> the row the scene gives them.
+# _SrcEllipse and _ElevPipeSymbol are never instantiated bare (bases only).
+_PROXY_CLS = {"_ElevCutRect": "Wall", "_ElevProxyRect": "Wall", "_SrcRect": "Window",
+              "_SrcLine": "Window", "_ElevProxyLine": "Pipe", "_ElevCutEllipse": "Pipe",
+              "_ElevEndOnSymbol": "Pipe", "_ElevProxyEllipse": "Sprinkler"}
+
+
+def _proxy_of(sec, cls_name):
+    """The first proxy of exact type *cls_name* that carries a paper row."""
+    return next(i for i in sec.items() if type(i).__name__ == cls_name
+                and i._paper_cat == _PROXY_CLS[cls_name])
+
+
+def _proxy_cat(ctx, item):
+    key = item.paper_category
+    return ctx.merge(ctx.row(key), item, key)
+
+
+def test_proxy_paper_category_is_its_paper_cat(qapp, request, paper_env,
+                                               real_system_library):
+    """R5: a proxy's row is the ``_paper_cat`` the section gave it -- the
+    ladder's existing answer; a proxy with none (the opening void) is None."""
+    from firepro3d.section_scene import _ColourSrcMixin
+    sec, _line, _lab = _proxy_scene(request)
+    proxies = [i for i in sec.items() if isinstance(i, _ColourSrcMixin)]
+    assert any(i._paper_cat is None for i in proxies), "setup: a proxy without a row"
+    for it in proxies:
+        assert it.paper_category == it._paper_cat
+        assert pd._category_for_item(it) == it._paper_cat
+
+
+def test_section_pipe_label_maps_onto_its_line(qapp, request, paper_env,
+                                               real_system_library):
+    """D5 / AC4: the section pipe label (host = the MODEL pipe, another
+    scene) is entered by the line proxy that owns it; nothing else maps
+    onto the line, and the line's hidden-children list is its label."""
+    sec, line, lab = _proxy_scene(request)
+    assert lab.paper_owner is line
+    assert pp._owner_of(lab) is line
+    assert [it for it in sec.items() if it is not line and pp._owner_of(it) is line] == [lab]
+    assert line.paper_hidden_children() == (lab,)
+    assert _proxy_of(sec, "_ElevCutRect").paper_hidden_children() == ()
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+def test_proxy_line_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                          authored):
+    """The base proxy branch: the row colour source (row off), ``_src_alpha``
+    None, the paper pen width, the row opacity; the label through the shared
+    helper at its label opacity. The exit puts every one back, the paper
+    pen width ABSENT again and the label's real prior opacity (0.4)."""
+    from firepro3d import phase_display
+    set_rows(paper_env, authored)
+    sec, line, lab = _proxy_scene(request)
+    line._src_alpha = 0.5                      # a real prior alpha to restore
+    assert "_paper_pen_width" not in vars(line)
+    srcs = (line._pen_src, line._brush_src, line._src_alpha)
+    before = snapshot(sec)
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    cat = _proxy_cat(ctx, line)
+    cat["opacity"] = 60
+    row = ctx.row("Pipe")
+    lab_cat = ctx.merge(row, line, keys=phase_display.LABEL_KEYS)
+    tok = line.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert line._pen_src == (srcs[0] if authored else cat["color"])
+    assert line._src_alpha is None
+    assert line._paper_pen_width == pytest.approx(ctx.lw_mm(cat) / SCALE)
+    assert line.opacity() == pytest.approx(0.6)
+    assert lab._paper_scale == pytest.approx(SCALE)
+    assert lab._paper_pen_width == pytest.approx(ctx.lw_mm(row) / SCALE)
+    assert lab.opacity() == pytest.approx(phase_display.label_opacity(lab_cat))
+    assert snapshot(sec) != before, "the enter changed nothing"
+    line.exit_paper_pass(tok)
+    assert "_paper_pen_width" not in vars(line)
+    assert (line._pen_src, line._brush_src, line._src_alpha) == srcs
+    assert line.opacity() == pytest.approx(0.4) and lab.opacity() == pytest.approx(0.4)
+    assert snapshot(sec) == before
+
+
+@pytest.mark.parametrize("cls_name", list(_PROXY_CLS))
+def test_proxy_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                     cls_name):
+    """Each live proxy class: pen / brush / section sources, alpha, the paper
+    pen width (absent after) and opacity come back (row off: every write)."""
+    set_rows(paper_env, False)
+    sec, _line, _lab = _proxy_scene(request)
+    it = _proxy_of(sec, cls_name)
+    before = snapshot(sec)
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    tok = it.enter_paper_pass(ctx, _proxy_cat(ctx, it))
+    assert it._paper_pen_width is not None
+    assert snapshot(sec) != before, "the enter changed nothing"
+    it.exit_paper_pass(tok)
+    assert "_paper_pen_width" not in vars(it)
+    assert it.opacity() == pytest.approx(0.4)
+    assert snapshot(sec) == before
+
+
+def test_proxy_owner_enters_itself_through_the_driver(qapp, request, paper_env,
+                                                      real_system_library):
+    """One token per proxy (its own exit, never the adapter); the label is
+    entered by its line, never as an entry of its own."""
+    from firepro3d.section_scene import _ColourSrcMixin
+    set_rows(paper_env, False)
+    sec, line, lab = _proxy_scene(request)
+    hits = sec.items(_PROXY_CROP)
+    assert any(h is lab for h in hits), "setup: the label must be hit"
+    before = snapshot(sec)
+    saved = pd.apply_paper_overrides(sec, _PROXY_CROP, paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is line] == [line.exit_paper_pass]
+        assert not [it for it, _fn, _tok in saved if it is lab]
+        assert not [it for it, fn, _tok in saved
+                    if isinstance(it, _ColourSrcMixin) and fn is pd._legacy_exit]
+        assert lab._paper_scale == pytest.approx(SCALE)
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(sec) == before
+    assert lab.opacity() == pytest.approx(0.4)
+
+
+def test_proxy_row_visible_off_hides_proxy_and_label(qapp, request, paper_env,
+                                                     real_system_library):
+    """A Pipe row with Visible off hides the line proxy AND its label for the
+    pass (the driver, through ``paper_hidden_children``) and shows both
+    again after; nothing else of the row is written."""
+    set_rows(paper_env, False)
+    paper_env.cats["Pipe"]["visible"] = False
+    sec, line, lab = _proxy_scene(request)
+    before = snapshot(sec)
+    saved = pd.apply_paper_overrides(sec, _PROXY_CROP, paper_scale=SCALE)
+    try:
+        assert not line.isVisible() and not lab.isVisible()
+        assert [fn for it, fn, _tok in saved if it is line] == [pp._vis_exit]
+        assert [fn for it, fn, _tok in saved if it is lab] == [pp._vis_exit]
+        assert "_paper_pen_width" not in vars(line) and lab._paper_scale is None
+    finally:
+        pd.restore_model_display(saved)
+    assert line.isVisible() and lab.isVisible()
+    assert snapshot(sec) == before
+
+
+def test_proxy_enter_raise_mid_write_unwinds_the_proxy(qapp, request, paper_env,
+                                                       real_system_library, monkeypatch):
+    """D2: a raise at the label (after the proxy's own writes) leaves the
+    line and its label as they were, then re-raises."""
+    set_rows(paper_env, False)
+    sec, line, lab = _proxy_scene(request)
+    before = snapshot(sec)
+    seen = []
+
+    def boom(inst, *a, **kw):
+        seen.append((inst is lab, line._paper_pen_width is not None))
+        raise RuntimeError("label")
+
+    monkeypatch.setattr(pp, "enter_block_hooks", boom)
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    with pytest.raises(RuntimeError, match="label"):
+        line.enter_paper_pass(ctx, _proxy_cat(ctx, line))
+    assert seen == [(True, True)], "the raise came after the proxy's own writes"
+    assert "_paper_pen_width" not in vars(line)
+    assert snapshot(sec) == before

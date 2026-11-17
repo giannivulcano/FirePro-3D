@@ -197,6 +197,94 @@ class _ColourSrcMixin:
         painter.setBrush(brush)
         self._draw_shape(painter)
 
+    # -- Paper pass (paper-space.md s6.2; section / elevation proxy, AC2) --
+
+    @property
+    def paper_category(self):
+        """The source element's paper row (R5): the ``_paper_cat`` the
+        section gave this proxy (e.g. "Wall"); None = no row (a void, a mask)."""
+        return self._paper_cat
+
+    def paper_hidden_children(self) -> tuple:
+        """What a row with Visible off hides with the proxy (the driver's
+        visibility tokens): a line proxy's section pipe label."""
+        lab = getattr(self, "pipe_label", None)
+        return (lab,) if lab is not None else ()
+
+    def enter_paper_pass(self, ctx, cat):
+        """The source category's whole paper row, as the plan item gets it:
+        outside Full Colour the row Colour / Fill / Section body on the
+        stored sources (a model hex would plot as-is: white walls on white
+        paper), opaque paper fills (``_src_alpha`` None), the row weight as
+        a non-cosmetic paper pen width, the row opacity; then a line proxy's
+        shown pipe label through the shared annotation-block helper at its
+        label opacity (R4; D5: the label maps onto its line). Saves first
+        (the token), then writes; a raise mid-write unwinds the proxy.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged paper row (``ctx.merge``), Visible on.
+
+        Returns:
+            The token :meth:`exit_paper_pass` takes.
+        """
+        from . import paper_pass, phase_display
+        lab = getattr(self, "pipe_label", None)
+        tok = {"visible": self.isVisible(), "opacity": self.opacity(),
+               "srcs": (self._pen_src, self._brush_src,
+                        getattr(self, "_section_src", None), self._src_alpha),
+               "label": None}
+
+        def write():
+            from .paper_display import row_as_authored
+            authored = row_as_authored(cat)
+            if phase_display.writes(cat, authored, "color"):     # proxy pen (DD2)
+                self._pen_src = cat["color"]
+            if phase_display.writes(cat, authored, "fill"):      # proxy body (DD2)
+                if hasattr(self, "_section_src"):          # cut wall / slab
+                    if cat.get("section_color") is not None:
+                        self._section_src = cat["section_color"]
+                elif getattr(self, "_no_sheet_body", False):
+                    # Cut pipe symbol: a body in the row colour hides the S.
+                    self._brush_src = ""
+                elif self._brush_src is not None:
+                    # No Fill / Section column on the row: it takes the Colour.
+                    fill = cat.get("fill")
+                    self._brush_src = (fill if fill is not None
+                                       else cat.get("section_color") or cat["color"])
+            self._src_alpha = None   # paper fills plot opaque (_paper_fill_opaque)
+            self._paper_pen_width = ctx.lw_mm(cat) / max(ctx.paper_scale, 1e-9)
+            self.setOpacity(cat["opacity"] / 100.0)
+            if lab is not None and lab.isVisible():
+                row = ctx.row(self.paper_category)
+                lab_cat = ctx.merge(row, self, keys=phase_display.LABEL_KEYS)   # proxy label (R4)
+                tok["label"] = paper_pass.enter_block_hooks(
+                    lab, ctx, lab_cat, authored, ctx.lw_mm(row),
+                    opacity=phase_display.label_opacity(lab_cat))
+            self.update()
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass` (the base proxy restore): the paper
+        pen width is dropped from the instance (the class default None
+        shows through again), the sources, visibility and opacity come back,
+        then the label's hooks and its real prior opacity. A proxy or label
+        deleted mid-pass (a section rebuild) is skipped."""
+        from . import paper_pass
+        try:
+            self.__dict__.pop("_paper_pen_width", None)
+            (self._pen_src, self._brush_src, section_src,
+             self._src_alpha) = tok["srcs"]
+            if hasattr(self, "_section_src"):
+                self._section_src = section_src
+            self.setVisible(tok["visible"])
+            self.setOpacity(tok["opacity"])
+            if tok["label"] is not None:
+                paper_pass.exit_block_hooks(tok["label"])
+            self.update()
+        except RuntimeError:          # proxy deleted mid-pass (rebuild)
+            pass
+
 
 class _SrcRect(_ColourSrcMixin, QGraphicsRectItem):
     def _draw_shape(self, painter):
@@ -343,6 +431,16 @@ class _ElevPipeLabel(BoundLabelItem):
     pipe, top-level so it draws in the annotation band. Built per rebuild; the
     line proxy owns it for the paper pass. Its ``_ROLE_SOURCE`` is the pipe,
     so a Hide takes every piece of the pipe together (elevation-parity D5)."""
+
+    _paper_owner_ref = None   # the _ElevProxyLine whose pipe_label this is
+
+    @property
+    def paper_owner(self):
+        """The line proxy that owns this label (paper-space.md s6.2, D5): the
+        host is the MODEL pipe, in another scene, so the host rule gives no
+        owner; the section sets this next to ``line.pipe_label`` and clears
+        it when the line drops its label."""
+        return self._paper_owner_ref
 
 
 class _HostedBlockCopy(BlockInstance):
@@ -2916,6 +3014,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
                 line.set_spans(spans)
                 if not spans and line.pipe_label is not None:  # nothing left to label
                     self.removeItem(line.pipe_label)
+                    line.pipe_label._paper_owner_ref = None
                     line.pipe_label = None
 
     def _clip_pipe_ends(self, a, b):
@@ -2991,6 +3090,7 @@ class SectionScene(HaloSelectionMixin, ModifyHostMixin, QGraphicsScene):
         lab.setZValue(Z_ANNOT_TAG)
         lab.refresh()
         line.pipe_label = lab
+        lab._paper_owner_ref = line             # the line enters it (paper pass, D5)
 
     # ── Sprinklers ───────────────────────────────────────────────────────
 
