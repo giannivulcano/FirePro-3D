@@ -2261,6 +2261,23 @@ class BlockInstance(QGraphicsObject):
         """``render_op.paper_op_width`` on this instance (LT2-5)."""
         return _paper_op_width_fn(self, weight)
 
+    # -- Paper pass (paper-space.md s6.2 "Paper pass protocol") ---------------
+
+    paper_category = "Blocks"       # paper row (R5)
+
+    def enter_paper_pass(self, ctx, cat):
+        """The annotation-block hooks at the "Blocks" row weight, with the
+        Blocks colour + fill slots and the row opacity (D7)."""
+        from . import paper_pass
+        return paper_pass.enter_block_hooks(
+            self, ctx, cat, _pd.row_as_authored(cat), ctx.lw_mm(cat),
+            blocks_hook=True)
+
+    def exit_paper_pass(self, tok) -> None:
+        """Undo :meth:`enter_paper_pass` (``paper_pass.exit_block_hooks``)."""
+        from . import paper_pass
+        paper_pass.exit_block_hooks(tok)
+
     def _paint_fill_op(self, painter, pose, op) -> None:
         """``render_op.paint_fill_op`` on this instance (D-A11)."""
         _paint_fill_op_fn(self, painter, pose, op, self._paper_fill_colour)   # PH3 DD4 linetype path

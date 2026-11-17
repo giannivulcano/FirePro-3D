@@ -232,13 +232,15 @@ def test_selection_never_plots(sheet, kind, monkeypatch, request, real_system_li
         # SB4e (review M1): the shipped seed, not the orphan placeholder, and
         # the paper pass must reach the badge through the block path.
         request.getfixturevalue("real_system_library")
-        from firepro3d import paper_display as pd
-        real_apply = pd._apply_block
+        # The badge enters through the shared annotation-block helper
+        # (paper-pass protocol D7; was paper_display._apply_block).
+        from firepro3d import paper_pass
+        real_enter = paper_pass.enter_block_hooks
 
         def _spy(inst, *a, **kw):
             blocked.append(inst)
-            return real_apply(inst, *a, **kw)
-        monkeypatch.setattr(pd, "_apply_block", _spy)
+            return real_enter(inst, *a, **kw)
+        monkeypatch.setattr(paper_pass, "enter_block_hooks", _spy)
     item = _KINDS[kind](sheet.model)
     if kind == "hydraulic_badge":
         assert item.definition() is not None \

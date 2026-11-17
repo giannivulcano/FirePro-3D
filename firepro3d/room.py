@@ -138,39 +138,52 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
 
     def _paper_token(self) -> dict:
         tok = super()._paper_token()
-        tag = self._tag
-        tok["tag_paper"] = (tag._paper_pen_width, tag._paper_pen_color,
-                            tag._paper_scale)
-        tok["tag_opacity"] = tag.opacity()       # top-level (SB4d D5)
+        # Saved before any write: the room's own setOpacity drags the
+        # top-level tag along (itemChange, SB4d D5), so the helper's token
+        # would only see the room's paper opacity.
+        tok["tag_opacity"] = self._tag.opacity()
         return tok
 
+    def enter_paper_pass(self, ctx, cat):
+        """The generic paper look, then the tag (SB3): the one annotative
+        path -- the top-level tag (SB4d D5) takes the shared annotation-block
+        hooks (SB1c D6) at the label opacity. A hidden tag is skipped. The
+        tag's token rides in the room's (``"tag"``)."""
+        from . import paper_pass
+        tok = self._paper_token()
+
+        def write():
+            from . import phase_display
+            from .paper_display import row_as_authored
+            self._paper_generic_write(ctx, cat)
+            if self._tag.isVisible():
+                row = ctx.row(self.paper_category)
+                lab_cat = ctx.merge(row, self, keys=phase_display.LABEL_KEYS)   # room tag (R4)
+                tok["tag"] = paper_pass.enter_block_hooks(
+                    self._tag, ctx, lab_cat, row_as_authored(cat), ctx.lw_mm(row),
+                    opacity=phase_display.label_opacity(lab_cat))
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
     def _paper_generic_write(self, ctx, cat) -> None:
-        from . import phase_display
-        from .paper_display import _apply_block, row_as_authored
         super()._paper_generic_write(ctx, cat)
         # Rooms plot as boundary + tag only: suppress the fill in viewports
         # (a filled room reads as a solid blob on the sheet).
         self._paper_no_fill = True
-        # Room tag (SB3): the one annotative path -- the tag is a
-        # BoundLabelItem and takes _apply_block's hooks (SB1c D6); its
-        # opacity is the label opacity. A hidden tag is skipped.
-        # (Task 5 moves this onto paper_pass.enter_block_hooks.)
-        if self._tag.isVisible():
-            row = ctx.row(self.paper_category)
-            lab_cat = phase_display.merge(row, self, keys=phase_display.LABEL_KEYS)   # room tag (R4)
-            _apply_block(self._tag, lab_cat, row_as_authored(cat),
-                         ctx.lw_mm(row), ctx.paper_scale)
-            self._tag.setOpacity(phase_display.label_opacity(lab_cat))
 
-    def _paper_exit_extra(self, tok: dict) -> None:
-        from .annotative import is_annotative
-        tag = self._tag
-        if is_annotative(tag.definition()):
-            tag.prepareGeometryChange()     # SB1c D6
-        (tag._paper_pen_width, tag._paper_pen_color,
-         tag._paper_scale) = tok["tag_paper"]
-        tag.update()
-        tag.setOpacity(tok["tag_opacity"])
+    def exit_paper_pass(self, tok: dict) -> None:
+        """The room first, then the tag (the base restore order): restoring
+        the room's opacity drags the tag along (itemChange), so the tag's
+        hooks and its real prior opacity (R3) go back after it -- the latter
+        even when the tag was hidden and never entered."""
+        from . import paper_pass
+        try:
+            super().exit_paper_pass(tok)
+        finally:
+            try:
+                if "tag" in tok:
+                    paper_pass.exit_block_hooks(tok["tag"])
+            finally:
+                self._tag.setOpacity(tok["tag_opacity"])
 
     # ── Z-range for view-depth filtering ────────────────────────────────
 

@@ -1370,33 +1370,11 @@ def _apply_pipe(pipe, cat, authored, lw_mm, paper_scale):
 
 
 def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
-    """Paper overrides for a BlockInstance (linetypes.md LT1-2 / H5).
-
-    Every stroke op plots non-cosmetic at the "Blocks" weight in true paper mm
-    (divided by ``paper_scale``, the §9.9.1 pattern of ``_apply_pipe``); B&W /
-    Custom force the category colour onto stroke + text ops, Full Color keeps
-    the authored colours. Compiled op pens are never mutated (flyweight: one
-    compile is shared by every instance) -- ``BlockInstance.paint`` reads these
-    two hooks instead. Fill / pattern ops stay under the hatch rules.
-    *blocks_hook* (WM3 D3): True only from the "Blocks" category branch --
-    caches the paper "Blocks" colour for ``token:blocks``.
-    A phase-forced colour applies in an As Authored row too (DD2); a phase Fill
-    sets ``_paper_fill_colour`` (DD4, "Blocks" branch only).
-    """
-    from PyQt6.QtGui import QColor
-    from .annotative import is_annotative
-    if is_annotative(inst.definition()):
-        inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
-    inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
-    inst._paper_scale = paper_scale          # named op weights (LT2-5)
-    inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
-                             if phase_display.writes(cat, authored, "color") else None)
-    if blocks_hook:
-        # WM3 D3 + task ruling 6: By Category on paper.
-        inst._paper_blocks_colour = _paper_qcolor(paper_blocks_value(cat), inst)
-        # PH3 DD4: a phase Fill paints the instance's fill / pattern ops.
-        inst._paper_fill_colour = (_paper_qcolor(cat["fill"], inst)
-                                   if phase_display.forced(cat, "fill") else None)
+    """Legacy shim (removed in Task 15): the annotation-block hook writes
+    (``paper_pass._block_hook_writes``, linetypes.md LT1-2 / H5) plus the row
+    opacity, for the not-yet-migrated owners' children and direct callers."""
+    from . import paper_pass
+    paper_pass._block_hook_writes(inst, cat, authored, lw_mm, paper_scale, blocks_hook)
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
 

@@ -97,7 +97,7 @@ class BoundLabelItem(QGraphicsItem):
     ops (SB1c D3: static variant at k, bound glyphs built at scale k), so
     ``boundingRect`` / ``shape`` / the paper pass need no extra code.
     ``_paper_scale`` / ``_paper_pen_width`` / ``_paper_pen_color`` are set by
-    ``paper_display._apply_block`` during a viewport pass. Paints nothing when
+    ``paper_pass.enter_block_hooks`` during a viewport pass. Paints nothing when
     every host-bound field resolves to raw None (Q13), except for
     ``system_blocks.PAINT_WHEN_BLANK`` categories, whose static ops still
     draw (SB4b D3); draws the orphan
@@ -149,6 +149,23 @@ class BoundLabelItem(QGraphicsItem):
     @property
     def category(self) -> str:
         return self._category
+
+    @property
+    def paper_owner(self):
+        """The owner whose paper pass enters this label (paper-space.md s6.2,
+        D5): the Qt parent (a bubble / head), else the host (a top-level pipe
+        label / room tag). A host in another scene (a section's pipe label,
+        host = the model pipe) or a dead one is no owner: None."""
+        p = self.parentItem()
+        if p is not None:
+            return p
+        h = self._host
+        try:
+            if h is not None and h.scene() is self.scene():
+                return h
+        except (RuntimeError, AttributeError):     # dead / non-item host
+            pass
+        return None
 
     def _resolve(self):
         """``(definition or None, resolver present)`` -- the host's own block id

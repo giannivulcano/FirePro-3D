@@ -52,6 +52,12 @@ class ViewTitleLabel(OutlinedLabel):
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton
                                      | Qt.MouseButton.RightButton)
 
+    @property
+    def paper_owner(self):
+        """None: a sheet title is its own owner (paper-space.md s6.2, D5) --
+        never its viewport, which no viewport pass enters."""
+        return None
+
     def refresh(self) -> None:
         self._line = None
         super().refresh()

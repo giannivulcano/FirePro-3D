@@ -129,6 +129,30 @@ class HydraulicNodeBadge(OutlinedLabel):
         super().refresh()
         self.place()                  # k may have moved with the drawing scale / mapping
 
+    # -- Paper pass (paper-space.md s6.2 "Paper pass protocol") ---------------
+
+    paper_category = "Hydraulic Badge"      # its own paper row (R5)
+
+    @property
+    def paper_owner(self):
+        """None: the badge is its own owner (D5) -- never its node's row."""
+        return None
+
+    def enter_paper_pass(self, ctx, cat):
+        """SB4e AC9: an annotation block -- the row's As Authored keeps its
+        colours, OFF forces the row colour; row opacity; re-placed at paper k."""
+        from . import paper_pass
+        from .paper_display import row_as_authored
+        tok = paper_pass.enter_block_hooks(self, ctx, cat, row_as_authored(cat),
+                                           ctx.lw_mm(cat))
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, self.place)
+
+    def exit_paper_pass(self, tok) -> None:
+        """Undo :meth:`enter_paper_pass`; back to the canvas k."""
+        from . import paper_pass
+        paper_pass.exit_block_hooks(tok)
+        self.place()
+
     def overlay_pens(self) -> list:
         """Screen-only ring while the node is selected (AC5); never plots."""
         from .paper_display import shows_selection    # lazy: paper_display imports this module

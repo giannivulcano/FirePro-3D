@@ -161,13 +161,13 @@ def test_generic_enter_raise_mid_write_unwinds_the_item(qapp, request, paper_env
     before = snapshot(ms)
     ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
     cat = ctx.merge(ctx.row("Room"), item, "Room")
-    from firepro3d import paper_display
 
     def boom(*a, **k):
         raise RuntimeError("tag")
 
     with monkeypatch.context() as m:
-        m.setattr(paper_display, "_apply_block", boom)   # after the room's own write
+        # the tag's hook writes (Task 5: the shared helper), after the room's own
+        m.setattr(pp, "_block_hook_writes", boom)
         with pytest.raises(RuntimeError, match="tag"):
             item.enter_paper_pass(ctx, cat)
     assert snapshot(ms) == before
@@ -215,17 +215,24 @@ def _construction(request, make):
 
 
 def test_construction_family_is_migrated_by_exact_type():
-    """Both landed families, by exact type (subclasses take the legacy path)."""
+    """Every landed family, by exact type (subclasses take the legacy path):
+    generic (Task 3), construction (Task 4), annotation blocks (Task 5, with
+    the two section BlockInstance subclasses the base ladder reached)."""
+    from firepro3d.block_instance import BlockInstance
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
+    from firepro3d.hydraulic_node_badge import HydraulicNodeBadge
     from firepro3d.node import Node
     from firepro3d.roof import RoofItem
     from firepro3d.room import Room
+    from firepro3d.section_scene import _HostedBlockCopy, _SectionNoteCopy
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
     assert set(pp._migrated()) == {WallSegment, WallOpening, FloorOpening,
                                    FloorSlab, RoofItem, Room, Node,
-                                   *_construction_classes()}
+                                   *_construction_classes(),
+                                   BlockInstance, HydraulicNodeBadge,
+                                   _HostedBlockCopy, _SectionNoteCopy}
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -334,4 +341,274 @@ def test_construction_enter_raise_mid_write_unwinds_the_item(
         del item.update
     assert calls[0] == pytest.approx((0.6, ctx.lw_mm(cat) / SCALE)), (
         "the raise came after the pen and opacity writes")
+    assert snapshot(ms) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 5: the shared annotation-block helper (D7) + BlockInstance,
+# BoundLabelItem (owner mapping, D5), HydraulicNodeBadge
+# ---------------------------------------------------------------------------
+
+def _scene(request):
+    from firepro3d.model_space import Model_Space
+    ms = Model_Space()
+    request.node._pp_keep = [*getattr(request.node, "_pp_keep", []), ms]
+    return ms
+
+
+def _hooks(inst):
+    return (inst._paper_pen_width, inst._paper_pen_color, inst._paper_scale,
+            getattr(inst, "_paper_blocks_colour", None),
+            getattr(inst, "_paper_fill_colour", None))
+
+
+@pytest.mark.parametrize("make", ["block_instance", "bound_label"])
+def test_block_hooks_helper_round_trip(qapp, request, paper_env, real_system_library,
+                                       make):
+    """D7 / R3: the helper writes the hook triple and the given opacity, and
+    its exit puts back the hooks AND the real prior opacity (0.4, not 1)."""
+    from tests.test_paper_pass_characterization import _block_instance
+    set_rows(paper_env, True)
+    ms = _scene(request)
+    inst = (_block_instance(ms) if make == "block_instance"
+            else _room_tagged(ms)._tag)
+    assert type(inst).__name__ == {"block_instance": "BlockInstance",
+                                   "bound_label": "BoundLabelItem"}[make]
+    inst.setOpacity(0.4)
+    hooks0 = _hooks(inst)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = dict(ctx.row("Blocks"))
+    tok = pp.enter_block_hooks(inst, ctx, cat, True, 0.18, opacity=1.0)
+    assert inst._paper_scale == pytest.approx(SCALE)
+    assert inst._paper_pen_width == pytest.approx(0.18 / SCALE)
+    assert inst.opacity() == pytest.approx(1.0)
+    pp.exit_block_hooks(tok)
+    assert _hooks(inst) == hooks0
+    assert inst.opacity() == pytest.approx(0.4)
+    assert snapshot(ms) == before
+
+
+def test_block_hooks_helper_defaults_to_the_row_opacity_and_blocks_slots(
+        qapp, request, paper_env, real_system_library):
+    """opacity None -> the row opacity; blocks_hook -> the Blocks colour slot."""
+    from tests.test_paper_pass_characterization import _block_instance
+    set_rows(paper_env, False)
+    ms = _scene(request)
+    inst = _block_instance(ms)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = dict(ctx.row("Blocks"))
+    cat["opacity"] = 60
+    tok = pp.enter_block_hooks(inst, ctx, cat, False, ctx.lw_mm(cat), blocks_hook=True)
+    assert inst.opacity() == pytest.approx(0.6)
+    assert inst._paper_blocks_colour is not None
+    assert inst._paper_pen_color == pd._paper_qcolor(cat["color"], inst)
+    pp.exit_block_hooks(tok)
+    assert inst._paper_blocks_colour is None
+    assert snapshot(ms) == before
+
+
+def test_block_hooks_helper_raise_mid_write_unwinds(qapp, request, paper_env,
+                                                     real_system_library):
+    """D2: a raise after the hook writes leaves the instance as it was."""
+    from tests.test_paper_pass_characterization import _block_instance
+    set_rows(paper_env, False)
+    ms = _scene(request)
+    inst = _block_instance(ms)
+    inst.setOpacity(0.4)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = dict(ctx.row("Blocks"))
+    real_update, calls = inst.update, []
+
+    def update_once(*a):
+        calls.append(inst._paper_scale)
+        if len(calls) == 1:
+            raise RuntimeError("update")
+        return real_update(*a)
+
+    inst.update = update_once
+    try:
+        with pytest.raises(RuntimeError, match="update"):
+            pp.enter_block_hooks(inst, ctx, cat, False, 0.18, blocks_hook=True)
+    finally:
+        del inst.update
+    assert calls[0] == pytest.approx(SCALE), "the raise came after the hook writes"
+    assert snapshot(ms) == before
+
+
+_ANNOT = {"block_instance": "Blocks", "placed_tag": "Blocks",
+          "hydraulic_badge": "Hydraulic Badge"}
+
+
+def _annot(request, make):
+    from tests.test_paper_pass_characterization import _EXTRA
+    ms = _scene(request)
+    maker = _KINDS.get(make) or _EXTRA[make]
+    return ms, maker(ms)
+
+
+@pytest.mark.parametrize("make", list(_ANNOT))
+def test_annotation_paper_category_drives_the_ladder(qapp, request, paper_env,
+                                                     real_system_library, make):
+    _ms, item = _annot(request, make)
+    assert item.paper_category == _ANNOT[make]
+    assert pd._category_for_item(item) == _ANNOT[make]
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+@pytest.mark.parametrize("make", list(_ANNOT))
+def test_annotation_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                          make, authored):
+    set_rows(paper_env, authored)
+    ms, item = _annot(request, make)
+    item.setOpacity(0.7)
+    before = snapshot(ms)
+    pos0 = item.pos()
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row(item.paper_category), item, item.paper_category)
+    cat["opacity"] = 60
+    tok = item.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert item._paper_scale == pytest.approx(SCALE)
+    assert item._paper_pen_width == pytest.approx(ctx.lw_mm(cat) / SCALE)
+    assert item.opacity() == pytest.approx(0.6)            # the row opacity
+    if make == "hydraulic_badge":
+        assert item.pos() != pos0, "the badge was not re-placed at the paper k"
+    else:
+        assert item._paper_blocks_colour is not None        # blocks_hook (WM3 D3)
+    assert snapshot(ms) != before, "the enter changed nothing"
+    item.exit_paper_pass(tok)
+    assert item.pos() == pos0
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("make", list(_ANNOT))
+def test_annotation_owner_enters_itself_through_the_driver(
+        qapp, request, paper_env, real_system_library, make):
+    """A migrated annotation owner's token is its own exit, not the adapter."""
+    set_rows(paper_env, False)
+    ms, item = _annot(request, make)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-1500, -1500, 3000, 3000),
+                                     paper_scale=SCALE)
+    exits = [fn for it, fn, _tok in saved if it is item]
+    assert exits == [item.exit_paper_pass]
+    pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_badge_and_view_title_are_their_own_paper_owner(qapp, request, paper_env,
+                                                        real_system_library):
+    """D5: the badge keeps its own row (never its node's); a view title too."""
+    from PyQt6.QtWidgets import QGraphicsRectItem
+    from firepro3d.view_title_label import ViewTitleLabel
+    _ms, badge = _annot(request, "hydraulic_badge")
+    assert badge.host is not None
+    assert badge.paper_owner is None
+    assert pp._owner_of(badge) is badge
+    host = QGraphicsRectItem(0, 0, 10, 10)
+    title = ViewTitleLabel(host)
+    assert title.parentItem() is host
+    assert title.paper_owner is None
+
+
+def test_bound_label_paper_owner_is_its_host_or_parent(qapp, request, paper_env,
+                                                      real_system_library):
+    """D5: a top-level label / tag -> its host; a Qt-child bubble -> its parent."""
+    from tests.test_paper_pass_characterization import _gridline, _pipe_labelled
+    ms = _scene(request)
+    room = _room_tagged(ms)
+    pipe = _pipe_labelled(ms)
+    gl = _gridline(ms)
+    assert room._tag.parentItem() is None and room._tag.paper_owner is room
+    assert pipe.label.parentItem() is None and pipe.label.paper_owner is pipe
+    assert gl.bubble1.paper_owner is gl
+
+
+def test_bound_label_host_in_another_scene_is_not_its_owner(qapp, request, paper_env,
+                                                           real_system_library):
+    """A top-level label whose host lives in another scene (a section's pipe
+    label, host = the model pipe) never maps the pass onto that host."""
+    from firepro3d.bound_label import BoundLabelItem
+    from tests.test_paper_pass_characterization import _pipe_labelled
+    plan, other = _scene(request), _scene(request)
+    pipe = _pipe_labelled(plan)
+    lab = BoundLabelItem(pipe, child=False)
+    other.addItem(lab)
+    assert lab.paper_owner is None
+    assert pp._owner_of(lab) is lab
+
+
+def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env,
+                                                        real_system_library):
+    """Until each owner's family lands, a hit label whose owner is not yet
+    migrated stays its own (base) entry: the room tag maps to the Room, the
+    pipe label (Pipe: Task 6) and the gridline bubble (Task 9) do not."""
+    from tests.test_paper_pass_characterization import _gridline, _pipe_labelled
+    ms = _scene(request)
+    room = _room_tagged(ms)
+    pipe = _pipe_labelled(ms)
+    gl = _gridline(ms)
+    assert pp._owner_of(room._tag) is room
+    assert pp._owner_of(pipe.label) is pipe.label
+    assert pp._owner_of(gl.bubble1) is gl.bubble1
+
+
+def test_room_enters_its_tag_through_the_shared_helper(qapp, request, paper_env,
+                                                       real_system_library,
+                                                       monkeypatch):
+    """Task 5 step 4: the Room tag enters via ``paper_pass.enter_block_hooks``
+    at the label opacity. Its exit runs after the room's own (the base restore
+    order): the room's opacity drags the top-level tag along (itemChange), so
+    the tag's real prior opacity (0.4, not the room's 1.0) is put back last."""
+    from firepro3d import phase_display
+    set_rows(paper_env, False)
+    ms, room = _generic(request, "room")
+    room._tag.setOpacity(0.4)
+    assert room.opacity() == pytest.approx(1.0)
+    before = snapshot(ms)
+    seen, order = [], []
+    real_enter, real_exit = pp.enter_block_hooks, pp.exit_block_hooks
+
+    def spy_enter(inst, *a, **kw):
+        seen.append((inst, kw.get("opacity")))
+        return real_enter(inst, *a, **kw)
+
+    def spy_exit(tok):
+        order.append(("tag", room.opacity()))
+        return real_exit(tok)
+
+    monkeypatch.setattr(pp, "enter_block_hooks", spy_enter)
+    monkeypatch.setattr(pp, "exit_block_hooks", spy_exit)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Room"), room, "Room")
+    cat["opacity"] = 60
+    tok = room.enter_paper_pass(ctx, cat)
+    lab_cat = ctx.merge(ctx.row("Room"), room, keys=phase_display.LABEL_KEYS)
+    assert seen == [(room._tag, phase_display.label_opacity(lab_cat))]
+    assert room._tag._paper_scale == pytest.approx(SCALE)
+    room.exit_paper_pass(tok)
+    assert order == [("tag", pytest.approx(1.0))], "the tag exits after the room"
+    assert room._tag.opacity() == pytest.approx(0.4)
+    assert snapshot(ms) == before
+
+
+def test_room_hidden_tag_keeps_its_own_opacity(qapp, request, paper_env,
+                                               real_system_library):
+    """A hidden tag is not entered, but the room's opacity still drags it
+    along; the exit puts its own prior opacity back (as the base restore)."""
+    set_rows(paper_env, False)
+    ms, room = _generic(request, "room")
+    room._tag.setOpacity(0.4)
+    room._tag.setVisible(False)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Room"), room, "Room")
+    cat["opacity"] = 60
+    tok = room.enter_paper_pass(ctx, cat)
+    assert "tag" not in tok and room._tag._paper_scale is None
+    room.exit_paper_pass(tok)
+    assert room._tag.opacity() == pytest.approx(0.4)
     assert snapshot(ms) == before

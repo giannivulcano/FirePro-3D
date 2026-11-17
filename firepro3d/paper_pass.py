@@ -68,6 +68,78 @@ def hide_for_pass(saved, item) -> None:
     item.setVisible(False)
 
 
+# ---------------------------------------------------------------------------
+# Shared annotation-block helper (D7): BlockInstance, BoundLabelItem and its
+# subclasses (room tag, pipe label, bubbles, heads), HydraulicNodeBadge
+# ---------------------------------------------------------------------------
+
+def _block_hook_writes(inst, cat, authored, lw_mm, paper_scale,
+                       blocks_hook=False) -> None:
+    """The annotation-block paper hook writes (linetypes.md LT1-2 / H5).
+
+    Every stroke op plots non-cosmetic at *lw_mm* in true paper mm (divided
+    by *paper_scale*, paper-space s9.9.1); B&W / Custom force the row colour
+    onto stroke + text ops, Full Color keeps the authored colours. Compiled op
+    pens are never mutated (flyweight: one compile is shared by every
+    instance) -- ``BlockInstance.paint`` / ``BoundLabelItem.paint`` read these
+    hooks instead. Fill / pattern ops stay under the hatch rules.
+    *blocks_hook* (WM3 D3): True only for a "Blocks" row owner -- caches the
+    paper "Blocks" colour for ``token:blocks``. A phase-forced colour applies
+    in an As Authored row too (DD2); a phase Fill sets ``_paper_fill_colour``
+    (DD4, Blocks only). Opacity and the repaint are the caller's.
+    """
+    from . import paper_display as pd
+    from .annotative import is_annotative
+    if is_annotative(inst.definition()):
+        inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
+    inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+    inst._paper_scale = paper_scale          # named op weights (LT2-5)
+    inst._paper_pen_color = (pd._paper_qcolor(cat["color"], inst)
+                             if phase_display.writes(cat, authored, "color") else None)
+    if blocks_hook:
+        # WM3 D3 + task ruling 6: By Category on paper.
+        inst._paper_blocks_colour = pd._paper_qcolor(pd.paper_blocks_value(cat), inst)
+        # PH3 DD4: a phase Fill paints the instance's fill / pattern ops.
+        inst._paper_fill_colour = (pd._paper_qcolor(cat["fill"], inst)
+                                   if phase_display.forced(cat, "fill") else None)
+
+
+def enter_block_hooks(inst, ctx, cat, authored, lw_mm, *, opacity=None,
+                      blocks_hook=False):
+    """Enter one annotation block (linetypes.md LT1-2 / H5; D7): the width /
+    colour / scale triple, the Blocks colour + fill slots when *blocks_hook*,
+    and the opacity (*opacity* None -> the row opacity). Saves the real prior
+    opacity (R3) and every hook first; a raise mid-write unwinds the block.
+
+    Returns:
+        The token :func:`exit_block_hooks` takes.
+    """
+    tok = {"inst": inst, "blocks_hook": blocks_hook, "opacity": inst.opacity(),
+           "hooks": (inst._paper_pen_width, inst._paper_pen_color, inst._paper_scale,
+                     getattr(inst, "_paper_blocks_colour", None),
+                     getattr(inst, "_paper_fill_colour", None))}
+
+    def write():
+        _block_hook_writes(inst, cat, authored, lw_mm, ctx.paper_scale, blocks_hook)
+        inst.setOpacity(cat["opacity"] / 100.0 if opacity is None else opacity)
+        inst.update()
+    return enter_guarded(exit_block_hooks, tok, write)
+
+
+def exit_block_hooks(tok) -> None:
+    """Undo :func:`enter_block_hooks`; tolerates a partly-entered token."""
+    from .annotative import is_annotative
+    inst = tok["inst"]
+    if is_annotative(inst.definition()):
+        inst.prepareGeometryChange()            # SB1c D6
+    h = tok["hooks"]
+    inst._paper_pen_width, inst._paper_pen_color, inst._paper_scale = h[:3]
+    if tok["blocks_hook"]:
+        inst._paper_blocks_colour, inst._paper_fill_colour = h[3:]
+    inst.setOpacity(tok["opacity"])
+    inst.update()
+
+
 class PaperPassContext:
     """Pass-level state (D3): entered first and left FIRST on unwind (the
     base restore order; see :meth:`exit`). Its token is pushed both first
@@ -172,26 +244,39 @@ class PaperPassContext:
 def _migrated() -> tuple:
     """Classes whose enter / exit is on the new protocol. Each family task
     adds its classes; Task 15 deletes this and the legacy adapter."""
+    from .block_instance import BlockInstance
     from .filled_region import FilledRegionItem
     from .floor_opening import FloorOpening
     from .floor_slab import FloorSlab
     from .geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                               PolylineItem, RectangleItem, RegularPolygonItem,
                               SplineItem)
+    from .hydraulic_node_badge import HydraulicNodeBadge
     from .node import Node
     from .roof import RoofItem
     from .room import Room
+    from .section_scene import _HostedBlockCopy, _SectionNoteCopy
     from .wall import WallSegment
     from .wall_opening import WallOpening
     return (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node,
             # construction family (Task 4)
             PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-            EllipseItem, SplineItem, RegularPolygonItem, FilledRegionItem)
+            EllipseItem, SplineItem, RegularPolygonItem, FilledRegionItem,
+            # annotation blocks (Task 5); the section copies are the BlockInstance
+            # subclasses the base ladder reached through isinstance
+            BlockInstance, HydraulicNodeBadge, _HostedBlockCopy, _SectionNoteCopy)
 
 
 def _owner_of(item):
+    """The owner whose enter covers *item* (D5): its ``paper_owner``, else
+    itself. Until Task 15 only a migrated owner is mapped (the Room, for its
+    tag) -- a not-yet-migrated owner's child (a pipe label, a gridline bubble)
+    stays its own entry, as at base, so the legacy adapter never enters an
+    owner that base did not."""
     o = getattr(item, "paper_owner", None)
-    return o if o is not None else item
+    if o is None or type(o) not in _migrated():
+        return item
+    return o
 
 
 def _pick(ctx, saved, item) -> bool:
