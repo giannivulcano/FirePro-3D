@@ -127,6 +127,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     """
 
     material_category = "Wall"
+    paper_category = "Wall"     # paper row (paper-space.md s6.2, R5)
     HALO_AREA = True  # HALO: cursor inside = direct hit
 
     @property

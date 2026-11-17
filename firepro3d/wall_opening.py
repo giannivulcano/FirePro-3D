@@ -208,6 +208,33 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         """
         return FEATURE_LABEL.get(self._type, "Opening")
 
+    # ── Paper pass (paper-space.md s6.2) ─────────────────────────────────────
+
+    @property
+    def paper_category(self) -> str:
+        """Paper row: the opening's Display Manager category (R5)."""
+        return self.display_category
+
+    def _paper_token(self) -> dict:
+        tok = super()._paper_token()
+        tok["paper_gap_color"] = getattr(self, "_paper_gap_color", None)
+        return tok
+
+    def _paper_generic_write(self, ctx, cat) -> None:
+        super()._paper_generic_write(ctx, cat)
+        # Gap fill: paper-white, so the gap reads as a clean hole on white
+        # paper instead of the dark screen background.
+        self._paper_gap_color = QColor("#ffffff")
+
+    def _paper_exit_extra(self, tok: dict) -> None:
+        # Prior gap colour; None means unset -> delete the attr so the screen
+        # path reverts to backgroundBrush.
+        prior = tok["paper_gap_color"]
+        if prior is None:
+            self.__dict__.pop("_paper_gap_color", None)
+        else:
+            self._paper_gap_color = prior
+
     # ── Feature switching (template + placement) ─────────────────────────────
 
     def apply_feature(self, feature_id: str) -> None:

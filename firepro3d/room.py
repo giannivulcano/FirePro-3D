@@ -132,6 +132,46 @@ class Room(TagBlockHost, DisplayableItemMixin, QGraphicsPolygonItem):
         if self._boundary:
             self._rebuild()
 
+    # ── Paper pass (paper-space.md s6.2) ────────────────────────────────
+
+    paper_category = "Room"     # paper row (R5)
+
+    def _paper_token(self) -> dict:
+        tok = super()._paper_token()
+        tag = self._tag
+        tok["tag_paper"] = (tag._paper_pen_width, tag._paper_pen_color,
+                            tag._paper_scale)
+        tok["tag_opacity"] = tag.opacity()       # top-level (SB4d D5)
+        return tok
+
+    def _paper_generic_write(self, ctx, cat) -> None:
+        from . import phase_display
+        from .paper_display import _apply_block, row_as_authored
+        super()._paper_generic_write(ctx, cat)
+        # Rooms plot as boundary + tag only: suppress the fill in viewports
+        # (a filled room reads as a solid blob on the sheet).
+        self._paper_no_fill = True
+        # Room tag (SB3): the one annotative path -- the tag is a
+        # BoundLabelItem and takes _apply_block's hooks (SB1c D6); its
+        # opacity is the label opacity. A hidden tag is skipped.
+        # (Task 5 moves this onto paper_pass.enter_block_hooks.)
+        if self._tag.isVisible():
+            row = ctx.row(self.paper_category)
+            lab_cat = phase_display.merge(row, self, keys=phase_display.LABEL_KEYS)   # room tag (R4)
+            _apply_block(self._tag, lab_cat, row_as_authored(cat),
+                         ctx.lw_mm(row), ctx.paper_scale)
+            self._tag.setOpacity(phase_display.label_opacity(lab_cat))
+
+    def _paper_exit_extra(self, tok: dict) -> None:
+        from .annotative import is_annotative
+        tag = self._tag
+        if is_annotative(tag.definition()):
+            tag.prepareGeometryChange()     # SB1c D6
+        (tag._paper_pen_width, tag._paper_pen_color,
+         tag._paper_scale) = tok["tag_paper"]
+        tag.update()
+        tag.setOpacity(tok["tag_opacity"])
+
     # ── Z-range for view-depth filtering ────────────────────────────────
 
     def z_range_mm(self) -> tuple[float, float] | None:

@@ -1197,6 +1197,9 @@ def _category_for_item(item) -> str | None:
     pc = getattr(item, "_paper_cat", None)
     if pc is not None:              # section / elevation proxy (AC2)
         return pc
+    pc = getattr(item, "paper_category", None)
+    if pc is not None:              # the class declares its row (R5 / D8)
+        return pc
     if isinstance(item, Pipe):
         return "Pipe"
     if isinstance(item, Sprinkler):

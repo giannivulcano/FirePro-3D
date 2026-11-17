@@ -88,6 +88,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     """
 
     material_category = "Floor"
+    paper_category = "Floor"    # paper row (paper-space.md s6.2, R5)
     HALO_AREA = True  # HALO: cursor inside = direct hit
 
     def __init__(self, points: list[QPointF] | None = None,

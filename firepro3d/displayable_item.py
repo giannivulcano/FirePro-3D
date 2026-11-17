@@ -24,6 +24,7 @@ from PyQt6.QtGui import QColor, QPen
 from .constants import DEFAULT_LEVEL
 
 _SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
+_ABSENT = object()      # paper-pass token: "no instance attribute before the pass"
 
 
 def draw_section_type(painter, clip_path: "QPainterPath", scene, item,
@@ -174,7 +175,7 @@ class DisplayableItemMixin:
         """Outline pen for a system item's linework.
 
         Canvas: cosmetic *cosmetic_px*. During a paper pass,
-        ``paper_display._apply_generic`` sets ``_paper_pen_width`` (the paper
+        ``enter_paper_pass`` sets ``_paper_pen_width`` (the paper
         category weight in model units, ``lw_mm / paper_scale`` — paper-space
         §9.9.1), so the outline plots at the true on-paper weight.
         """
@@ -182,6 +183,84 @@ class DisplayableItemMixin:
         pen = QPen(QColor(color), cosmetic_px if w is None else w, style)
         pen.setCosmetic(w is None)
         return pen
+
+    # -- Paper pass (paper-space.md s6.2 "Paper pass protocol") ---------------
+
+    @property
+    def paper_category(self) -> str | None:
+        """Paper / Display Manager row key (R5 / D8); None = the
+        ``paper_display._category_for_item`` ladder decides."""
+        return None
+
+    def enter_paper_pass(self, ctx, cat):
+        """Generic paper look (wall, openings, floor, roof, room, node): save
+        first (the token), then write; a raise mid-write unwinds this item.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged paper row (``ctx.merge``), Visible on.
+
+        Returns:
+            The token ``exit_paper_pass`` takes.
+        """
+        from . import paper_pass
+        return paper_pass.enter_guarded(
+            self.exit_paper_pass, self._paper_token(),
+            lambda: self._paper_generic_write(ctx, cat))
+
+    def _paper_token(self) -> dict:
+        """The state the generic paper write changes (subclasses extend)."""
+        return {"display_color": getattr(self, "_display_color", None),
+                "display_fill_color": getattr(self, "_display_fill_color", None),
+                "display_section_color": getattr(self, "_display_section_color", None),
+                "opacity": self.opacity(),
+                "pen": self.pen() if hasattr(self, "pen") else None,
+                "pen_w": self.__dict__.get("_paper_pen_width", _ABSENT)}
+
+    def _paper_generic_write(self, ctx, cat) -> None:
+        """The generic paper write. ``_paper_pen_width`` (true on-paper mm in
+        model units, s9.9.1) is read by :meth:`_outline_pen`."""
+        from . import phase_display
+        from .paper_display import row_as_authored
+        authored = row_as_authored(cat)
+        if phase_display.writes(cat, authored, "color"):     # DD2: a phase-forced slot writes
+            self._display_color = cat["color"]
+        if phase_display.writes(cat, authored, "fill"):      # in an As Authored row too
+            if hasattr(self, "_display_fill_color") and cat["fill"] is not None:
+                self._display_fill_color = cat["fill"]
+            if hasattr(self, "_display_section_color") and cat["section_color"] is not None:
+                self._display_section_color = cat["section_color"]
+        # Paper-space fill renders opaque (not semi-transparent like model):
+        # FloorSlab / Room / WallSegment skip their model alpha reduction.
+        self._paper_fill_opaque = True
+        self._paper_pen_width = ctx.paper_w(ctx.lw_mm(cat))
+        self.setOpacity(cat["opacity"] / 100.0)
+        self.update()
+
+    def _paper_exit_extra(self, tok: dict) -> None:
+        """Subclass hook: undo what an override of the write added (runs
+        inside :meth:`exit_paper_pass`, before the pen and the repaint)."""
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass`; tolerates a partly-entered token."""
+        self.setOpacity(tok["opacity"])
+        self._display_color = tok["display_color"]
+        if hasattr(self, "_display_fill_color"):
+            self._display_fill_color = tok["display_fill_color"]
+        if hasattr(self, "_display_section_color"):
+            self._display_section_color = tok["display_section_color"]
+        if hasattr(self, "_paper_fill_opaque"):
+            del self._paper_fill_opaque
+        if hasattr(self, "_paper_no_fill"):
+            del self._paper_no_fill
+        if tok["pen_w"] is _ABSENT:
+            self.__dict__.pop("_paper_pen_width", None)
+        else:
+            self._paper_pen_width = tok["pen_w"]
+        self._paper_exit_extra(tok)
+        if tok["pen"] is not None and hasattr(self, "setPen"):
+            self.setPen(tok["pen"])
+        self.update()
 
     # ── View-range / section-cut protocol ──────────────────────────────────
 

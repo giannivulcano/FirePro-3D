@@ -22,6 +22,7 @@ HYDRAULIC_ROW_KEYS = frozenset(("Badge Position", *(r for r, _ in _HYD_ROWS)))
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     RADIUS = 13
     HALO_AREA = True  # HALO: cursor inside = direct hit
+    paper_category = "Node"     # paper row (paper-space.md s6.2, R5)
 
     # Class-level toggle — all nodes share the same visibility state.
     # Toggled by Model_Space.set_coverage_overlay(visible).

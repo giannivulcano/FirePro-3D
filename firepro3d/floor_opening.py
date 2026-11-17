@@ -77,6 +77,11 @@ class FloorOpening(DisplayableItemMixin, QGraphicsPathItem):
         """Display Manager category key: the tier-1 Feature label "Opening"."""
         return FEATURE_LABEL.get("blank", "Opening")
 
+    @property
+    def paper_category(self) -> str:
+        """Paper row: the Opening row, as the Display Manager (A8, R5)."""
+        return self.display_category
+
     def z_range_mm(self) -> tuple[float, float] | None:
         """The host's resolved (bot, top) world-mm Z: a void spans its host."""
         return self.host.z_range_mm() if self.host is not None else None

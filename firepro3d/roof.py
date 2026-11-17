@@ -123,6 +123,7 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
     3D mesh: pitched or flat polygon at eave height.
     """
 
+    paper_category = "Roof"     # paper row (paper-space.md s6.2, R5)
     HALO_AREA = True  # HALO: cursor inside = direct hit
 
     def __init__(self, points: list[QPointF] | None = None,
