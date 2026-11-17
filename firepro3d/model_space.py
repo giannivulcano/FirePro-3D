@@ -1027,27 +1027,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """
         if item is not None and item is editing_text_item(self):
             self._text_edit_ctl.abandon(item)
-        # Map each geometry type to the list that tracks it
-        type_to_list = {
-            PolylineItem:        self._polylines,
-            LineItem:            self._draw_lines,
-            RectangleItem:       self._draw_rects,
-            CircleItem:          self._draw_circles,
-            ArcItem:             self._draw_arcs,
-            EllipseItem:         self._draw_ellipses,
-            SplineItem:          self._draw_splines,
-            RegularPolygonItem:  self._draw_polygons,
-            FilledRegionItem:    self._filled_regions,
-            TextItem:            self._texts,   # containment C5 (no subclass)
-            GridlineItem:        self._gridlines,
-        }
-        for cls, lst in type_to_list.items():
-            if isinstance(item, cls):
-                if item in lst:
-                    lst.remove(item)
-                self.removeItem(item)
-                return True
-        return False
+        return element_store.remove_from_lists(self, item)
 
     def _delete_single_item(self, item):
         """Remove a single geometry/annotation item from the scene and its tracking list."""
@@ -1154,35 +1134,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 if self._spr_ctl._da_editing is item:
                     self._spr_ctl._da_editing = None
                 self.removeItem(item)
-            elif isinstance(item, WallSegment):
-                for op in list(item.openings):
-                    if op.scene() is self:
-                        self.removeItem(op)
-                item.openings.clear()
-                if item in self._walls:
-                    self._walls.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, FloorSlab):
-                for op in list(item.openings):   # owned voids go with their host (A2)
-                    if op.scene() is self:
-                        self.removeItem(op)
-                item.openings.clear()
-                if item in self._floor_slabs:
-                    self._floor_slabs.remove(item)
-                self.removeItem(item)
+            elif element_store.remove_owned(self, item):   # wall/slab/roof/room (A2)
+                pass
             elif isinstance(item, FloorOpening):
                 if item.host is not None:
                     item.host.remove_opening(item)
                 if item.scene() is self:          # already gone when its host went first
                     self.removeItem(item)
-            elif isinstance(item, RoofItem):
-                if item in self._roofs:
-                    self._roofs.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, Room):
-                if item in self._rooms:
-                    self._rooms.remove(item)
-                self.removeItem(item)
             elif isinstance(item, BlockInstance):
                 self.remove_block_instance(item)
             elif isinstance(item, (DoorOpening, WindowOpening)):

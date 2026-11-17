@@ -106,13 +106,21 @@ def test_row_is_removed_by_delete(qapp, attr):
     assert victim not in getattr(ms, attr)
 
 
+def test_owner_delete_takes_its_children(qapp):
+    ms, items = build_every_kind()
+    wall, slab = items["_walls"], items["_floor_slabs"]
+    kids = list(wall.openings) + list(slab.openings)
+    ms.delete_items([wall, slab])
+    live = set(ms.items())
+    assert kids and not [k for k in kids if k in live]
+
+
 # -- G5 scan guard ---------------------------------------------------------------
 ATTRS = set(ROW_ATTRS)
 # file -> reason. In-scope entries are deleted by the task named; the rest are
 # out-of-scope per-kind readers (spec "Out of scope"). Seed by running the scan
 # at commit 2 and classifying EVERY hit here.
 KNOWN = {
-    "model_space.py:_remove_item_from_lists": "T5",
     "model_space.py:_items_on_level": "T7",
     "model_space.py:Model_Space": "T6",          # the _GEOM_TYPE_REGISTRY class body
     "schematic_scene.py:<module>": "T6",         # _CLS_TO_LIST, _PRIMITIVE_LISTS

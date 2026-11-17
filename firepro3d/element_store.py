@@ -274,3 +274,43 @@ def clear_lists(scene) -> None:
                 if item.scene() is scene:
                     scene.removeItem(item)
         setattr(scene, row.attr, [])
+
+
+# -- delete (spec D4: _remove_item_from_lists / _bulk_delete) --------------------
+_LIST_REMOVAL_EXTRA = ("_gridlines",)   # + every never-filed (loose) row: what
+                                        # _remove_item_from_lists has always owned
+_OWNED_REMOVAL = ("_walls", "_floor_slabs", "_roofs", "_rooms")
+
+
+def remove_from_lists(scene, item) -> bool:
+    """List-and-scene removal of a loose primitive or gridline; False otherwise."""
+    for row in KINDS:
+        if row.file_key is not None and row.attr not in _LIST_REMOVAL_EXTRA:
+            continue
+        if isinstance(item, row.cls):
+            lst = getattr(scene, row.attr)
+            if item in lst:
+                lst.remove(item)
+            scene.removeItem(item)
+            return True
+    return False
+
+
+def remove_owned(scene, item) -> bool:
+    """Bulk delete of a wall / slab / roof / room: owned children first (A2)."""
+    for attr in _OWNED_REMOVAL:
+        row = ROWS[attr]
+        if not isinstance(item, row.cls):
+            continue
+        if row.children is not None:
+            kids = row.children(item)
+            for ch in list(kids):
+                if ch.scene() is scene:
+                    scene.removeItem(ch)
+            kids.clear()
+        lst = getattr(scene, attr)
+        if item in lst:
+            lst.remove(item)
+        scene.removeItem(item)
+        return True
+    return False
