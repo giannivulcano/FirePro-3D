@@ -9,7 +9,7 @@ applies-to:
   - firepro3d/hosted_dependents.py          # push / refresh_all_bound tag branch
   - firepro3d/system_blocks.py              # Wall / Door / Window / Opening categories + defaults
   - firepro3d/system_blocks/Tags/           # WallTag / DoorTag / WindowTag / OpeningTag .fpdb
-  - firepro3d/display_manager.py            # "Tags" row (leader End + weight)
+  - firepro3d/text_leader.py                # Note leader geometry + rows, reused for tag leaders (D9 / D10)
   - firepro3d/model_space.py                # mode dispatch, place_block_instance(tag=)
   - main.py                                 # Tag button + Leader toggle
 source-tasks: ["SB6 — Placed tags (todo_open.md, [P1])"]
@@ -50,10 +50,10 @@ Placed tags are build phase 6 of the System Blocks concept: the first hosted ann
 | D4 | Tag drag = offset only | Concept Q3. A tag's `translate` / manipulator bake recomputes `offset` via `offset_from_scene`; the host is untouched. Tags have no free rotation (Rotate tool leaves them; the Orientation row replaces it). |
 | D5 | Orientation row: Horizontal (default) / Aligned to host | Ruling R2. Aligned = host angle; `keep_upright` text in the shipped blocks flips past 90°. |
 | D6 | Category change drops a swap, re-resolves to the new default | Ruling R8 + concept Q3. The four categories always resolve (SYSTEM_DEFAULTS), so "?" only appears through a dangling host (SB5 placeholder). |
-| D7 | Tool: `"tag"` mode in `tag_placement_controller.py`, opening-mode shape | Reuse sweep: `_move_opening` / `_press_opening`. Host lookup by shape hit, openings before walls (a door sits inside its wall). Ghost = `_is_ghost` BlockInstance of the resolved block at the cursor with the current orientation. Click places via `place_block_instance(..., tag=...)` with `offset_from_scene(click)`; stays armed; Esc exits (R3, R5). Non-taggable hover: no ghost, status hint. |
+| D7 | Tool: `"tag"` mode in `tag_placement_controller.py`, opening-mode shape | Reuse sweep: `_move_opening` / `_press_opening`. Host lookup by shape hit, openings before walls (a door sits inside its wall). Ghost = `_is_ghost` BlockInstance of the resolved block at the cursor with the current orientation, traced **at the size the placed tag will have** (the off-scene prototype gets no annotative factor of its own; smoke 2026-11-16 found it drawn at authored mm, a sub-pixel dot). Click places via `place_block_instance(..., tag=...)` with `offset_from_scene(click)`; stays armed; Esc exits (R3, R5). Non-taggable hover: no ghost, status hint. |
 | D8 | Ribbon: Architecture › Annotations gets **Tag** (mode button, new `tag_icon.svg`) and a checkable **Leader** toggle (default off) | Ruling R5; `_mode_btn` helper. The toggle sets whether new tags get `leader: {knee: null}`. |
-| D9 | Leader: host anchor → block origin, optional knee grip; drawn by the BlockInstance when `tag.leader` is set, using `text_leader` geometry (`leader_pieces` / `leader_ends`) | Concept Q12 (leader belongs to the tag item). The knee is stored in the host frame so it follows the host. |
-| D10 | Leader End + weight from a new Display Manager row **Tags** in "Annotation & Geometry" (`leader_end` default `system-endtypes-arrow`, `leader_weight`) | Ruling R4 (concept Q12, DM extended with two keys on this row only). |
+| D9 | Leader = a Note leader (`text_leader` record and geometry): a shoulder leaves a tag-box edge at a right angle (`edge`, `t`, `shoulder_mm` in the tag-box frame), then a straight run knee → tip. The knee grip re-solves the edge (`solve_knee`), as on Notes. The **tip is a free grip** stored in the host frame (`tip: [u_mm, v_mm]` from the host anchor), so it follows the host; a new leader's tip defaults to the host anchor and its shoulder to `default_leader`. Drawn by the BlockInstance when `tag.leader` is set. | Concept Q12 (the leader belongs to the tag item). **Revised 2026-11-16 at smoke (FP1 re-entry):** "leaders act like Note leaders" — the shoulder/knee geometry and the free tip were chosen; 3-click placement was not (the tag click places the tag; Leader on gives the default leader). Supersedes the as-built straight anchor → block-origin leader with a host-frame knee. |
+| D10 | Leader End + weight live **on each tag** (`tag.leader.end` default `system-endtypes-arrow`, `tag.leader.weight` default "" = the Notes fallback), edited by Leader End / Leader Weight Properties rows (`text_leader.panel_rows` / `set_panel_row`), as on Notes. No Display Manager row. | **Revised 2026-11-16 at smoke (FP1 re-entry), reversing ruling R4:** the DM "Tags" row (and its `paper_display` cache, project/QSettings save and apply) is removed; per-tag rows replace it. The branch never shipped, so no saved file carries the DM key that needs migrating. |
 | D11 | Per-tag block swap: a property row using `annotation_choices.choices(scene, category)`; writes `tag.block` then re-resolves; undoable | Concept Q5. Needs a block-id setter on BlockInstance (GAP). |
 | D12 | Shipped blocks: `Tags/WallTag`, `DoorTag`, `WindowTag`, `OpeningTag` — `@[Mark]` in a hexagon / circle / square / rounded box; Annotative, `host_category` set; ids `system-tags-<name>` | Ruling R6. **Mockup gate = plan task 1:** the four blocks are authored first and approved by the user in the running app before the rest is built; then a G7 pixel lock. |
 | D13 | `ANNOTATION_CATEGORIES`, `SYSTEM_DEFAULTS`, `LABEL_FIELD` gain Wall / Door / Window / Opening | Reuse: the Project Settings Annotation pane gets four rows for free. |
@@ -62,7 +62,7 @@ Placed tags are build phase 6 of the System Blocks concept: the first hosted ann
 ## Acceptance Criteria
 
 - [ ] AC1 Tag tool (Architecture › Annotations): hover over a wall / door / window / opening previews that category's default tag at the cursor; hover elsewhere shows none; click places one tag bound to the host uid; tool stays armed; Esc exits.
-- [ ] AC2 Leader toggle off → no leader; on → straight leader from host anchor to block origin; dragging the knee grip adds / moves one elbow; end + weight follow the DM Tags row.
+- [ ] AC2 Leader toggle off → no leader; on → a Note-style leader: a shoulder off a tag-box edge, then knee → tip at the host anchor. Dragging the knee re-picks the edge as on Notes; dragging the tip moves it anywhere, and it still follows the host. Leader End and Leader Weight rows in the tag's Properties restyle that tag's leader (undoable). (Revised 2026-11-16, D9 / D10.)
 - [ ] AC3 Host move / rotate / grip edit through the real tools → the tag keeps its host-frame offset; Horizontal tags stay level; Aligned tags rotate with readable text.
 - [ ] AC4 Host data edit (e.g. Mark) → tag text updates; host delete through every cascade path removes its tags in the same undo step; one Undo restores both re-linked.
 - [ ] AC5 Dragging a tag changes only its offset; the host is unchanged.
@@ -92,6 +92,7 @@ Placed tags are build phase 6 of the System Blocks concept: the first hosted ann
 - Tool: posted mouse moves / press on a shown view in `"tag"` mode → ghost over a wall, none over empty space; press → one tag with the wall's uid; mode still `"tag"`.
 - Round-trip: save → load and undo → redo compare tag records.
 - Drag: manipulator drag changes `tag.offset` only; wall endpoints unchanged.
-- Leader: DM Tags weight change → leader pen width changes on repaint; end block id applied.
+- Leader: shoulder leaves the tag-box edge at a right angle (ink on the shoulder, none on the old straight path); knee drag re-picks the edge; tip drag moves the arrow and the tip follows a host move; the tag's Leader Weight / Leader End rows change its pen width / End (pixels), undoable.
+- Ghost: the hover ghost's traced size equals the placed tag's size (not authored mm).
 - Re-resolve: door → window changes the resolved block id; a swap is dropped.
 - Views: section scene builds no copy of a tag block.
