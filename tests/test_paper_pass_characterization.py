@@ -711,9 +711,6 @@ def test_ac4_pipe_label_inside_crop_owner_outside(qapp, paper_env, real_system_l
     assert ink > 0, "the label did not plot in the Pipe row colour"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError,
-                   reason="AC5 - fixed in Task 2 (every other exit runs and the first error "
-                          "re-raises after the full unwind)")
 def test_ac5_raising_exit_does_not_stop_the_rest(
         qapp, paper_env, real_system_library, monkeypatch):
     from firepro3d.model_space import Model_Space

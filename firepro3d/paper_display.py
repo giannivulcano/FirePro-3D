@@ -1507,49 +1507,73 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
     }
 
 
-def _hide_phase_hidden_mask(item, saved: list) -> None:
+def _is_phase_hidden_mask(item) -> bool:
     """PH3: an item with no paper category that only follows a host's Hide (a
     section slab's occlusion mask) must not occlude when the host's status is
-    hidden. Saved first, so restore_model_display re-shows it."""
+    hidden."""
     disp = phase_display.active()
     if disp is None:                    # Phasing off: no lookups (AC4r)
-        return
+        return False
     from PyQt6.QtWidgets import QGraphicsItem
     from .phase_registry import effective_phase
     from .section_scene import _ROLE_HIDE_SOURCE
     if QGraphicsItem.data(item, _ROLE_HIDE_SOURCE) is None:
-        return
-    if effective_phase(item) in disp.hidden:
+        return False
+    return effective_phase(item) in disp.hidden
+
+
+def _hide_phase_hidden_mask(item, saved: list) -> None:
+    """Legacy (dict-entry) form of the phase-hidden mask hide; saved first, so
+    the legacy restore re-shows it. Removed with the adapter (Task 15)."""
+    if _is_phase_hidden_mask(item):
         saved.append({"item": item, "cat_key": None, "visible": item.isVisible()})
         item.setVisible(False)
 
 
-def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
-                          source_view_key: str = "", viewport_data=None) -> list[dict]:
-    """Temporarily mutate visible items to paper-space display settings.
+def _hide_phase_hidden_mask_token(item, saved) -> None:
+    """The phase-hidden mask hide as a visibility token (D4)."""
+    if _is_phase_hidden_mask(item):
+        from . import paper_pass
+        paper_pass.hide_for_pass(saved, item)
 
-    Type-aware: each item type is handled according to how its paint()
-    method reads display properties. Returns a list of saved-state dicts
-    for ``restore_model_display()``.
+
+def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
+                          source_view_key: str = "", viewport_data=None):
+    """Enter the paper pass for one sheet-viewport render (paper-space.md
+    s6.2 "Paper pass protocol").
+
+    Returns the opaque token list for ``restore_model_display``.
 
     Args:
         scene: Source QGraphicsScene being rendered through a viewport.
         source_rect: Model-space crop rect of the viewport.
         paper_scale: True geometric scale (paper mm per model mm) of the
             viewport render — drives true-scale gridline bubbles (§9.9.1).
-        source_view_key: The rendering viewport's
-            ``f"{source_view_type}:{source_view_name}"`` — drives per-view
-            underlay exclusion (§16.5). ``""`` means no per-view filtering.
+        source_view_key: Unused (removed in Task 15).
         viewport_data: The SheetViewData of the viewport being painted; drives
             detail self-hide (a detail viewport hides its own marker) and
             per-sheet ``hidden_detail_ids`` suppression.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QBrush, QColor, QPen
-    from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem
+    from . import paper_pass
+    return paper_pass.run_pass(scene, source_rect, paper_scale, viewport_data)
+
+
+def restore_model_display(saved) -> None:
+    """Leave the paper pass: every token in reverse, each in its own try; the
+    first error re-raises after the full unwind (D6)."""
+    from . import paper_pass
+    paper_pass.unwind(saved)
+
+
+# ---------------------------------------------------------------------------
+# Legacy adapter (D10): today's per-entry save / apply / restore code, run as
+# one token per not-yet-migrated owner. Deleted in Task 15.
+# ---------------------------------------------------------------------------
+
+def _legacy_enter(ctx, item, saved: list) -> None:
+    """Legacy adapter: save then apply one owner's paper state as dict
+    entries appended to *saved* (the owner's token)."""
     from .display_manager import _set_svg_tint
-    from .colour_tokens import is_token
-    from .block_definition import is_scaffold_item as _is_scaffold_item
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
     from .hydraulic_node_badge import HydraulicNodeBadge
@@ -1558,321 +1582,261 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
     from .annotative import printed_text_k
     from .text_item import TextItem
 
-    cats = load_paper_categories()
-    saved: list[dict] = []
-    _tok_cache: dict = {}
+    cats = ctx.rows
+    paper_scale = ctx.paper_scale
+    text_scale = ctx.text_scale
+    _auth_tok = ctx.auth_tok
+    _svg_paper_retint = ctx.svg_paper_retint
+    _svg_phase_tint = ctx.svg_phase_tint
+    _phase_keys = ctx.phase_keys
 
-    def _auth_tok(it, key, authored):
-        """Model-side token colour to re-resolve on paper (row ON only)."""
-        return _model_colour_token(it, key, _tok_cache) if authored else None
-
-    def _svg_paper_retint(it, owner, key):
-        """R6: a row-ON SVG symbol re-tints when its Model colour or fill is
-        a token; each token resolves on the paper surface, a hex half keeps
-        its canvas value. True when it re-tinted."""
-        c = _model_colour_token(owner, key, _tok_cache)
-        f = _model_colour_token(owner, key, _tok_cache, "fill")
-        if c is None and f is None:
-            return False
-        _set_svg_tint(it, c if c is not None else getattr(owner, "_display_color", None),
-                      f if f is not None else getattr(owner, "_display_fill_color", None))
-        return True
-
-    def _svg_phase_tint(it, owner, key, colour):
-        """DD2: a row-ON SVG symbol whose status forces the colour -- the
-        stroke takes *colour*, the fill keeps its authored value (a token
-        fill re-resolves on the paper surface, as in _svg_paper_retint)."""
-        f = _model_colour_token(owner, key, _tok_cache, "fill")
-        _set_svg_tint(it, colour,
-                      f if f is not None else getattr(owner, "_display_fill_color", None))
-
-    def _phase_keys(cat_key):
-        """D-PH13: sprinklers and water supplies (the plan SVG symbol and its
-        section / elevation proxy alike) take visibility, colour and opacity only."""
-        return (phase_display.SYMBOL_KEYS if cat_key in ("Sprinkler", "Water Supply")
-                else phase_display.ALL_KEYS)
-    # Drafting-tile scale for the hatch renderer during THIS viewport render
-    # (D-A30); cleared by restore_model_display. First entry → cleared even if
-    # the pass fails part-way.
-    scene._hatch_paper_scale = paper_scale
-    saved.append({"hatch_scene": scene})
-    # Thin Lines never plots (LT1-8): suspend it for the pass so paint-time
-    # canvas pens (text borders) resolve their real width; lifted by restore.
-    global _THIN_SUSPEND
-    _THIN_SUSPEND += 1
-    saved.append({"thin_suspend": True})
-    text_scale = getattr(scene, "text_print_scale", None)   # a Printed schematic (N15)
-    try:
-        items = scene.items(source_rect)
-
-        for item in items:
-            if not item.isVisible():
-                continue
-            # Instance-aware: class flags (manipulator, markers) and per-item
-            # flags (the block placement ghost) both exclude.
-            if getattr(item, "PAPER_EXCLUDED", False):
-                saved.append({"item": item, "cat_key": None,
-                              "visible": item.isVisible()})
-                item.setVisible(False)
-                continue
-            # QGraphicsItem.data(item, 0), not item.data(0): TextItem shadows
-            # ``data`` with its TextAnnotationData (schematic viewports hold
-            # text — SV2; the snap_engine / property_manager precedent).
-            if QGraphicsItem.data(item, 0) == "origin":
-                # Model origin cross — authoring aid, never plots (§9.9.1).
-                saved.append({"item": item, "cat_key": None,
-                              "visible": item.isVisible()})
-                item.setVisible(False)
-                continue
-            if _is_scaffold_item(item):
-                # Non-printed reference geometry (task D, RG11 / RG12):
-                # scaffolding, never plots. Every 2D primitive (and Text)
-                # carries ``printed``, so the flag alone is not the test.
-                saved.append({"item": item, "cat_key": None,
-                              "visible": item.isVisible()})
-                item.setVisible(False)
-                continue
-            if text_scale and isinstance(item, TextItem):
-                # Printed text (N15): painted scaled, so it reports scaled bounds
-                # for the pass. Saved first: restore never sees a half-entered item.
-                saved.append({"print_text": item})
-                item.set_print_pass((printed_text_k(text_scale, paper_scale), paper_scale))
-                continue
-            if viewport_data is not None and _is_detail_marker(item):
-                marker_name = getattr(item, "name", None)
-                hide = False
-                if viewport_data.source_view_type == "detail":
-                    hide = (marker_name == viewport_data.source_view_name)  # self-hide
-                if marker_name in viewport_data.hidden_detail_ids:
-                    hide = True                                              # per-sheet hide
-                if hide:
-                    saved.append({"item": item, "cat_key": None,
-                                  "visible": item.isVisible()})
-                    item.setVisible(False)
-                    continue
-            cat_key = _category_for_item(item)
-            if cat_key is None:
-                _hide_phase_hidden_mask(item, saved)
-                continue
-            row = cats.get(cat_key)
-            if row is None:
-                continue
-            cat = phase_display.merge(row, item, keys=_phase_keys(cat_key))   # PH3 DD3
-            authored = row_as_authored(cat)
-            if getattr(item, "_paper_cat", None) is not None:
-                # Section / elevation proxy (AC2): the source category's
-                # whole paper row, as _apply_generic gives the plan item --
-                # Visible, Opacity, weight, and outside Full Colour the row's
-                # Colour / Fill / Section body (a model hex would otherwise
-                # plot as-is: white walls on white paper).
-                lab = getattr(item, "pipe_label", None)    # a line proxy's label
-                entry = {"item": item, "cat_key": cat_key, "proxy": True,
-                         "visible": item.isVisible(),
-                         "opacity": item.opacity(),
-                         "srcs": (item._pen_src, item._brush_src,
-                                  getattr(item, "_section_src", None),
-                                  item._src_alpha)}
-                if lab is not None:
-                    entry["label"] = (lab, lab.isVisible(), lab.opacity(),
-                                      lab._paper_pen_width, lab._paper_pen_color,
-                                      lab._paper_scale)
-                saved.append(entry)
-                if not cat.get("visible", True):
-                    item.setVisible(False)
-                    if lab is not None:
-                        lab.setVisible(False)
-                    continue
-                if phase_display.writes(cat, authored, "color"):     # proxy pen (DD2)
-                    item._pen_src = cat["color"]
-                if phase_display.writes(cat, authored, "fill"):      # proxy body (DD2)
-                    if hasattr(item, "_section_src"):          # cut wall / slab
-                        if cat.get("section_color") is not None:
-                            item._section_src = cat["section_color"]
-                    elif getattr(item, "_no_sheet_body", False):
-                        # Cut pipe symbol: a body in the row colour hides the S.
-                        item._brush_src = ""
-                    elif item._brush_src is not None:
-                        # No Fill / Section column on the row: it takes the Colour.
-                        fill = cat.get("fill")
-                        item._brush_src = (fill if fill is not None
-                                           else cat.get("section_color") or cat["color"])
-                item._src_alpha = None   # paper fills plot opaque (_paper_fill_opaque)
-                item._paper_pen_width = (resolve_line_weight_mm(cat["line_weight"])
-                                         / max(paper_scale, 1e-9))
-                item.setOpacity(cat["opacity"] / 100.0)
-                if lab is not None and lab.isVisible():
-                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # proxy label (R4)
-                    _apply_block(lab, lab_cat, authored,
-                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
-                    lab.setOpacity(phase_display.label_opacity(lab_cat))
-                item.update()
-                continue
-            if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
-                # Elevation gridline / level datum (SB4c D4): the LINE takes the
-                # row's visibility, opacity, colour, weight and paper-mm dash
-                # (enter_paper_pass, which also sets _paper_render); each
-                # visible bubble / head is an annotation block and prints at
-                # its authored mm through _apply_block (opacity 1, as the plan
-                # gridline's bubbles).
-                entry = {"item": item, "cat_key": cat_key, "elev_paper": None,
-                         "opacity": item.opacity(), "visible": item.isVisible(),
-                         "heads": []}
-                if not cat.get("visible", True):
-                    saved.append(entry)
-                    item.setVisible(False)
-                    continue
-                bw = not authored
-                lw_elev = resolve_line_weight_mm(cat["line_weight"])
-                # Saved only once the pass is entered: restore never sees a
-                # half-entered item.
-                entry["elev_paper"] = item.enter_paper_pass(
-                    lw_elev, paper_scale, color_src=cat["color"] if bw else None)
-                saved.append(entry)
-                item.setOpacity(cat["opacity"] / 100.0)
-                for h in _elev_heads(item):
-                    if h.isVisible():
-                        entry["heads"].append((h, h._paper_pen_width, h._paper_pen_color,
-                                               h._paper_scale))
-                        _apply_block(h, cat, authored, lw_elev, paper_scale)
-                        h.setOpacity(1.0)
-                item.prepareGeometryChange()    # trim / bounds move with the paper k
-                item.update()
-                continue
-
-            # --- Save current state ---
-            entry: dict = {
-                "item": item,
-                "cat_key": cat_key,
-                "display_color": getattr(item, "_display_color", None),
-                "display_fill_color": getattr(item, "_display_fill_color", None),
-                "display_section_color": getattr(item, "_display_section_color", None),
-                "opacity": item.opacity(),
-                "visible": item.isVisible(),
-                "pen": item.pen() if hasattr(item, "pen") else None,
-            }
-
-            # Type-specific extra state
-            if isinstance(item, Pipe):
-                entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
-                rs = item._riser_symbol
-                entry["riser_paper"] = ((rs, rs._paper_pen_width, rs._paper_scale)
-                                        if rs is not None else None)
-                _l = item.label
-                entry["tag_paper"] = (_l._paper_pen_width, _l._paper_pen_color,
-                                      _l._paper_scale)
-                entry["tag_opacity"] = _l.opacity()   # PH3 R4: a status opacity reaches the label
-            elif isinstance(item, (Sprinkler, WaterSupply)):
-                entry["symbol_paper"] = (item._paper_pen_width, item._paper_scale)
-            elif isinstance(item, GridlineItem):
-                entry["gridline"] = _save_gridline_state(item)
-            elif isinstance(item, HydraulicNodeBadge):
-                entry["tag_paper"] = (item._paper_pen_width, item._paper_pen_color,
-                                      item._paper_scale)
-            elif cat_key in ("Elevation Marker", "Section Marker"):
-                entry["marker"] = _save_marker_state(item, "_marker_color")
-                entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
-                                  for h in _marker_heads(item)]
-            elif cat_key == "Detail Marker":
-                entry["marker"] = _save_marker_state(item, "_tag_color")
-                entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
-                                  for h in _marker_heads(item)]
-            elif cat_key == "Blocks":
-                entry["block_paper"] = (item._paper_pen_width,
-                                        item._paper_pen_color,
-                                        item._paper_scale,
-                                        getattr(item, "_paper_blocks_colour", None),
-                                        getattr(item, "_paper_fill_colour", None))
-            from .room import Room as _Room
-            if isinstance(item, _Room):
-                _tag = item._tag
-                entry["tag_paper"] = (_tag._paper_pen_width, _tag._paper_pen_color,
-                                      _tag._paper_scale)
-                entry["tag_opacity"] = _tag.opacity()   # top-level (SB4d D5)
-            from .wall_opening import WallOpening
-            if isinstance(item, WallOpening):
-                entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
-
+    if text_scale and isinstance(item, TextItem):
+        # Printed text (N15): painted scaled, so it reports scaled bounds
+        # for the pass. Saved first: restore never sees a half-entered item.
+        saved.append({"print_text": item})
+        item.set_print_pass((printed_text_k(text_scale, paper_scale), paper_scale))
+        return
+    cat_key = _category_for_item(item)
+    if cat_key is None:
+        _hide_phase_hidden_mask(item, saved)
+        return
+    row = cats.get(cat_key)
+    if row is None:
+        return
+    cat = phase_display.merge(row, item, keys=_phase_keys(cat_key))   # PH3 DD3
+    authored = row_as_authored(cat)
+    if getattr(item, "_paper_cat", None) is not None:
+        # Section / elevation proxy (AC2): the source category's
+        # whole paper row, as _apply_generic gives the plan item --
+        # Visible, Opacity, weight, and outside Full Colour the row's
+        # Colour / Fill / Section body (a model hex would otherwise
+        # plot as-is: white walls on white paper).
+        lab = getattr(item, "pipe_label", None)    # a line proxy's label
+        entry = {"item": item, "cat_key": cat_key, "proxy": True,
+                 "visible": item.isVisible(),
+                 "opacity": item.opacity(),
+                 "srcs": (item._pen_src, item._brush_src,
+                          getattr(item, "_section_src", None),
+                          item._src_alpha)}
+        if lab is not None:
+            entry["label"] = (lab, lab.isVisible(), lab.opacity(),
+                              lab._paper_pen_width, lab._paper_pen_color,
+                              lab._paper_scale)
+        saved.append(entry)
+        if not cat.get("visible", True):
+            item.setVisible(False)
+            if lab is not None:
+                lab.setVisible(False)
+            return
+        if phase_display.writes(cat, authored, "color"):     # proxy pen (DD2)
+            item._pen_src = cat["color"]
+        if phase_display.writes(cat, authored, "fill"):      # proxy body (DD2)
+            if hasattr(item, "_section_src"):          # cut wall / slab
+                if cat.get("section_color") is not None:
+                    item._section_src = cat["section_color"]
+            elif getattr(item, "_no_sheet_body", False):
+                # Cut pipe symbol: a body in the row colour hides the S.
+                item._brush_src = ""
+            elif item._brush_src is not None:
+                # No Fill / Section column on the row: it takes the Colour.
+                fill = cat.get("fill")
+                item._brush_src = (fill if fill is not None
+                                   else cat.get("section_color") or cat["color"])
+        item._src_alpha = None   # paper fills plot opaque (_paper_fill_opaque)
+        item._paper_pen_width = (resolve_line_weight_mm(cat["line_weight"])
+                                 / max(paper_scale, 1e-9))
+        item.setOpacity(cat["opacity"] / 100.0)
+        if lab is not None and lab.isVisible():
+            lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # proxy label (R4)
+            _apply_block(lab, lab_cat, authored,
+                         resolve_line_weight_mm(row["line_weight"]), paper_scale)
+            lab.setOpacity(phase_display.label_opacity(lab_cat))
+        item.update()
+        return
+    if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
+        # Elevation gridline / level datum (SB4c D4): the LINE takes the
+        # row's visibility, opacity, colour, weight and paper-mm dash
+        # (enter_paper_pass, which also sets _paper_render); each
+        # visible bubble / head is an annotation block and prints at
+        # its authored mm through _apply_block (opacity 1, as the plan
+        # gridline's bubbles).
+        entry = {"item": item, "cat_key": cat_key, "elev_paper": None,
+                 "opacity": item.opacity(), "visible": item.isVisible(),
+                 "heads": []}
+        if not cat.get("visible", True):
             saved.append(entry)
+            item.setVisible(False)
+            return
+        bw = not authored
+        lw_elev = resolve_line_weight_mm(cat["line_weight"])
+        # Saved only once the pass is entered: restore never sees a
+        # half-entered item.
+        entry["elev_paper"] = item.enter_paper_pass(
+            lw_elev, paper_scale, color_src=cat["color"] if bw else None)
+        saved.append(entry)
+        item.setOpacity(cat["opacity"] / 100.0)
+        for h in _elev_heads(item):
+            if h.isVisible():
+                entry["heads"].append((h, h._paper_pen_width, h._paper_pen_color,
+                                       h._paper_scale))
+                _apply_block(h, cat, authored, lw_elev, paper_scale)
+                h.setOpacity(1.0)
+        item.prepareGeometryChange()    # trim / bounds move with the paper k
+        item.update()
+        return
 
-            # --- Visibility override ---
-            if not cat.get("visible", True):
-                item.setVisible(False)
-                continue
+    # --- Save current state ---
+    entry: dict = {
+        "item": item,
+        "cat_key": cat_key,
+        "display_color": getattr(item, "_display_color", None),
+        "display_fill_color": getattr(item, "_display_fill_color", None),
+        "display_section_color": getattr(item, "_display_section_color", None),
+        "opacity": item.opacity(),
+        "visible": item.isVisible(),
+        "pen": item.pen() if hasattr(item, "pen") else None,
+    }
 
-            # --- Apply type-specific overrides ---
-            lw_mm = resolve_line_weight_mm(cat["line_weight"])
+    # Type-specific extra state
+    if isinstance(item, Pipe):
+        entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
+        rs = item._riser_symbol
+        entry["riser_paper"] = ((rs, rs._paper_pen_width, rs._paper_scale)
+                                if rs is not None else None)
+        _l = item.label
+        entry["tag_paper"] = (_l._paper_pen_width, _l._paper_pen_color,
+                              _l._paper_scale)
+        entry["tag_opacity"] = _l.opacity()   # PH3 R4: a status opacity reaches the label
+    elif isinstance(item, (Sprinkler, WaterSupply)):
+        entry["symbol_paper"] = (item._paper_pen_width, item._paper_scale)
+    elif isinstance(item, GridlineItem):
+        entry["gridline"] = _save_gridline_state(item)
+    elif isinstance(item, HydraulicNodeBadge):
+        entry["tag_paper"] = (item._paper_pen_width, item._paper_pen_color,
+                              item._paper_scale)
+    elif cat_key in ("Elevation Marker", "Section Marker"):
+        entry["marker"] = _save_marker_state(item, "_marker_color")
+        entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
+                          for h in _marker_heads(item)]
+    elif cat_key == "Detail Marker":
+        entry["marker"] = _save_marker_state(item, "_tag_color")
+        entry["heads"] = [(h, h._paper_pen_width, h._paper_pen_color, h._paper_scale)
+                          for h in _marker_heads(item)]
+    elif cat_key == "Blocks":
+        entry["block_paper"] = (item._paper_pen_width,
+                                item._paper_pen_color,
+                                item._paper_scale,
+                                getattr(item, "_paper_blocks_colour", None),
+                                getattr(item, "_paper_fill_colour", None))
+    from .room import Room as _Room
+    if isinstance(item, _Room):
+        _tag = item._tag
+        entry["tag_paper"] = (_tag._paper_pen_width, _tag._paper_pen_color,
+                              _tag._paper_scale)
+        entry["tag_opacity"] = _tag.opacity()   # top-level (SB4d D5)
+    from .wall_opening import WallOpening
+    if isinstance(item, WallOpening):
+        entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
 
-            if isinstance(item, Pipe):
-                _apply_pipe(item, cat, authored, lw_mm, paper_scale)
-                rs = item._riser_symbol       # SB4g R4: named weights plot mm / scale
-                if rs is not None:
-                    rs._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
-                    rs._paper_scale = paper_scale
-                    rs.update()               # colour: pulled from the pipe at paint (T10)
-                # Pipe label (SB4a D10): the one annotative path -- the label
-                # is a BoundLabelItem and takes _apply_block's hooks; its
-                # opacity stays 1. A hidden label is skipped.
-                if item.label.isVisible():
-                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # pipe label (R4)
-                    _apply_block(item.label, lab_cat, authored,
-                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
-                    item.label.setOpacity(phase_display.label_opacity(lab_cat))
-            elif isinstance(item, GridlineItem):
-                _apply_gridline(item, cat, authored, lw_mm, paper_scale,
-                                _auth_tok(item, cat_key, authored))
-                for b in (item.bubble1, item.bubble2):     # SB4b D12: annotative path
-                    if b.isVisible():
-                        _apply_block(b, cat, authored, lw_mm, paper_scale)
-                        b.setOpacity(1.0)
-                item.prepareGeometryChange()               # the trim moves with k
-            elif isinstance(item, HydraulicNodeBadge):
-                # SB4e AC9: an annotation block -- the row's As Authored keeps
-                # its colours, OFF forces the row colour; re-placed at paper k.
-                _apply_block(item, cat, authored, lw_mm, paper_scale)
-                item.place()
-            elif isinstance(item, (Sprinkler, WaterSupply)):
-                # SB4g D8: _apply_block's two width hooks, without its colour forcing
-                item._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
-                item._paper_scale = paper_scale
-                if not authored:
-                    _set_svg_tint(item, cat["color"], cat.get("fill"))
-                elif phase_display.forced(cat, "color"):          # DD2: phase colour, authored fill
-                    _svg_phase_tint(item, item, cat_key, cat["color"])
-                else:
-                    _svg_paper_retint(item, item, cat_key)
-                item.setOpacity(cat["opacity"] / 100.0)
-            elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
-                _apply_marker(item, cat, authored, lw_mm,
-                              "_tag_color" if cat_key == "Detail Marker" else "_marker_color",
-                              _auth_tok(item, cat_key, authored))
-                for h in _marker_heads(item):          # SB4d D1: annotative heads print at authored mm
-                    if h.isVisible():
-                        _apply_block(h, cat, authored, lw_mm, paper_scale)   # SB4d: marker heads
-                        h.setOpacity(1.0)
-                item.prepareGeometryChange()           # the arrow / leader follow the paper k
-            elif cat_key == "Blocks":
-                _apply_block(item, cat, authored, lw_mm, paper_scale, blocks_hook=True)
-            elif cat_key == "Construction":
-                _apply_construction(item, cat, authored, lw_mm, paper_scale)
-            else:
-                _apply_generic(item, cat, authored, lw_mm, paper_scale)
-                # WallOpening gap fill: set paper-white so the gap reads as a
-                # clean hole on white paper instead of the dark screen background.
-                from .wall_opening import WallOpening as _WallOpening
-                if isinstance(item, _WallOpening):
-                    from PyQt6.QtGui import QColor as _QColor
-                    item._paper_gap_color = _QColor("#ffffff")
-                # Room tag (SB3): the one annotative path -- the tag is a
-                # BoundLabelItem and takes _apply_block's hooks (SB1c D6);
-                # its opacity stays 1 (the Room row opacity is inherited
-                # from the parent). A hidden tag is skipped.
-                from .room import Room as _Room
-                if isinstance(item, _Room) and item._tag.isVisible():
-                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # room tag (R4)
-                    _apply_block(item._tag, lab_cat, authored,
-                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
-                    item._tag.setOpacity(phase_display.label_opacity(lab_cat))
+    saved.append(entry)
 
+    # --- Visibility override ---
+    if not cat.get("visible", True):
+        item.setVisible(False)
+        return
+
+    # --- Apply type-specific overrides ---
+    lw_mm = resolve_line_weight_mm(cat["line_weight"])
+
+    if isinstance(item, Pipe):
+        _apply_pipe(item, cat, authored, lw_mm, paper_scale)
+        rs = item._riser_symbol       # SB4g R4: named weights plot mm / scale
+        if rs is not None:
+            rs._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+            rs._paper_scale = paper_scale
+            rs.update()               # colour: pulled from the pipe at paint (T10)
+        # Pipe label (SB4a D10): the one annotative path -- the label
+        # is a BoundLabelItem and takes _apply_block's hooks; its
+        # opacity stays 1. A hidden label is skipped.
+        if item.label.isVisible():
+            lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # pipe label (R4)
+            _apply_block(item.label, lab_cat, authored,
+                         resolve_line_weight_mm(row["line_weight"]), paper_scale)
+            item.label.setOpacity(phase_display.label_opacity(lab_cat))
+    elif isinstance(item, GridlineItem):
+        _apply_gridline(item, cat, authored, lw_mm, paper_scale,
+                        _auth_tok(item, cat_key, authored))
+        for b in (item.bubble1, item.bubble2):     # SB4b D12: annotative path
+            if b.isVisible():
+                _apply_block(b, cat, authored, lw_mm, paper_scale)
+                b.setOpacity(1.0)
+        item.prepareGeometryChange()               # the trim moves with k
+    elif isinstance(item, HydraulicNodeBadge):
+        # SB4e AC9: an annotation block -- the row's As Authored keeps
+        # its colours, OFF forces the row colour; re-placed at paper k.
+        _apply_block(item, cat, authored, lw_mm, paper_scale)
+        item.place()
+    elif isinstance(item, (Sprinkler, WaterSupply)):
+        # SB4g D8: _apply_block's two width hooks, without its colour forcing
+        item._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
+        item._paper_scale = paper_scale
+        if not authored:
+            _set_svg_tint(item, cat["color"], cat.get("fill"))
+        elif phase_display.forced(cat, "color"):          # DD2: phase colour, authored fill
+            _svg_phase_tint(item, item, cat_key, cat["color"])
+        else:
+            _svg_paper_retint(item, item, cat_key)
+        item.setOpacity(cat["opacity"] / 100.0)
+    elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+        _apply_marker(item, cat, authored, lw_mm,
+                      "_tag_color" if cat_key == "Detail Marker" else "_marker_color",
+                      _auth_tok(item, cat_key, authored))
+        for h in _marker_heads(item):          # SB4d D1: annotative heads print at authored mm
+            if h.isVisible():
+                _apply_block(h, cat, authored, lw_mm, paper_scale)   # SB4d: marker heads
+                h.setOpacity(1.0)
+        item.prepareGeometryChange()           # the arrow / leader follow the paper k
+    elif cat_key == "Blocks":
+        _apply_block(item, cat, authored, lw_mm, paper_scale, blocks_hook=True)
+    elif cat_key == "Construction":
+        _apply_construction(item, cat, authored, lw_mm, paper_scale)
+    else:
+        _apply_generic(item, cat, authored, lw_mm, paper_scale)
+        # WallOpening gap fill: set paper-white so the gap reads as a
+        # clean hole on white paper instead of the dark screen background.
+        from .wall_opening import WallOpening as _WallOpening
+        if isinstance(item, _WallOpening):
+            from PyQt6.QtGui import QColor as _QColor
+            item._paper_gap_color = _QColor("#ffffff")
+        # Room tag (SB3): the one annotative path -- the tag is a
+        # BoundLabelItem and takes _apply_block's hooks (SB1c D6);
+        # its opacity stays 1 (the Room row opacity is inherited
+        # from the parent). A hidden tag is skipped.
+        from .room import Room as _Room
+        if isinstance(item, _Room) and item._tag.isVisible():
+            lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # room tag (R4)
+            _apply_block(item._tag, lab_cat, authored,
+                         resolve_line_weight_mm(row["line_weight"]), paper_scale)
+            item._tag.setOpacity(phase_display.label_opacity(lab_cat))
+
+
+def _legacy_tail(ctx, tokens) -> None:
+    """Legacy adapter: fittings (wrappers, not QGraphicsItems) and underlay
+    groups, as one token on the scene (until Tasks 13-14)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QPen
+    from PyQt6.QtWidgets import QGraphicsPathItem
+    from .colour_tokens import is_token
+    from .display_manager import _set_svg_tint
+
+    scene = ctx.scene
+    source_rect = ctx.source_rect
+    paper_scale = ctx.paper_scale
+    cats = ctx.rows
+    _svg_paper_retint = ctx.svg_paper_retint
+    _svg_phase_tint = ctx.svg_phase_tint
+    saved: list = []      # this tail's dict entries: one token on the scene
+    try:
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
             fitting_row = cats.get("Fitting")
@@ -1970,22 +1934,13 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     # (factor / Thin Lines dependent; MW-1 / MW-4).
                     pen.setWidthF(paper_legacy_pdf_px(float(child.data(7))))
                 child.setPen(pen)
-
-    except Exception:
-        # A mid-pass failure must not escape before the caller receives
-        # `saved` -- already-applied items would be stuck in paper geometry
-        # (and the next pass would snapshot that as model state). Unwind
-        # whatever was applied, then re-raise.
-        restore_model_display(saved)
-        raise
-    return saved
+    finally:
+        if saved:
+            tokens.push(scene, _legacy_exit, saved)
 
 
-def restore_model_display(saved: list[dict]):
-    """Restore items to their pre-override state.
-
-    Type-aware restore matching the type-aware apply.
-    """
+def _legacy_exit_entry(entry: dict) -> None:
+    """Legacy adapter: restore one dict entry."""
     from .display_manager import _set_svg_tint
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
@@ -1995,214 +1950,207 @@ def restore_model_display(saved: list[dict]):
     from .annotative import is_annotative as _is_annot
     from PyQt6.QtGui import QColor, QBrush, QPen
 
-    global _THIN_SUSPEND
-    for entry in saved:
-        if "hatch_scene" in entry:
-            entry["hatch_scene"]._hatch_paper_scale = None
-            continue
-        if "thin_suspend" in entry:
-            if entry["thin_suspend"]:            # lift once per pass
-                entry["thin_suspend"] = False
-                if _THIN_SUSPEND <= 0:
-                    _log.warning("restore_model_display: Thin Lines "
-                                 "suspension counter unbalanced (%d)",
-                                 _THIN_SUSPEND)
-                _THIN_SUSPEND = max(0, _THIN_SUSPEND - 1)
-            continue
-        if "print_text" in entry:
-            entry["print_text"].set_print_pass(None)
-            continue
-        if "underlay_group" in entry:
-            # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
-            for ch in entry["children"]:
-                try:
-                    ch["item"].setPen(ch["pen"])
-                    ch["item"].setBrush(ch["brush"])
-                    if "colour_src" in ch:
-                        ch["item"]._colour_src = ch["colour_src"]
-                except RuntimeError:
-                    pass
+    if "print_text" in entry:
+        entry["print_text"].set_print_pass(None)
+        return
+    if "underlay_group" in entry:
+        # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
+        for ch in entry["children"]:
             try:
-                entry["underlay_group"].setVisible(entry["visible"])
-                if "opacity" in entry:
-                    entry["underlay_group"].setOpacity(entry["opacity"])   # PH3 R5 restore
+                ch["item"].setPen(ch["pen"])
+                ch["item"].setBrush(ch["brush"])
+                if "colour_src" in ch:
+                    ch["item"]._colour_src = ch["colour_src"]
             except RuntimeError:
                 pass
-            continue
+        try:
+            entry["underlay_group"].setVisible(entry["visible"])
+            if "opacity" in entry:
+                entry["underlay_group"].setOpacity(entry["opacity"])   # PH3 R5 restore
+        except RuntimeError:
+            pass
+        return
 
-        item = entry["item"]
-        cat_key = entry.get("cat_key")
+    item = entry["item"]
+    cat_key = entry.get("cat_key")
 
-        if cat_key is None:
-            # Origin-cross entry — visibility only (§9.9.1).
-            item.setVisible(entry.get("visible", True))
-            continue
-        if entry.get("proxy"):
-            try:
-                item.__dict__.pop("_paper_pen_width", None)
-                (item._pen_src, item._brush_src, section_src,
-                 item._src_alpha) = entry["srcs"]
-                if hasattr(item, "_section_src"):
-                    item._section_src = section_src
-                item.setVisible(entry["visible"])
-                item.setOpacity(entry["opacity"])
-                if "label" in entry:
-                    lab, vis, op, pen_w, pen_c, scale = entry["label"]
-                    if _is_annot(lab.definition()):
-                        lab.prepareGeometryChange()
-                    lab._paper_pen_width, lab._paper_pen_color = pen_w, pen_c
-                    lab._paper_scale = scale
-                    lab.setVisible(vis)
-                    lab.setOpacity(op)
-                    lab.update()
-                item.update()
-            except RuntimeError:          # proxy deleted mid-pass (rebuild)
-                pass
-            continue
-        if "elev_paper" in entry:
+    if cat_key is None:
+        # Origin-cross entry — visibility only (§9.9.1).
+        item.setVisible(entry.get("visible", True))
+        return
+    if entry.get("proxy"):
+        try:
+            item.__dict__.pop("_paper_pen_width", None)
+            (item._pen_src, item._brush_src, section_src,
+             item._src_alpha) = entry["srcs"]
+            if hasattr(item, "_section_src"):
+                item._section_src = section_src
             item.setVisible(entry["visible"])
             item.setOpacity(entry["opacity"])
-            for h, pen_w, pen_c, scale in entry.get("heads", ()):
-                if _is_annot(h.definition()):
-                    h.prepareGeometryChange()            # SB1c D6
-                h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
-                h.setOpacity(1.0)
-                h.refresh()
-            if entry["elev_paper"] is not None:
-                item.exit_paper_pass(entry["elev_paper"])   # clears _paper_render, line weight
-            item.prepareGeometryChange()
+            if "label" in entry:
+                lab, vis, op, pen_w, pen_c, scale = entry["label"]
+                if _is_annot(lab.definition()):
+                    lab.prepareGeometryChange()
+                lab._paper_pen_width, lab._paper_pen_color = pen_w, pen_c
+                lab._paper_scale = scale
+                lab.setVisible(vis)
+                lab.setOpacity(op)
+                lab.update()
             item.update()
-            continue
-
-        # Restore visibility and opacity (common to all)
-        item.setVisible(entry.get("visible", True))
+        except RuntimeError:          # proxy deleted mid-pass (rebuild)
+            pass
+        return
+    if "elev_paper" in entry:
+        item.setVisible(entry["visible"])
         item.setOpacity(entry["opacity"])
+        for h, pen_w, pen_c, scale in entry.get("heads", ()):
+            if _is_annot(h.definition()):
+                h.prepareGeometryChange()            # SB1c D6
+            h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
+            h.setOpacity(1.0)
+            h.refresh()
+        if entry["elev_paper"] is not None:
+            item.exit_paper_pass(entry["elev_paper"])   # clears _paper_render, line weight
+        item.prepareGeometryChange()
+        item.update()
+        return
 
-        if isinstance(item, Pipe):
-            item._display_color = entry["display_color"]
-            item._paper_pen_width = entry.get("paper_pen_width")
-            rp = entry.get("riser_paper")
-            if rp is not None:
-                rs, rs._paper_pen_width, rs._paper_scale = rp
-                rs.update()
-            if "tag_paper" in entry:
-                _l = item.label
-                if _is_annot(_l.definition()):
-                    _l.prepareGeometryChange()       # SB1c D6
-                (_l._paper_pen_width, _l._paper_pen_color,
-                 _l._paper_scale) = entry["tag_paper"]
-                if "tag_opacity" in entry:
-                    _l.setOpacity(entry["tag_opacity"])   # PH3 R4 restore
-                _l.update()
-            item.update()
-            item.repaint_riser()            # SB4g R4: colour restored above
+    # Restore visibility and opacity (common to all)
+    item.setVisible(entry.get("visible", True))
+    item.setOpacity(entry["opacity"])
 
-        elif isinstance(item, GridlineItem):
-            gs = entry.get("gridline", {})
-            item._grid_color = QColor(gs["grid_color"])
-            for b, hooks in zip((item.bubble1, item.bubble2), gs["bubble_paper"]):
-                if _is_annot(b.definition()):
-                    b.prepareGeometryChange()            # SB1c D6
-                b._paper_pen_width, b._paper_pen_color, b._paper_scale = hooks
-                b.refresh()
-            item._lock_indicator.setVisible(gs["lock_vis"])
-            item._paper_render = False
-            item._paper_line_w = 0.0
-            item._paper_line_w_mm = 0.0
-            item.prepareGeometryChange()
-            item.update()
+    if isinstance(item, Pipe):
+        item._display_color = entry["display_color"]
+        item._paper_pen_width = entry.get("paper_pen_width")
+        rp = entry.get("riser_paper")
+        if rp is not None:
+            rs, rs._paper_pen_width, rs._paper_scale = rp
+            rs.update()
+        if "tag_paper" in entry:
+            _l = item.label
+            if _is_annot(_l.definition()):
+                _l.prepareGeometryChange()       # SB1c D6
+            (_l._paper_pen_width, _l._paper_pen_color,
+             _l._paper_scale) = entry["tag_paper"]
+            if "tag_opacity" in entry:
+                _l.setOpacity(entry["tag_opacity"])   # PH3 R4 restore
+            _l.update()
+        item.update()
+        item.repaint_riser()            # SB4g R4: colour restored above
 
-        elif isinstance(item, HydraulicNodeBadge):
-            if "tag_paper" in entry:
-                if _is_annot(item.definition()):
-                    item.prepareGeometryChange()     # SB1c D6
-                (item._paper_pen_width, item._paper_pen_color,
-                 item._paper_scale) = entry["tag_paper"]
-                item.place()                         # back to the canvas k
-            item.update()
+    elif isinstance(item, GridlineItem):
+        gs = entry.get("gridline", {})
+        item._grid_color = QColor(gs["grid_color"])
+        for b, hooks in zip((item.bubble1, item.bubble2), gs["bubble_paper"]):
+            if _is_annot(b.definition()):
+                b.prepareGeometryChange()            # SB1c D6
+            b._paper_pen_width, b._paper_pen_color, b._paper_scale = hooks
+            b.refresh()
+        item._lock_indicator.setVisible(gs["lock_vis"])
+        item._paper_render = False
+        item._paper_line_w = 0.0
+        item._paper_line_w_mm = 0.0
+        item.prepareGeometryChange()
+        item.update()
 
-        elif isinstance(item, (Sprinkler, WaterSupply)):
+    elif isinstance(item, HydraulicNodeBadge):
+        if "tag_paper" in entry:
+            if _is_annot(item.definition()):
+                item.prepareGeometryChange()     # SB1c D6
+            (item._paper_pen_width, item._paper_pen_color,
+             item._paper_scale) = entry["tag_paper"]
+            item.place()                         # back to the canvas k
+        item.update()
+
+    elif isinstance(item, (Sprinkler, WaterSupply)):
+        _set_svg_tint(item, entry["display_color"],
+                      entry.get("display_fill_color"))
+        item._paper_pen_width, item._paper_scale = entry.get("symbol_paper", (None, None))
+        item.update()
+
+    elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
+        ms = entry.get("marker", {})
+        color_attr = ms.get("color_attr", "_marker_color")
+        mc = ms.get("marker_color")
+        if mc is not None:
+            setattr(item, color_attr, QColor(mc))
+        if ms.get("pen") is not None:
+            item.setPen(ms["pen"])
+        if ms.get("brush") is not None:
+            item.setBrush(ms["brush"])
+        for h, pen_w, pen_c, scale in entry.get("heads", ()):
+            if _is_annot(h.definition()):
+                h.prepareGeometryChange()            # SB1c D6
+            h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
+            h.refresh()
+        item.prepareGeometryChange()
+        item.update()
+
+    elif cat_key == "Blocks":
+        # Paint hooks only (H5); opacity/visibility restored above.
+        from .annotative import is_annotative
+        if is_annotative(item.definition()):
+            item.prepareGeometryChange()     # SB1c D6
+        (item._paper_pen_width, item._paper_pen_color, item._paper_scale,
+         item._paper_blocks_colour,
+         item._paper_fill_colour) = entry.get("block_paper", (None,) * 5)
+        item.update()
+
+    elif cat_key == "Construction":
+        # Construction/draw geometry reads self.pen() directly — restore the
+        # saved pen (color + width + cosmetic flag). No _display_* / fill
+        # attrs are touched on apply, so restore is pen + opacity + vis only.
+        if entry.get("pen") is not None and hasattr(item, "setPen"):
+            item.setPen(entry["pen"])
+        item.update()
+
+    else:
+        # Generic (Wall, Room, Floor, Roof, WallOpening)
+        item._display_color = entry["display_color"]
+        if hasattr(item, "_display_fill_color"):
+            item._display_fill_color = entry.get("display_fill_color")
+        if hasattr(item, "_display_section_color"):
+            item._display_section_color = entry.get("display_section_color")
+        if hasattr(item, "_paper_fill_opaque"):
+            del item._paper_fill_opaque
+        if hasattr(item, "_paper_no_fill"):
+            del item._paper_no_fill
+        item.__dict__.pop("_paper_pen_width", None)
+        # Restore the room tag's paper hooks (SB3).
+        if "tag_paper" in entry:
+            _tag = item._tag
+            if _is_annot(_tag.definition()):
+                _tag.prepareGeometryChange()     # SB1c D6
+            (_tag._paper_pen_width, _tag._paper_pen_color,
+             _tag._paper_scale) = entry["tag_paper"]
+            _tag.update()
+            if "tag_opacity" in entry:
+                _tag.setOpacity(entry["tag_opacity"])
+        if entry.get("pen") is not None and hasattr(item, "setPen"):
+            item.setPen(entry["pen"])
+        # Restore WallOpening gap colour: prior value (None means unset →
+        # delete the attr entirely so the screen path reverts to backgroundBrush).
+        if "paper_gap_color" in entry:
+            prior = entry["paper_gap_color"]
+            if prior is None:
+                item.__dict__.pop("_paper_gap_color", None)
+            else:
+                item._paper_gap_color = prior
+        item.update()
+
+    # Restore fitting wrapper attributes
+    fitting = entry.get("fitting")
+    if fitting is not None:
+        if entry.get("retinted"):
+            # Re-latch the canvas tint: the apply step re-tinted the symbol.
             _set_svg_tint(item, entry["display_color"],
                           entry.get("display_fill_color"))
-            item._paper_pen_width, item._paper_scale = entry.get("symbol_paper", (None, None))
-            item.update()
+        fitting._display_color = entry["display_color"]
+        fitting._display_fill_color = entry.get("display_fill_color")
 
-        elif cat_key in ("Elevation Marker", "Section Marker", "Detail Marker"):
-            ms = entry.get("marker", {})
-            color_attr = ms.get("color_attr", "_marker_color")
-            mc = ms.get("marker_color")
-            if mc is not None:
-                setattr(item, color_attr, QColor(mc))
-            if ms.get("pen") is not None:
-                item.setPen(ms["pen"])
-            if ms.get("brush") is not None:
-                item.setBrush(ms["brush"])
-            for h, pen_w, pen_c, scale in entry.get("heads", ()):
-                if _is_annot(h.definition()):
-                    h.prepareGeometryChange()            # SB1c D6
-                h._paper_pen_width, h._paper_pen_color, h._paper_scale = pen_w, pen_c, scale
-                h.refresh()
-            item.prepareGeometryChange()
-            item.update()
 
-        elif cat_key == "Blocks":
-            # Paint hooks only (H5); opacity/visibility restored above.
-            from .annotative import is_annotative
-            if is_annotative(item.definition()):
-                item.prepareGeometryChange()     # SB1c D6
-            (item._paper_pen_width, item._paper_pen_color, item._paper_scale,
-             item._paper_blocks_colour,
-             item._paper_fill_colour) = entry.get("block_paper", (None,) * 5)
-            item.update()
-
-        elif cat_key == "Construction":
-            # Construction/draw geometry reads self.pen() directly — restore the
-            # saved pen (color + width + cosmetic flag). No _display_* / fill
-            # attrs are touched on apply, so restore is pen + opacity + vis only.
-            if entry.get("pen") is not None and hasattr(item, "setPen"):
-                item.setPen(entry["pen"])
-            item.update()
-
-        else:
-            # Generic (Wall, Room, Floor, Roof, WallOpening)
-            item._display_color = entry["display_color"]
-            if hasattr(item, "_display_fill_color"):
-                item._display_fill_color = entry.get("display_fill_color")
-            if hasattr(item, "_display_section_color"):
-                item._display_section_color = entry.get("display_section_color")
-            if hasattr(item, "_paper_fill_opaque"):
-                del item._paper_fill_opaque
-            if hasattr(item, "_paper_no_fill"):
-                del item._paper_no_fill
-            item.__dict__.pop("_paper_pen_width", None)
-            # Restore the room tag's paper hooks (SB3).
-            if "tag_paper" in entry:
-                _tag = item._tag
-                if _is_annot(_tag.definition()):
-                    _tag.prepareGeometryChange()     # SB1c D6
-                (_tag._paper_pen_width, _tag._paper_pen_color,
-                 _tag._paper_scale) = entry["tag_paper"]
-                _tag.update()
-                if "tag_opacity" in entry:
-                    _tag.setOpacity(entry["tag_opacity"])
-            if entry.get("pen") is not None and hasattr(item, "setPen"):
-                item.setPen(entry["pen"])
-            # Restore WallOpening gap colour: prior value (None means unset →
-            # delete the attr entirely so the screen path reverts to backgroundBrush).
-            if "paper_gap_color" in entry:
-                prior = entry["paper_gap_color"]
-                if prior is None:
-                    item.__dict__.pop("_paper_gap_color", None)
-                else:
-                    item._paper_gap_color = prior
-            item.update()
-
-        # Restore fitting wrapper attributes
-        fitting = entry.get("fitting")
-        if fitting is not None:
-            if entry.get("retinted"):
-                # Re-latch the canvas tint: the apply step re-tinted the symbol.
-                _set_svg_tint(item, entry["display_color"],
-                              entry.get("display_fill_color"))
-            fitting._display_color = entry["display_color"]
-            fitting._display_fill_color = entry.get("display_fill_color")
+def _legacy_exit(entries: list) -> None:
+    """Legacy adapter: unwind one owner's dict entries (removed in Task 15)."""
+    from . import paper_pass
+    paper_pass.unwind(paper_pass.PassTokens(
+        (e.get("item"), _legacy_exit_entry, e) for e in entries))
