@@ -90,6 +90,8 @@
       - R6 (Q-d): the relocation commits must leave save bytes and undo-snapshot bytes for an every-kind fixture byte-identical to base. Save, load, save must be a fixed point, and each kind must survive an undo / redo round trip. Drift fixes land afterwards as separate commits.
       - R7 (Q-e): owned children (wall openings, slab voids) belong to the owner's row through a children accessor.
       - R8 (Q-f): independent of the Model_Space placement slices.
+- [ ] [type:maint] First capture / save of fresh items is not a fixed point: after one restore or reload, a wall template's `fill_mode` goes `None` -> `Solid` and block-definition primitives' `color` / `lineweight` migrate into the `style` dict [P4] [subject:Architecture]
+  - Details: found by the element store T1 characterization (2026-11-17, `tests/test_element_store_gate.py` pins the first save and checks the fixed point as save2 == save3). Decide whether construction should normalise to the migrated form, or accept it. `firepro3d/wall.py`, `firepro3d/block_definition.py`.
 
 ## Paper-space sheet output
 
