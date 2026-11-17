@@ -1457,7 +1457,10 @@ class ModifyToolsController:
         """The transformable *items* with a per-item ``manip_scale_about``
         (DD1); text defines none and is skipped."""
         return [it for it in self._transformable(items)
-                if hasattr(it, "manip_scale_about")]
+                if hasattr(it, "manip_scale_about")
+                and "scale" in (it.manip_capabilities()      # SB6 D4: a tag never scales
+                                if hasattr(it, "manip_capabilities")
+                                else {"scale"})]
 
     def scale_factor_to(self, point) -> float:
         """Live factor for *point*: |point − base| / |ref − base| (1.0 until

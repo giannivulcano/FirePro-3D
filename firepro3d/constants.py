@@ -704,3 +704,13 @@ LINKED_BADGE_CAP_MM = 3.0           # badge text cap height, paper mm
 LINKED_BADGE_PAD_MM = 1.0            # badge inner padding, paper mm
 LINKED_BADGE_FILL = "#FEF3C7"        # badge background (screen only, never printed)
 LINKED_BADGE_INK = "#92400E"         # badge text
+
+
+# -- SB6 placed tags (design docs/superpowers/specs/2026-11-15-sb6-placed-tags-design.md) --
+TAG_ORIENT_HORIZONTAL = "horizontal"   # D5 / R2: the tag stays level (default)
+TAG_ORIENT_ALIGNED = "aligned"         # D5 / R2: the tag turns with its host
+TAG_ORIENT_LABELS = {TAG_ORIENT_HORIZONTAL: "Horizontal",
+                     TAG_ORIENT_ALIGNED: "Aligned to host"}   # the Orientation row
+TAG_HOVER_HINT = "Hover a wall, door, window or opening to tag it (Esc to finish)"
+TAG_INSTRUCTION = "Click to place the tag (Esc to finish)"
+TAG_NO_BLOCK = "No tag block resolves for this element"

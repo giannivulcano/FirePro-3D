@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "id": "system-tags-openingtag",
+  "version": 1,
+  "name": "OpeningTag",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [0.0, 0.0],
+  "attributes": [
+    {"key": "Mark", "label": "Mark", "type": "text", "source": "host", "host_key": "Mark",
+     "default": "", "prefix": "", "suffix": "", "precision": 0, "placeholder": "?"}
+  ],
+  "host_category": "Opening",
+  "primitives": [
+    {
+      "type": "text", "text": "@[Mark]", "x": -4.5, "y": -2.5, "height_mm": 2.5,
+      "wrap_width_mm": 9.0, "box_height_mm": 5.0, "font_family": "Arial",
+      "bold": false, "italic": false, "underline": false, "color": "token:auto",
+      "align": "C", "valign": "M", "fill_color": "", "fill_opacity": 100.0,
+      "cell_padding_mm": 1.0, "border": true, "border_weight": "Thinner",
+      "border_line_type": "solid", "border_corner": "round", "border_corner_radius_mm": 1.5,
+      "angle": 0.0, "keep_upright": true, "uid": "8e4c3f5b1a7d4c9e0b6d0f4a5c7b9d01"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {"Thinner": 0.25}
+}

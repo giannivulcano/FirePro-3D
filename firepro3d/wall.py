@@ -866,24 +866,33 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Properties API ───────────────────────────────────────────────────────
 
-    def z_range_mm(self) -> tuple[float, float] | None:
-        """Return (z_bottom, z_top) of this wall in absolute mm."""
+    def vertical_extent(self, level_manager) -> tuple[float, float]:
+        """``(bot, top)`` world-mm vertical extent (wall-room-floor-system, Vertical extent).
+
+        Pure: resolves through *level_manager* (None = no levels). Base = base
+        level elevation (0 when missing) + base offset; top = top level
+        elevation + top offset, or base + own height when the top level is
+        missing.
+        """
+        def elev(name):
+            lvl = level_manager.get(name) if level_manager is not None else None
+            return None if lvl is None else lvl.elevation
+        base_e = elev(self._base_level)
+        base_z = (0.0 if base_e is None else base_e) + self._base_offset_mm
+        top_e = elev(self._top_level)
+        top_z = (base_z + self._height_mm if top_e is None
+                 else top_e + self._top_offset_mm)
+        return (base_z, top_z)
+
+    def z_range_mm(self) -> tuple[float, float]:
+        """Vertical extent through the scene's level manager."""
         sc = self.scene()
-        lm = getattr(sc, "_level_manager", None) if sc else None
-        if lm is None:
-            return None
-        base_lvl = lm.get(self._base_level)
-        top_lvl = lm.get(self._top_level)
-        z_bot = (base_lvl.elevation if base_lvl else 0.0) + self._base_offset_mm
-        z_top = (top_lvl.elevation if top_lvl else 0.0) + self._top_offset_mm
-        return (z_bot, z_top)
+        return self.vertical_extent(getattr(sc, "_level_manager", None) if sc else None)
 
     def _computed_height_mm(self) -> float:
-        """Auto-calculate wall height in mm from level elevations and offsets."""
-        zr = self.z_range_mm()
-        if zr is not None:
-            return zr[1] - zr[0]
-        return self._height_mm  # fallback
+        """Wall height from its vertical extent."""
+        bot, top = self.z_range_mm()
+        return top - bot
 
     def get_properties(self) -> dict:
         height_mm = self._computed_height_mm()
@@ -1092,16 +1101,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     # ── 3D mesh generation ───────────────────────────────────────────────────
 
     def z_span_mm(self, level_manager=None) -> tuple[float, float]:
-        """``(base_z, top_z)`` exactly as the 3D mesh uses them (6.5)."""
-        base_z, top_z = 0.0, self._height_mm
-        if level_manager is not None:
-            base_lvl = level_manager.get(self._base_level)
-            if base_lvl:
-                base_z = base_lvl.elevation + self._base_offset_mm
-            top_lvl = level_manager.get(self._top_level)
-            top_z = (top_lvl.elevation + self._top_offset_mm if top_lvl
-                     else base_z + self._height_mm)
-        return base_z, top_z
+        """``(base_z, top_z)`` for the 3D mesh: the vertical extent (6.5)."""
+        return self.vertical_extent(level_manager)
 
     def pool_3d(self) -> list["WallSegment"]:
         """Walls the 3D view shows (D2): the ``_display_overrides`` visible
@@ -1178,7 +1179,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         """Per opening: the plan gap rect (width x full thickness, as
         ``WallOpening._gap_rect`` draws it, measured along from
         ``centerline_pt1``) centred on the wall axis, in scene coords,
-        sill..head clamped to the wall's span (D5):
+        the opening's vertical extent clamped to the wall's (D5):
         ``[(QPointF x4, z0, z1)]``."""
         base_z, top_z = self.z_span_mm(level_manager)
         a, b = self.centerline_pt1, self.centerline_pt2
@@ -1199,8 +1200,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             # cross offset / alignment shift (D5, Q4) does not move it.
             cx = a.x() + ux * op._offset_along
             cy = a.y() + uy * op._offset_along
-            z0 = max(base_z, base_z + op._sill_mm)
-            z1 = min(top_z, base_z + op._sill_mm + op._height_mm)
+            o0, o1 = op.vertical_extent(level_manager)
+            z0, z1 = max(base_z, o0), min(top_z, o1)
             if z1 <= z0:
                 continue
             rect = [QPointF(cx + ux * su * half_w + nx * sv * half_t,
@@ -1443,10 +1444,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         return cw, ccw, hub              # (p2l, p2r)
 
     def _tops_differ(self, other: "WallSegment") -> bool:
-        """True when both tops are known and differ (R8)."""
+        """True when the tops differ (R8)."""
         mine, theirs = self.z_range_mm(), other.z_range_mm()
-        return (mine is not None and theirs is not None
-                and abs(mine[1] - theirs[1]) > WALL_JOIN_TOP_TOL_MM)
+        return abs(mine[1] - theirs[1]) > WALL_JOIN_TOP_TOL_MM
 
     def _tee_host(self, my_pt: QPointF, walls) -> "WallSegment | None":
         """Nearest wall whose centerline passes within its half thickness
@@ -1577,12 +1577,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
     def _lower_auto_walls(members: list, raw) -> list["WallSegment"]:
         """Auto walls below the highest top; [] when the height rule is off.
 
-        Three or more walls need two at the highest top.  Unknown tops
-        (no level manager) switch the rule off.
+        Three or more walls need two at the highest top.  Tops come from
+        the vertical extent (no level manager: levels at elevation 0).
         """
         ranges = [w.z_range_mm() for w, _ep in members]
-        if any(r is None for r in ranges):
-            return []
         top = max(r[1] for r in ranges)
         tall = sum(1 for r in ranges if r[1] >= top - WALL_JOIN_TOP_TOL_MM)
         if tall == len(members) or (len(members) >= 3 and tall < 2):
