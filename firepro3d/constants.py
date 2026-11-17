@@ -711,7 +711,6 @@ TAG_ORIENT_HORIZONTAL = "horizontal"   # D5 / R2: the tag stays level (default)
 TAG_ORIENT_ALIGNED = "aligned"         # D5 / R2: the tag turns with its host
 TAG_ORIENT_LABELS = {TAG_ORIENT_HORIZONTAL: "Horizontal",
                      TAG_ORIENT_ALIGNED: "Aligned to host"}   # the Orientation row
-TAG_LEADER_FACTORY_MM = 0.18           # D10: factory leader weight = the row nearest this paper mm
 TAG_HOVER_HINT = "Hover a wall, door, window or opening to tag it (Esc to finish)"
 TAG_INSTRUCTION = "Click to place the tag (Esc to finish)"
 TAG_NO_BLOCK = "No tag block resolves for this element"

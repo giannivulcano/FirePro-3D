@@ -390,38 +390,6 @@ def set_model_blocks_weight(name: str | None, *, canonical: bool = True) -> None
                                 else str(name))
 
 
-# SB6 D10 / R4: the Display Manager "Tags" row -- the End block and the weight
-# of every placed tag's leader. Cached here so paint never reads QSettings;
-# None = the factory (the shipped Arrow end; the weight nearest
-# TAG_LEADER_FACTORY_MM).
-_TAG_LEADER_END: str | None = None
-_TAG_LEADER_WEIGHT: str | None = None
-
-
-def tag_leader_end() -> str:
-    """The Tags row's leader End: a block id or an end keyword (factory: Arrow)."""
-    from .constants import TEXT_LEADER_END_ID
-    return _TAG_LEADER_END or TEXT_LEADER_END_ID
-
-
-def tag_leader_weight() -> str:
-    """The Tags row's leader weight name (factory: the row nearest 0.18 mm)."""
-    from .constants import TAG_LEADER_FACTORY_MM
-    return _TAG_LEADER_WEIGHT or nearest_weight_name(TAG_LEADER_FACTORY_MM)
-
-
-def set_tag_leader_end(ref: str | None) -> None:
-    """Set the Tags row's leader End (None -> factory)."""
-    global _TAG_LEADER_END
-    _TAG_LEADER_END = str(ref) if ref else None
-
-
-def set_tag_leader_weight(name: str | None) -> None:
-    """Set the Tags row's leader weight (None -> factory; stored canonical, H-g)."""
-    global _TAG_LEADER_WEIGHT
-    _TAG_LEADER_WEIGHT = canonical_weight_name(str(name)) if name else None
-
-
 # Display Manager Model "Blocks" colour (linetypes.md WM3 D5): the canvas
 # colour of a By Category placement Colour (token:blocks). Cached here so
 # paint never reads QSettings; None = the factory (Automatic, WM3 Q3).
