@@ -781,8 +781,7 @@ def _sub_elev_head(request):
 @pytest.mark.parametrize("which", [
     "gridline_bubble",
     "marker_head",
-    pytest.param("elev_head", marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError, reason="AC6 - fixed in Task 11")),
+    "elev_head",
 ])
 def test_ac6_sub_item_opacity_survives(qapp, request, paper_env, real_system_library,
                                        which):

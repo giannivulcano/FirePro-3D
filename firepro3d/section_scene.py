@@ -497,11 +497,91 @@ class _SectionNoteCopy(BlockInstance):
         self._wrote()
 
 
+class _ElevPaperMixin:
+    """Paper pass for an elevation / section gridline or level datum
+    (paper-space.md s6.2; SB4c D4): ``ElevGridlineItem`` (the "Grid Line"
+    row) and ``ElevDatumItem`` (the "Level Datum" row). The LINE takes the
+    row's weight and the paper-mm dash-dot (``_paper_render`` /
+    ``_paper_line_w`` / ``_paper_line_w_mm``), outside As Authored the row
+    colour (the stored source in ``_PAPER_SRC_ATTR``), and the row opacity;
+    each visible bubble / head is an annotation block entered through the
+    shared helper at opacity 1 (D5: the bubbles map onto their gridline by
+    the parent rule; the datum head never maps -- see
+    ``LevelDatumHead.paper_owner``). Listed first in the owner's bases."""
+
+    _PAPER_SRC_ATTR = "_grid_src"      # ElevDatumItem: "_color_src"
+
+    def paper_heads(self) -> list:
+        """The annotation-block heads this owner draws (SB4c D4)."""
+        raise NotImplementedError
+
+    def enter_paper_pass(self, ctx, cat):
+        """The paper LINE (weight, dash, the row colour source when the row
+        is off), the row opacity, then each visible bubble / head through the
+        shared annotation-block helper at opacity 1, then
+        ``prepareGeometryChange`` (the trim / bounds move with the paper k).
+        Saves first (the token), then writes; a raise mid-write unwinds the
+        owner and every bubble / head entered so far.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged paper row (``ctx.merge``), Visible on.
+
+        Returns:
+            The token :meth:`exit_paper_pass` takes.
+        """
+        from . import paper_pass
+        attr = self._PAPER_SRC_ATTR
+        tok = {"opacity": self.opacity(), "src": getattr(self, attr), "heads": []}
+
+        def write():
+            from . import paper_display as pd
+            authored = pd.row_as_authored(cat)
+            lw_mm = ctx.lw_mm(cat)
+            self.prepareGeometryChange()
+            self._paper_render = True              # the bubbles' / head's rings drop
+            self._paper_line_w_mm = lw_mm          # ON-PAPER mm, dash normaliser
+            self._paper_line_w = lw_mm / max(ctx.paper_scale, 1e-9)
+            if not authored:                       # B&W / Custom: the row colour
+                setattr(self, attr, cat["color"])
+            for h in self.paper_heads():
+                h.update()
+            self.update()
+            self.setOpacity(cat["opacity"] / 100.0)
+            for h in self.paper_heads():           # SB4c D4: annotative path
+                if h.isVisible():
+                    tok["heads"].append(paper_pass.enter_block_hooks(
+                        h, ctx, cat, authored, lw_mm, opacity=1.0))
+            self.prepareGeometryChange()           # trim / bounds move with the paper k
+            self.update()
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass` (the base restore order: opacity,
+        bubbles / head, then the line); tolerates a partly-entered token.
+        Each entered bubble / head gets its real prior opacity back (AC6)."""
+        from . import paper_pass
+        self.setOpacity(tok["opacity"])
+        try:
+            for ht in tok["heads"]:
+                paper_pass.exit_block_hooks(ht)
+        finally:
+            for h in self.paper_heads():
+                h.refresh()
+            self.prepareGeometryChange()
+            setattr(self, self._PAPER_SRC_ATTR, tok["src"])
+            self._paper_render = False
+            self._paper_line_w_mm = self._paper_line_w = 0.0
+            for h in self.paper_heads():
+                h.update()
+            self.update()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ElevGridlineItem — selectable gridline in elevation view
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ElevGridlineItem(QGraphicsLineItem):
+class ElevGridlineItem(_ElevPaperMixin, QGraphicsLineItem):
     """Interactive gridline in an elevation view — selectable with grip handles.
 
     Each end carries a ``GridlineBubble`` (SB4c D2) whose data host is the
@@ -661,37 +741,14 @@ class ElevGridlineItem(QGraphicsLineItem):
             self.bubble2.update()
         return super().itemChange(change, value)
 
-    def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
-                         color_src=None) -> dict:
-        """Plot the LINE like the plan gridline for one sheet-viewport render
-        (AC3, parity with ``paper_display._apply_gridline``): the "Grid Line"
-        row's weight and the paper-mm dash-dot; *color_src* replaces the
-        stored colour string (B&W / Custom), ``None`` keeps it. Sets
-        ``_paper_render`` (the bubbles' rings drop). The bubbles are
-        annotation blocks: the paper walk gives each visible one
-        ``_apply_block`` (SB4c D4), and the trim then follows their printed
-        outline."""
-        S = max(paper_scale, 1e-9)
-        saved = {"grid_src": self._grid_src}
-        self.prepareGeometryChange()
-        self._paper_render = True
-        self._paper_line_w_mm = line_w_mm
-        self._paper_line_w = line_w_mm / S
-        if color_src is not None:
-            self._grid_src = color_src
-        self.bubble1.update()
-        self.bubble2.update()
-        self.update()
-        return saved
+    # ── Paper pass (paper-space.md s6.2; _ElevPaperMixin) ────────────────
 
-    def exit_paper_pass(self, saved: dict) -> None:
-        self.prepareGeometryChange()
-        self._grid_src = saved["grid_src"]
-        self._paper_render = False
-        self._paper_line_w_mm = self._paper_line_w = 0.0
-        self.bubble1.update()
-        self.bubble2.update()
-        self.update()
+    paper_category = "Grid Line"      # paper row (R5): plots like the plan gridline (AC3)
+    _PAPER_SRC_ATTR = "_grid_src"
+
+    def paper_heads(self) -> list:
+        """Both bubbles (SB4c D2); the trim follows their printed outline."""
+        return [self.bubble1, self.bubble2]
 
     # ── Grip handles ─────────────────────────────────────────────────────
 
@@ -772,6 +829,16 @@ class LevelDatumHead(OutlinedLabel):
     def __init__(self, datum):
         super().__init__(datum)                  # child=True: parent + host
 
+    @property
+    def paper_owner(self):
+        """None (paper-space.md s6.2, D5): the head is never mapped onto its
+        datum. The datum enters the pass only when its own hit shape (the
+        head's block OUTLINE) meets the crop, and then enters this head
+        itself; the head's own hit shape is its bounds rect (text included),
+        so a head hit alone at a crop edge must not pull the datum -- and its
+        drawForeground line -- into the pass (base picking, AC3)."""
+        return None
+
     def overlay_pens(self) -> list:
         dt = self.parentItem()
         if dt is None or getattr(dt, "_paper_render", False) or not shows_selection(dt):
@@ -781,7 +848,7 @@ class LevelDatumHead(OutlinedLabel):
         return [pen]
 
 
-class ElevDatumItem(QGraphicsLineItem):
+class ElevDatumItem(_ElevPaperMixin, QGraphicsLineItem):
     """Interactive level datum in an elevation / section view -- selectable,
     two grips.
 
@@ -918,34 +985,14 @@ class ElevDatumItem(QGraphicsLineItem):
                 head.update()                    # the selection ring (screen only)
         return super().itemChange(change, value)
 
-    def enter_paper_pass(self, line_w_mm: float, paper_scale: float,
-                         color_src=None) -> dict:
-        """Plot the LINE through the "Level Datum" paper row for one sheet-
-        viewport render: its weight and the gridline's paper-mm dash-dot
-        (``drawForeground``); *color_src* replaces the stored colour string
-        (B&W / Custom), ``None`` keeps it. Sets ``_paper_render`` (the head's
-        ring drops), as ``ElevGridlineItem.enter_paper_pass`` does. The head is
-        an annotation block and takes ``paper_display._apply_block`` in the
-        walk (SB4c D4)."""
-        S = max(paper_scale, 1e-9)
-        saved = {"color_src": self._color_src}
-        self.prepareGeometryChange()
-        self._paper_render = True
-        self._paper_line_w_mm = line_w_mm
-        self._paper_line_w = line_w_mm / S
-        if color_src is not None:
-            self._color_src = color_src
-        self.head.update()
-        self.update()
-        return saved
+    # ── Paper pass (paper-space.md s6.2; _ElevPaperMixin) ────────────────
 
-    def exit_paper_pass(self, saved: dict) -> None:
-        self.prepareGeometryChange()
-        self._color_src = saved["color_src"]
-        self._paper_render = False
-        self._paper_line_w_mm = self._paper_line_w = 0.0
-        self.head.update()
-        self.update()
+    paper_category = "Level Datum"    # paper row (R5; AC4): the line via drawForeground
+    _PAPER_SRC_ATTR = "_color_src"
+
+    def paper_heads(self) -> list:
+        """The datum head (SB4c D3)."""
+        return [self.head]
 
     # ── Grip handles ─────────────────────────────────────────────────────
 

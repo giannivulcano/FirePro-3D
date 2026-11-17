@@ -259,7 +259,8 @@ def _migrated() -> tuple:
     from .detail_view import DetailMarker
     from .room import Room
     from .section_marker import SectionMarker
-    from .section_scene import _HostedBlockCopy, _SectionNoteCopy
+    from .section_scene import (ElevDatumItem, ElevGridlineItem, _HostedBlockCopy,
+                                _SectionNoteCopy)
     from .sprinkler import Sprinkler
     from .wall import WallSegment
     from .wall_opening import WallOpening
@@ -278,17 +279,19 @@ def _migrated() -> tuple:
             # plan gridline (Task 9): enters its two bubbles (D5)
             GridlineItem,
             # view markers (Task 10): enter their heads (D5); no subclass of either
-            SectionMarker, DetailMarker)
+            SectionMarker, DetailMarker,
+            # elevation gridline / level datum (Task 11): enter their bubbles /
+            # head (D5); no subclass of either
+            ElevGridlineItem, ElevDatumItem)
 
 
 def _owner_of(item):
     """The owner whose enter covers *item* (D5): its ``paper_owner``, else
     itself. Until Task 15 only a migrated owner is mapped (the Room for its
-    tag; the Pipe for its label and riser; the plan gridline for its bubbles;
-    a view marker for its heads) -- a not-yet-migrated owner's child (an
-    elevation gridline's bubble, a level datum's head) stays its own entry,
-    as at base, so the legacy adapter never enters an owner that base did
-    not."""
+    tag; the Pipe for its label and riser; the plan or elevation gridline
+    for its bubbles; a view marker for its heads; a level datum for its head)
+    -- a child of an owner not on the protocol stays its own entry, as at
+    base, so the legacy adapter never enters an owner that base did not."""
     o = getattr(item, "paper_owner", None)
     if o is None or type(o) not in _migrated():
         return item

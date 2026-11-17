@@ -221,10 +221,12 @@ def test_construction_family_is_migrated_by_exact_type():
     (Task 6; no Pipe subclass exists), sprinkler / water supply (Task 8; no
     subclass of either exists), plan gridline (Task 9; no GridlineItem
     subclass exists -- the elevation ElevGridlineItem is unrelated, Task 11),
-    view markers (Task 10; no SectionMarker / DetailMarker subclass exists)."""
+    view markers (Task 10; no SectionMarker / DetailMarker subclass exists),
+    elevation gridline / level datum (Task 11; no subclass of either exists)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.detail_view import DetailMarker
     from firepro3d.section_marker import SectionMarker
+    from firepro3d.section_scene import ElevDatumItem, ElevGridlineItem
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
     from firepro3d.gridline import GridlineItem
@@ -244,7 +246,8 @@ def test_construction_family_is_migrated_by_exact_type():
                                    BlockInstance, HydraulicNodeBadge,
                                    _HostedBlockCopy, _SectionNoteCopy, Pipe,
                                    Sprinkler, WaterSupply, GridlineItem,
-                                   SectionMarker, DetailMarker}
+                                   SectionMarker, DetailMarker,
+                                   ElevGridlineItem, ElevDatumItem}
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -558,12 +561,16 @@ def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env
     """Until each owner's family lands, a hit label whose owner is not yet
     migrated stays its own (base) entry: the room tag maps to the Room and
     the pipe label to the Pipe (Task 6), the gridline bubble to the plan
-    gridline (Task 9), a view marker's head to its marker (Task 10); an
-    elevation gridline's bubble (its owner not yet migrated, Task 11) does
-    not."""
+    gridline (Task 9), a view marker's head to its marker (Task 10), an
+    elevation gridline's bubble to its gridline (Task 11); a level datum's
+    head is never mapped (``LevelDatumHead.paper_owner`` None, base picking:
+    the datum enters it), nor is a bubble under a parent not on the
+    protocol."""
     from firepro3d.gridline import GridlineBubble
     from tests.test_paper_pass_characterization import (_gridline, _marker_placed,
                                                         _pipe_labelled)
+    sec, eg, dt = _elev_items(request)
+    assert pp._owner_of(eg.bubble1) is eg and pp._owner_of(dt.head) is dt.head
     ms = _scene(request)
     room = _room_tagged(ms)
     pipe = _pipe_labelled(ms)
@@ -1277,4 +1284,205 @@ def test_marker_enter_raise_mid_write_unwinds_the_marker(qapp, request, paper_en
     assert seen == [(want, pytest.approx(0.6), [SCALE] * (len(heads) - 1))], (
         "the raise came after the line and the earlier heads were entered")
     assert snapshot(ms) == before
+    assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+
+
+# ---------------------------------------------------------------------------
+# Task 11: elevation gridline / level datum (bubbles, head) + AC6 elevation head
+# ---------------------------------------------------------------------------
+
+def _elev_items(request):
+    """The characterization elevation (``_sec_elevation``): its gridline and
+    the Level 1 datum inside the crop, every bubble / head shown and carrying
+    a real prior opacity 0.4 (AC6). Returns ``(scene, gridline, datum)``."""
+    from firepro3d.section_scene import ElevDatumItem, ElevGridlineItem
+    from tests.test_paper_pass_characterization import _sec_elevation
+    sec, _crop = _sec_elevation(request.getfixturevalue("section_scene_for"))
+    (eg,) = [i for i in sec.items() if type(i) is ElevGridlineItem]
+    (dt,) = [i for i in sec.items() if type(i) is ElevDatumItem and abs(i._v) < 1e-6]
+    for h in (eg.bubble1, eg.bubble2, dt.head):
+        assert h.isVisible(), "setup: bubbles / head shown"
+        h.setOpacity(0.4)
+    return sec, eg, dt
+
+
+# kind -> (paper row, stored colour-source attr, head attrs)
+_ELEV = {"gridline": ("Grid Line", "_grid_src", ("bubble1", "bubble2")),
+         "datum": ("Level Datum", "_color_src", ("head",))}
+_ELEV_CROP = QRectF(-7000.0, -4000.0, 10500.0, 5000.0)   # _sec_elevation's crop
+
+
+def _elev(request, kind):
+    sec, eg, dt = _elev_items(request)
+    item = eg if kind == "gridline" else dt
+    return sec, item, [getattr(item, a) for a in _ELEV[kind][2]]
+
+
+def _elev_cat(ctx, item, kind):
+    key = _ELEV[kind][0]
+    return ctx.merge(ctx.row(key), item, key)
+
+
+@pytest.mark.parametrize("kind", list(_ELEV))
+def test_elev_paper_category_drives_the_ladder(qapp, request, paper_env,
+                                               real_system_library, kind):
+    """SB4c D4: the elevation gridline is the Grid Line row, the level datum
+    the Level Datum row -- the ladder's existing answers."""
+    _sec, item, _heads = _elev(request, kind)
+    assert item.paper_category == _ELEV[kind][0]
+    assert pd._category_for_item(item) == _ELEV[kind][0]
+
+
+def test_elev_bubbles_map_onto_the_gridline(qapp, request, paper_env,
+                                            real_system_library):
+    """D5: each bubble (a Qt child; BoundLabelItem's parent rule, no
+    override) is entered by its gridline; nothing else maps onto it."""
+    sec, eg, heads = _elev(request, "gridline")
+    for h in heads:
+        assert h.paper_owner is eg
+        assert "paper_owner" not in type(h).__dict__
+    mapped = [it for it in sec.items() if it is not eg and pp._owner_of(it) is eg]
+    assert {id(it) for it in mapped} == {id(h) for h in heads}
+
+
+def test_level_datum_head_is_its_own_paper_owner(qapp, request, paper_env,
+                                                 real_system_library):
+    """The head is never mapped onto its datum (``paper_owner`` None): the
+    datum enters it when the datum itself is hit; nothing maps onto the
+    datum."""
+    sec, dt, (head,) = _elev(request, "datum")
+    assert head.paper_owner is None
+    assert pp._owner_of(head) is head
+    assert not [it for it in sec.items() if it is not dt and pp._owner_of(it) is dt]
+
+
+def test_level_datum_head_hit_alone_leaves_the_datum_out(qapp, request, paper_env,
+                                                         real_system_library):
+    """Base picking (AC3): the head's hit shape is its bounds rect, the
+    datum's only its block outline, so a crop can hit the head and miss the
+    datum (the characterization ``sec_walls`` view). The datum -- and the
+    line ``drawForeground`` paints from it -- then stays out of the pass."""
+    from firepro3d.section_scene import ElevDatumItem
+    from tests.test_paper_pass_characterization import _sec_walls
+    set_rows(paper_env, False)
+    sec, crop = _sec_walls(request.getfixturevalue("section_scene_for"))
+    hits = sec.items(crop)
+    alone = [i for i in sec.items() if type(i) is ElevDatumItem
+             and any(h is i.head for h in hits) and not any(h is i for h in hits)]
+    assert alone, "setup: a datum head hit without its datum"
+    dt = alone[0]
+    before = snapshot(sec)
+    saved = pd.apply_paper_overrides(sec, crop, paper_scale=SCALE)
+    try:
+        assert not [it for it, _fn, _tok in saved if it is dt or it is dt.head]
+        assert dt._paper_render is False and dt.head._paper_scale is None
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(sec) == before
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+@pytest.mark.parametrize("kind", list(_ELEV))
+def test_elev_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                    kind, authored):
+    """The base elevation branch: the LINE (``_paper_render`` /
+    ``_paper_line_w`` / ``_paper_line_w_mm``, the row colour source when the
+    row is off), the row opacity, each bubble / the head's annotation hooks
+    at opacity 1; the exit puts every one back, the heads' real prior opacity
+    (0.4, AC6) included."""
+    set_rows(paper_env, authored)
+    sec, item, heads = _elev(request, kind)
+    attr = _ELEV[kind][1]
+    src_before = getattr(item, attr)
+    before = snapshot(sec)
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    cat = _elev_cat(ctx, item, kind)
+    cat["opacity"] = 60
+    lw = ctx.lw_mm(cat)
+    tok = item.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert item._paper_render is True
+    assert item._paper_line_w_mm == pytest.approx(lw)
+    assert item._paper_line_w == pytest.approx(lw / SCALE)
+    assert item.opacity() == pytest.approx(0.6)
+    assert getattr(item, attr) == (src_before if authored else cat["color"])
+    for h in heads:
+        assert h._paper_scale == pytest.approx(SCALE)
+        assert h._paper_pen_width == pytest.approx(lw / SCALE)
+        assert h.opacity() == pytest.approx(1.0)
+    assert snapshot(sec) != before, "the enter changed nothing"
+    item.exit_paper_pass(tok)
+    assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+    assert snapshot(sec) == before
+
+
+def test_elev_hidden_bubble_is_not_entered(qapp, request, paper_env,
+                                           real_system_library):
+    """A hidden bubble is skipped (base: ``if h.isVisible()``) and keeps its
+    hooks and its own opacity."""
+    set_rows(paper_env, False)
+    sec, eg, (b1, b2) = _elev(request, "gridline")
+    b2.setVisible(False)
+    before = snapshot(sec)
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    tok = eg.enter_paper_pass(ctx, _elev_cat(ctx, eg, "gridline"))
+    assert b1._paper_scale == pytest.approx(SCALE)
+    assert b2._paper_scale is None
+    assert b2.opacity() == pytest.approx(0.4)
+    eg.exit_paper_pass(tok)
+    assert snapshot(sec) == before
+
+
+@pytest.mark.parametrize("kind", list(_ELEV))
+def test_elev_owner_enters_itself_through_the_driver(qapp, request, paper_env,
+                                                     real_system_library, kind):
+    """One token for the owner (its own exit, never the adapter); the hit
+    bubbles / head are entered by it, never as entries of their own."""
+    set_rows(paper_env, False)
+    sec, item, heads = _elev(request, kind)
+    hits = sec.items(_ELEV_CROP)
+    assert any(h is heads[0] for h in hits), "setup: a bubble / head must be hit"
+    before = snapshot(sec)
+    saved = pd.apply_paper_overrides(sec, _ELEV_CROP, paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is item] == [item.exit_paper_pass]
+        assert not [it for it, _fn, _tok in saved if any(it is h for h in heads)]
+        for h in heads:
+            assert h._paper_scale == pytest.approx(SCALE)
+            assert h.opacity() == pytest.approx(1.0)
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(sec) == before
+    assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+
+
+@pytest.mark.parametrize("kind", list(_ELEV))
+def test_elev_enter_raise_mid_write_unwinds_the_owner(qapp, request, paper_env,
+                                                      real_system_library,
+                                                      monkeypatch, kind):
+    """D2: a raise at the last bubble / the head (after the line, the
+    opacity and every earlier bubble are entered) leaves the owner and its
+    bubbles / head as they were, then re-raises."""
+    set_rows(paper_env, False)
+    sec, item, heads = _elev(request, kind)
+    before = snapshot(sec)
+    real = pp.enter_block_hooks
+    seen = []
+
+    def boom_at_last(inst, *a, **kw):
+        if inst is heads[-1]:
+            seen.append((item._paper_render, item.opacity(),
+                         [h._paper_scale for h in heads[:-1]]))
+            raise RuntimeError("last head")
+        return real(inst, *a, **kw)
+
+    monkeypatch.setattr(pp, "enter_block_hooks", boom_at_last)
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    cat = _elev_cat(ctx, item, kind)
+    cat["opacity"] = 60
+    with pytest.raises(RuntimeError, match="last head"):
+        item.enter_paper_pass(ctx, cat)
+    assert seen == [(True, pytest.approx(0.6), [SCALE] * (len(heads) - 1))], (
+        "the raise came after the line, the opacity and the earlier bubbles")
+    assert snapshot(sec) == before
     assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)

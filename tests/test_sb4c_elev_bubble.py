@@ -281,10 +281,11 @@ def test_ac4_hidden_plan_bubble_leaves_that_elevation_end_untrimmed(qapp, sectio
 
 
 def test_ac4_trim_follows_the_bubbles_paper_scale_outline(qapp, section_scene_for):
-    """Paper half of the trim, unit level: with the pass entered and each
-    bubble given the paper scale ``paper_display._apply_block`` sets (half B
-    wires the walk), the line ends at the PRINTED outline (k = 1 / S) and the
-    rings are off."""
+    """Paper half of the trim, unit level: with the gridline's paper pass
+    entered (it gives each visible bubble the paper scale through
+    ``paper_pass.enter_block_hooks``), the line ends at the PRINTED outline
+    (k = 1 / S) and the rings are off."""
+    from firepro3d import paper_pass as pp
     ms, sec = section_scene_for("north")
     _offset_box_def(ms)
     _plan_gridline(ms)
@@ -293,19 +294,18 @@ def test_ac4_trim_follows_the_bubbles_paper_scale_outline(qapp, section_scene_fo
     eg.setSelected(True)
     assert eg.bubble1.overlay_pens()                      # screen: the selection ring
     S = 0.02                                              # 1:50 -> k = 50
-    saved = eg.enter_paper_pass(0.35, S)
-    for b in (eg.bubble1, eg.bubble2):
-        b._paper_scale = S
+    ctx = pp.PaperPassContext(sec, QRectF(), S)
+    saved = eg.enter_paper_pass(ctx, ctx.merge(ctx.row("Grid Line"), eg, "Grid Line"))
     try:
+        assert [b._paper_scale for b in (eg.bubble1, eg.bubble2)] == [S, S]
         drawn = _painted_lines(eg)[0]
         assert drawn.y1() == pytest.approx(eg.line().y1() + 4.0 / S, abs=0.05 / S)
         assert drawn.y2() == pytest.approx(eg.line().y2() - 2.0 / S, abs=0.05 / S)
         assert eg._paper_render and eg.bubble1.overlay_pens() == []
     finally:
-        for b in (eg.bubble1, eg.bubble2):
-            b._paper_scale = None
         eg.exit_paper_pass(saved)
     assert not eg._paper_render and eg._paper_line_w_mm == 0.0
+    assert [b._paper_scale for b in (eg.bubble1, eg.bubble2)] == [None, None]
     assert eg.bubble1.overlay_pens()                      # restored
 
 
@@ -494,7 +494,9 @@ def test_ac5_duplicate_and_selection_rings_render_on_screen_never_on_paper(qapp,
     ea = _elev(sec, -2500.0)
     assert ea.bubble1._duplicate and ea.bubble2._duplicate
     assert _ring_pixels(sec, ea.bubble1, orange) > 100, "duplicate ring paints round the top bubble"
-    saved = ea.enter_paper_pass(0.35, 0.02)
+    from firepro3d import paper_pass as pp
+    ctx = pp.PaperPassContext(sec, QRectF(), 0.02)
+    saved = ea.enter_paper_pass(ctx, ctx.merge(ctx.row("Grid Line"), ea, "Grid Line"))
     try:
         assert _ring_pixels(sec, ea.bubble1, orange) == 0, "the duplicate ring never plots"
     finally:
