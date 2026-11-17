@@ -11,6 +11,12 @@ from PyQt6.QtCore import QPointF
 
 U, V = 500.0, -800.0          # the placed host-frame offset, mm (ppm 1.0: ScaleManager default)
 
+# A new tag leader (D9 / D10) from the raw constants: the Note default -- right edge at
+# mid-height, TEXT_LEADER_DEFAULT_SHOULDER_MM = 6.0 printed mm -- tip at the host anchor,
+# TEXT_LEADER_END_ID, weight "" (the Notes fallback).
+LEADER = {"edge": "R", "t": 0.5, "shoulder_mm": 6.0, "tip": [0.0, 0.0],
+          "end": "system-endtypes-arrow", "weight": ""}
+
 
 def add_wall(scene, p1=(-2000.0, 0.0), p2=(2000.0, 0.0), mark="W1"):
     from firepro3d.wall import WallSegment
@@ -38,11 +44,10 @@ def place_tag(scene, host, orientation="horizontal", leader=False, u=U, v=V):
     d = scene.annotation_block(element_params.category_of(host))
     assert d is not None, "needs the real_system_library fixture"
     rec = {"offset": [u, v], "orientation": orientation,
-           "leader": {"knee": None} if leader else None, "block": None}
+           "leader": dict(LEADER, tip=[0.0, 0.0]) if leader else None, "block": None}
     if leader:          # the End is loaded first, as the tool / Leader row do (Task 6 onward)
         from firepro3d.capabilities import ensure_end_available
-        from firepro3d.paper_display import tag_leader_end
-        ensure_end_available(tag_leader_end(), scene, outside_history=True)
+        ensure_end_available(LEADER["end"], scene, outside_history=True)
     tag = scene.place_block_instance(d.id, (0.0, 0.0), level=host.level,
                                      host_uid=host._uid, tag=rec)
     scene.push_undo_state()

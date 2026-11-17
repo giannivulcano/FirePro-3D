@@ -8,7 +8,8 @@ from tests._sb5_helpers import managed_scene, save_load
 from tests._sb6_helpers import add_door, add_wall, tags_of
 
 REC = {"offset": [500.0, -800.0], "orientation": "aligned",
-       "leader": {"knee": [100.0, -300.0]}, "block": None}
+       "leader": {"edge": "T", "t": 0.25, "shoulder_mm": 9.0, "tip": [100.0, -300.0],
+                  "end": "none", "weight": "Thin"}, "block": None}
 
 
 def _tag(ms, host):

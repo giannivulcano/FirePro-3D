@@ -1,14 +1,21 @@
 """Placed-tag frame maths (SB6 placed tags, design
-docs/superpowers/specs/2026-11-15-sb6-placed-tags-design.md D1-D6, D9).
+docs/superpowers/specs/2026-11-15-sb6-placed-tags-design.md D1-D6, D9, D10).
 
 A placed tag is a ``BlockInstance`` whose ``_host_uid`` names a wall or a wall
 opening and whose ``tag`` record is::
 
     {"offset": [u_mm, v_mm], "orientation": "horizontal" | "aligned",
-     "leader": None | {"knee": [u_mm, v_mm] | None}, "block": <id> | None}
+     "leader": None | {"edge", "t", "shoulder_mm", "tip": [u_mm, v_mm],
+                       "end", "weight"},
+     "block": <id> | None}
 
 ``u`` runs along the host direction, ``v`` along ``WallSegment.normal()``,
-both mm from the host anchor (D2). The plan pose is derived from the record;
+both mm from the host anchor (D2). The leader is a Note leader
+(``text_leader``, D9): ``edge`` / ``t`` / ``shoulder_mm`` seat the shoulder on
+the tag box in the tag's box frame (printed mm); ``tip`` is a host-frame
+point like ``offset``, so the tip follows the host; ``end`` / ``weight`` are
+the tag's own Leader End / Leader Weight rows (D10, ``""`` = the Notes
+fallback weight). The plan pose is derived from the record;
 nothing here writes the scene (``resolve`` drops a stale swap from the record
 it is handed, D6).
 
@@ -22,6 +29,8 @@ import math
 
 from PyQt6.QtCore import QPointF, QRectF
 
+from . import text_leader as _tl
+
 from .constants import TAG_ORIENT_ALIGNED, TAG_ORIENT_HORIZONTAL
 
 ORIENTATIONS = (TAG_ORIENT_HORIZONTAL, TAG_ORIENT_ALIGNED)
@@ -34,15 +43,26 @@ def new_record(offset=(0.0, 0.0), orientation: str = TAG_ORIENT_HORIZONTAL,
     Args:
         offset: ``(u, v)`` in mm from the host anchor.
         orientation: ``"horizontal"`` or ``"aligned"``.
-        leader: True gives a straight leader (no knee yet, R5).
+        leader: True gives the default leader (:func:`new_leader`, R5).
 
     Returns:
         The record; no block swap.
     """
     return {"offset": [float(offset[0]), float(offset[1])],
             "orientation": orientation if orientation in ORIENTATIONS else TAG_ORIENT_HORIZONTAL,
-            "leader": {"knee": None} if leader else None,
+            "leader": new_leader() if leader else None,
             "block": None}
+
+
+def new_leader(text_rec: dict | None = None) -> dict:
+    """A tag leader record (D9) from a ``text_leader`` record (default:
+    ``text_leader.default_leader``): its edge, fraction, shoulder, End and
+    weight, with the tip at the host anchor (``[0, 0]``) instead of the
+    text leader's surface-absolute ``tip_x`` / ``tip_y``."""
+    rec = text_rec if text_rec is not None else _tl.default_leader(QRectF(), QPointF())
+    out = {k: v for k, v in rec.items() if k not in ("tip_x", "tip_y")}
+    out["tip"] = [0.0, 0.0]
+    return out
 
 
 def _pair(value):
@@ -57,8 +77,9 @@ def _pair(value):
 def normalise(rec) -> dict | None:
     """A clean copy of a stored tag record, or None when it has no usable
     offset (a corrupt file never raises in a rebuild; the block then loads as
-    an ordinary bound block). A bad orientation reads Horizontal, a bad knee
-    a straight leader, a bad swap no swap."""
+    an ordinary bound block). A bad orientation reads Horizontal, a leader
+    that cannot draw (``text_leader.normalise``) none, a bad tip the host
+    anchor, a bad swap no swap."""
     if not isinstance(rec, dict):
         return None
     off = _pair(rec.get("offset"))
@@ -67,15 +88,22 @@ def normalise(rec) -> dict | None:
     orient = rec.get("orientation")
     if orient not in ORIENTATIONS:
         orient = TAG_ORIENT_HORIZONTAL
-    leader = rec.get("leader")
-    if isinstance(leader, dict):
-        knee = leader.get("knee")
-        leader = {"knee": _pair(knee) if knee is not None else None}
-    else:
-        leader = None
+    leader = _normalise_leader(rec.get("leader"))
     block = rec.get("block")
     return {"offset": off, "orientation": orient, "leader": leader,
             "block": block if isinstance(block, str) and block else None}
+
+
+def _normalise_leader(rec) -> dict | None:
+    """A clean tag leader record, or None (see :func:`normalise`)."""
+    if not isinstance(rec, dict):
+        return None
+    clean = _tl.normalise(dict(rec, tip_x=0.0, tip_y=0.0))
+    if clean is None:
+        return None
+    out = new_leader(clean)
+    out["tip"] = _pair(rec.get("tip")) or [0.0, 0.0]
+    return out
 
 
 def anchor(host):
@@ -136,13 +164,13 @@ def pose(rec: dict, host, ppm: float):
     return pt.x(), pt.y(), rotation(rec, host)
 
 
-def knee_scene(rec: dict, host, ppm: float):
-    """The leader knee in the scene (stored in the host frame, D9), or None
-    for no leader / a straight one."""
+def tip_scene(rec: dict, host, ppm: float):
+    """The leader tip in the scene (stored in the host frame, D9), or None
+    without a leader or an anchor."""
     leader = rec.get("leader")
-    if not leader or leader.get("knee") is None:
+    if not leader:
         return None
-    return scene_point(host, leader["knee"], ppm)
+    return scene_point(host, leader["tip"], ppm)
 
 
 def resolve(rec: dict, host, scene):
@@ -181,32 +209,13 @@ def moves_with_host(host) -> bool:
     return w is not None and w.isSelected()
 
 
-def exit_point(rect: QRectF, p0: QPointF, p1: QPointF) -> QPointF:
-    """Where the segment *p0* -> *p1* leaves *rect* (*p0* inside it): the
-    leader's start on the tag's drawn box. *p0* itself when it is outside
-    *rect* (or *rect* is empty); *p1* when *p1* is inside too."""
-    if rect.isEmpty() or not rect.contains(p0):
-        return QPointF(p0)
-    if rect.contains(p1):
-        return QPointF(p1)
-    dx, dy = p1.x() - p0.x(), p1.y() - p0.y()
-    t = 1.0
-    if dx > 0.0:
-        t = min(t, (rect.right() - p0.x()) / dx)
-    elif dx < 0.0:
-        t = min(t, (rect.left() - p0.x()) / dx)
-    if dy > 0.0:
-        t = min(t, (rect.bottom() - p0.y()) / dy)
-    elif dy < 0.0:
-        t = min(t, (rect.top() - p0.y()) / dy)
-    return QPointF(p0.x() + dx * t, p0.y() + dy * t)
-
-
 def leader_op(pts, end: str, weight: str):
-    """The leader as one open STROKE ``RenderOp`` through *pts* (op frame):
-    no start end, *end* on the last point (the host anchor), named *weight*,
-    Automatic colour -- the op shape ``text_leader.surface_stroke_op`` builds
-    for a text leader inside a block."""
+    """The leader as one open STROKE ``RenderOp`` through *pts* (op frame:
+    attach, knee, tip): no start end, *end* on the last point (the tip),
+    named *weight* (``""`` = the Notes fallback, ``text_item.
+    default_border_weight``), Automatic colour -- the op shape
+    ``text_leader.surface_stroke_op`` builds for a text leader inside a
+    block."""
     from PyQt6.QtGui import QPainterPath, QPen
     from .constants import TOKEN_AUTO
     from .path_walk import Seg
@@ -215,6 +224,8 @@ def leader_op(pts, end: str, weight: str):
     path = QPainterPath(pts[0])
     for p in pts[1:]:
         path.lineTo(p)
+    from .text_item import default_border_weight
+    weight = weight or default_border_weight()
     st = style_record({"end": end}, TOKEN_AUTO)
     pieces = tuple(Seg(a.x(), a.y(), b.x(), b.y()) for a, b in zip(pts, pts[1:]))
     return RenderOp(STROKE, path, pen=QPen(), weight=weight, colour=TOKEN_AUTO,

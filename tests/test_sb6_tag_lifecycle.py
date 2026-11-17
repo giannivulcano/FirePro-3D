@@ -233,7 +233,6 @@ def test_i1_paste_of_a_leader_tag_loads_its_end_into_a_fresh_project(qapp, make_
     """VC9 I1: copy a wall + a leader tag, paste into a project that lacks the End definition
     -- the paste loads it, so the pasted leader's End is not an orphan."""
     from firepro3d.level_manager import LevelManager
-    from firepro3d.paper_display import tag_leader_end
     src = make_model_space()
     src._level_manager = LevelManager()
     w = add_wall(src)
@@ -243,7 +242,8 @@ def test_i1_paste_of_a_leader_tag_loads_its_end_into_a_fresh_project(qapp, make_
     dst = make_model_space()
     dst._level_manager = LevelManager()
     assert dst.annotation_block("Wall") is not None               # the tag block is there (embedded on demand)
-    end = tag_leader_end()
+    end = tag.tag["leader"]["end"]
+    assert end == "system-endtypes-arrow"                          # the tag's own End (D10)
     assert dst.get_block_definition(end) is None                     # the fresh project lacks the End
     dst.paste_items(QPointF(0.0, 8000.0), data=records)
     (t2,) = tags_of(dst)

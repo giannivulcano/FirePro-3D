@@ -9690,8 +9690,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             inst.rebase_tag_offset()     # SB6: a pasted tag keeps where it lands, on its (remapped) host
             if inst.tag.get("leader"):   # its End must exist in this project (the paste may cross projects)
                 from .capabilities import ensure_end_available
-                from .paper_display import tag_leader_end
-                ensure_end_available(tag_leader_end(), self, outside_history=True)
+                ensure_end_available(inst.tag["leader"]["end"], self, outside_history=True)
         if inst.note is not None:
             self._join_active_view(inst)                    # the copy joins this view
             inst.shift_note_leader(offset.x(), offset.y())  # a copy is rigid: D7

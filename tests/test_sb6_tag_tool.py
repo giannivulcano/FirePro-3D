@@ -5,7 +5,7 @@ import pytest
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtTest import QTest
 
-from tests._sb6_helpers import add_door, add_wall, tags_of
+from tests._sb6_helpers import LEADER, add_door, add_wall, tags_of
 from tests._snap_polish_helpers import click, close_view, make_view, move
 
 
@@ -63,9 +63,8 @@ def test_ac1_leader_toggle_on_gives_new_tags_a_leader(qapp, real_system_library)
         move(view, QPointF(800.0, 0.0))
         click(view, QPointF(800.0, 0.0))
         (tag,) = tags_of(scene)
-        assert tag.tag["leader"] == {"knee": None}                        # [RED]
-        from firepro3d.paper_display import tag_leader_end
-        assert scene.get_block_definition(tag_leader_end()) is not None   # End loaded before placing
+        assert tag.tag["leader"] == LEADER                                # [RED] the Note default (D9)
+        assert scene.get_block_definition(LEADER["end"]) is not None      # End loaded before placing
     finally:
         close_view(view, scene)
 

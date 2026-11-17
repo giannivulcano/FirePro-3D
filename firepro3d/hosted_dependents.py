@@ -42,9 +42,9 @@ def repose_tag(scene, block, host, ppm=None) -> None:
     The swapped block while it is still an eligible tag of *host*'s category,
     else the category default (a stale swap is dropped, R8); the pose from the
     host-anchor offset (D2 / D5). A tag with a leader is re-shaped too: its
-    host end moves with the host even when the tag itself does not -- but
-    only when the leader's geometry key (host anchor + angle, knee, pose)
-    changed, so a committed step that moved nothing repaints nothing.
+    tip (host frame, D9) moves with the host even when the tag itself does
+    not -- but only when the leader's geometry key (host anchor + angle, tip,
+    pose) changed, so a committed step that moved nothing repaints nothing.
 
     Args:
         scene: The plan scene.
@@ -62,9 +62,9 @@ def repose_tag(scene, block, host, ppm=None) -> None:
         block.set_tag_pose(*p)
     if block.tag.get("leader"):
         a = hosted_tag.anchor(host)
-        knee = hosted_tag.knee_scene(block.tag, host, ppm_of(scene) if ppm is None else ppm)
+        tip = hosted_tag.tip_scene(block.tag, host, ppm_of(scene) if ppm is None else ppm)
         key = (None if a is None else (a[0].x(), a[0].y(), a[1]),
-               None if knee is None else (knee.x(), knee.y()),
+               None if tip is None else (tip.x(), tip.y()),
                block._pose_x, block._pose_y, block._pose_rot)
         if key != block._leader_geo:
             block._leader_geo = key
@@ -161,11 +161,3 @@ def cascade_status(verb: str, n_items: int, names: list, n_hosted: int) -> str:
     if n_hosted:
         return f"{verb} {n_items} item(s) and {n_hosted} hosted item(s)"
     return f"{verb} {n_items} item(s)"
-
-
-def refresh_tag_leaders(scene) -> None:
-    """The Tags leader style changed (Display Manager, SB6 D10): re-shape
-    every placed tag that draws a leader (its End changes its bounds)."""
-    for b in _blocks(scene):
-        if b.tag is not None and b.tag.get("leader"):
-            b.tag_changed()

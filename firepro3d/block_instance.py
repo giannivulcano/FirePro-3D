@@ -160,8 +160,8 @@ class BlockInstance(QGraphicsObject):
         self.note: Optional[dict] = None
         self._note_geom = None     # (box, box item, bound prims) -- _note_geometry
         # Placed-tag record (SB6 D1): None for every other block; else
-        # ``{offset: [u, v], orientation, leader, block}`` -- the offset in the
-        # host-anchor frame, mm (``hosted_tag``). Set with ``_host_uid``; the
+        # ``{offset: [u, v], orientation, leader, block}`` -- the offset (and a
+        # leader's tip) in the host-anchor frame, mm (``hosted_tag``). Set with ``_host_uid``; the
         # pose is derived from it (``hosted_dependents.repose_tag``).
         self.tag: Optional[dict] = None
         self._leader_cache = None    # (ops list, key, ops + leader) -- _with_tag_leader
@@ -349,7 +349,7 @@ class BlockInstance(QGraphicsObject):
             self.tag["offset"] = uv
 
     def tag_changed(self) -> None:
-        """A tag's leader / knee / leader style changed: re-bound and repaint."""
+        """A tag's leader (shoulder, tip, End, weight) changed: re-bound and repaint."""
         self.prepareGeometryChange()
         self._leader_cache = None
         self.update()
@@ -478,15 +478,21 @@ class BlockInstance(QGraphicsObject):
         return {"box": self.NOTE_BOX_GRIP, "knee": self.NOTE_KNEE_GRIP,
                 "tip": self.NOTE_TIP_GRIP}[which]
 
+    # -- Placed-tag grips (SB6 D9): the leader's knee, then its tip ----------
+    TAG_KNEE_GRIP, TAG_TIP_GRIP = 0, 1
+
     def grip_pinned(self, index: int) -> bool:
-        """True for a note's leader tip: it stays put through a held move (D7)."""
+        """True for a note's leader tip (D7) and a placed tag's (SB6 D9, the
+        tip is host-frame): it stays put through a held move."""
+        if self.tag is not None:
+            return index == self.TAG_TIP_GRIP and bool(self.tag.get("leader"))
         return bool(self.note) and index == self.NOTE_TIP_GRIP
 
     def grip_points(self) -> list:
         """Scene points of this note's grips: the box's bottom-right corner,
         then the leader's knee and tip. EMPTY for every plain block, so nothing
         that reads ``grip_points`` as a capability changes for them.
-        A placed tag with a leader has one grip: its knee (SB6 D9)."""
+        A placed tag with a leader has two: its knee and its tip (SB6 D9)."""
         if self.tag is not None:
             return self._tag_grip_points()
         if not self.note:
@@ -507,7 +513,7 @@ class BlockInstance(QGraphicsObject):
         The box corner resizes the box (floored at ``MIN_NOTE_BOX_MM``); the
         knee re-seats the shoulder (``solve_knee``); the tip moves alone (D5).
         The tip is absolute, so a box resize never moves it (D7 ruling).
-        A placed tag's grip 0 is its leader knee (SB6 D9)."""
+        A placed tag's grips are its leader knee and tip (SB6 D9)."""
         if self.tag is not None:
             self._apply_tag_grip(index, pos)
             return
@@ -546,49 +552,88 @@ class BlockInstance(QGraphicsObject):
         """Handles drawn IN ADDITION to the rigid frame set (the selection
         manipulator's additive seam): a note's box, knee and tip grips. Nothing
         for a plain block, which keeps the rigid set alone. A placed tag with
-        a leader adds its round knee grip (SB6 D9)."""
+        a leader adds its round knee and tip grips (SB6 D9)."""
         if self.tag is not None:
             from .manip_handle import default_grip_handles
-            return default_grip_handles(self, circular={0})
+            return default_grip_handles(self, circular={self.TAG_KNEE_GRIP, self.TAG_TIP_GRIP})
         if not self.note:
             return []
         from .manip_handle import default_grip_handles
         return default_grip_handles(self, circular={self.NOTE_KNEE_GRIP, self.NOTE_TIP_GRIP})
 
     def _tag_grip_points(self) -> list:
-        """SB6 D9: the leader's knee -- the stored knee, else the straight
-        leader's midpoint (dragging it adds the one elbow). [] without a leader
-        or a live host."""
-        if not self.tag.get("leader"):
+        """SB6 D9: the leader's knee and tip in the scene, as a Note's are.
+        [] without a leader or a live host."""
+        pts = self._tag_leader_points()
+        if pts is None:
             return []
-        host, sc = self.element_host, self.scene()
-        if host is None or sc is None:
-            return []
-        from . import hosted_tag as _ht
-        from .hosted_blocks import ppm_of
-        a = _ht.anchor(host)
-        if a is None:
-            return []
-        k = _ht.knee_scene(self.tag, host, ppm_of(sc))
-        if k is None:
-            k = QPointF((self._pose_x + a[0].x()) / 2.0, (self._pose_y + a[0].y()) / 2.0)
-        return [k]
+        return [self.pose_transform().map(pts[1]), QPointF(pts[3])]
 
     def _apply_tag_grip(self, index: int, pos: "QPointF") -> None:
-        """Drag the knee grip to scene *pos*: the knee is stored in the host
-        frame, so it follows the host (D9)."""
-        if index != 0 or not self.tag.get("leader"):
-            return
+        """Drag a tag leader grip to scene *pos* (SB6 D9). The knee re-seats
+        the shoulder on the tag box (``text_leader.solve_knee``, as on a
+        Note); the tip moves alone and is stored in the host frame, so it
+        follows the host."""
+        rec = self.tag.get("leader")
         host, sc = self.element_host, self.scene()
-        if host is None or sc is None:
+        if not rec or host is None or sc is None:
             return
-        from .hosted_blocks import ppm_of
-        from .hosted_tag import offset_from_scene
-        uv = offset_from_scene(host, ppm_of(sc), pos)
-        if uv is None:
+        if index == self.TAG_TIP_GRIP:
+            from .hosted_blocks import ppm_of
+            from .hosted_tag import offset_from_scene
+            uv = offset_from_scene(host, ppm_of(sc), pos)
+            if uv is None:
+                return
+            rec["tip"] = uv
+        elif index == self.TAG_KNEE_GRIP:
+            from . import text_leader as _tl
+            inv, ok = self.pose_transform().inverted()
+            if not ok:
+                return
+            local = inv.map(pos)
+            q = self._variant_scale() or 1.0
+            rec.update(_tl.solve_knee(self._tag_box_mm(), QPointF(local.x() / q, local.y() / q),
+                                      rec, _tl.knee_snap_mm(self, self.note_k())))
+        else:
             return
-        self.tag["leader"]["knee"] = uv
         self.tag_changed()
+
+    def _tag_box_mm(self, ops=None) -> QRectF:
+        """The tag box in its box frame (SB6 D9): the posed tag geometry
+        without the leader (*ops*, default ``render_ops(leader=False)``) in
+        the op frame, divided by the variant scale -- printed mm, the frame
+        a leader's ``shoulder_mm`` is stored in (``text_leader._box_mm``'s
+        role for a Note)."""
+        from .render_op import ops_bounding_rect
+        r = ops_bounding_rect(self.render_ops(leader=False) if ops is None else ops,
+                              self._pose_rot)
+        q = self._variant_scale() or 1.0
+        return QRectF(r.left() / q, r.top() / q, r.width() / q, r.height() / q)
+
+    def _tag_leader_points(self, ops=None):
+        """``(attach, knee, tip, tip_scene)`` of this tag's leader (SB6 D9):
+        the first three in the op frame -- the shoulder from
+        ``text_leader.attach_and_knee`` on :meth:`_tag_box_mm` (scaled back
+        by the variant scale), the tip from its host-frame point, pinned
+        through a held (manipulator preview) transform as a Note's tip is
+        (``_note_patch``) -- and the tip in the scene. None without a
+        leader, a live host or an invertible pose."""
+        rec = self.tag.get("leader") if self.tag is not None else None
+        host, sc = self.element_host, self.scene()
+        if not rec or host is None or sc is None:
+            return None
+        from . import hosted_tag as _ht
+        from . import text_leader as _tl
+        from .hosted_blocks import ppm_of
+        tip = _ht.tip_scene(self.tag, host, ppm_of(sc))
+        held, ok_h = self.sceneTransform().inverted()
+        inv, ok_p = self.pose_transform().inverted()
+        if tip is None or not (ok_h and ok_p):
+            return None
+        q = self._variant_scale() or 1.0
+        a, k = _tl.attach_and_knee(self._tag_box_mm(ops), rec)
+        return (QPointF(a.x() * q, a.y() * q), QPointF(k.x() * q, k.y() * q),
+                inv.map(held.map(tip)), tip)
 
     def _note_leader_change(self, key: str, value):
         """``(new leader,)`` for a Leader row on this note, or ``(False,)``."""
@@ -673,14 +718,13 @@ class BlockInstance(QGraphicsObject):
         return wrap(out)
 
     def _with_tag_leader(self, ops):
-        """*ops* plus this placed tag's leader (SB6 D9) as one STROKE op: from
-        where the line leaves the tag's drawn box, through the knee, to the
-        host anchor, the End on the host end; End + weight from the Display
-        Manager Tags row (``paper_display.tag_leader_end`` / ``_weight``).
-        *ops* itself for every other block and for a tag with no leader or no
-        live host. The host end is pinned through a held (manipulator preview)
-        transform, as a Note's tip is (``_note_patch``). Memoised on (ops,
-        inputs) so identity-keyed caches rebuild only on a change."""
+        """*ops* plus this placed tag's leader (SB6 D9 / D10) as one STROKE op:
+        a Note leader -- the shoulder off the tag box at a right angle, then
+        knee -> tip (:meth:`_tag_leader_points`), the tag's own End on the
+        tip and its own weight (``""`` = the Notes fallback). *ops* itself
+        for every other block and for a tag with no leader or no live host.
+        Memoised on (ops, inputs) so identity-keyed caches rebuild only on a
+        change."""
         if self.tag is None or not self.tag.get("leader"):
             return ops
         host, sc = self.element_host, self.scene()
@@ -688,35 +732,20 @@ class BlockInstance(QGraphicsObject):
             return ops
         from . import hosted_tag as _ht
         from .hosted_blocks import ppm_of
-        from .paper_display import tag_leader_end, tag_leader_weight
-        a = _ht.anchor(host)
-        if a is None:
-            return ops
-        knee = _ht.knee_scene(self.tag, host, ppm_of(sc))
+        rec = self.tag["leader"]
+        tip = _ht.tip_scene(self.tag, host, ppm_of(sc))
         st = self.sceneTransform()
-        held, ok_h = st.inverted()
-        inv, ok_p = self.pose_transform().inverted()
-        if not (ok_h and ok_p):
-            return ops
-        end, weight = tag_leader_end(), tag_leader_weight()
-        key = (a[0].x(), a[0].y(), None if knee is None else (knee.x(), knee.y()),
-               self._pose_key(), (st.m11(), st.m12(), st.m21(), st.m22(), st.dx(), st.dy()),
-               end, weight)
+        key = (None if tip is None else (tip.x(), tip.y()),
+               rec["edge"], rec["t"], rec["shoulder_mm"], rec["end"], rec["weight"],
+               self._pose_key(), (st.m11(), st.m12(), st.m21(), st.m22(), st.dx(), st.dy()))
         c = self._leader_cache
         if c is not None and c[0] is ops and c[1] == key:
             return c[2]
-        from .render_op import ops_bounding_rect
-        pts = [QPointF(0.0, 0.0)]                                  # the tag origin (op frame)
-        if knee is not None:
-            pts.append(inv.map(held.map(knee)))
-        pts.append(inv.map(held.map(a[0])))
-        pts[0] = _ht.exit_point(ops_bounding_rect(ops, self._pose_rot), pts[0], pts[1])
-        if abs(pts[0].x() - pts[1].x()) < 1e-9 and abs(pts[0].y() - pts[1].y()) < 1e-9:
-            pts.pop(0)                                             # the next point is inside the box
-        if len(pts) < 2:
+        pts = self._tag_leader_points(ops)
+        if pts is None:
             self._leader_cache = (ops, key, ops)
             return ops
-        out = list(ops) + [_ht.leader_op(pts, end, weight)]
+        out = list(ops) + [_ht.leader_op(pts[:3], rec["end"], rec["weight"])]
         self._leader_cache = (ops, key, out)
         return out
 
@@ -2379,8 +2408,9 @@ class BlockInstance(QGraphicsObject):
         return props
 
     def _tag_rows(self, props: dict, sc) -> dict:
-        """SB6 D5 / D11: a placed tag drops Rotation / Mirrored / Scale (its pose is
-        derived) and gains Orientation, Tag (the block swap) and Leader."""
+        """SB6 D5 / D11 / D10: a placed tag drops Rotation / Mirrored / Scale (its
+        pose is derived) and gains Orientation, Tag (the block swap) and the
+        Note leader rows (Leader, then Leader End / Leader Weight while on)."""
         from .constants import TAG_ORIENT_LABELS
         out = {"Type": {"type": "label", "value": "Tag"}}
         out.update({k: v for k, v in props.items()
@@ -2389,7 +2419,12 @@ class BlockInstance(QGraphicsObject):
                               "value": TAG_ORIENT_LABELS[self.tag["orientation"]],
                               "options": list(TAG_ORIENT_LABELS.values())}
         out["Tag"] = self._tag_block_row(sc)
-        out["Leader"] = {"type": "bool", "value": bool(self.tag.get("leader"))}
+        from .hatch_patterns import picker_exclude
+        from .text_item import default_border_weight
+        from .text_leader import panel_rows
+        reg = getattr(sc, "block_registry", None) if sc is not None else None
+        out.update(panel_rows(self.tag.get("leader"), reg, picker_exclude(sc),
+                              fallback_weight=default_border_weight()))   # D10, as on Notes
         return out
 
     def _tag_block_row(self, sc) -> dict:
@@ -2414,8 +2449,11 @@ class BlockInstance(QGraphicsObject):
         return {"type": "enum", "value": value, "options": list(self._tag_choices)}
 
     def _set_tag_property(self, key: str, value) -> None:
-        """Apply an Orientation / Tag / Leader commit (SB6 D5 / D11 / R5): one
-        undo step when the record changed, none otherwise (G9)."""
+        """Apply an Orientation / Tag / Leader / Leader End / Leader Weight
+        commit (SB6 D5 / D11 / D10 / R5): one undo step when the record
+        changed, none otherwise (G9). The Leader rows go through
+        ``text_leader.leader_change`` as a Note's do (an End is loaded into
+        the project first); a new leader is ``hosted_tag.new_leader``."""
         from .constants import TAG_ORIENT_LABELS
         sc = self.scene()
         before = repr(self.tag)
@@ -2434,16 +2472,20 @@ class BlockInstance(QGraphicsObject):
             if not ok:
                 return                                  # a Library load failed (message shown)
             self.tag["block"] = bid
-        elif key == "Leader":
-            if not isinstance(value, bool):
+        elif key in ("Leader", "Leader End", "Leader Weight"):
+            if key == "Leader" and (not isinstance(value, bool)
+                                    or value == bool(self.tag.get("leader"))):
                 return
-            if value and not self.tag.get("leader"):
-                from .capabilities import ensure_end_available
-                from .paper_display import tag_leader_end
-                ensure_end_available(tag_leader_end(), sc, outside_history=True)
-                self.tag["leader"] = {"knee": None}
-            elif not value:
-                self.tag["leader"] = None
+            from .hatch_patterns import picker_exclude
+            from .hosted_tag import new_leader
+            from .text_leader import leader_change
+            reg = getattr(sc, "block_registry", None) if sc is not None else None
+            chg = leader_change(self.tag.get("leader"), key, value, QRectF(), QPointF(),
+                                reg, sc, picker_exclude(sc))
+            if chg[0] is False:
+                return
+            self.tag["leader"] = (new_leader(chg[0]) if key == "Leader" and chg[0]
+                                  else chg[0])
         if repr(self.tag) == before:
             return
         self.sync_tag()
@@ -2573,7 +2615,8 @@ class BlockInstance(QGraphicsObject):
         if self.host and key in ("Reference", "Offset", "Elevation"):
             self._set_host_property(key, value)
             return
-        if self.tag is not None and key in ("Orientation", "Tag", "Leader"):
+        if self.tag is not None and key in ("Orientation", "Tag", "Leader",
+                                            "Leader End", "Leader Weight"):
             self._set_tag_property(key, value)      # SB6: before the Note's Leader rows
             return
         if key == phase_registry.ROW_KEY:

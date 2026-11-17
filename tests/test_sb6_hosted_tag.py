@@ -4,7 +4,7 @@ wall.py normal()) and the door's stored offset_along."""
 import math
 
 import pytest
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF
 
 from firepro3d import hosted_tag as ht
 
@@ -76,32 +76,29 @@ def test_normalise_cleans_or_refuses():
     assert ht.normalise({"offset": "x"}) is None
     assert ht.normalise({"offset": [1.0, float("nan")]}) is None
     rec = ht.normalise({"offset": [1, 2], "orientation": "sideways",
-                        "leader": {"knee": ["a", 1]}, "block": ""})
+                        "leader": {"knee": [1.0, 2.0]}, "block": ""})          # no edge: cannot draw
     assert rec == {"offset": [1.0, 2.0], "orientation": "horizontal",
-                   "leader": {"knee": None}, "block": None}
-    src = {"offset": [1.0, 2.0], "orientation": "aligned", "leader": {"knee": [3.0, 4.0]},
+                   "leader": None, "block": None}
+    rec = ht.normalise({"offset": [1, 2], "leader": {"edge": "L", "tip": ["a", 1]}})
+    assert rec["leader"] == {"edge": "L", "t": 0.5, "shoulder_mm": 2.0, "tip": [0.0, 0.0],
+                             "end": "system-endtypes-arrow", "weight": ""}   # min shoulder, tip at anchor
+    src = {"offset": [1.0, 2.0], "orientation": "aligned",
+           "leader": {"edge": "B", "t": 0.25, "shoulder_mm": 8.0, "tip": [3.0, 4.0],
+                      "end": "none", "weight": "Thin"},
            "block": "b"}
     out = ht.normalise(src)
     assert out == src and out["leader"] is not src["leader"]          # a copy
 
 
-def test_knee_scene_uses_the_host_frame(qapp):
+def test_tip_scene_uses_the_host_frame(qapp):
     w = _wall((0.0, 0.0), (0.0, -4000.0))                           # dir (0,-1), n (1,0)
+    assert ht.tip_scene(ht.new_record((0.0, 0.0)), w, 1.0) is None  # no leader
     rec = ht.new_record((0.0, 0.0), leader=True)
-    assert ht.knee_scene(rec, w, 1.0) is None                       # straight leader
-    rec["leader"]["knee"] = [100.0, 300.0]
-    k = ht.knee_scene(rec, w, 1.0)
-    assert (k.x(), k.y()) == pytest.approx((300.0, -2100.0))        # (0,-2000) + 100*(0,-1) + 300*(1,0)
-
-
-def test_exit_point_leaves_the_box():
-    r = QRectF(-5.0, -4.0, 10.0, 8.0)
-    p = ht.exit_point(r, QPointF(0.0, 0.0), QPointF(0.0, -20.0))
-    assert (p.x(), p.y()) == pytest.approx((0.0, -4.0))
-    p = ht.exit_point(r, QPointF(0.0, 0.0), QPointF(20.0, 20.0))
-    assert (p.x(), p.y()) == pytest.approx((4.0, 4.0))              # the bottom edge wins
-    assert ht.exit_point(r, QPointF(0.0, 0.0), QPointF(1.0, 1.0)) == QPointF(1.0, 1.0)
-    assert ht.exit_point(r, QPointF(9.0, 0.0), QPointF(20.0, 0.0)) == QPointF(9.0, 0.0)
+    t = ht.tip_scene(rec, w, 1.0)
+    assert (t.x(), t.y()) == pytest.approx((0.0, -2000.0))          # a new tip: the host anchor
+    rec["leader"]["tip"] = [100.0, 300.0]
+    t = ht.tip_scene(rec, w, 1.0)
+    assert (t.x(), t.y()) == pytest.approx((300.0, -2100.0))        # (0,-2000) + 100*(0,-1) + 300*(1,0)
 
 
 def test_leader_op_shape():

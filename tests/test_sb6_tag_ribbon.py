@@ -11,7 +11,7 @@ _main_module.View3D = View3D
 from firepro3d import snap_engine
 from main import MainWindow
 from tests._mainwindow_helpers import dispose_main_window
-from tests._sb6_helpers import add_wall
+from tests._sb6_helpers import LEADER, add_wall
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +50,7 @@ def test_leader_toggle_is_off_by_default_and_drives_new_tags(main_window, real_s
         tb.click()
         assert tb.isChecked() and sc.tag_leader_on is True
         on = sc._tag_ctl.place_at(w, QPointF(800.0, 0.0))
-        assert on.tag["leader"] == {"knee": None}
+        assert on.tag["leader"] == LEADER
         tb.click()
         assert sc.tag_leader_on is False
         off = sc._tag_ctl.place_at(w, QPointF(-800.0, 0.0))
@@ -87,7 +87,7 @@ def test_leader_button_then_tag_click_on_a_wall_places_a_leader_tag(main_window,
         move(view, pt)
         click(view, pt)
         (tag,) = [t for t in tags_of(sc) if t._host_uid == w._uid]
-        assert tag.tag["leader"] == {"knee": None}
+        assert tag.tag["leader"] == LEADER
     finally:
         if tb.isChecked():
             tb.click()

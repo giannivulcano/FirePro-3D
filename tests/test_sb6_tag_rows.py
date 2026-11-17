@@ -8,7 +8,7 @@ import copy
 import pytest
 from PyQt6.QtCore import QPointF
 
-from tests._sb6_helpers import (add_door, add_wall, drop_panel, expected_pose, panel_for,
+from tests._sb6_helpers import (LEADER, add_door, add_wall, drop_panel, expected_pose, panel_for,
                                 place_tag, pose_of, tags_of)
 from tests._snap_polish_helpers import close_view, make_view
 
@@ -116,7 +116,7 @@ def test_leader_row_toggles_the_record_in_one_step(qapp, tmp_path, real_system_l
         pm = panel_for(tag, tmp_path)
         p0 = scene._undo_pos
         pm._apply_property("Leader", True)
-        assert tag.tag["leader"] == {"knee": None} and scene._undo_pos == p0 + 1
+        assert tag.tag["leader"] == LEADER and scene._undo_pos == p0 + 1
         pm._apply_property("Leader", False)
         assert tag.tag["leader"] is None and scene._undo_pos == p0 + 2
     finally:

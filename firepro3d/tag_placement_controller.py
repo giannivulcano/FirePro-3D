@@ -115,8 +115,8 @@ class TagPlacementController:
 
     def place_at(self, host, pt):
         """Place one tag on *host* at scene *pt* (D7): Horizontal, offset from
-        the host anchor, a straight leader when the scene's Leader toggle is
-        on; one undo step. Returns the instance, or None."""
+        the host anchor, the default Note-style leader (D9) when the scene's
+        Leader toggle is on; one undo step. Returns the instance, or None."""
         s = self._scene
         from .hosted_blocks import ppm_of
         ppm = ppm_of(s)
@@ -131,8 +131,7 @@ class TagPlacementController:
             return None
         if rec["leader"] is not None:
             from .capabilities import ensure_end_available
-            from .paper_display import tag_leader_end
-            ensure_end_available(tag_leader_end(), s, outside_history=True)
+            ensure_end_available(rec["leader"]["end"], s, outside_history=True)
         x, y, rot = hosted_tag.pose(rec, host, ppm)
         inst = s.place_block_instance(bid, (x, y), rotation=rot, level=host.level,
                                       host_uid=host._uid, tag=rec)
