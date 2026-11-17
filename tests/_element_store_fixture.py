@@ -30,6 +30,8 @@ def build_every_kind(ms=None):
     from firepro3d.text_item import TextItem, TextAnnotationData
     from firepro3d.gridline import GridlineItem
     from firepro3d.design_area import DesignArea
+    from firepro3d.gridline import reset_grid_counters
+    reset_grid_counters()          # the auto-label counters are module globals (order independence)
     ms = ms or scene()
     out = {}
     out["_draw_lines"] = _add(ms, LineItem(QPointF(0, 0), QPointF(500, 0)), "_draw_lines")
