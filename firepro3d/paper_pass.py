@@ -172,14 +172,21 @@ class PaperPassContext:
 def _migrated() -> tuple:
     """Classes whose enter / exit is on the new protocol. Each family task
     adds its classes; Task 15 deletes this and the legacy adapter."""
+    from .filled_region import FilledRegionItem
     from .floor_opening import FloorOpening
     from .floor_slab import FloorSlab
+    from .geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
+                              PolylineItem, RectangleItem, RegularPolygonItem,
+                              SplineItem)
     from .node import Node
     from .roof import RoofItem
     from .room import Room
     from .wall import WallSegment
     from .wall_opening import WallOpening
-    return (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node)
+    return (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node,
+            # construction family (Task 4)
+            PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+            EllipseItem, SplineItem, RegularPolygonItem, FilledRegionItem)
 
 
 def _owner_of(item):

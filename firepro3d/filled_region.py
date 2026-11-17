@@ -18,7 +18,8 @@ from . import fill_types
 from .constants import FILL_TYPE_CUSTOM_LABEL, TOKEN_AUTO, Z_FILLED_REGION
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import EMPTY, BackgroundLayer, FillLayers
-from .geometry_2d import Geometry2DMixin, _manip_wraps, _scene_hit_width
+from .geometry_2d import (Geometry2DMixin, _ConstructionPaperMixin, _manip_wraps,
+                          _scene_hit_width)
 from .paper_display import shows_selection
 
 log = logging.getLogger(__name__)
@@ -51,7 +52,8 @@ def _piece_record(piece) -> dict:
     return d
 
 
-class FilledRegionItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+class FilledRegionItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin,
+                       QGraphicsPathItem):
     """A static-boundary area object (type ``"draw_filled_region"``)."""
 
     _REFERENCE_CAPABLE = False      # no Reference form (like text)

@@ -303,7 +303,7 @@ class Geometry2DMixin:
         Colour = the Display Manager colour if set, else ``style.colour``;
         width = the canvas px of the resolved weight; cosmetic. Skipped while a
         placement ghost owns the pen, while a paper pass has set a
-        non-cosmetic pen (paper_display._apply_construction), and for the
+        non-cosmetic pen (``_ConstructionPaperMixin.enter_paper_pass``), and for the
         whole of any paper pass (``paper_display.paper_pass_active``). Unstyled items
         keep the pre-LT2 behaviour (display colour onto the pen).
 
@@ -1546,11 +1546,94 @@ def _scene_hit_width(item) -> float:
     return scene_hit_width(item, 10.0, 6.0)
 
 
+class _ConstructionPaperMixin:
+    """Paper pass for construction / draw geometry (paper-space.md s6.2
+    "Paper pass protocol"): the 8 shape primitives and ``FilledRegionItem``.
+
+    Listed before ``DisplayableItemMixin`` in each class's bases so these win
+    the MRO. Not on ``Geometry2DMixin``: ``TextItem`` has that mixin and is
+    not Construction.
+    """
+
+    @property
+    def paper_category(self) -> str:
+        """Paper row key (R5 / D8): Reference Geometry while flagged (no paper
+        row overrides it, so the driver skips it), else Construction."""
+        return "Reference Geometry" if getattr(self, "reference", False) else "Construction"
+
+    def enter_paper_pass(self, ctx, cat):
+        """Save the pen and opacity, then write the paper pen (a raise
+        mid-write unwinds this item).
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged paper row (``ctx.merge``), Visible on.
+
+        Returns:
+            The token ``exit_paper_pass`` takes.
+        """
+        from . import paper_pass
+        tok = {"opacity": self.opacity(),
+               "pen": self.pen() if hasattr(self, "pen") else None}
+        return paper_pass.enter_guarded(
+            self.exit_paper_pass, tok,
+            lambda: self._paper_construction_write(ctx, cat))
+
+    def _paper_construction_write(self, ctx, cat) -> None:
+        """The construction paper write.
+
+        These items read ``self.pen()`` directly in paint(), so the PEN COLOR
+        (not just ``_display_color``) must be set for them to render in paper
+        colours. The pen width is true ON-PAPER mm in model units,
+        non-cosmetic (s9.9.1): a named authored weight replaces the category
+        weight (LT2-5 / WM-12); the category weight is the By Linetype /
+        unstyled fallback.
+        """
+        from .colour_tokens import is_token, resolve_colour   # circular at import time
+        from .paper_display import _paper_qcolor, row_as_authored
+        from .stroke_style import apply_stroke_joins, is_named_weight   # circular at import time
+        authored = row_as_authored(cat)
+        if hasattr(self, "pen") and callable(getattr(self, "setPen", None)):
+            pen = self.pen()
+            if not authored:
+                pen.setColor(_paper_qcolor(cat["color"], self))
+            else:
+                # The pen still holds the canvas-resolved ink (HF1): a token colour
+                # must re-resolve on the paper surface -- this runs inside the pass
+                # and _sync_stroke_pen leaves the pen alone for the whole pass.
+                st = getattr(self, "style", None)
+                tok = (getattr(self, "_display_color", None)
+                       or (st.get("colour") if st is not None else None))
+                if is_token(tok):
+                    pen.setColor(resolve_colour(tok, item=self))
+            # LT2-5 on paper: a named weight (after the LT3-8 cascade -- By
+            # Linetype takes a dashed linetype's dash weight) plots at its own
+            # mm; By Linetype with no dash weight / unstyled -> the category.
+            rs_fn = getattr(self, "_resolved_stroke", None)
+            rs = rs_fn() if rs_fn is not None else None
+            mm = (resolve_line_weight_mm(rs.weight)
+                  if rs is not None and is_named_weight(rs.weight) else ctx.lw_mm(cat))
+            pen.setWidthF(ctx.paper_w(mm))
+            pen.setCosmetic(False)
+            apply_stroke_joins(pen)
+            self.setPen(pen)
+        self.setOpacity(cat["opacity"] / 100.0)
+        self.update()
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass` (opacity, then the saved pen -- colour,
+        width and cosmetic flag); tolerates a partly-entered token."""
+        self.setOpacity(tok["opacity"])
+        if tok["pen"] is not None and hasattr(self, "setPen"):
+            self.setPen(tok["pen"])
+        self.update()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # PolylineItem
 # ─────────────────────────────────────────────────────────────────────────────
 
-class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+class PolylineItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsPathItem):
     """
     A multi-segment polyline (optionally flagged closed via `close()`) drawn by successive mouse clicks.
 
@@ -1918,7 +2001,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 # LineItem  — finite 2-point line (AutoCAD-style Line tool)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
+class LineItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsLineItem):
     """
     A finite 2-point line with configurable colour and lineweight.
 
@@ -2124,7 +2207,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
 # RectangleItem  — axis-aligned rectangle (two corner clicks)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
+class RectangleItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsRectItem):
     """
     An axis-aligned rectangle defined by two opposite corners.
 
@@ -2646,7 +2729,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 # CircleItem  — circle defined by centre + edge point
 # ─────────────────────────────────────────────────────────────────────────────
 
-class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
+class CircleItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     """
     A circle defined by its centre and one point on the circumference.
 
@@ -2871,7 +2954,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
 # ArcItem
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+class ArcItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsPathItem):
     """
     A circular arc defined by centre, radius, start angle and span angle.
     Angles are in degrees, measured counter-clockwise from the +X axis
@@ -3229,7 +3312,7 @@ _POLY_MIN_SIDES = 3
 _POLY_MAX_SIDES = 120
 
 
-class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+class RegularPolygonItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsPathItem):
     """A parametric regular polygon defined by centre/sides/radius/rotation.
 
     ``_radius_mm`` is the *defining* radius the user picked: the circumradius
@@ -3509,7 +3592,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
 _AXIS_MIN = 0.5   # anti-degeneracy floor (mm), matches circle/polygon
 
 
-class EllipseItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+class EllipseItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsPathItem):
     """An ellipse defined by centre, semi-major (rx), semi-minor (ry) and a
     Y-up rotation of the major axis.
 
@@ -4006,7 +4089,7 @@ def _auto_knots(n_points: int, degree: int) -> list[float]:
     return list(BSpline(cps, order=order).knots())
 
 
-class SplineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+class SplineItem(Geometry2DMixin, _ConstructionPaperMixin, DisplayableItemMixin, QGraphicsPathItem):
     """An editable NURBS/B-spline.
 
     Data model is the full DXF SPLINE payload (control points + degree + knot
