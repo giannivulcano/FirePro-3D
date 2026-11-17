@@ -23,7 +23,6 @@ from . import geometry_import
 from .house_dialog import HouseDialog
 
 from . import schematic_scene
-from .schematic_scene import _CLS_TO_LIST  # noqa: F401 (moved; re-exported)
 
 
 _SAVE_TO_LIB_KEY = "BlockEditor/save_to_library"   # last "Also save" choice

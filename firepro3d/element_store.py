@@ -173,6 +173,32 @@ CONSTRAINT_PRIMITIVE_ORDER = CONSTRAINT_EDITOR_ORDER + ("_draw_splines", "_fille
 CONSTRAINT_PLAN_ORDER = ("_walls", "_gridlines", "_block_instances")
 
 
+_LEGACY_RECORD_TYPES = {"reference_line": "_draw_lines"}   # RG3 legacy record
+
+
+def geom_type_registry() -> dict:
+    """Paste record type -> (class, list attr): every row with a ``record_type``."""
+    out = {}
+    for row in KINDS:
+        if row.record_type is None:
+            continue
+        out[row.record_type] = (row.cls, row.attr)
+        for legacy, attr in _LEGACY_RECORD_TYPES.items():
+            if attr == row.attr:
+                out[legacy] = (row.cls, row.attr)
+    return out
+
+
+def cls_to_list(role: str) -> dict:
+    """Class -> list attr for every row carrying *role*."""
+    return {r.cls: r.attr for r in KINDS if role in r.constraint_roles}
+
+
+def category_attrs(category: str) -> tuple:
+    """The row attrs whose ``category`` is *category*, in row order."""
+    return tuple(r.attr for r in KINDS if r.category == category)
+
+
 def role_attrs(role) -> set:
     """The row attrs carrying *role* (G4's check of the order tuples)."""
     return {r.attr for r in KINDS if role in r.constraint_roles}

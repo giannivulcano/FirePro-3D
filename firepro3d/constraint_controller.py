@@ -27,6 +27,7 @@ from PyQt6 import sip
 from PyQt6.QtCore import QPoint, QPointF, QRectF, QTimer, Qt
 from PyQt6.QtGui import QPen, QPolygonF
 
+from . import element_store
 from . import sketch_model as sm
 from . import theme as _theme
 from .auto_constrain import item_handles, seg_dist as _seg_dist
@@ -39,9 +40,7 @@ from .text_item import TextItem
 from .theme import M
 
 # Model_Space tracking lists whose items can carry constraints (§5.1).
-_PARTICIPATING = ("_draw_lines", "_draw_rects", "_draw_circles",
-                  "_draw_arcs", "_draw_ellipses", "_polylines", "_draw_polygons",
-                  "_texts", "_block_instances")
+_PARTICIPATING = element_store.CONSTRAINT_EDITOR_ORDER
 # D39 / MW-12: state -> theme token for the paint-time tint (H-MW-g).
 _TINT_TOKEN = {"free": "constraint_free", "defined": "ink", "conflict": "danger"}
 _log = logging.getLogger(__name__)
@@ -76,13 +75,13 @@ HONOUR_RATIO = 1.1
 # the adapter-less ones (spline D5, filled region HF3 -- rigid body: no handles,
 # no adapter): a record that names one still resolves
 # for Save (§6.4) even though it can never be solved in v1.
-_PRIMITIVE_LISTS = _PARTICIPATING + ("_draw_splines", "_filled_regions")
+_PRIMITIVE_LISTS = element_store.CONSTRAINT_PRIMITIVE_ORDER
 
 # Editor/Build slice 2: the plan model scene's participating lists -- walls,
 # gridlines and (plan block constraints design s1) placed block instances;
 # no 2D geometry in Model Space (containment C1/C7). Hosted blocks are
 # filtered by ``can_ref`` (PB1).
-_PLAN_PARTICIPATING = ("_walls", "_gridlines", "_block_instances")
+_PLAN_PARTICIPATING = element_store.CONSTRAINT_PLAN_ORDER
 
 
 def _plan_ref_types() -> tuple:
@@ -107,9 +106,10 @@ def plan_ref_uids(scene) -> set:
     amended by the plan block constraints design): walls, gridlines and
     level-scoped (unhosted, PB1) block instances. The one accessor behind
     project load (``scene_io``) and :meth:`ConstraintController.primitive_uids`."""
-    out = {getattr(it, "_uid", None) for attr in ("_walls", "_gridlines")
-           for it in getattr(scene, attr, ())}
-    out.update(getattr(b, "_uid", None) for b in getattr(scene, "_block_instances", ()) if not b.host)   # PB1
+    out = {getattr(it, "_uid", None)
+           for attr in element_store.CONSTRAINT_PLAN_ORDER
+           for it in getattr(scene, attr, ())
+           if not (attr == "_block_instances" and it.host)}   # PB1: hosted blocks excluded
     out.discard(None)
     return out
 

@@ -12,30 +12,15 @@ import logging
 from PyQt6.QtCore import QRectF
 
 from .block_definition import _PRIMITIVE_FACTORY, is_scaffold_item
-from .geometry_2d import (
-    ArcItem, CircleItem, EllipseItem, LineItem, PolylineItem, RectangleItem,
-    RegularPolygonItem, SplineItem,
-)
-from .filled_region import FilledRegionItem
-from .text_item import TextItem
+from . import element_store
 
 log = logging.getLogger("FirePro3D")
 
-_CLS_TO_LIST = {
-    # Reference shapes stay in their class's list (design RG1).
-    LineItem: "_draw_lines", RectangleItem: "_draw_rects",
-    CircleItem: "_draw_circles", ArcItem: "_draw_arcs",
-    EllipseItem: "_draw_ellipses",
-    SplineItem: "_draw_splines",
-    PolylineItem: "_polylines", RegularPolygonItem: "_draw_polygons",
-    FilledRegionItem: "_filled_regions",
-    TextItem: "_texts",
-}
+# Reference shapes stay in their class's list (design RG1).
+_CLS_TO_LIST = element_store.cls_to_list("primitive")
 
 # gather order: drawn primitives + text (reference shapes included), then nested blocks
-_PRIMITIVE_LISTS = ("_draw_lines", "_draw_rects", "_draw_circles",
-                    "_draw_arcs", "_draw_ellipses", "_draw_splines",
-                    "_polylines", "_draw_polygons", "_filled_regions", "_texts")
+_PRIMITIVE_LISTS = element_store.PRIMITIVE_ORDER
 
 
 def add_primitive(scene, item) -> None:

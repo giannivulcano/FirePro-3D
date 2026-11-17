@@ -34,6 +34,7 @@ from .geometry_2d import (
 )
 from .node import Node
 
+from . import element_store
 from . import geometry_intersect as gi
 from . import tool_geometry
 from .stroke_style import BY_LINETYPE, copy_style
@@ -416,23 +417,10 @@ class SceneTools:
 
     def _all_geometry_items(self):
         """Return a flat list of all construction geometry items in the scene."""
-        from .geometry_2d import (
-            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
-            RegularPolygonItem, EllipseItem, SplineItem,
-        )
-        items = []
-        items.extend(self._scene._draw_lines)
-        items.extend(self._scene._draw_rects)
-        items.extend(self._scene._draw_circles)
-        items.extend(self._scene._draw_arcs)
-        items.extend(getattr(self._scene, "_draw_ellipses", []))
-        items.extend(getattr(self._scene, "_draw_splines", []))
-        items.extend(self._scene._polylines)
-        items.extend(self._scene._draw_polygons)
-        items.extend(getattr(self._scene, "_filled_regions", []))   # HF3: last among shapes
-        # Text (containment C5) — appended last (callers that key off this
-        # list order stay stable).
-        items.extend(getattr(self._scene, "_texts", []))
+        # Order: shapes, filled regions last among them (HF3), then text
+        # (containment C5) -- callers that key off this list order stay stable.
+        items = [i for a in element_store.PRIMITIVE_ORDER
+                 for i in getattr(self._scene, a, [])]
         return items
 
     def _find_tool_target(self, pos, verb: str):

@@ -113,6 +113,7 @@ def test_owner_delete_takes_its_children(qapp):
     ms.delete_items([wall, slab])
     live = set(ms.items())
     assert kids and not [k for k in kids if k in live]
+    assert not wall.openings and not slab.openings
 
 
 # -- G5 scan guard ---------------------------------------------------------------
@@ -122,11 +123,6 @@ ATTRS = set(ROW_ATTRS)
 # at commit 2 and classifying EVERY hit here.
 KNOWN = {
     "model_space.py:_items_on_level": "T7",
-    "model_space.py:Model_Space": "T6",          # the _GEOM_TYPE_REGISTRY class body
-    "schematic_scene.py:<module>": "T6",         # _CLS_TO_LIST, _PRIMITIVE_LISTS
-    "constraint_controller.py:<module>": "T6",   # _PARTICIPATING, _PRIMITIVE_LISTS, _PLAN_PARTICIPATING
-    "display_manager.py:_items_for_category_static": "T6",
-    "constraint_controller.py:plan_ref_uids": "T6",   # T6 derives it from CONSTRAINT_PLAN_ORDER, keeping the PB1 host filter
 }
 
 

@@ -9203,19 +9203,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # type key (to_dict()["type"]) -> (class, tracking-list attribute).
     # Keys are the REAL to_dict() discriminators (ArcItem writes "arc",
     # TextItem "text") — scene-tools.md I1.
-    _GEOM_TYPE_REGISTRY = {
-        "draw_line":      (LineItem, "_draw_lines"),
-        "reference_line": (LineItem, "_draw_lines"),   # legacy record (RG3)
-        "polyline":       (PolylineItem, "_polylines"),
-        "draw_rectangle": (RectangleItem, "_draw_rects"),
-        "draw_circle":    (CircleItem, "_draw_circles"),
-        "arc":            (ArcItem, "_draw_arcs"),
-        "draw_ellipse":   (EllipseItem, "_draw_ellipses"),
-        "draw_spline":    (SplineItem, "_draw_splines"),
-        "draw_filled_region": (FilledRegionItem, "_filled_regions"),
-        "polygon":        (RegularPolygonItem, "_draw_polygons"),
-        "text":           (TextItem, "_texts"),
-    }
+    _GEOM_TYPE_REGISTRY = element_store.geom_type_registry()
 
     def _add_from_dict(self, d: dict):
         """Deserialise one 2D-geometry/text dict, add it and register it.
