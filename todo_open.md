@@ -1711,6 +1711,9 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 
 ## Wall, Room & Floor Slab Follow-Ups (from `docs/specs/wall-room-floor-system.md` §13–§14)
 
+- [ ] [type:maint] Vertical extent leftovers: dead `zr is None` guard in `Model_Space._wall_spans_level`; dated 3D wall solids design doc still says opening z from `base_z + sill` [P4] [subject:Architecture]
+  - Details: vertical extent Account review, 2026-11-16 (`d26e112f`). `WallSegment.z_range_mm` never returns None now (`wall-room-floor-system.md` §6.6), so the branch is unreachable; the method's own `lm is None` check still decides. `docs/superpowers/specs/2026-11-14-3d-wall-solids-design.md` "Opening cuts" predates §6.6 (dated record: add a one-line superseded note at most, never rewrite).
+
 - [ ] [type:maint] Pre-existing spec drift found at the floor-opening Account [P3] [subject:Docs]
   - Details: VC10 list, 2026-10-31 (Account at `1c1e59c6`). (1) wall-room-floor-system §3.3 Z table and §11.6 still quote the retired fixed z values (-80 / -60 / -50 / -45); runtime z is elevation-based (owned by view-relationships §7.3) -- link, don't restate. (2) §11.10 names `elevation_scene._project_floor_slabs`; the module is now `section_scene.py`. (3) §7.2 / §7.13 say "Feature > Category > Type"; feature-system F4 settled "Feature > Family > Type". (4) The Model Browser never lists a wall's blank openings (noted in model-browser §3.3) -- decide whether it should. (5) snapping-engine §5 has no `FloorSlab` row though slabs take the generic path. (6) `model-space-architecture.md` (feature placement controller) not re-audited for the Floor host strategy. `docs/specs/`.
 

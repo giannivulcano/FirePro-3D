@@ -189,7 +189,7 @@ NFPA 13 coverage limits are defined in `constants.py` (`NFPA_MAX_COVERAGE_SQFT`)
 - Fill mode: None, Solid, Hatch, Section
 - Openings: list of WallOpening objects (doors, windows) cut into the wall
 
-Walls are extruded to 3D meshes between base_level and top_level for the 3D view.
+Walls are extruded to 3D meshes over their vertical extent (`specs/wall-room-floor-system.md` §6.6).
 
 ### WallOpening, DoorOpening, WindowOpening
 
