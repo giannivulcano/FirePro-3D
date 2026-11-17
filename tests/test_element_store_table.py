@@ -121,6 +121,7 @@ def test_owner_delete_takes_its_children(qapp):
 # class sublist, so only the order ACROSS kinds may change (spec delta 4).
 WALK_PIN = {
     "on": {a: [a] for a in (
+        "_block_instances",      # R5 (D6 commit 9): placed blocks join the walk
         "_draw_arcs", "_draw_circles", "_draw_ellipses", "_draw_lines", "_draw_polygons",
         "_draw_rects", "_draw_splines", "_filled_regions", "_floor_slabs", "_gridlines",
         "_polylines", "_roofs", "_rooms", "_walls", "design_areas")},

@@ -9417,7 +9417,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """
         from .block_instance import BlockInstance
         p = obj.get("pos", [0.0, 0.0])
-        obj = {**obj, **over}               # the remap rides the record, so place_kwargs carries it
+        # the remap rides the record, so place_kwargs carries it; a block lands on
+        # the active level like walls / rooms / slabs (R5, user ruling)
+        obj = {**obj, **over, "level": self.active_level}
         inst = self.place_block_instance(
             obj["block_id"], (p[0] + offset.x(), p[1] + offset.y()),
             **BlockInstance.place_kwargs(obj, default_level=self.active_level))
