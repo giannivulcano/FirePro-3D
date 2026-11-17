@@ -1,11 +1,11 @@
 ---
-status: proposal          # designed 2026-11-16, unbuilt; flips to current at the build's Account
-last-verified: 2026-11-16
-verified-commit: 68511b61  # census base (probe digest); re-stamp at Account
+status: current           # built 2026-11-17 on todo/element-store-20261116 (base 68511b61)
+last-verified: 2026-11-17
+verified-commit: e34918a5
 applies-to:
   - firepro3d/element_store.py
 source-tasks:
-  - "todo_open.md - Element store (one row per element kind) [P1], rulings R1-R8 + Phase 3 rulings O1, O2"
+  - "todo_closed.md - Element store (one row per element kind) [P1], rulings R1-R8 + Phase 3 rulings O1, O2 + build rulings B1-B3 (D5)"
 ---
 
 # Element store - Design Spec
@@ -61,23 +61,32 @@ walk by hand.
 | `level_of` | `None` for a level-less kind, else the item's level name (floors read `_top_level`) |
 | `children` | `None`, or the item's owned children (wall openings, slab openings) (R7) |
 | `category` | the Display Manager category key the kind belongs to |
-| `constraint_role` | `None`, `"primitive"` (Block Editor) or `"plan"` |
+| `constraint_roles` | a `frozenset` of `"primitive"` (schematic and Block Editor primitive), `"editor"` (Block Editor solver item) and `"plan"` (plan constraint item). A set, because block instances are both `"editor"` and `"plan"`, and splines and filled regions are primitives that never take constraints |
 | `codec_owned` | `True` when `network_codec` writes and reads the records (design areas only) |
 | `build(scene, record, ctx)` | creates the item from a record, attaches its children, adds it to the scene and appends it to the list; returns the item or `None` |
 
-`ctx` is a small `BuildContext`: which path is building (`"load"` or `"restore"`), the block-definition
-`source_path` map (restore) and the orphan-host counter (load). Path-specific steps read `ctx`. They are
-not separate build functions.
+`ctx` is a small `BuildContext`: which path is building (`"load"` or `"restore"`) and the orphan-host
+counter (load: blocks whose gridline host is gone). Path-specific steps read `ctx`. They are not separate
+build functions. The restore-only block-definition `source_path` map is not on `ctx`: it stays a closure
+in `_restore_network`.
 
 ### D2 - Order (Phase 3 ruling O1)
 
 The table's row order is the undo-capture order. Undo bytes therefore follow from the table itself.
-A pass whose order differs names its own tuple of row `attr`s, and the completeness test (G4) checks
-that each tuple covers exactly the rows that pass needs. Two such passes exist today:
+A pass whose order differs names its own tuple of row `attr`s in `element_store.py`, and the
+completeness test (G4) checks that each tuple covers exactly the rows of its role:
 
-- the file save, which writes `constraints` between `walls` and `floor_slabs`, splices that key after the
-  `walls` row;
-- `scene_tools._all_geometry_items`, whose order (lines first) is the index order constraints use.
+- `PRIMITIVE_ORDER`: the schematic gather order (`schematic_scene`, which reaches block-definition
+  primitive order) and `scene_tools._all_geometry_items` (lines first; the index order constraints use).
+  The two were identical, so one tuple serves both.
+- `CONSTRAINT_EDITOR_ORDER`: the Block Editor solver's item order (`constraint_controller._PARTICIPATING`);
+  `CONSTRAINT_PRIMITIVE_ORDER` adds splines and filled regions.
+- `CONSTRAINT_PLAN_ORDER`: the plan constraint item order (`_PLAN_PARTICIPATING`, and
+  `constraint_controller.plan_ref_uids`, which keeps its hosted-block filter).
+
+Keys that are not rows are named splices inside the pass functions, not tuples: capture and save put
+`block_definitions` (a D3 registry) between the `rooms` and `blocks` rows (`before_blocks`), and save puts
+`constraints` after the `walls` row (`after_walls`).
 
 ### D3 - Exceptions (named, not rows)
 
@@ -92,13 +101,18 @@ that each tuple covers exactly the rows that pass needs. Two such passes exist t
 | Pass | Reads the table for |
 |---|---|
 | `_capture_network` | each non-codec row's `undo_key` -> `[i.to_dict() for i in list]` |
-| `_restore_network` | removal (children before owner; walls detach the list first, which avoids a quadratic join rebuild), then `build` per record, `legacy_keys` included |
-| `save_to_file` | rows with a `file_key`, in the D2 save order |
+| `_restore_network` | removal per row exactly as before: walls detach the list first (store-internal `_DETACH_FIRST`; a wall's join pool is `_walls`, so this avoids a quadratic join rebuild), every other row removes children, then the item, then clears the list in place; then `build` per record, `legacy_keys` included |
+| `save_to_file` | rows with a `file_key`, in row order with the D2 splices |
 | `load_from_file` | `build` per file row; the clean-drop count sums the `file_key is None` rows' `undo_key`s plus `legacy_keys` |
-| `_clear_scene` | rebinding every row's list (as today: clear rebinds, restore clears in place) |
+| `_clear_scene` | removes the scene items of design areas and blocks only (store-internal `_CLEAR_REMOVES`), then rebinds every row's list (clear rebinds, restore clears in place) |
 | `_remove_item_from_lists` / `_bulk_delete` | the class-to-row map; owner removal goes through `children` |
 | `_items_on_level` / `leveled_items` | one walk over rows with `level_of` (D5) |
-| `_GEOM_TYPE_REGISTRY`, `schematic_scene._CLS_TO_LIST` / `_PRIMITIVE_LISTS`, `constraint_controller._PARTICIPATING` / `_PRIMITIVE_LISTS` / `_PLAN_PARTICIPATING`, Display Manager's 2D and Reference tuples | derived from `record_type`, `constraint_role` and `category` |
+| `_GEOM_TYPE_REGISTRY`, `schematic_scene._CLS_TO_LIST` / `_PRIMITIVE_LISTS`, `constraint_controller._PARTICIPATING` / `_PRIMITIVE_LISTS` / `_PLAN_PARTICIPATING` / `plan_ref_uids`, Display Manager's 2D and Reference tuples | derived from `record_type`, `constraint_roles`, `category` and the D2 tuples |
+
+`category` is set only where `display_manager._items_for_category_static` serves a key from whole lists:
+`"2D Geometry"` on the nine loose 2D rows, and `Design Area`, `Grid Line`, `Wall`, `Floor`, `Roof`,
+`Room`. Texts and blocks have `None`. The 2D and Reference results come back in row order (filled regions
+before polygons).
 
 Each path keeps these steps inline:
 
@@ -122,6 +136,28 @@ where the lists are always empty.
 
 Block instances get a `level_of` in the R5 commit. Duplicate Level then copies them and
 Select Same Level selects them.
+
+**Order.** Both walks return items in row order. Each kind's own list order is unchanged, but the order
+across kinds moved from the old hand lists: design areas come first in both walks, floors follow walls in
+`_items_on_level`, and blocks come last in `leveled_items`. Every caller is order-independent
+(Duplicate Level pastes per kind).
+
+**Build rulings (2026-11-17, user):**
+
+- **B1 - block paste goes to the active level.** `_paste_block_record` retargets a pasted block to the
+  active level, as walls, rooms and slabs already do. Without it, Duplicate Level stacked the block copies
+  on the source level. The same path serves Ctrl+V, Duplicate, Array and Polar Array, so all four now
+  place blocks on the active level. Open edge: a hosted block pasted onto another level, without its host,
+  stays anchored to the host on the source level (filed).
+- **B2 - Duplicate Level leaves view-owned Notes behind.** Every Note is a placed block, so R5 put Notes in
+  the walk. A Note's copy would re-key to the current view (detail and section Notes went wrong), so
+  `duplicate_level_entities` skips blocks with `note` set.
+- **B3 - Duplicate Level leaves gridline-hosted blocks behind.** Gridlines are level-less and never
+  copied, so the copy would keep the original gridline and absolute elevation and land on the original.
+  `duplicate_level_entities` skips blocks with `host` set. Wall-hosted blocks (`_element_host`) are still
+  copied.
+
+B2 and B3 filter in `duplicate_level_entities` only. Select Same Level and `leveled_items` keep every block.
 
 ### D6 - Commit sequence
 
@@ -147,29 +183,34 @@ Select Same Level selects them.
 
 ## Acceptance Criteria
 
-- [ ] Every pass in D4 reads the table. No class-to-list map or element-list name tuple is left
+- [x] Every pass in D4 reads the table. No class-to-list map or element-list name tuple is left
       outside `element_store.py` except the D2 order tuples and the D3 exceptions.
-- [ ] Commits 3-7 leave G1 byte-identical to base.
-- [ ] Roofs have a scale manager after undo (R2).
-- [ ] Duplicate Level copies a placed block and Select Same Level selects it (R5).
-- [ ] The loose 2D rows are outside the level walk (O2).
-- [ ] The 1b before-baseline (138 coupled test files, `.todo/es-baseline-files.txt`) passes unchanged, except the
-      O2 rewrite. Its 3 known base failures stay the same.
+- [x] Commits 3-7 leave G1 byte-identical to base.
+- [x] Roofs have a scale manager after undo (R2).
+- [x] Duplicate Level copies a placed block and Select Same Level selects it (R5), with B1-B3 (D5).
+- [x] The loose 2D rows are outside the level walk (O2).
+- [x] The 1b before-baseline (138 coupled test files, `.todo/es-baseline-files.txt`) passes unchanged, except the
+      O2 rewrite. Its failures were VC7-proved to fail the same way at base `68511b61` (filed in `todo_open.md`).
 
 ## Verification Checklist
 
-- [ ] **G1.** An every-kind fixture's save bytes and undo-snapshot bytes match the base golden, with EOL,
-      uuid and date normalised. Save, load, save is a fixed point.
-- [ ] **G2.** Each kind survives an undo / redo round trip with the same record.
-- [ ] **G3.** `_clear_scene` leaves every row's list empty and the scene holds none of the items.
-- [ ] **G4.** Table-driven completeness. Every row survives save / load (if `file_key`), capture / restore,
+- [x] **G1.** An every-kind fixture's save bytes and undo-snapshot bytes match the base golden, with EOL,
+      uuid and date normalised. Save, load, save is a fixed point. The first save is pinned, and the fixed point
+      is save2 == save3, because the first capture of fresh items is not one (filed).
+- [x] **G2.** Each kind survives an undo / redo round trip with the same record.
+- [x] **G3.** `_clear_scene` leaves every row's list empty and the scene holds none of the items.
+- [x] **G4.** Table-driven completeness. Every row survives save / load (if `file_key`), capture / restore,
       clear and remove, and appears in the level walk (if `level_of`). Every D2 order tuple covers
-      exactly its pass's rows. A row with a missing piece turns it RED.
-- [ ] **G5.** A scan guard fails on a new class-to-list map or element-list tuple outside the store.
-- [ ] **G6, G7.** Driven through the real paths: undo after a roof edit, and
-      `LevelWidget` Duplicate Level / Select Same Level. Each is shown RED at base.
-- [ ] The `place_block_instance` tripwire scan still accepts the store's block `build` (it passes `place_kwargs`).
-- [ ] VC6 full suite; the linked specs get their pointers at Account; this spec flips to `status: current`.
+      exactly its role's rows. A row with a missing piece turns it RED.
+- [x] **G5.** A scan guard fails on a new class-to-list map or element-list tuple outside the store. It
+      sees only literal tuples, lists and dict values that name two or more row attrs. It is blind to
+      comprehension, `extend` and ladder passes, which G1, G3 and G4 cover.
+- [x] **G6, G7, G7b, G7c.** Driven through the real paths: undo after a roof edit; `LevelWidget` Duplicate
+      Level / Select Same Level (G7); block paste lands on the active level (G7b, B1); Notes and
+      gridline-hosted blocks stay behind (G7c, B2 / B3). Each is shown RED at base or with its fix reverted.
+- [x] The `place_block_instance` tripwire scan still accepts the store's block `build` (it passes `place_kwargs`).
+- [x] The linked specs got their pointers at Account; this spec is `status: current`. The VC6 full suite
+      was waived by the user (2026-11-17); keep-green and the VC7 proofs stand.
 
 ## Existing Code Context
 

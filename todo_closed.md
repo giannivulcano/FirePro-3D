@@ -32,6 +32,10 @@
       - R7 (Q-e): owned children (wall openings, slab voids) belong to the owner's row through a children accessor.
       - R8 (Q-f): independent of the Model_Space placement slices.
     - **Build (2026-11-17, branch `todo/element-store-20261116`, base `68511b61`).** `firepro3d/element_store.py` holds one `ElementKind` row per kind; capture / restore, save / load / clear, removal, the derived class-to-list maps (incl. `constraint_controller.plan_ref_uids`) and one level walk (`_items_on_level` / `leveled_items`) iterate it. Relocation commits byte-identical (G1-G5). Fixes after: R2 roof scale manager on undo (478c98da, G6), R5 blocks join the level walk + block paste goes to the active level (10a1d2f1, G7/G7b), loose 2D leave the walk (f6c3df6d), Duplicate Level leaves out Notes and gridline-hosted blocks (1985c22b, G7c). Spec `docs/specs/element-store.md`. VC6 full suite waived by the user; keep-green 138-file baseline passed, failures VC7-proved pre-existing at base.
+- [x] [type:maint] Tier-2 deserialize loop boilerplate [P3] [subject:Code Quality] [done:2026-11-17]
+  - Details: the `for entry: X.from_dict(); addItem; list.append` loops for walls/rooms/floors/roofs/gridlines/construction-geo are duplicated across `load_from_file`+`_restore_network` (per-entity logic already single-homed in each `from_dict`). Low value / higher churn; fold in only if it stops paying rent. `scene_io.py`, `model_space.py`.
+  - Cross-ref (architecture review 2026-11-16): the element store task under "Element store (one row per element kind)" covers these loops as one of its callers; close this line when that task lands.
+  - Closed by the element store (2026-11-17, `e34918a5`): load and undo restore share one per-kind build step, `element_store.build_rows` (spec `element-store.md` D1 / D4).
 
 ## Node elevation -- one owner for a node's z (Node.host / rehost_keep_z / set_z / rederive, single-writer guard) -- 2026-11-15
 
