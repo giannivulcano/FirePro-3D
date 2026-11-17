@@ -1,0 +1,718 @@
+{
+ "nodes": [],
+ "pipes": [],
+ "annotations": [],
+ "water_supply": null,
+ "design_areas": [
+  {
+   "sprinkler_node_ids": [],
+   "properties": {
+    "Hazard Classification": "Ordinary Hazard Group 1",
+    "System Name": "System 1",
+    "Level": "Level 1",
+    "Area": "0",
+    "System Type": "Wet",
+    "Design Area (Base)": "1500",
+    "Show Badge": true
+   },
+   "is_active": false,
+   "level": "Level 1",
+   "badge_offset": null,
+   "badge_angle": 0.0,
+   "uid": "<id0>"
+  }
+ ],
+ "polylines": [
+  {
+   "type": "polyline",
+   "points": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     100.0,
+     0.0
+    ],
+    [
+     0.0,
+     100.0
+    ]
+   ],
+   "closed": false,
+   "uid": "<id1>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "draw_lines": [
+  {
+   "type": "draw_line",
+   "pt1": [
+    0.0,
+    0.0
+   ],
+   "pt2": [
+    500.0,
+    0.0
+   ],
+   "uid": "<id2>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "draw_rectangles": [
+  {
+   "type": "draw_rectangle",
+   "x": 0.0,
+   "y": 0.0,
+   "w": 100.0,
+   "h": 100.0,
+   "angle": 0.0,
+   "pivot": null,
+   "uid": "<id3>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "draw_circles": [
+  {
+   "type": "draw_circle",
+   "cx": 0.0,
+   "cy": 0.0,
+   "radius": 50.0,
+   "uid": "<id4>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "draw_arcs": [
+  {
+   "type": "arc",
+   "cx": 0.0,
+   "cy": 0.0,
+   "radius": 50.0,
+   "start_deg": 0.0,
+   "span_deg": 90.0,
+   "uid": "<id5>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "draw_ellipses": [
+  {
+   "type": "draw_ellipse",
+   "cx": 0.0,
+   "cy": 0.0,
+   "rx": 60.0,
+   "ry": 30.0,
+   "rotation": 0.0,
+   "uid": "<id6>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "draw_splines": [
+  {
+   "type": "draw_spline",
+   "control_points": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     50.0,
+     80.0
+    ],
+    [
+     100.0,
+     0.0
+    ],
+    [
+     150.0,
+     60.0
+    ]
+   ],
+   "degree": 3,
+   "knots": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "weights": null,
+   "uid": "<id7>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "filled_regions": [
+  {
+   "type": "draw_filled_region",
+   "loops": [
+    [
+     {
+      "type": "draw_line",
+      "pt1": [
+       10.0,
+       10.0
+      ],
+      "pt2": [
+       110.0,
+       10.0
+      ],
+      "uid": "<id8>",
+      "style": {
+       "linetype": "continuous",
+       "weight": "by_linetype",
+       "start": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "finish": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "colour": "token:auto"
+      }
+     },
+     {
+      "type": "draw_line",
+      "pt1": [
+       110.0,
+       10.0
+      ],
+      "pt2": [
+       110.0,
+       110.0
+      ],
+      "uid": "<id9>",
+      "style": {
+       "linetype": "continuous",
+       "weight": "by_linetype",
+       "start": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "finish": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "colour": "token:auto"
+      }
+     },
+     {
+      "type": "draw_line",
+      "pt1": [
+       110.0,
+       110.0
+      ],
+      "pt2": [
+       10.0,
+       110.0
+      ],
+      "uid": "<id10>",
+      "style": {
+       "linetype": "continuous",
+       "weight": "by_linetype",
+       "start": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "finish": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "colour": "token:auto"
+      }
+     },
+     {
+      "type": "draw_line",
+      "pt1": [
+       10.0,
+       110.0
+      ],
+      "pt2": [
+       10.0,
+       10.0
+      ],
+      "uid": "<id11>",
+      "style": {
+       "linetype": "continuous",
+       "weight": "by_linetype",
+       "start": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "finish": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "colour": "token:auto"
+      }
+     }
+    ],
+    [
+     {
+      "type": "draw_circle",
+      "cx": 60.0,
+      "cy": 60.0,
+      "radius": 15,
+      "uid": "<id12>",
+      "style": {
+       "linetype": "continuous",
+       "weight": "by_linetype",
+       "start": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "finish": {
+        "end": "by_linetype",
+        "visible": true
+       },
+       "colour": "token:auto"
+      }
+     }
+    ]
+   ],
+   "outline": false,
+   "uid": "<id13>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   },
+   "fill": {
+    "background": {
+     "color": "token:auto",
+     "opacity": 1.0
+    }
+   }
+  }
+ ],
+ "polygons": [
+  {
+   "type": "polygon",
+   "center": [
+    0.0,
+    0.0
+   ],
+   "sides": 5,
+   "radius_mm": 40.0,
+   "rotation": 0.0,
+   "inscribed": true,
+   "uid": "<id14>",
+   "style": {
+    "linetype": "continuous",
+    "weight": "by_linetype",
+    "start": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "finish": {
+     "end": "by_linetype",
+     "visible": true
+    },
+    "colour": "token:auto"
+   }
+  }
+ ],
+ "texts": [
+  {
+   "type": "text",
+   "text": "T",
+   "x": 10.0,
+   "y": 10.0,
+   "height_mm": 4.7625,
+   "wrap_width_mm": 0.0,
+   "box_height_mm": 0.0,
+   "font_family": "",
+   "bold": false,
+   "italic": false,
+   "underline": false,
+   "color": "token:auto",
+   "align": "L",
+   "valign": "T",
+   "fill_color": "",
+   "fill_opacity": 100.0,
+   "cell_padding_mm": 1.0,
+   "border": false,
+   "border_weight": "Fine",
+   "border_line_type": "solid",
+   "border_corner": "square",
+   "border_corner_radius_mm": 0.0,
+   "angle": 0.0,
+   "uid": "<id15>"
+  }
+ ],
+ "gridlines": [
+  {
+   "origin": [
+    0.0,
+    -1000.0
+   ],
+   "length": 6000.0,
+   "angle": 270.0,
+   "bubble1_offset": 1000.0,
+   "bubble2_offset": 1000.0,
+   "bubble1_vis": true,
+   "bubble2_vis": true,
+   "label": "1",
+   "locked": false,
+   "uid": "<id16>"
+  }
+ ],
+ "walls": [
+  {
+   "type": "wall",
+   "pt1": [
+    0.0,
+    0.0
+   ],
+   "pt2": [
+    4000.0,
+    0.0
+   ],
+   "thickness_mm": 152.39999999999998,
+   "color": "#cccccc",
+   "fill_mode": "None",
+   "alignment": "Center",
+   "base_level": "Level 1",
+   "top_level": "Level 2",
+   "height_mm": 3048.0,
+   "base_offset_mm": 0.0,
+   "top_offset_mm": 0.0,
+   "level": "Level 1",
+   "name": "",
+   "mark": "",
+   "uid": "<id17>",
+   "join_mode_pt1": "Auto",
+   "join_mode_pt2": "Auto",
+   "openings": [
+    {
+     "feature_id": "door_914",
+     "type": "door",
+     "width_mm": 914.0,
+     "height_mm": 2032.0,
+     "sill_mm": 0.0,
+     "offset_along": 1000.0,
+     "cross_offset_mm": 0.0,
+     "alignment": "Centered",
+     "mirror_hinge": false,
+     "mirror_facing": false,
+     "level": "Level 1",
+     "mark": "",
+     "uid": "<id18>"
+    }
+   ]
+  }
+ ],
+ "floor_slabs": [
+  {
+   "type": "floor_slab",
+   "points": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     3000.0,
+     0.0
+    ],
+    [
+     3000.0,
+     2000.0
+    ],
+    [
+     0.0,
+     2000.0
+    ]
+   ],
+   "color": "#8888cc",
+   "name": "",
+   "top_mode": "level",
+   "top_level": "Level 1",
+   "top_offset_mm": 0.0,
+   "top_abs_z_mm": 0.0,
+   "bottom_mode": "thickness",
+   "bottom_level": "Level 1",
+   "bottom_offset_mm": 0.0,
+   "bottom_abs_z_mm": 0.0,
+   "thickness_mm": 152.4,
+   "openings": [
+    {
+     "feature_id": "floor_sketched",
+     "points": [
+      [
+       1000.0,
+       500.0
+      ],
+      [
+       2000.0,
+       500.0
+      ],
+      [
+       2000.0,
+       1500.0
+      ],
+      [
+       1000.0,
+       1500.0
+      ]
+     ],
+     "mark": "",
+     "uid": "<id19>"
+    }
+   ],
+   "uid": "<id20>"
+  }
+ ],
+ "roofs": [
+  {
+   "type": "roof",
+   "points": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     3000.0,
+     0.0
+    ],
+    [
+     3000.0,
+     2000.0
+    ],
+    [
+     0.0,
+     2000.0
+    ]
+   ],
+   "color": "#d2b48c",
+   "roof_type": "flat",
+   "pitch_deg": 20.0,
+   "eave_height_mm": 0.0,
+   "overhang_mm": 0.0,
+   "thickness_mm": 152.4,
+   "ridge_direction": "auto",
+   "ridge_position": 0.5,
+   "level": "Level 1",
+   "name": "",
+   "uid": "<id21>"
+  }
+ ],
+ "rooms": [
+  {
+   "type": "room",
+   "boundary": [
+    [
+     0.0,
+     0.0
+    ],
+    [
+     3000.0,
+     0.0
+    ],
+    [
+     3000.0,
+     2000.0
+    ],
+    [
+     0.0,
+     2000.0
+    ]
+   ],
+   "color": "#4488cc",
+   "name": "",
+   "mark": "",
+   "show_label": true,
+   "level": "Level 1",
+   "ceiling_level": "Level 2",
+   "ceiling_offset": 0.0,
+   "hazard_class": "Light Hazard",
+   "occupancy": "",
+   "system_type": "Wet",
+   "design_point": null,
+   "compartment_type": "Room",
+   "ceiling_type": "Noncombustible unobstructed",
+   "label_offset": [
+    0.0,
+    0.0
+   ],
+   "uid": "<id22>"
+  }
+ ],
+ "block_definitions": {
+  "<id23>": {
+   "schema": 1,
+   "id": "<id23>",
+   "version": 1,
+   "name": "PH1",
+   "library": "L",
+   "series": "S",
+   "scale_mode": "real_size",
+   "origin": [
+    0.0,
+    0.0
+   ],
+   "attributes": [],
+   "host_category": "",
+   "primitives": [
+    {
+     "type": "draw_line",
+     "pt1": [
+      0,
+      0
+     ],
+     "pt2": [
+      100,
+      0
+     ],
+     "color": "#ffffff",
+     "lineweight": 1.0
+    }
+   ],
+   "render_mode": "default",
+   "constraints": [],
+   "tile": null,
+   "repeat": null
+  }
+ },
+ "blocks": [
+  {
+   "type": "block_instance",
+   "block_id": "<id23>",
+   "pos": [
+    0.0,
+    0.0
+   ],
+   "rotation": 0.0,
+   "level": "Level 1",
+   "attributes": {},
+   "uid": "<id24>"
+  }
+ ],
+ "constraints": [],
+ "block_capability": null,
+ "block_meta": {
+  "attributes": [],
+  "host_category": "",
+  "symbol_for": "",
+  "scale_mode": "real_size",
+  "annotative_screen": "scale"
+ },
+ "levels": [
+  {
+   "name": "Level 1",
+   "elevation_mm": 0.0,
+   "view_top": 2000.0,
+   "view_bottom": -1000.0,
+   "number": 1
+  },
+  {
+   "name": "Level 2",
+   "elevation_mm": 3048.0,
+   "view_top": 2000.0,
+   "view_bottom": -1000.0,
+   "number": 2
+  },
+  {
+   "name": "Level 3",
+   "elevation_mm": 6096.0,
+   "view_top": 2000.0,
+   "view_bottom": -1000.0,
+   "number": 3
+  }
+ ],
+ "active_level": "Level 1",
+ "underlay_levels": []
+}
