@@ -8877,8 +8877,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self.sceneModified.emit()
 
     def duplicate_level_entities(self, source_level: str, target_level: str):
-        """Copy all entities on source_level to target_level."""
-        items = self._items_on_level(source_level)
+        """Copy all entities on source_level to target_level.
+
+        View-owned Notes and gridline-hosted blocks stay behind (element-store
+        R5 seam rulings): a Note's copy would re-key to the current view, and a
+        gridline-hosted copy would keep the level-less gridline host and its
+        absolute elevation, landing on the original.
+        """
+        items = [i for i in self._items_on_level(source_level)
+                 if not (isinstance(i, BlockInstance) and (i.note or i.host))]
         if items:
             self.copy_items_to_level(items, target_level)
 
