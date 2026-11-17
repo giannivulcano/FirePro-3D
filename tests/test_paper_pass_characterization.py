@@ -10,6 +10,9 @@ base, before any item class moves onto the protocol.
 * AC4 / AC5 / AC6 / AC8  RED-at-base guards (``xfail(strict=True)``), each
         flipped by the task its reason names.
 
+The golden hashes are host-specific (fonts, antialiasing): regenerate them on
+the machine that runs the suite (``--regen-paper-pass-golden``).
+
 Everything drives the real pass (``pd.apply_paper_overrides`` /
 ``pd.restore_model_display`` or a real sheet render) on real domain objects,
 under the isolated paper settings of ``tests/test_selection_never_plots.py``.
@@ -164,6 +167,42 @@ def _underlay_layer_weight(s):
     return group
 
 
+def _pick_excluded(s):
+    it = _KINDS["line"](s)
+    it.PAPER_EXCLUDED = True            # instance-level exclusion (the block ghost)
+    return it
+
+
+def _pick_origin(s):
+    it = _KINDS["line"](s)
+    it.setData(0, "origin")             # the model origin cross
+    return it
+
+
+def _pick_scaffold(s):
+    it = _KINDS["line"](s)
+    it.reference = True                 # a non-printed reference item (RG11)
+    it.printed = False
+    return it
+
+
+def _pick_detail(s):
+    return _KINDS["detail_marker"](s)
+
+
+# Kinds that exercise the driver's pick-rule hides (visibility tokens); not on
+# the AC3 sheet (they plot nothing).
+_PICK = {"pick_excluded": _pick_excluded, "pick_origin": _pick_origin,
+         "pick_scaffold": _pick_scaffold, "pick_detail_hidden": _pick_detail,
+         "pick_detail_self": _pick_detail}
+_VIEWPORT = {   # the SheetViewData fields the pass reads
+    "pick_detail_hidden": SimpleNamespace(source_view_type="plan", source_view_name="V",
+                                          hidden_detail_ids={"D1"}),
+    "pick_detail_self": SimpleNamespace(source_view_type="detail", source_view_name="D1",
+                                        hidden_detail_ids=set()),
+}
+
+
 _EXTRA = {
     "pipe_labelled": _pipe_labelled, "room_tagged": _room_tagged,
     "gridline": _gridline, "sprinkler": _sprinkler, "fitting_node": _fitting_node,
@@ -222,6 +261,7 @@ _SECTION = {"sec_walls": _sec_walls, "sec_pipe_label": _sec_pipe_label,
             "sec_elevation": _sec_elevation}
 
 ALL_KINDS = [*_KINDS, *_EXTRA, *_SECTION]
+AC2_KINDS = [*ALL_KINDS, *_PICK]
 
 
 def build(kind, request):
@@ -232,7 +272,7 @@ def build(kind, request):
     from firepro3d.model_space import Model_Space
     ms = Model_Space()
     request.node._pp_keep = [*getattr(request.node, "_pp_keep", []), ms]
-    maker = _KINDS.get(kind) or _EXTRA[kind]
+    maker = _KINDS.get(kind) or _EXTRA.get(kind) or _PICK[kind]
     maker(ms)
     return ms, QRectF(_CROP)
 
@@ -247,7 +287,7 @@ _ATTRS = ("_display_color", "_display_fill_color", "_display_section_color",
           "_paper_no_fill", "_paper_gap_color", "_grid_color", "_paper_render",
           "_paper_line_w", "_paper_line_w_mm", "_marker_color", "_tag_color",
           "_pen_src", "_brush_src", "_section_src", "_src_alpha", "_colour_src",
-          "_paper_cat")
+          "_paper_cat", "_grid_src", "_color_src", "_print_pass")
 # Absent-vs-set matters for these (generic restore deletes them).  Not for
 # ``_paper_pen_width``: base restore puts ``None`` back on a Pipe / Sprinkler
 # where it was absent, and both read as "no paper width" (getattr default).
@@ -263,6 +303,8 @@ def _norm(v):
                 int(v.style().value), int(v.joinStyle().value), int(v.capStyle().value))
     if isinstance(v, QBrush):
         return ("brush", int(v.style().value), _norm(v.color()))
+    if isinstance(v, QPointF):
+        return (round(v.x(), 6), round(v.y(), 6))
     if isinstance(v, QRectF):
         return tuple(round(x, 6) for x in (v.x(), v.y(), v.width(), v.height()))
     if isinstance(v, (list, tuple)):
@@ -272,8 +314,26 @@ def _norm(v):
     return repr(type(v).__name__)
 
 
+def _svg_identity(item):
+    """Small render digest of an SVG symbol's renderer (what ``_set_svg_tint``
+    writes: shared renderer + graphics effect) so a missed re-tint shows."""
+    r = getattr(item, "renderer", None)
+    if not callable(r) or r() is None:
+        return None
+    img = QImage(24, 24, QImage.Format.Format_ARGB32)
+    img.fill(0)
+    p = QPainter(img)
+    r().render(p)
+    p.end()
+    ptr = img.constBits()
+    ptr.setsize(img.sizeInBytes())
+    import hashlib
+    return (hashlib.sha1(bytes(ptr)).hexdigest(), item.graphicsEffect() is None)
+
+
 def _item_state(item) -> dict:
-    st = {"opacity": item.opacity(), "visible": item.isVisible()}
+    st = {"opacity": item.opacity(), "visible": item.isVisible(),
+          "pos": _norm(item.pos()), "svg": _svg_identity(item)}
     for a in _ATTRS:
         st[a] = _norm(getattr(item, a, None if a in _ABSENT_IS_NONE else _MISSING))
     for a in _PRESENT:
@@ -311,30 +371,44 @@ def snapshot(scene) -> dict:
 # AC2: round trip
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("as_authored", [True, False], ids=["authored", "row_off"])
-@pytest.mark.parametrize("kind", ALL_KINDS)
-def test_ac2_round_trip(qapp, request, paper_env, real_system_library, kind,
-                        as_authored):
-    set_rows(paper_env, as_authored)
+def set_ac2_mode(env, mode: str) -> None:
+    """authored: rows on; row_off: rows off with row colours; hidden: every row
+    ``visible=False`` (the visibility-token path)."""
+    set_rows(env, mode != "row_off")
+    if mode == "hidden":
+        for row in env.cats.values():
+            row["visible"] = False
+
+
+def _changed_by_pass(before, during):
+    """Item-level keys (never the scene-level hatch / thin-lines keys, which
+    always differ) whose state the pass changed."""
+    return [k for k in before if isinstance(k, tuple) and before[k] != during.get(k)]
+
+
+@pytest.mark.parametrize("mode", ["authored", "row_off", "hidden"])
+@pytest.mark.parametrize("kind", AC2_KINDS)
+def test_ac2_round_trip(qapp, request, paper_env, real_system_library, kind, mode):
+    set_ac2_mode(paper_env, mode)
     scene, crop = build(kind, request)
+    vd = _VIEWPORT.get(kind)
     before = snapshot(scene)
-    saved = pd.apply_paper_overrides(scene, crop, paper_scale=SCALE)
+    saved = pd.apply_paper_overrides(scene, crop, paper_scale=SCALE, viewport_data=vd)
     during = snapshot(scene)
     pd.restore_model_display(saved)
     after = snapshot(scene)
     diff = {k: {a: (before[k][a], after[k][a]) for a in before[k]
                 if before[k][a] != after[k].get(a)}
-            for k in before if before[k] != after.get(k)} \
-        if before.keys() == after.keys() else "item set changed"
-    assert not diff, f"{kind}: restore did not return {diff}"
-    assert before != during, f"{kind}: the pass touched nothing (vacuous guard)"
+            for k in before if before[k] != after.get(k)}         if before.keys() == after.keys() else "item set changed"
+    assert not diff, f"{kind}/{mode}: restore did not return {diff}"
+    assert _changed_by_pass(before, during),         f"{kind}/{mode}: the pass changed no item attribute (vacuous guard)"
 
 
 # ---------------------------------------------------------------------------
 # AC3: pixel parity, and export parity through paper_export
 # ---------------------------------------------------------------------------
 
-_MODES = ("on", "off", "named")
+_MODES = ("on", "off", "named", "hidden")
 _COLS, _CELL, _BOX, _PX_PER_MM = 6, 95.0, 90.0, 3
 
 
@@ -343,7 +417,10 @@ def set_mode(env, mode: str) -> None:
     weight path: rows on, every row weight at the finest, so a named authored
     weight (a construction line's ``style.weight``, an underlay layer weight)
     visibly wins over the category weight."""
-    set_rows(env, mode == "on" or mode == "named", coloured=(mode == "off"))
+    set_rows(env, mode in ("on", "named", "hidden"), coloured=(mode == "off"))
+    if mode == "hidden":
+        for row in env.cats.values():
+            row["visible"] = False
     if mode == "named":
         for row in env.cats.values():
             if row.get("line_weight"):
@@ -407,10 +484,29 @@ def _sheet_image(paper) -> QImage:
     return img
 
 
+_BLANK_BY_DESIGN = {"marker_cardinal"}      # PAPER_EXCLUDED: a cardinal never plots
+
+
+def _assert_cells_inked(img: QImage, grid) -> None:
+    by_name = {v.source_view_name: v for v in grid.sheet.sheet_views}
+    for kind in ALL_KINDS:
+        if kind in _BLANK_BY_DESIGN:
+            continue
+        v = by_name[kind]
+        x0, y0 = int((v.x + 2) * _PX_PER_MM), int((v.y + 2) * _PX_PER_MM)
+        x1, y1 = int((v.x + v.w - 2) * _PX_PER_MM), int((v.y + v.h - 2) * _PX_PER_MM)
+        ink = any(img.pixel(x, y) != 0xFFFFFFFF
+                  for y in range(y0, y1) for x in range(x0, x1))
+        assert ink, f"grid cell {kind!r} is blank: it would pin nothing into the golden"
+
+
 @pytest.mark.parametrize("mode", _MODES)
 def test_ac3_sheet_pixel_parity(request, grid, paper_env, mode):
     set_mode(paper_env, mode)
-    first = _digest(_sheet_image(grid.paper))
+    img = _sheet_image(grid.paper)
+    first = _digest(img)
+    if request.config.getoption("--regen-paper-pass-golden") and mode != "hidden":
+        _assert_cells_inked(img, grid)       # never pin a blank kind into the golden
     assert _digest(_sheet_image(grid.paper)) == first, "the sheet render is not stable"
     _check(request, "pixels", mode, first)
 
@@ -473,13 +569,13 @@ def _ink_near(img: QImage, rect: QRectF, crop: QRectF, rgb, tol=70) -> int:
     return n
 
 
-def _label_scene(pipe_x0: float, pipe_x1: float):
+def _label_scene(pipe_x0: float, pipe_x1: float, pipe_y: float = 0.0):
     """A model whose pipe spans x0..x1 and whose label sits at the origin."""
     from firepro3d.model_space import Model_Space
     from firepro3d.node import Node
     from firepro3d.pipe import Pipe
     ms = Model_Space()
-    n1, n2 = Node(pipe_x0, 0.0), Node(pipe_x1, 0.0)
+    n1, n2 = Node(pipe_x0, pipe_y), Node(pipe_x1, pipe_y)
     for n in (n1, n2):
         ms.addItem(n)
     p = Pipe(n1, n2)
@@ -490,20 +586,21 @@ def _label_scene(pipe_x0: float, pipe_x1: float):
     return ms, p
 
 
-def _label_after_apply(env, pipe_x0, pipe_x1):
+def _label_after_apply(env, pipe_x0, pipe_x1, pipe_y=0.0):
     """``(label _paper_scale, red px under the label box)`` after the pass."""
     set_rows(env, False)
     env.cats["Pipe"]["color"] = "#ff0000"        # the OWNER's row colour
     env.cats["Blocks"]["color"] = "#0000ff"      # another row: never the label's
-    ms, p = _label_scene(pipe_x0, pipe_x1)
+    ms, p = _label_scene(pipe_x0, pipe_x1, pipe_y)
     crop = QRectF(_CROP)
     pipe_in = crop.intersects(p.sceneBoundingRect())
-    assert pipe_in == (pipe_x0 < crop.right() and pipe_x1 > crop.left()), "setup"
+    assert pipe_in == (pipe_x0 < crop.right() and pipe_x1 > crop.left()),         "setup: the pipe's crop membership is not the one the case names"
     saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
     try:
         lab = p.label
         box = lab.mapRectToScene(lab.boundingRect())
         assert crop.intersects(box), "setup: the label box must lie in the crop"
+        assert not box.intersects(p.sceneBoundingRect()),             "setup: the pipe line runs under the label box (its ink would fool the probe)"
         img = _render_white(ms, crop, 600, 600)
         return lab._paper_scale, _ink_near(img, box, crop, (255, 0, 0))
     finally:
@@ -514,19 +611,21 @@ def test_ac4_control_label_with_pipe_in_crop_plots_in_row_colour(
         qapp, paper_env, real_system_library):
     """Control for the AC4 guard: with the pipe inside the crop the label plots
     at paper size in the Pipe row colour (passes at base: the ink probe works)."""
-    scale, ink = _label_after_apply(paper_env, -800.0, 800.0)
+    scale, ink = _label_after_apply(paper_env, -800.0, 800.0, -1000.0)
     assert scale == pytest.approx(SCALE)
     assert ink > 0, "no Pipe-row-colour ink under the label box"
 
 
-@pytest.mark.xfail(strict=True, reason="AC4 - fixed in Task 7")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="AC4 - fixed in Task 7")
 def test_ac4_pipe_label_inside_crop_owner_outside(qapp, paper_env, real_system_library):
     scale, ink = _label_after_apply(paper_env, 3000.0, 5000.0)
     assert scale == pytest.approx(SCALE), "the label did not plot at paper size"
     assert ink > 0, "the label did not plot in the Pipe row colour"
 
 
-@pytest.mark.xfail(strict=True, reason="AC5 - fixed in Task 2")
+@pytest.mark.xfail(strict=True, raises=AssertionError,
+                   reason="AC5 - fixed in Task 2 (every other exit runs and the first error "
+                          "re-raises after the full unwind)")
 def test_ac5_raising_exit_does_not_stop_the_rest(
         qapp, paper_env, real_system_library, monkeypatch):
     from firepro3d.model_space import Model_Space
@@ -597,11 +696,11 @@ def _sub_elev_head(request):
 
 @pytest.mark.parametrize("which", [
     pytest.param("gridline_bubble", marks=pytest.mark.xfail(
-        strict=True, reason="AC6 - fixed in Task 9")),
+        strict=True, raises=AssertionError, reason="AC6 - fixed in Task 9")),
     pytest.param("marker_head", marks=pytest.mark.xfail(
-        strict=True, reason="AC6 - fixed in Task 10")),
+        strict=True, raises=AssertionError, reason="AC6 - fixed in Task 10")),
     pytest.param("elev_head", marks=pytest.mark.xfail(
-        strict=True, reason="AC6 - fixed in Task 11")),
+        strict=True, raises=AssertionError, reason="AC6 - fixed in Task 11")),
 ])
 def test_ac6_sub_item_opacity_survives(qapp, request, paper_env, real_system_library,
                                        which):
@@ -619,7 +718,7 @@ def test_ac6_sub_item_opacity_survives(qapp, request, paper_env, real_system_lib
         paper.dispose()
 
 
-@pytest.mark.xfail(strict=True, reason="AC8 - fixed in Task 13")
+@pytest.mark.xfail(strict=True, raises=AssertionError, reason="AC8 - fixed in Task 13")
 def test_ac8_fitting_enters_when_node_hit(qapp, paper_env, real_system_library):
     from firepro3d.model_space import Model_Space
     set_rows(paper_env, False)
@@ -628,12 +727,14 @@ def test_ac8_fitting_enters_when_node_hit(qapp, paper_env, real_system_library):
     n = ms.add_node(crop.left() + 10.0, 0.0)             # the node is in the crop...
     n.fitting.update()
     f = n.fitting
-    assert f.symbol is not None and f.symbol.isVisible()
+    assert f.symbol is not None and f.symbol.isVisible(), "setup: no visible fitting symbol"
     assert crop.contains(n.scenePos()) \
         and not crop.contains(f.symbol.scenePos()), \
         f"setup: the symbol origin {f.symbol.scenePos()} must lie outside the crop"
+    tint_before = _svg_identity(f.symbol)
     saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
     try:
+        assert _svg_identity(f.symbol) != tint_before, "the symbol was not re-tinted"
         assert f._display_color == _ROW_RED, \
             f"the Fitting row colour did not reach the symbol ({f._display_color!r})"
     finally:
