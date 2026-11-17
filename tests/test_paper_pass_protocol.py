@@ -219,10 +219,12 @@ def test_construction_family_is_migrated_by_exact_type():
     generic (Task 3), construction (Task 4), annotation blocks (Task 5, with
     the two section BlockInstance subclasses the base ladder reached), pipe
     (Task 6; no Pipe subclass exists), sprinkler / water supply (Task 8; no
-    subclass of either exists)."""
+    subclass of either exists), plan gridline (Task 9; no GridlineItem
+    subclass exists -- the elevation ElevGridlineItem is unrelated, Task 11)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
+    from firepro3d.gridline import GridlineItem
     from firepro3d.hydraulic_node_badge import HydraulicNodeBadge
     from firepro3d.node import Node
     from firepro3d.pipe import Pipe
@@ -238,7 +240,7 @@ def test_construction_family_is_migrated_by_exact_type():
                                    *_construction_classes(),
                                    BlockInstance, HydraulicNodeBadge,
                                    _HostedBlockCopy, _SectionNoteCopy, Pipe,
-                                   Sprinkler, WaterSupply}
+                                   Sprinkler, WaterSupply, GridlineItem}
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -551,7 +553,10 @@ def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env
                                                         real_system_library):
     """Until each owner's family lands, a hit label whose owner is not yet
     migrated stays its own (base) entry: the room tag maps to the Room and
-    the pipe label to the Pipe (Task 6); the gridline bubble (Task 9) does not."""
+    the pipe label to the Pipe (Task 6), the gridline bubble to the plan
+    gridline (Task 9); an elevation gridline's bubble (its owner not yet
+    migrated, Task 11) does not."""
+    from firepro3d.gridline import GridlineBubble
     from tests.test_paper_pass_characterization import _gridline, _pipe_labelled
     ms = _scene(request)
     room = _room_tagged(ms)
@@ -559,7 +564,13 @@ def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env
     gl = _gridline(ms)
     assert pp._owner_of(room._tag) is room
     assert pp._owner_of(pipe.label) is pipe
-    assert pp._owner_of(gl.bubble1) is gl.bubble1
+    assert pp._owner_of(gl.bubble1) is gl
+    from PyQt6.QtWidgets import QGraphicsLineItem
+    host = QGraphicsLineItem(0, 0, 10, 0)        # stands in for a not-yet-migrated parent
+    ms.addItem(host)
+    elev_bubble = GridlineBubble(gl, parent=host)
+    assert elev_bubble.paper_owner is host
+    assert pp._owner_of(elev_bubble) is elev_bubble
 
 
 def test_room_enters_its_tag_through_the_shared_helper(qapp, request, paper_env,
@@ -954,3 +965,145 @@ def test_nothing_maps_onto_a_symbol_owner(qapp, request, paper_env,
     ms, item = _symbol(request, make)
     assert pp._owner_of(item) is item
     assert not [it for it in ms.items() if it is not item and pp._owner_of(it) is item]
+
+
+# ---------------------------------------------------------------------------
+# Task 9: plan gridline (bubbles, lock indicator) + AC6 gridline bubble
+# ---------------------------------------------------------------------------
+
+def _plan_gridline(request):
+    """A plan gridline with both bubbles shown (their real prior opacity 0.4,
+    AC6) and its lock indicator shown (as when selected)."""
+    from tests.test_paper_pass_characterization import _gridline
+    ms = _scene(request)
+    gl = _gridline(ms)
+    for b in (gl.bubble1, gl.bubble2):
+        b.setOpacity(0.4)
+    gl._lock_indicator.setVisible(True)
+    return ms, gl
+
+
+def test_gridline_paper_category_drives_the_ladder(qapp, request, paper_env,
+                                                   real_system_library):
+    _ms, gl = _plan_gridline(request)
+    assert gl.paper_category == "Grid Line"
+    assert pd._category_for_item(gl) == "Grid Line"
+
+
+def test_gridline_bubbles_map_onto_the_gridline(qapp, request, paper_env,
+                                                real_system_library):
+    """D5: the two bubbles (Qt children; BoundLabelItem's parent rule, no
+    override) are entered by their gridline; nothing else maps onto it (the
+    lock indicator stays its own item)."""
+    ms, gl = _plan_gridline(request)
+    assert gl.bubble1.paper_owner is gl and gl.bubble2.paper_owner is gl
+    assert "paper_owner" not in type(gl.bubble1).__dict__
+    mapped = [it for it in ms.items() if it is not gl and pp._owner_of(it) is gl]
+    assert len(mapped) == 2
+    assert {id(it) for it in mapped} == {id(gl.bubble1), id(gl.bubble2)}
+    assert pp._owner_of(gl._lock_indicator) is gl._lock_indicator
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+def test_gridline_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                        authored):
+    """The base GridlineItem branch: line colour, the ``_paper_render`` /
+    ``_paper_line_w`` / ``_paper_line_w_mm`` unit, the lock indicator hidden,
+    each bubble's annotation hooks at opacity 1; the exit puts every one back,
+    the bubbles' real prior opacity (0.4, AC6) included."""
+    set_rows(paper_env, authored)
+    ms, gl = _plan_gridline(request)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Grid Line"), gl, "Grid Line")
+    cat["opacity"] = 60
+    lw = ctx.lw_mm(cat)
+    tok = gl.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert gl._paper_render is True
+    assert gl._paper_line_w == pytest.approx(lw / SCALE)
+    assert gl._paper_line_w_mm == pytest.approx(lw)
+    assert gl.opacity() == pytest.approx(0.6)
+    assert not gl._lock_indicator.isVisible()
+    if not authored:
+        assert gl._grid_color.name() == pd._paper_qcolor(cat["color"], gl).name()
+    for b in (gl.bubble1, gl.bubble2):
+        assert b._paper_scale == pytest.approx(SCALE)
+        assert b._paper_pen_width == pytest.approx(lw / SCALE)
+        assert b.opacity() == pytest.approx(1.0)
+    assert snapshot(ms) != before, "the enter changed nothing"
+    gl.exit_paper_pass(tok)
+    assert gl._lock_indicator.isVisible()
+    assert [b.opacity() for b in (gl.bubble1, gl.bubble2)] == [
+        pytest.approx(0.4), pytest.approx(0.4)]
+    assert snapshot(ms) == before
+
+
+def test_gridline_hidden_bubble_is_not_entered(qapp, request, paper_env,
+                                               real_system_library):
+    """A hidden bubble is skipped (base: ``if b.isVisible()``) and keeps its
+    hooks and its own opacity."""
+    set_rows(paper_env, False)
+    ms, gl = _plan_gridline(request)
+    gl.bubble2.setVisible(False)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Grid Line"), gl, "Grid Line")
+    tok = gl.enter_paper_pass(ctx, cat)
+    assert gl.bubble1._paper_scale == pytest.approx(SCALE)
+    assert gl.bubble2._paper_scale is None
+    assert gl.bubble2.opacity() == pytest.approx(0.4)
+    gl.exit_paper_pass(tok)
+    assert snapshot(ms) == before
+
+
+def test_gridline_owner_enters_itself_through_the_driver(qapp, request, paper_env,
+                                                         real_system_library):
+    """One token for the gridline (its own exit, never the adapter); the hit
+    bubbles are entered by it, never as entries of their own."""
+    set_rows(paper_env, False)
+    ms, gl = _plan_gridline(request)
+    crop = QRectF(-1500, -1500, 3000, 3000)
+    hits = ms.items(crop)
+    assert any(h is gl.bubble1 for h in hits), "setup: the bubble must be hit"
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is gl] == [gl.exit_paper_pass]
+        kids = (gl.bubble1, gl.bubble2)
+        assert not [it for it, _fn, _tok in saved if any(it is k for k in kids)]
+        assert gl.bubble1._paper_scale == pytest.approx(SCALE)
+        assert gl.bubble1.opacity() == pytest.approx(1.0)
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_gridline_enter_raise_mid_write_unwinds_the_gridline(qapp, request, paper_env,
+                                                             real_system_library,
+                                                             monkeypatch):
+    """D2: a raise at bubble2 (after the line, the lock indicator and bubble1
+    are entered) leaves the gridline, its lock indicator and both bubbles as
+    they were, then re-raises."""
+    set_rows(paper_env, False)
+    ms, gl = _plan_gridline(request)
+    before = snapshot(ms)
+    real = pp.enter_block_hooks
+    seen = []
+
+    def boom_at_bubble2(inst, *a, **kw):
+        if inst is gl.bubble2:
+            seen.append((gl._paper_render, gl._lock_indicator.isVisible(),
+                         gl.bubble1._paper_scale, gl.bubble1.opacity()))
+            raise RuntimeError("bubble2")
+        return real(inst, *a, **kw)
+
+    monkeypatch.setattr(pp, "enter_block_hooks", boom_at_bubble2)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Grid Line"), gl, "Grid Line")
+    with pytest.raises(RuntimeError, match="bubble2"):
+        gl.enter_paper_pass(ctx, cat)
+    assert seen == [(True, False, SCALE, pytest.approx(1.0))], (
+        "the raise came after the line, lock and bubble1 writes")
+    assert snapshot(ms) == before
+    assert gl.bubble1.opacity() == pytest.approx(0.4)

@@ -251,6 +251,7 @@ def _migrated() -> tuple:
     from .geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
                               PolylineItem, RectangleItem, RegularPolygonItem,
                               SplineItem)
+    from .gridline import GridlineItem
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .node import Node
     from .pipe import Pipe
@@ -271,15 +272,18 @@ def _migrated() -> tuple:
             # pipe (Task 6): enters its riser symbol and its label (D5)
             Pipe,
             # symbol path (Task 8): no subclass of either; nothing maps onto them
-            Sprinkler, WaterSupply)
+            Sprinkler, WaterSupply,
+            # plan gridline (Task 9): enters its two bubbles (D5)
+            GridlineItem)
 
 
 def _owner_of(item):
     """The owner whose enter covers *item* (D5): its ``paper_owner``, else
     itself. Until Task 15 only a migrated owner is mapped (the Room for its
-    tag; the Pipe for its label and riser) -- a not-yet-migrated owner's child
-    (a gridline bubble) stays its own entry, as at base, so the legacy adapter
-    never enters an owner that base did not."""
+    tag; the Pipe for its label and riser; the plan gridline for its bubbles)
+    -- a not-yet-migrated owner's child (an elevation gridline's bubble, a
+    marker head) stays its own entry, as at base, so the legacy adapter never
+    enters an owner that base did not."""
     o = getattr(item, "paper_owner", None)
     if o is None or type(o) not in _migrated():
         return item

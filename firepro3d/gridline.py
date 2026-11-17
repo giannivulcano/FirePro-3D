@@ -388,6 +388,66 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
 
         self._rebuild_geometry()
 
+    # ── Paper pass (paper-space.md s6.2) ──────────────────────────────────
+
+    paper_category = "Grid Line"      # paper row (R5)
+
+    def enter_paper_pass(self, ctx, cat):
+        """The gridline's paper LINE (``paper_display._apply_gridline``:
+        colour, the ``_paper_render`` / ``_paper_line_w`` / ``_paper_line_w_mm``
+        unit, the lock indicator hidden, the row opacity), then each visible
+        bubble (D5: both map onto this gridline) through the shared
+        annotation-block helper at opacity 1 (SB4b D12). Saves first (the
+        token), then writes; a raise mid-write unwinds the gridline and every
+        bubble entered so far.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged Grid Line paper row (``ctx.merge``), Visible on.
+
+        Returns:
+            The token :meth:`exit_paper_pass` takes.
+        """
+        from . import paper_pass
+        tok = {"opacity": self.opacity(),
+               "grid_color": self._grid_color.name(),
+               "lock_vis": self._lock_indicator.isVisible(),
+               "bubbles": []}
+
+        def write():
+            from . import paper_display as pd
+            authored = pd.row_as_authored(cat)
+            lw_mm = ctx.lw_mm(cat)
+            pd._apply_gridline(self, cat, authored, lw_mm, ctx.paper_scale,
+                               ctx.auth_tok(self, self.paper_category, authored))
+            for b in (self.bubble1, self.bubble2):     # SB4b D12: annotative path
+                if b.isVisible():
+                    tok["bubbles"].append(paper_pass.enter_block_hooks(
+                        b, ctx, cat, authored, lw_mm, opacity=1.0))
+            self.prepareGeometryChange()               # the trim moves with k
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass` (the base restore order: opacity, line
+        colour, bubbles, lock indicator, the paper-render unit); tolerates a
+        partly-entered token. Each entered bubble gets its real prior opacity
+        back (AC6)."""
+        from . import paper_pass
+        self.setOpacity(tok["opacity"])
+        self._grid_color = QColor(tok["grid_color"])
+        try:
+            for bt in tok["bubbles"]:
+                paper_pass.exit_block_hooks(bt)
+        finally:
+            for b in (self.bubble1, self.bubble2):
+                b.refresh()
+            self._lock_indicator.setVisible(tok["lock_vis"])
+            self._paper_render = False
+            self._paper_line_w = 0.0
+            self._paper_line_w_mm = 0.0
+            self.prepareGeometryChange()
+            self.update()
+
     # ── Geometry overrides ────────────────────────────────────────────────
 
     def boundingRect(self):
