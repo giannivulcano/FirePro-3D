@@ -21,6 +21,60 @@ _IDENTITY = QTransform()
 _AUTHORED_STROKE = "#ffffff"      # today's _set_svg_tint rule: white = no recolour
 
 
+class _SymbolPaperMixin:
+    """Paper pass for an element's own symbol (paper-space.md s6.2): Sprinkler
+    and WaterSupply. First in each class's base list (before
+    ``DisplayableItemMixin`` on Sprinkler). Each class sets ``paper_category``
+    ("Sprinkler" / "Water Supply", R5). The riser is not an owner: its pipe
+    enters it (D5)."""
+
+    def enter_paper_pass(self, ctx, cat):
+        """SB4g D8: the annotation-block width hooks without its colour
+        forcing -- B&W / Custom tint the symbol in the row colour + fill, a
+        phase-forced colour keeps the authored fill (DD2), As Authored
+        re-tints a token colour on the paper surface (R6); the row opacity.
+        Saves first (the token), then writes; a raise mid-write unwinds it.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+            cat: The merged paper row (``ctx.merge``, SYMBOL_KEYS), Visible on.
+
+        Returns:
+            The token :meth:`exit_paper_pass` takes.
+        """
+        from . import paper_pass
+        tok = {"display_color": getattr(self, "_display_color", None),
+               "display_fill_color": getattr(self, "_display_fill_color", None),
+               "opacity": self.opacity(),
+               "symbol_paper": (self._paper_pen_width, self._paper_scale)}
+
+        def write():
+            from . import phase_display
+            from .display_manager import _set_svg_tint
+            from .paper_display import row_as_authored
+            authored = row_as_authored(cat)
+            key = self.paper_category
+            self._paper_pen_width = ctx.paper_w(ctx.lw_mm(cat))
+            self._paper_scale = ctx.paper_scale
+            if not authored:
+                _set_svg_tint(self, cat["color"], cat.get("fill"))
+            elif phase_display.forced(cat, "color"):      # DD2: phase colour, authored fill
+                ctx.svg_phase_tint(self, self, key, cat["color"])
+            else:
+                ctx.svg_paper_retint(self, self, key)
+            self.setOpacity(cat["opacity"] / 100.0)
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """Undo :meth:`enter_paper_pass` (the base restore order: opacity,
+        canvas tint, width hooks); tolerates a partly-entered token."""
+        from .display_manager import _set_svg_tint
+        self.setOpacity(tok["opacity"])
+        _set_svg_tint(self, tok["display_color"], tok["display_fill_color"])
+        self._paper_pen_width, self._paper_scale = tok["symbol_paper"]
+        self.update()
+
+
 class SymbolBlockItem(QGraphicsItem):
     """Paints the resolved symbol block of *category* ("Sprinkler",
     "Water Supply" or "Riser").

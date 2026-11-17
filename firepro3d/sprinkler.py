@@ -6,12 +6,14 @@ from . import phase_registry
 from . import element_uid
 
 from .displayable_item import DisplayableItemMixin
-from .symbol_block import SymbolBlockItem
+from .symbol_block import SymbolBlockItem, _SymbolPaperMixin
 
 
-class Sprinkler(DisplayableItemMixin, SymbolBlockItem):
+class Sprinkler(_SymbolPaperMixin, DisplayableItemMixin, SymbolBlockItem):
     """A sprinkler head: a child of its Node, drawn from a "Sprinkler" symbol
     block at real size (SB4g D3; ``symbol_block`` None = the System default)."""
+
+    paper_category = "Sprinkler"    # paper row (paper-space.md s6.2, R5)
 
     def __init__(self, node):
         SymbolBlockItem.__init__(self, "Sprinkler", owner=node)

@@ -218,7 +218,8 @@ def test_construction_family_is_migrated_by_exact_type():
     """Every landed family, by exact type (subclasses take the legacy path):
     generic (Task 3), construction (Task 4), annotation blocks (Task 5, with
     the two section BlockInstance subclasses the base ladder reached), pipe
-    (Task 6; no Pipe subclass exists)."""
+    (Task 6; no Pipe subclass exists), sprinkler / water supply (Task 8; no
+    subclass of either exists)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
@@ -228,13 +229,16 @@ def test_construction_family_is_migrated_by_exact_type():
     from firepro3d.roof import RoofItem
     from firepro3d.room import Room
     from firepro3d.section_scene import _HostedBlockCopy, _SectionNoteCopy
+    from firepro3d.sprinkler import Sprinkler
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
+    from firepro3d.water_supply import WaterSupply
     assert set(pp._migrated()) == {WallSegment, WallOpening, FloorOpening,
                                    FloorSlab, RoofItem, Room, Node,
                                    *_construction_classes(),
                                    BlockInstance, HydraulicNodeBadge,
-                                   _HostedBlockCopy, _SectionNoteCopy, Pipe}
+                                   _HostedBlockCopy, _SectionNoteCopy, Pipe,
+                                   Sprinkler, WaterSupply}
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -807,3 +811,146 @@ def test_room_with_body_and_tag_in_crop_enters_once(qapp, request, paper_env,
     finally:
         pd.restore_model_display(saved)
     assert snapshot(ms) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 8: sprinkler / water supply (symbol path)
+# ---------------------------------------------------------------------------
+
+_SYMBOL_KEY = {"sprinkler": "Sprinkler", "water_supply": "Water Supply"}
+_CANVAS_TINT = ("#123456", "#abcdef")
+
+
+def _symbol(request, make):
+    """A sprinkler (a child of its node) or a water supply, canvas-tinted so a
+    missed tint restore shows."""
+    from tests.test_paper_pass_characterization import _sprinkler
+    ms = _scene(request)
+    item = _sprinkler(ms) if make == "sprinkler" else _KINDS["water_supply"](ms)
+    item.set_tint(*_CANVAS_TINT)
+    return ms, item
+
+
+@pytest.mark.parametrize("make", list(_SYMBOL_KEY))
+def test_symbol_paper_category_drives_the_ladder(qapp, request, paper_env,
+                                                 real_system_library, make):
+    _ms, item = _symbol(request, make)
+    assert item.paper_category == _SYMBOL_KEY[make]
+    assert pd._category_for_item(item) == _SYMBOL_KEY[make]
+
+
+@pytest.mark.parametrize("cls_name", ["Sprinkler", "WaterSupply"])
+def test_symbol_mixin_wins_the_mro(cls_name):
+    """``_SymbolPaperMixin`` sits first in both base lists (before
+    ``DisplayableItemMixin`` on Sprinkler), so enter / exit are the symbol ones."""
+    from firepro3d.displayable_item import DisplayableItemMixin
+    from firepro3d.sprinkler import Sprinkler
+    from firepro3d.symbol_block import SymbolBlockItem
+    from firepro3d.symbol_block import _SymbolPaperMixin as M
+    from firepro3d.water_supply import WaterSupply
+    cls = {"Sprinkler": Sprinkler, "WaterSupply": WaterSupply}[cls_name]
+    mro = cls.__mro__
+    assert cls.__bases__[0] is M
+    assert mro.index(M) < mro.index(SymbolBlockItem)
+    if DisplayableItemMixin in mro:
+        assert mro.index(M) < mro.index(DisplayableItemMixin)
+    assert cls.enter_paper_pass is M.__dict__["enter_paper_pass"]
+    assert cls.exit_paper_pass is M.__dict__["exit_paper_pass"]
+
+
+@pytest.mark.parametrize("mode", ["row_off", "authored", "phase_color"])
+@pytest.mark.parametrize("make", list(_SYMBOL_KEY))
+def test_symbol_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                      make, mode):
+    """The base (Sprinkler, WaterSupply) branch: the two width hooks, the SVG
+    tint (row colour + fill off; phase colour + authored fill when the status
+    forces the colour), the row opacity; the exit puts the canvas tint, the
+    hooks and the opacity back."""
+    from firepro3d import phase_display
+    set_rows(paper_env, mode != "row_off")
+    ms, item = _symbol(request, make)
+    key = _SYMBOL_KEY[make]
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row(key), item, key)
+    cat["opacity"] = 60
+    if mode == "phase_color":
+        cat["color"] = "#00ff00"
+        cat[phase_display.FORCED] = frozenset({"color"})
+    tok = item.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert item._paper_pen_width == pytest.approx(ctx.lw_mm(cat) / SCALE)
+    assert item._paper_scale == SCALE
+    assert item.opacity() == pytest.approx(0.6)
+    if mode == "row_off":
+        assert (item._display_color, item._display_fill_color) == (
+            cat["color"], cat.get("fill"))
+    elif mode == "phase_color":
+        f = pd._model_colour_token(item, key, None, "fill")
+        assert (item._display_color, item._display_fill_color) == (
+            "#00ff00", f if f is not None else _CANVAS_TINT[1])
+    assert snapshot(ms) != before, "the enter changed nothing"
+    item.exit_paper_pass(tok)
+    assert (item._display_color, item._display_fill_color) == _CANVAS_TINT
+    assert (item._paper_pen_width, item._paper_scale) == (None, None)
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("make", list(_SYMBOL_KEY))
+def test_symbol_owner_enters_itself_through_the_driver(qapp, request, paper_env,
+                                                       real_system_library, make):
+    """One token for the symbol, its own exit (never the adapter)."""
+    set_rows(paper_env, False)
+    ms, item = _symbol(request, make)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-1500, -1500, 3000, 3000),
+                                     paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is item] == [item.exit_paper_pass]
+        assert item._paper_scale == SCALE
+        assert item._display_color == pd.load_paper_categories()[
+            _SYMBOL_KEY[make]]["color"]
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("make", list(_SYMBOL_KEY))
+def test_symbol_enter_raise_mid_write_unwinds_the_item(qapp, request, paper_env,
+                                                       real_system_library, make):
+    """D2: a raise at the opacity write (after the hooks and the tint) leaves
+    the symbol as it was, then re-raises."""
+    set_rows(paper_env, False)
+    ms, item = _symbol(request, make)
+    before = snapshot(ms)
+    seen = []
+    real = item.setOpacity
+
+    def boom(v):
+        if not seen:
+            seen.append((item._paper_scale, item._display_color))
+            raise RuntimeError("opacity")
+        real(v)
+
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    key = _SYMBOL_KEY[make]
+    cat = ctx.merge(ctx.row(key), item, key)
+    item.setOpacity = boom
+    try:
+        with pytest.raises(RuntimeError, match="opacity"):
+            item.enter_paper_pass(ctx, cat)
+    finally:
+        del item.setOpacity
+    assert seen == [(SCALE, cat["color"])], "the raise came after the hook and tint writes"
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("make", list(_SYMBOL_KEY))
+def test_nothing_maps_onto_a_symbol_owner(qapp, request, paper_env,
+                                          real_system_library, make):
+    """D5: a sprinkler / water supply owns no paper children -- no scene item
+    maps onto it, and the sprinkler itself maps onto nothing (its node's pass
+    never takes it)."""
+    ms, item = _symbol(request, make)
+    assert pp._owner_of(item) is item
+    assert not [it for it in ms.items() if it is not item and pp._owner_of(it) is item]

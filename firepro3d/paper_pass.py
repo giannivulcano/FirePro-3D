@@ -257,8 +257,10 @@ def _migrated() -> tuple:
     from .roof import RoofItem
     from .room import Room
     from .section_scene import _HostedBlockCopy, _SectionNoteCopy
+    from .sprinkler import Sprinkler
     from .wall import WallSegment
     from .wall_opening import WallOpening
+    from .water_supply import WaterSupply
     return (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node,
             # construction family (Task 4)
             PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
@@ -267,7 +269,9 @@ def _migrated() -> tuple:
             # subclasses the base ladder reached through isinstance
             BlockInstance, HydraulicNodeBadge, _HostedBlockCopy, _SectionNoteCopy,
             # pipe (Task 6): enters its riser symbol and its label (D5)
-            Pipe)
+            Pipe,
+            # symbol path (Task 8): no subclass of either; nothing maps onto them
+            Sprinkler, WaterSupply)
 
 
 def _owner_of(item):

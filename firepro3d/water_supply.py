@@ -22,11 +22,13 @@ from .constants import DEFAULT_LEVEL, Z_WATER_SUPPLY
 from . import phase_registry
 from . import element_uid
 from .paper_display import shows_selection
-from .symbol_block import SymbolBlockItem
+from .symbol_block import SymbolBlockItem, _SymbolPaperMixin
 
 
-class WaterSupply(SymbolBlockItem):
+class WaterSupply(_SymbolPaperMixin, SymbolBlockItem):
     """Water supply / connection node -- placed once per drawing on a pipe node."""
+
+    paper_category = "Water Supply"     # paper row (paper-space.md s6.2, R5)
 
     def __init__(self, x: float = 0, y: float = 0):
         super().__init__("Water Supply")
