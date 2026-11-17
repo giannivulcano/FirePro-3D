@@ -77,9 +77,9 @@ Placed tags are build phase 6 of the System Blocks concept: the first hosted ann
 
 ## Verification Checklist
 
-- [ ] Guards per AC, each shown RED with its rule reverted (VC3).
-- [ ] Keep-green: `test_sb5_*.py`, `test_hosted_blocks_*.py`, `test_sb2a_binding.py`, `test_sb3_parity.py`, `test_sb4a_hide_empty.py`, Note-block / text-leader tests, Display Manager tests.
-- [ ] Full chunked suite (VC6); seam review (VC9); user smoke of AC1–AC9.
+- [x] Guards per AC, each shown RED with its rule reverted (VC3).
+- [x] Keep-green: `test_sb5_*.py`, `test_hosted_blocks_*.py`, `test_sb2a_binding.py`, `test_sb3_parity.py`, `test_sb4a_hide_empty.py`, Note-block / text-leader tests, Display Manager tests.
+- [x] Seam review (VC9); user smoke of AC1–AC9 (2026-11-16, re-smoke after the D7 / D9 / D10 fixes). Full chunked suite (VC6) waived by the user; the targeted keep-green sets (1,300+ tests) passed on the merged tree.
 
 ## Edge Cases & Error Handling
 
