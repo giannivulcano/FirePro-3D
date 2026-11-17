@@ -30,7 +30,6 @@ import math
 from PyQt6.QtCore import QPointF, QRectF
 
 from . import text_leader as _tl
-
 from .constants import TAG_ORIENT_ALIGNED, TAG_ORIENT_HORIZONTAL
 
 ORIENTATIONS = (TAG_ORIENT_HORIZONTAL, TAG_ORIENT_ALIGNED)
