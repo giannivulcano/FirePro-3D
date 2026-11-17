@@ -67,6 +67,7 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from . import element_uid
+from . import element_store
 from . import hosted_dependents
 from .floor_opening import FloorOpening, drop_carried_voids
 from .feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
@@ -3885,26 +3886,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             "annotations":        annotations_data,
             "water_supply":       ws_data,
             "design_areas":       da_data,
-            # ── Draw geometry ──────────────────────────────────────────────
-            "polylines":          [pl.to_dict() for pl in self._polylines],
-            "draw_lines":         [l.to_dict()  for l in self._draw_lines],
-            "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
-            "draw_circles":       [c.to_dict()  for c in self._draw_circles],
-            "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
-            "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
-            "draw_splines":       [s.to_dict()  for s in self._draw_splines],
-            "filled_regions":     [r.to_dict()  for r in self._filled_regions],
-            "polygons":           [p.to_dict()  for p in self._draw_polygons],
-            "texts":              [t.to_dict()  for t in self._texts],
-            "gridlines":          [gl.to_dict() for gl in self._gridlines],
-            # ── Walls & Floors ────────────────────────────────────────────
-            "walls":              [w.to_dict()  for w in self._walls],
-            "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],  # two-boundary schema via to_dict (parity w/ scene_io)
-            "roofs":              [r.to_dict()  for r in self._roofs],
-            "rooms":              [r.to_dict()  for r in self._rooms],
-            "block_definitions":  {bid: d.to_dict()
-                                   for bid, d in self._block_definitions.items()},
-            "blocks":             [inst.to_dict() for inst in self._block_instances],
+            # Element rows, in row order (docs/specs/element-store.md D4)
+            **element_store.capture_records(self),
             "constraints":        self.constraint_ctl.capture(),
             # Block Editor capability (D-A32 / LT4); None elsewhere.
             "block_capability": ([self.block_capability[0],
@@ -4081,208 +4064,27 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 apply_category_defaults(da)  # Class-A display tail (undo self-contained)
                 # Tiles recomputed after walls & rooms restore below
 
-            # ── Draw geometry ──────────────────────────────────────────────
-            # Remove existing items from scene and lists
-            for pl in list(self._polylines):
-                if pl.scene() is self:
-                    self.removeItem(pl)
-            self._polylines.clear()
-
-            for item in list(self._draw_lines):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_lines.clear()
-
-            for item in list(self._draw_rects):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_rects.clear()
-
-            for item in list(self._draw_circles):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_circles.clear()
-
-            for item in list(self._draw_arcs):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_arcs.clear()
-
-            for item in list(self._draw_ellipses):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_ellipses.clear()
-
-            for item in list(self._draw_splines):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_splines.clear()
-
-            for item in list(self._filled_regions):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._filled_regions.clear()
-
-            for item in list(self._draw_polygons):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_polygons.clear()
-
-            for item in list(self._texts):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._texts.clear()
-
-            for gl in list(self._gridlines):
-                if gl.scene() is self:
-                    self.removeItem(gl)
-            self._gridlines.clear()
-
-            # Detach first: a wall's join pool is ``_walls``, so removing with
-            # every wall still listed rebuilds neighbours per removal (quadratic).
-            doomed_walls = list(self._walls)
-            self._walls.clear()
-            for w in doomed_walls:
-                for op in w.openings:
-                    if op.scene() is self:
-                        self.removeItem(op)
-                if w.scene() is self:
-                    self.removeItem(w)
-
-            for fs in list(self._floor_slabs):
-                for op in fs.openings:          # voids before their slab (A2)
-                    if op.scene() is self:
-                        self.removeItem(op)
-                if fs.scene() is self:
-                    self.removeItem(fs)
-            self._floor_slabs.clear()
-
-            for r in list(self._roofs):
-                if r.scene() is self:
-                    self.removeItem(r)
-            self._roofs.clear()
-
-            for rm in list(self._rooms):
-                if rm.scene() is self:
-                    self.removeItem(rm)
-            self._rooms.clear()
-
-            for inst in list(self._block_instances):
-                if inst.scene() is self:
-                    self.removeItem(inst)
-            self._block_instances.clear()
+            # ── Element rows (docs/specs/element-store.md D4) ─────────────
+            element_store.remove_for_restore(self)
             # Session-only library source files survive the rebuild (by id):
             # Save's re-file rule needs them (block-system.md "Library on disk").
             sources = {bid: d.source_path for bid, d in self._block_definitions.items()
                        if d.source_path}
             self._block_definitions.clear()
-
-            # Restore from snapshot
-            for d in state.get("polylines", []):
-                pl = PolylineItem.from_dict(d)
-                self.addItem(pl)
-                self._polylines.append(pl)
-
-            for d in state.get("draw_lines", []):
-                li = LineItem.from_dict(d)
-                self.addItem(li)
-                self._draw_lines.append(li)
-
-            # Legacy snapshot key (RG3): reference lines load as flagged
-            # LineItems (a ``reference_line`` record sets ``reference``).
-            for d in state.get("reference_lines", []):
-                rli = LineItem.from_dict(d)
-                self.addItem(rli)
-                self._draw_lines.append(rli)
-
-            for d in state.get("draw_rectangles", []):
-                ri = RectangleItem.from_dict(d)
-                self.addItem(ri)
-                self._draw_rects.append(ri)
-
-            for d in state.get("draw_circles", []):
-                ci = CircleItem.from_dict(d)
-                self.addItem(ci)
-                self._draw_circles.append(ci)
-
-            for d in state.get("draw_arcs", []):
-                ai = ArcItem.from_dict(d)
-                self.addItem(ai)
-                self._draw_arcs.append(ai)
-
-            for d in state.get("draw_ellipses", []):
-                ei = EllipseItem.from_dict(d)
-                self.addItem(ei)
-                self._draw_ellipses.append(ei)
-
-            for d in state.get("draw_splines", []):
-                si = SplineItem.from_dict(d)
-                self.addItem(si)
-                self._draw_splines.append(si)
-
-            for d in state.get("filled_regions", []):
-                fr = FilledRegionItem.from_dict(d)
-                self.addItem(fr)
-                self._filled_regions.append(fr)
-
-            for d in state.get("polygons", []):
-                pg = RegularPolygonItem.from_dict(d)
-                self.addItem(pg)
-                self._draw_polygons.append(pg)
-
-            for d in state.get("texts", []):
-                ti = TextItem.from_dict(d)
-                self.addItem(ti)
-                self._texts.append(ti)
-
-            for d in state.get("gridlines", []):
-                gl = GridlineItem.from_dict(d)
-                self.addItem(gl)
-                self._gridlines.append(gl)
-            sync_grid_counters(self._gridlines)
-            apply_duplicate_warnings(self._gridlines)
-
-            # ── Walls & Floors ────────────────────────────────────────────
-            for d in state.get("walls", []):
-                wall = WallSegment.from_dict(d)
-                self.addItem(wall)
-                self._walls.append(wall)
-                for op_data in d.get("openings", []):
-                    op = WallOpening.from_dict(op_data, wall=wall)
-                    wall.openings.append(op)
-                    self.addItem(op)
-
-            for d in state.get("floor_slabs", []):
-                slab = FloorSlab.from_dict(d)
-                self.addItem(slab)
-                self._floor_slabs.append(slab)
-                for op in slab.openings:        # owned voids (from_dict re-attached them)
-                    self.addItem(op)
-
-            for d in state.get("roofs", []):
-                roof = RoofItem.from_dict(d)
-                self.addItem(roof)
-                self._roofs.append(roof)
-
-            for d in state.get("rooms", []):
-                room = Room.from_dict(d)
-                room._scale_manager_ref = self.scale_manager
-                self.addItem(room)
-                self._rooms.append(room)
-
             from .block_definition import BlockDefinition
-            for bid, ddict in state.get("block_definitions", {}).items():
-                self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
-                self._block_definitions[bid].source_path = sources.get(bid)
-            from .block_instance import BlockInstance
-            for bdict in state.get("blocks", []):
-                _pos = bdict.get("pos", [0.0, 0.0])
-                inst = self.place_block_instance(
-                    bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
-                    **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
-                if inst is None:     # hosted on a gridline that is gone (Task 5 counts)
-                    continue
-                inst.attributes = dict(bdict.get("attributes", {}))
+
+            def _restore_definitions():
+                for bid, ddict in state.get("block_definitions", {}).items():
+                    self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+                    self._block_definitions[bid].source_path = sources.get(bid)
+
+            def _gridline_tail():
+                sync_grid_counters(self._gridlines)
+                apply_duplicate_warnings(self._gridlines)
+
+            element_store.build_rows(
+                self, state, element_store.BuildContext("restore"), key="undo_key",
+                after_gridlines=_gridline_tail, before_blocks=_restore_definitions)
             self.blockDefinitionsChanged.emit()
 
             # Recompute auto-name counters (parity with load_from_file) so the

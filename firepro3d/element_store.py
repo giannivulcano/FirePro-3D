@@ -176,3 +176,64 @@ CONSTRAINT_PLAN_ORDER = ("_walls", "_gridlines", "_block_instances")
 def role_attrs(role) -> set:
     """The row attrs carrying *role* (G4's check of the order tuples)."""
     return {r.attr for r in KINDS if role in r.constraint_roles}
+
+
+# -- undo capture / restore (spec D4) -------------------------------------------
+def _definitions_record(scene) -> dict:
+    return {bid: d.to_dict() for bid, d in scene._block_definitions.items()}
+
+
+def capture_records(scene) -> dict:
+    """Undo-snapshot records of every non-codec row, in row order; the
+    ``block_definitions`` registry (D3) splices in before the blocks row."""
+    out = {}
+    for row in KINDS:
+        if row.codec_owned:
+            continue
+        if row.attr == "_block_instances":
+            out["block_definitions"] = _definitions_record(scene)
+        out[row.undo_key] = [i.to_dict() for i in getattr(scene, row.attr)]
+    return out
+
+
+_DETACH_FIRST = ("_walls",)   # a wall's join pool is ``_walls``: removing with every
+                              # wall still listed rebuilds neighbours per removal
+
+
+def remove_for_restore(scene) -> None:
+    """Restore's removal: owned children before their owner; lists cleared in place."""
+    for row in KINDS:
+        if row.codec_owned:
+            continue
+        lst = getattr(scene, row.attr)
+        doomed = list(lst)
+        if row.attr in _DETACH_FIRST:
+            lst.clear()
+        for item in doomed:
+            if row.children is not None:
+                for ch in row.children(item):
+                    if ch.scene() is scene:
+                        scene.removeItem(ch)
+            if item.scene() is scene:
+                scene.removeItem(item)
+        lst.clear()
+
+
+def build_rows(scene, source: dict, ctx: BuildContext, *, key: str,
+               after_gridlines=None, before_blocks=None) -> None:
+    """Build every non-codec row from *source* by ``key`` (``"undo_key"`` or
+    ``"file_key"``) in row order. ``legacy_keys`` are read on restore only."""
+    for row in KINDS:
+        if row.codec_owned:
+            continue
+        rkey = getattr(row, key)
+        if rkey is None:
+            continue
+        if row.attr == "_block_instances" and before_blocks is not None:
+            before_blocks()
+        keys = (rkey,) + (row.legacy_keys if key == "undo_key" else ())
+        for k in keys:
+            for rec in source.get(k, []):
+                row.build(scene, rec, ctx)
+        if row.attr == "_gridlines" and after_gridlines is not None:
+            after_gridlines()
