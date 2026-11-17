@@ -1880,7 +1880,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
             lambda: self._set_tag_leader(self._tag_leader_btn.isChecked()),
             checkable=True)
         self._arch_tag_leader_gate = (self._tag_leader_btn,
-                                      "New tags get a straight leader to their host")
+                                      "New tags get a leader to their host")
         self._ann_dimension_btn = g_ann.add_small_button(
             "Dimension", _I("dimension_icon.svg"), None)
         self._ann_keyed_btn = g_ann.add_small_button(
@@ -4887,7 +4887,7 @@ class MainWindow(FramelessShellMixin, QMainWindow):
 
     def _set_tag_leader(self, on: bool) -> None:
         """SB6 D8 / R5: the Annotations Leader toggle -- whether new tags get a
-        straight leader (the plan scene's ``tag_leader_on``; off by default)."""
+        Note-style leader (D9; the plan scene's ``tag_leader_on``; off by default)."""
         self.scene.tag_leader_on = bool(on)
 
     def _init_build_tab(self, _I):
