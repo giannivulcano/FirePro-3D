@@ -89,7 +89,13 @@ class TagPlacementController:
             g.refresh_bound()
             g.set_block_pos(0.0, 0.0)
             self.ghost, self._ghost_key = g, key
-            s._move_ghost_base = ghost_base_paths([g])
+            # Off-scene the prototype has no annotative factor of its own
+            # (it would trace at authored mm, a sub-pixel dot): scale its
+            # trace about the origin to the size the placed tag gets here.
+            from .annotative import factor_on
+            k = factor_on(g.definition(), s)
+            sx = QTransform.fromScale(k, k)
+            s._move_ghost_base = [sx.map(p) for p in ghost_base_paths([g])]
         s._move_ghost = GhostFrame(s._move_ghost_base,
                                    QTransform.fromTranslate(snapped.x(), snapped.y()))
         for v in s.views():

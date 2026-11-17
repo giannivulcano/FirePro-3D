@@ -88,3 +88,31 @@ def test_gc3_hidden_wall_is_not_taggable(qapp, real_system_library):
         assert tags_of(scene) == [] and scene._undo_pos == p0
     finally:
         close_view(view, scene)
+
+
+def _united_rect(paths):
+    from PyQt6.QtCore import QRectF
+    r = QRectF()
+    for p in paths:
+        r = r.united(p.boundingRect())
+    return r
+
+
+def test_d7_hover_ghost_is_traced_at_the_placed_tag_size(qapp, real_system_library):
+    """Smoke S2: the off-scene ghost was traced at authored mm (~10 scene units, a
+    sub-pixel dot at 1:100); it must match the tag the click then places."""
+    from firepro3d.transform_ghost import ghost_base_paths
+    view, scene = make_view(role="plan", scale=0.1)
+    try:
+        _armed(view, scene)
+        assert scene.scale_manager.drawing_scale == pytest.approx(100.0)
+        move(view, QPointF(800.0, 0.0))                                   # over the wall
+        ghost = _united_rect(scene._move_ghost_base)
+        click(view, QPointF(800.0, 0.0))
+        (tag,) = tags_of(scene)
+        placed = _united_rect(ghost_base_paths([tag]))
+        assert placed.width() > 100.0 and placed.height() > 100.0
+        assert ghost.width() == pytest.approx(placed.width(), rel=0.03)    # [RED: authored mm]
+        assert ghost.height() == pytest.approx(placed.height(), rel=0.03)
+    finally:
+        close_view(view, scene)

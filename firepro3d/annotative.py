@@ -79,9 +79,14 @@ def frame_scaled(item, defn=None) -> bool:
     resolve it here)."""
     if defn is None:
         defn = item.definition()
-    if not is_annotative(defn) or item._paper_scale:
+    return _frame_scaled_on(defn, item.scene(), item._paper_scale)
+
+
+def _frame_scaled_on(defn, sc, paper_scale=None) -> bool:
+    """:func:`frame_scaled` for definition *defn* on scene *sc* without an
+    item (*paper_scale* = the paper pass's S, None / 0 off paper)."""
+    if not is_annotative(defn) or paper_scale:
         return False
-    sc = item.scene()
     role = getattr(sc, "scene_role", None) if sc is not None else None
     return (role == _PLAN_ROLE and screen_mode(defn) == SCREEN_FIXED
             and _lr.screen_fixed_here(paper_scale=None, role=role))
@@ -127,16 +132,33 @@ def annotative_factor(item, painter=None, defn=None) -> float:
     with zoom) -> the project drawing scale.
     """
     d = defn if defn is not None else item.definition()
-    if not is_annotative(d):
+    return factor_on(d, item.scene(), painter, item._paper_scale)
+
+
+def factor_on(defn, sc, painter=None, paper_scale=None) -> float:
+    """Scene units per authored mm for definition *defn* on scene *sc*,
+    without an item -- the one implementation behind
+    :func:`annotative_factor` (see it for the table). The SB6 tag tool
+    traces its off-scene hover ghost with it at the size the placed tag
+    will get on *sc* (D7).
+
+    Args:
+        defn: The BlockDefinition (or None -> 1).
+        sc: The scene the block is (or will be) on; None -> 1.
+        painter: The paint pass's painter (Fixed size reads its device
+            scale), or None for a bounds read (the visible-view zoom).
+        paper_scale: The paper pass's S (paper mm per model mm), None / 0
+            off paper.
+    """
+    if not is_annotative(defn):
         return 1.0
-    if item._paper_scale:
-        return 1.0 / item._paper_scale
-    sc = item.scene()
+    if paper_scale:
+        return 1.0 / paper_scale
     if _is_section_canvas(sc):
         return _drawing_scale(sc)
     if sc is None or getattr(sc, "scene_role", None) != _PLAN_ROLE:
         return 1.0
-    if frame_scaled(item, d):
+    if _frame_scaled_on(defn, sc, paper_scale):
         if painter is not None:
             from .hatch_render import _device_scale
             dev = _device_scale(painter)
