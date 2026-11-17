@@ -17,6 +17,13 @@ from PyQt6 import QtCore as _QtCore
 from PyQt6.QtWidgets import QApplication
 
 
+def pytest_addoption(parser):
+    """``--regen-paper-pass-golden``: rewrite tests/data/paper_pass_parity.json
+    (paper pass protocol Task 1) instead of asserting against it."""
+    parser.addoption("--regen-paper-pass-golden", action="store_true", default=False,
+                     help="regenerate tests/data/paper_pass_parity.json")
+
+
 # ── QSettings isolation (#312) ──────────────────────────────────────────────
 # Windows NativeFormat ignores setPath()/setDefaultFormat(), so the ONLY reliable
 # way to keep the ~90 ``QSettings("GV","FirePro3D")`` sites off the real dev
