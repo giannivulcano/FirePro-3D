@@ -215,6 +215,9 @@ class BlockInstance(QGraphicsObject):
         # WM3 D3: the paper "Blocks" colour a By Category placement Colour
         # (token:blocks) paints in during a viewport pass; None on canvas.
         self._paper_blocks_colour: Optional[QColor] = None
+        # PH3 DD4: the colour a phase Fill paints every fill / pattern op in
+        # during a viewport pass (whole instance); None on canvas.
+        self._paper_fill_colour: Optional[QColor] = None
         # Paper mm per model mm during a viewport pass (LT2-5); None on canvas.
         self._paper_scale: Optional[float] = None
         # Placement-ghost preview (Model_Space._place_block_make_ghost): draws
@@ -2110,7 +2113,8 @@ class BlockInstance(QGraphicsObject):
 
         all_ends = end_ops | jm[1] if jm is not None else end_ops
         _paint_ops(painter, ops, pose, self, override=override, selected=selected,
-                   tint=tint, end_ops=all_ends, ends=ends if all_ends else None)
+                   tint=tint, end_ops=all_ends, ends=ends if all_ends else None,
+                   fill_override=self._paper_fill_colour)   # PH3 DD4 plain path
         return tuple(dict.fromkeys(miss))
 
     def _stroke_op(self, painter, ops, i, op, pose, pen, xf=None,
@@ -2259,7 +2263,7 @@ class BlockInstance(QGraphicsObject):
 
     def _paint_fill_op(self, painter, pose, op) -> None:
         """``render_op.paint_fill_op`` on this instance (D-A11)."""
-        _paint_fill_op_fn(self, painter, pose, op)
+        _paint_fill_op_fn(self, painter, pose, op, self._paper_fill_colour)   # PH3 DD4 linetype path
 
     def _display_pen_color(self) -> Optional[QColor]:
         """Hook for display-manager 'Blocks' category colour + pre-highlight.

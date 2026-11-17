@@ -190,9 +190,12 @@ def _reset_phase_registry():
     from firepro3d import phase_registry as _pr
     _pr._TABLE = None
     _pr._UNKNOWN_LOGGED.clear()
+    from firepro3d import phase_display as _phd  # PH3: pass context is module global too
+    _phd._STACK.clear()
     yield
     _pr._TABLE = None
     _pr._UNKNOWN_LOGGED.clear()
+    _phd._STACK.clear()
 
 
 @pytest.fixture(autouse=True)

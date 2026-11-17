@@ -2535,6 +2535,7 @@ class DisplayManager(HouseDialog):
         (delegates to :func:`weight_refs.retarget_weight_refs`)."""
         from .weight_refs import retarget_weight_refs
         retarget_weight_refs(self._scene, self._settings, {old: new})
+        self._phases_tab.retarget_weights({old: new})   # PH3 DD6: the working copy follows
 
     def _on_lw_cell_changed(self, row, col):
         old_def = self._lw_row_def.get(row)
@@ -2689,6 +2690,7 @@ class DisplayManager(HouseDialog):
             journal = retarget_weight_refs(
                 self._scene, self._settings,
                 {k: chosen for k in (lw.name, *stale)})
+            self._phases_tab.retarget_weights({k: chosen for k in (lw.name, *stale)})   # PH3 DD6
             self._lw_ops.append(("delete", journal))
             deleted_to = chosen
         else:
@@ -2770,6 +2772,7 @@ class DisplayManager(HouseDialog):
             phase_registry.set_project_table(work.copy())
             self._scene._dirty = True
             self._scene.sceneModified.emit()
+            self._apply_paper_preview()     # PH3: an open sheet re-plots the new graphics
         for cat_def in _CATEGORIES:
             key = cat_def["key"]
             # One writer (HF5): the shared helper stores the category's values.
