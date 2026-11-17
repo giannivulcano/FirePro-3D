@@ -8,9 +8,16 @@ from firepro3d.paper_space import ViewResolver
 
 
 def make_wall(scene, p1, p2, level):
-    """Create a real WallSegment on *level*, registered so apply_to_scene governs it."""
+    """Create a real WallSegment on *level*, registered so apply_to_scene governs it.
+
+    Based on *level* with its top one own height above (as a wall drawn on that
+    level in the app: Base Level sets ``.level`` too), so its vertical extent
+    resolves to that level's band (wall-room-floor-system, Vertical extent).
+    """
     w = WallSegment(QPointF(*p1), QPointF(*p2))
     w.level = level
+    w._base_level = w._top_level = level
+    w._top_offset_mm = w._height_mm
     scene._walls.append(w)
     scene.addItem(w)
     return w
@@ -46,6 +53,7 @@ def build_isolation_fixture(distinct_y: bool = False):
     """
     ms = Model_Space()
     lm = LevelManager()                       # DEFAULT_LEVELS: Level 1/2/3
+    ms._level_manager = lm                    # as main.py wires it
     pvm = PlanViewManager()
     pvm.create("Level 1", lm)
     pvm.create("Level 3", lm)
