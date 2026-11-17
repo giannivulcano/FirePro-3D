@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "system-tags-walltag",
+  "version": 1,
+  "name": "WallTag",
+  "library": "System",
+  "series": "Tags",
+  "scale_mode": "annotative",
+  "origin": [0.0, 0.0],
+  "attributes": [
+    {"key": "Mark", "label": "Mark", "type": "text", "source": "host", "host_key": "Mark",
+     "default": "", "prefix": "", "suffix": "", "precision": 0, "placeholder": "?"}
+  ],
+  "host_category": "Wall",
+  "primitives": [
+    {
+      "type": "polyline",
+      "points": [[5.0, 0.0], [2.5, 4.330127018922193], [-2.5, 4.330127018922193],
+                 [-5.0, 0.0], [-2.5, -4.330127018922193], [2.5, -4.330127018922193]],
+      "closed": true,
+      "uid": "5b1f0c2e8d4a4f6b9e3a7c1d2f4e6a01",
+      "style": {"linetype": "continuous", "weight": "by_linetype",
+                "start": {"end": "by_linetype", "visible": true},
+                "finish": {"end": "by_linetype", "visible": true},
+                "colour": "token:auto"}
+    },
+    {
+      "type": "text", "text": "@[Mark]", "x": -3.5, "y": -2.5, "height_mm": 2.5,
+      "wrap_width_mm": 7.0, "box_height_mm": 5.0, "font_family": "Arial",
+      "bold": false, "italic": false, "underline": false, "color": "token:auto",
+      "align": "C", "valign": "M", "fill_color": "", "fill_opacity": 100.0,
+      "cell_padding_mm": 0.0, "border": false, "border_weight": "Thinner",
+      "border_line_type": "solid", "border_corner": "round", "border_corner_radius_mm": 1.0,
+      "angle": 0.0, "keep_upright": true, "uid": "5b1f0c2e8d4a4f6b9e3a7c1d2f4e6a02"
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": null,
+  "base_version": 1,
+  "colour_tokens": 1,
+  "weights": {"Thinner": 0.25}
+}

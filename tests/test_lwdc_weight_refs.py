@@ -5,6 +5,7 @@ import pytest
 from PyQt6.QtCore import QPointF, QSettings
 
 from firepro3d import paper_display as pd
+from firepro3d import phase_registry as pr
 from firepro3d import weight_refs as wr
 from firepro3d.block_definition import BlockDefinition
 from firepro3d.geometry_2d import LineItem
@@ -17,8 +18,9 @@ from tests.test_leader_dependencies import LEADER, _note_def, _note_with_leader
 from tests.wm2_support import nested_record, sprinkler_def
 
 ALL_KINDS = {"ann", "lead_ann", "item", "lead_item", "raw", "inst",
-             "lead_inst", "style_inst", "prim", "lead_prim", "sprim", "nrec"}
-# one per sweep kind (12) + Blocks + 1 category + underlay default + layer
+             "lead_inst", "style_inst", "prim", "lead_prim", "sprim", "nrec",
+             "phase"}               # PH3 DD6: a status's Line Wt
+# one per sweep kind (13) + Blocks + 1 category + underlay default + layer
 A_HOLDERS = len(ALL_KINDS) + 4
 
 
@@ -33,6 +35,7 @@ def _table():
     pd.set_weight_aliases({})
     pd.set_model_blocks_weight(None)
     pd.reset_project_line_weights()
+    pr.reset_project_table()
 
 
 @pytest.fixture
@@ -98,6 +101,8 @@ def _world(settings, a="A", b="B"):
     ms.register_block_definition(_note_def())
     note = _note_with_leader(ms, end="none", weight=a)
     note.note["style"] = {"border_weight": a}
+    # one phase status's Line Wt (PH3 DD6, live registry)
+    pr.project_table().set_graphic(pr.PHASE_EXISTING, "weight", a)
     return ms, {"rec": rec, "ann": ann, "txt": txt, "ln": ln, "lb": lb,
                 "inst": inst, "note": note, "host": host}
 

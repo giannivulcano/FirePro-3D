@@ -65,7 +65,8 @@ def _scene():
 
 def test_categories_and_defaults_table_shape():
     assert ANNOTATION_CATEGORIES == ("Room", "Pipe", "Gridline", "Level",
-                                     "Elevation", "Section", "Detail", "View Title", "Hydraulic Node")   # SB4d D2, SB4f, SB4e
+                                     "Elevation", "Section", "Detail", "View Title", "Hydraulic Node",
+                                     "Wall", "Door", "Window", "Opening")   # SB4d D2, SB4f, SB4e, SB6 D13
     assert isinstance(SYSTEM_DEFAULTS, dict)
     assert all(k in ANNOTATION_CATEGORIES for k in SYSTEM_DEFAULTS)
 

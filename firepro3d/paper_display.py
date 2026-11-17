@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QSettings
 
+from . import phase_display
 from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
@@ -1279,8 +1280,9 @@ def _apply_generic(item, cat, authored, lw_mm, paper_scale: float = 1.0):
     ``_paper_pen_width`` (true on-paper mm in model units, §9.9.1) is read by
     ``DisplayableItemMixin._outline_pen`` in the outline-painting items.
     """
-    if not authored:
+    if phase_display.writes(cat, authored, "color"):     # DD2: a phase-forced slot writes
         item._display_color = cat["color"]
+    if phase_display.writes(cat, authored, "fill"):      # in an As Authored row too
         if hasattr(item, "_display_fill_color") and cat["fill"] is not None:
             item._display_fill_color = cat["fill"]
         if hasattr(item, "_display_section_color") and cat["section_color"] is not None:
@@ -1356,7 +1358,7 @@ def _apply_pipe(pipe, cat, authored, lw_mm, paper_scale):
     scales (the line reads as invisible on the sheet). Dividing by ``paper_scale``
     makes it plot at exactly ``lw_mm`` on paper regardless of viewport scale.
     """
-    if not authored:
+    if phase_display.writes(cat, authored, "color"):     # DD2
         pipe._display_color = cat["color"]
     pipe._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     pipe.setOpacity(cat["opacity"] / 100.0)
@@ -1375,6 +1377,8 @@ def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
     two hooks instead. Fill / pattern ops stay under the hatch rules.
     *blocks_hook* (WM3 D3): True only from the "Blocks" category branch --
     caches the paper "Blocks" colour for ``token:blocks``.
+    A phase-forced colour applies in an As Authored row too (DD2); a phase Fill
+    sets ``_paper_fill_colour`` (DD4, "Blocks" branch only).
     """
     from PyQt6.QtGui import QColor
     from .annotative import is_annotative
@@ -1382,10 +1386,14 @@ def _apply_block(inst, cat, authored, lw_mm, paper_scale, blocks_hook=False):
         inst.prepareGeometryChange()     # SB1c D6: paper size != model bounds
     inst._paper_pen_width = lw_mm / max(paper_scale, 1e-9)
     inst._paper_scale = paper_scale          # named op weights (LT2-5)
-    inst._paper_pen_color = None if authored else _paper_qcolor(cat["color"], inst)
+    inst._paper_pen_color = (_paper_qcolor(cat["color"], inst)
+                             if phase_display.writes(cat, authored, "color") else None)
     if blocks_hook:
         # WM3 D3 + task ruling 6: By Category on paper.
         inst._paper_blocks_colour = _paper_qcolor(paper_blocks_value(cat), inst)
+        # PH3 DD4: a phase Fill paints the instance's fill / pattern ops.
+        inst._paper_fill_colour = (_paper_qcolor(cat["fill"], inst)
+                                   if phase_display.forced(cat, "fill") else None)
     inst.setOpacity(cat["opacity"] / 100.0)
     inst.update()
 
@@ -1499,6 +1507,23 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
     }
 
 
+def _hide_phase_hidden_mask(item, saved: list) -> None:
+    """PH3: an item with no paper category that only follows a host's Hide (a
+    section slab's occlusion mask) must not occlude when the host's status is
+    hidden. Saved first, so restore_model_display re-shows it."""
+    disp = phase_display.active()
+    if disp is None:                    # Phasing off: no lookups (AC4r)
+        return
+    from PyQt6.QtWidgets import QGraphicsItem
+    from .phase_registry import effective_phase
+    from .section_scene import _ROLE_HIDE_SOURCE
+    if QGraphicsItem.data(item, _ROLE_HIDE_SOURCE) is None:
+        return
+    if effective_phase(item) in disp.hidden:
+        saved.append({"item": item, "cat_key": None, "visible": item.isVisible()})
+        item.setVisible(False)
+
+
 def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                           source_view_key: str = "", viewport_data=None) -> list[dict]:
     """Temporarily mutate visible items to paper-space display settings.
@@ -1552,6 +1577,20 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
         _set_svg_tint(it, c if c is not None else getattr(owner, "_display_color", None),
                       f if f is not None else getattr(owner, "_display_fill_color", None))
         return True
+
+    def _svg_phase_tint(it, owner, key, colour):
+        """DD2: a row-ON SVG symbol whose status forces the colour -- the
+        stroke takes *colour*, the fill keeps its authored value (a token
+        fill re-resolves on the paper surface, as in _svg_paper_retint)."""
+        f = _model_colour_token(owner, key, _tok_cache, "fill")
+        _set_svg_tint(it, colour,
+                      f if f is not None else getattr(owner, "_display_fill_color", None))
+
+    def _phase_keys(cat_key):
+        """D-PH13: sprinklers and water supplies (the plan SVG symbol and its
+        section / elevation proxy alike) take visibility, colour and opacity only."""
+        return (phase_display.SYMBOL_KEYS if cat_key in ("Sprinkler", "Water Supply")
+                else phase_display.ALL_KEYS)
     # Drafting-tile scale for the hatch renderer during THIS viewport render
     # (D-A30); cleared by restore_model_display. First entry → cleared even if
     # the pass fails part-way.
@@ -1613,10 +1652,12 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     continue
             cat_key = _category_for_item(item)
             if cat_key is None:
+                _hide_phase_hidden_mask(item, saved)
                 continue
-            cat = cats.get(cat_key)
-            if cat is None:
+            row = cats.get(cat_key)
+            if row is None:
                 continue
+            cat = phase_display.merge(row, item, keys=_phase_keys(cat_key))   # PH3 DD3
             authored = row_as_authored(cat)
             if getattr(item, "_paper_cat", None) is not None:
                 # Section / elevation proxy (AC2): the source category's
@@ -1641,8 +1682,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     if lab is not None:
                         lab.setVisible(False)
                     continue
-                if not authored:
+                if phase_display.writes(cat, authored, "color"):     # proxy pen (DD2)
                     item._pen_src = cat["color"]
+                if phase_display.writes(cat, authored, "fill"):      # proxy body (DD2)
                     if hasattr(item, "_section_src"):          # cut wall / slab
                         if cat.get("section_color") is not None:
                             item._section_src = cat["section_color"]
@@ -1659,9 +1701,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                                          / max(paper_scale, 1e-9))
                 item.setOpacity(cat["opacity"] / 100.0)
                 if lab is not None and lab.isVisible():
-                    _apply_block(lab, cat, authored,
-                                 resolve_line_weight_mm(cat["line_weight"]), paper_scale)
-                    lab.setOpacity(1.0)
+                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # proxy label (R4)
+                    _apply_block(lab, lab_cat, authored,
+                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
+                    lab.setOpacity(phase_display.label_opacity(lab_cat))
                 item.update()
                 continue
             if cat_key in ("Grid Line", "Level Datum") and hasattr(item, "enter_paper_pass"):
@@ -1717,6 +1760,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _l = item.label
                 entry["tag_paper"] = (_l._paper_pen_width, _l._paper_pen_color,
                                       _l._paper_scale)
+                entry["tag_opacity"] = _l.opacity()   # PH3 R4: a status opacity reaches the label
             elif isinstance(item, (Sprinkler, WaterSupply)):
                 entry["symbol_paper"] = (item._paper_pen_width, item._paper_scale)
             elif isinstance(item, GridlineItem):
@@ -1736,7 +1780,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["block_paper"] = (item._paper_pen_width,
                                         item._paper_pen_color,
                                         item._paper_scale,
-                                        getattr(item, "_paper_blocks_colour", None))
+                                        getattr(item, "_paper_blocks_colour", None),
+                                        getattr(item, "_paper_fill_colour", None))
             from .room import Room as _Room
             if isinstance(item, _Room):
                 _tag = item._tag
@@ -1768,8 +1813,10 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # is a BoundLabelItem and takes _apply_block's hooks; its
                 # opacity stays 1. A hidden label is skipped.
                 if item.label.isVisible():
-                    _apply_block(item.label, cat, authored, lw_mm, paper_scale)
-                    item.label.setOpacity(1.0)
+                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # pipe label (R4)
+                    _apply_block(item.label, lab_cat, authored,
+                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
+                    item.label.setOpacity(phase_display.label_opacity(lab_cat))
             elif isinstance(item, GridlineItem):
                 _apply_gridline(item, cat, authored, lw_mm, paper_scale,
                                 _auth_tok(item, cat_key, authored))
@@ -1789,6 +1836,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 item._paper_scale = paper_scale
                 if not authored:
                     _set_svg_tint(item, cat["color"], cat.get("fill"))
+                elif phase_display.forced(cat, "color"):          # DD2: phase colour, authored fill
+                    _svg_phase_tint(item, item, cat_key, cat["color"])
                 else:
                     _svg_paper_retint(item, item, cat_key)
                 item.setOpacity(cat["opacity"] / 100.0)
@@ -1819,19 +1868,22 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # from the parent). A hidden tag is skipped.
                 from .room import Room as _Room
                 if isinstance(item, _Room) and item._tag.isVisible():
-                    _apply_block(item._tag, cat, authored, lw_mm, paper_scale)
-                    item._tag.setOpacity(1.0)
+                    lab_cat = phase_display.merge(row, item, keys=phase_display.LABEL_KEYS)   # room tag (R4)
+                    _apply_block(item._tag, lab_cat, authored,
+                                 resolve_line_weight_mm(row["line_weight"]), paper_scale)
+                    item._tag.setOpacity(phase_display.label_opacity(lab_cat))
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
-            fitting_cat = cats.get("Fitting")
-            if fitting_cat is not None:
+            fitting_row = cats.get("Fitting")
+            if fitting_row is not None:
                 for node in scene.sprinkler_system.nodes:
                     f = node.fitting
                     if f is None or f.symbol is None or not f.symbol.isVisible():
                         continue
                     if not source_rect.contains(f.symbol.scenePos()):
                         continue
+                    fitting_cat = phase_display.merge(fitting_row, f, keys=phase_display.SYMBOL_KEYS)   # PH3 D-PH13
                     entry = {
                         "item": f.symbol,
                         "cat_key": "Fitting",
@@ -1852,13 +1904,15 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                         f._display_color = fitting_cat["color"]
                         f._display_fill_color = fitting_cat.get("fill")
                         entry["retinted"] = True
+                    elif phase_display.forced(fitting_cat, "color"):   # DD2: fitting phase colour
+                        _svg_phase_tint(f.symbol, f, "Fitting", fitting_cat["color"])
+                        entry["retinted"] = True
                     else:
                         entry["retinted"] = _svg_paper_retint(f.symbol, f, "Fitting")
                     f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
         # ── Underlays (§16.5) — records drive per-layer paper appearance ──
-        und_cat = cats.get("Underlay") or factory_paper_categories()["Underlay"]
-        und_auth = row_as_authored(und_cat)
+        und_row = cats.get("Underlay") or factory_paper_categories()["Underlay"]
         for record, group in getattr(scene, "underlays", []):
             if group is None:
                 continue
@@ -1868,11 +1922,19 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 continue
             if not group.sceneBoundingRect().intersects(source_rect):
                 continue
+            und_cat = phase_display.merge(und_row, record, keys=phase_display.UNDERLAY_KEYS)   # PH3 R5
+            und_auth = row_as_authored(und_cat)
+            und_col = phase_display.writes(und_cat, und_auth, "color")
             entry = {"underlay_group": group, "visible": was_visible,
-                     "children": []}
+                     "opacity": group.opacity(), "children": []}
             saved.append(entry)
             if not was_visible:
                 continue          # model-side hidden: leave untouched
+            if not und_cat.get("visible", True):   # PH3 R5: a hidden status
+                group.setVisible(False)
+                continue
+            if phase_display.forced(und_cat, "opacity"):
+                group.setOpacity(und_cat["opacity"] / 100.0)   # PH3 R5 opacity
             for child in group.childItems():
                 layer = child.data(1)
                 if layer is None or not isinstance(child, QGraphicsPathItem):
@@ -1882,7 +1944,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["children"].append({"item": child, "pen": child.pen(),
                                           "brush": child.brush()})
                 src = getattr(child, "_colour_src", None)
-                if not und_auth and is_token(src):
+                if und_col and is_token(src):
                     # Row OFF: a token layer colour re-resolves at paint and
                     # would ignore the row colour set below; drop it for the
                     # pass (restore puts it back). "" (No Fill) stays hidden.
@@ -1890,8 +1952,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                     child._colour_src = None
                 # D6: row ON -> the layer's effective colour; OFF -> the
                 # Underlay row colour (factory Automatic = black on paper).
-                colour = (_paper_qcolor(record.effective_layer_colour(layer))
-                          if und_auth else _paper_qcolor(und_cat["color"]))
+                colour = (_paper_qcolor(und_cat["color"]) if und_col
+                          else _paper_qcolor(record.effective_layer_colour(layer)))
                 if child.pen().style() == Qt.PenStyle.NoPen:
                     child.setBrush(QBrush(colour))      # text batch
                     continue
@@ -1962,6 +2024,8 @@ def restore_model_display(saved: list[dict]):
                     pass
             try:
                 entry["underlay_group"].setVisible(entry["visible"])
+                if "opacity" in entry:
+                    entry["underlay_group"].setOpacity(entry["opacity"])   # PH3 R5 restore
             except RuntimeError:
                 pass
             continue
@@ -2027,6 +2091,8 @@ def restore_model_display(saved: list[dict]):
                     _l.prepareGeometryChange()       # SB1c D6
                 (_l._paper_pen_width, _l._paper_pen_color,
                  _l._paper_scale) = entry["tag_paper"]
+                if "tag_opacity" in entry:
+                    _l.setOpacity(entry["tag_opacity"])   # PH3 R4 restore
                 _l.update()
             item.update()
             item.repaint_riser()            # SB4g R4: colour restored above
@@ -2085,7 +2151,8 @@ def restore_model_display(saved: list[dict]):
             if is_annotative(item.definition()):
                 item.prepareGeometryChange()     # SB1c D6
             (item._paper_pen_width, item._paper_pen_color, item._paper_scale,
-             item._paper_blocks_colour) = entry.get("block_paper", (None, None, None, None))
+             item._paper_blocks_colour,
+             item._paper_fill_colour) = entry.get("block_paper", (None,) * 5)
             item.update()
 
         elif cat_key == "Construction":

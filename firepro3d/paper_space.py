@@ -32,6 +32,7 @@ from .constants import (
 )
 from .colour_tokens import normalize_colour, resolve_colour
 from .scale_manager import ScaleManager
+from .phase_display import PhaseDisplay, begin_pass as _begin_phase_pass, end_pass as _end_phase_pass
 from .text_item import TextAnnotationData, TextItem, editing_text_item  # shared data model + unified text primitive (C5); re-exported for callers
 from .text_item import (  # text-height pt/mm helpers -- one home in text_item (D2); re-exported for callers
     MM_PER_PT, _font_pt_from_mm, _format_height_pt, _mm_from_font_pt,
@@ -319,7 +320,9 @@ class SheetViewData:
     viewport's paper output. ``show_title`` / ``title_offset`` = the view
     title's per-viewport visibility and its offset from the default spot
     (SB4f). ``title_line_mm`` = the view title line's right end, mm along the
-    line from the block origin; 0 = automatic (D3).
+    line from the block origin; 0 = automatic (D3). ``phase_display`` = this
+    viewport's Phasing tick and hidden statuses (PH3 DD5); the default is
+    off, so a record saved before phasing plots unchanged (D-PH6).
     """
     source_view_type: str
     source_view_name: str
@@ -336,6 +339,7 @@ class SheetViewData:
     show_title: bool = True
     title_offset: tuple[float, float] = (0.0, 0.0)
     title_line_mm: float = 0.0
+    phase_display: PhaseDisplay = field(default_factory=PhaseDisplay)
 
     def to_dict(self) -> dict:
         cr = self.crop_rect
@@ -354,6 +358,7 @@ class SheetViewData:
             "show_title": self.show_title,
             "title_offset": list(self.title_offset),
             "title_line_mm": self.title_line_mm,
+            "phase_display": self.phase_display.to_dict(),
         }
 
     @classmethod
@@ -375,6 +380,7 @@ class SheetViewData:
             show_title=d.get("show_title", True),
             title_offset=tuple(d.get("title_offset", (0.0, 0.0))),
             title_line_mm=d.get("title_line_mm", 0.0),
+            phase_display=PhaseDisplay.from_dict(d.get("phase_display")),
         )
 
 
@@ -851,8 +857,11 @@ class ViewportProperties:
     routes through PaperScene.commit_viewport_edit →
     ChangeViewportPropertiesCommand, so the size derivation has one home and
     every edit is undoable. Width/Height are derived (crop × scale) and shown
-    read-only.
+    read-only. With Phasing on, one Show row per status (PH3 DD5, R6); none on
+    a schematic viewport.
     """
+
+    SHOW_PREFIX = "Show "      # PH3: one "Show <status>" row per status (D-PH8)
 
     def __init__(self, scene, viewport):
         self._scene = scene
@@ -865,7 +874,7 @@ class ViewportProperties:
         if scale_val not in scale_opts:            # non-preset custom scale
             scale_opts = [scale_val] + scale_opts
         scale_opts.append(SCALE_CUSTOM)
-        return {
+        props = {
             "View": {"type": "label",
                      "value": self._vp.display_title() or d.source_view_name},
             # A schematic's Title field shows its live name until overridden.
@@ -886,6 +895,15 @@ class ViewportProperties:
             "Width": {"type": "label", "value": f"{d.w:.1f} mm"},
             "Height": {"type": "label", "value": f"{d.h:.1f} mm"},
         }
+        if not self._vp._is_schematic():   # PH3 D-PH8: never on a schematic viewport
+            pdsp = d.phase_display
+            props["Phasing"] = {"type": "bool", "value": pdsp.enabled}
+            if pdsp.enabled:                      # R6: Show rows only while Phasing is on
+                from . import phase_registry
+                for row in phase_registry.project_table().statuses():
+                    props[f"{self.SHOW_PREFIX}{row['name']}"] = {
+                        "type": "bool", "value": row["id"] not in pdsp.hidden}
+        return props
 
     def _reset_title(self) -> None:
         """Return the title to its default spot and automatic line (D4)."""
@@ -930,6 +948,15 @@ class ViewportProperties:
             self._scene.commit_viewport_edit(self._vp, view_number=number)
         elif key == "Show Title":
             self._scene.commit_viewport_edit(self._vp, show_title=bool(value))
+        elif key == "Phasing":
+            self._scene.commit_viewport_edit(
+                self._vp, phase_display=d.phase_display.with_enabled(bool(value)))
+        elif key.startswith(self.SHOW_PREFIX):
+            from . import phase_registry
+            sid = phase_registry.project_table().id_for_name(key[len(self.SHOW_PREFIX):])
+            if sid is not None:
+                self._scene.commit_viewport_edit(
+                    self._vp, phase_display=d.phase_display.with_shown(sid, bool(value)))
         elif key == "Position X":
             try:
                 x = float(value)
@@ -1584,12 +1611,16 @@ class SheetViewport(QGraphicsObject):
             iso = None
             try:
                 iso = self._begin_isolation()
-                saved = apply_paper_overrides(
-                    self._source_scene, crop,
-                    paper_scale=paper_scale,
-                    source_view_key=(f"{self._data.source_view_type}:"
-                                     f"{self._data.source_view_name}"),
-                    viewport_data=self._data)
+                _begin_phase_pass(self._data)    # PH3 DD3: this viewport's Phasing
+                try:
+                    saved = apply_paper_overrides(
+                        self._source_scene, crop,
+                        paper_scale=paper_scale,
+                        source_view_key=(f"{self._data.source_view_type}:"
+                                         f"{self._data.source_view_name}"),
+                        viewport_data=self._data)
+                finally:
+                    _end_phase_pass()
                 try:
                     self._source_scene.render(painter, fitted, crop)
                 finally:
@@ -3781,7 +3812,7 @@ class PaperScene(QGraphicsScene):
     def commit_viewport_edit(self, viewport, *, title=None, show_border=None,
                              scale=None, pos=None, show_title=None,
                              title_offset=None, view_number=None,
-                             title_line_mm=None) -> bool:
+                             title_line_mm=None, phase_display=None) -> bool:
         """Push a ChangeViewportPropertiesCommand for one or more field edits.
 
         Any keyword left ``None`` keeps the viewport's current value. On-paper
@@ -3799,6 +3830,7 @@ class PaperScene(QGraphicsScene):
             title_offset: New (dx, dy) from the title's default spot, or None to keep.
             view_number: New number, already validated, or None to keep.
             title_line_mm: New line end, 0.0 = automatic, or None to keep.
+            phase_display: New PhaseDisplay (PH3 DD5), or None to keep.
 
         Returns:
             True if a command was pushed (values actually changed).
@@ -3812,6 +3844,7 @@ class PaperScene(QGraphicsScene):
             "title_offset": tuple(data.title_offset),
             "title_line_mm": data.title_line_mm,
             "view_number": data.view_number,
+            "phase_display": data.phase_display,
         }
         new_title = data.title if title is None else title
         new_show_border = data.show_border if show_border is None else show_border
@@ -3836,6 +3869,7 @@ class PaperScene(QGraphicsScene):
             "title_line_mm": (data.title_line_mm if title_line_mm is None
                               else title_line_mm),
             "view_number": data.view_number if view_number is None else view_number,
+            "phase_display": (data.phase_display if phase_display is None else phase_display),
         }
         if new_fields != old_fields:
             self._undo_stack.push(

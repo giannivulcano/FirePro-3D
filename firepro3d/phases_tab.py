@@ -66,6 +66,24 @@ class PhasesTab(QWidget):
         self._touch()
         self._rebuild()
 
+    def retarget_weights(self, mapping: dict) -> None:
+        """Follow a Line Weights rename / delete-replace (``old -> new``) in the
+        working copy, so OK never re-installs a stale name (PH3 DD6 / R7)."""
+        changed = False
+        for row in self._work.statuses():
+            cur = row["graphics"].get("weight")
+            if cur in mapping and mapping[cur] != cur:
+                self._work.set_graphic(row["id"], "weight", mapping[cur])
+                changed = True
+        if changed:
+            self._rebuild()
+
+    def showEvent(self, event):  # noqa: N802 (Qt API)
+        """Rebuild on show: the weight combos list ``weight_names()`` as the
+        Line Weights tab left them (PH3 DD6)."""
+        self._rebuild()          # weight combos follow the Line Weights tab
+        super().showEvent(event)
+
     def swatch(self, sid: str, key: str) -> Swatch:
         return self._cells[(sid, key)]
 
