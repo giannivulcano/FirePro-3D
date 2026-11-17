@@ -28,7 +28,7 @@ from . import paper_display as _pd
 from . import element_uid
 from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .gridline import BUBBLE_RADIUS_MM, GRID_COLOR
-from .view_marker_head import ViewMarkerHead
+from .view_marker_head import ViewMarkerHead, _MarkerPaperMixin
 
 if TYPE_CHECKING:
     from .model_space import Model_Space
@@ -281,7 +281,7 @@ def copy_datum_ends(raw) -> dict[str, dict]:
             for k, v in dict(raw).items()}
 
 
-class SectionMarker(QGraphicsItem):
+class SectionMarker(_MarkerPaperMixin, QGraphicsItem):
     """A section's cut line + crop box on the plan (spec s6).
 
     Geometry (``cut_a``, ``cut_b``, ``depth``) is in plan-scene units -- mm at
@@ -362,6 +362,12 @@ class SectionMarker(QGraphicsItem):
     @property
     def cardinal(self) -> "str | None":
         return self._cardinal
+
+    @property
+    def paper_category(self) -> str:
+        """Paper row (R5; SB4d D7): a cardinal is the Elevation Marker row,
+        a placed section the Section Marker row."""
+        return "Elevation Marker" if self.cardinal else "Section Marker"
 
     @property
     def auto_extent(self) -> bool:

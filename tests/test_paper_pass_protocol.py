@@ -220,8 +220,11 @@ def test_construction_family_is_migrated_by_exact_type():
     the two section BlockInstance subclasses the base ladder reached), pipe
     (Task 6; no Pipe subclass exists), sprinkler / water supply (Task 8; no
     subclass of either exists), plan gridline (Task 9; no GridlineItem
-    subclass exists -- the elevation ElevGridlineItem is unrelated, Task 11)."""
+    subclass exists -- the elevation ElevGridlineItem is unrelated, Task 11),
+    view markers (Task 10; no SectionMarker / DetailMarker subclass exists)."""
     from firepro3d.block_instance import BlockInstance
+    from firepro3d.detail_view import DetailMarker
+    from firepro3d.section_marker import SectionMarker
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
     from firepro3d.gridline import GridlineItem
@@ -240,7 +243,8 @@ def test_construction_family_is_migrated_by_exact_type():
                                    *_construction_classes(),
                                    BlockInstance, HydraulicNodeBadge,
                                    _HostedBlockCopy, _SectionNoteCopy, Pipe,
-                                   Sprinkler, WaterSupply, GridlineItem}
+                                   Sprinkler, WaterSupply, GridlineItem,
+                                   SectionMarker, DetailMarker}
 
 
 @pytest.mark.parametrize("cls_name", list(_CONSTRUCTION_CLS.values()))
@@ -554,17 +558,22 @@ def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env
     """Until each owner's family lands, a hit label whose owner is not yet
     migrated stays its own (base) entry: the room tag maps to the Room and
     the pipe label to the Pipe (Task 6), the gridline bubble to the plan
-    gridline (Task 9); an elevation gridline's bubble (its owner not yet
-    migrated, Task 11) does not."""
+    gridline (Task 9), a view marker's head to its marker (Task 10); an
+    elevation gridline's bubble (its owner not yet migrated, Task 11) does
+    not."""
     from firepro3d.gridline import GridlineBubble
-    from tests.test_paper_pass_characterization import _gridline, _pipe_labelled
+    from tests.test_paper_pass_characterization import (_gridline, _marker_placed,
+                                                        _pipe_labelled)
     ms = _scene(request)
     room = _room_tagged(ms)
     pipe = _pipe_labelled(ms)
     gl = _gridline(ms)
+    sec = _marker_placed(ms)
+    det = _KINDS["detail_marker"](ms)
     assert pp._owner_of(room._tag) is room
     assert pp._owner_of(pipe.label) is pipe
     assert pp._owner_of(gl.bubble1) is gl
+    assert pp._owner_of(sec.head_a) is sec and pp._owner_of(det.bubble) is det
     from PyQt6.QtWidgets import QGraphicsLineItem
     host = QGraphicsLineItem(0, 0, 10, 0)        # stands in for a not-yet-migrated parent
     ms.addItem(host)
@@ -1107,3 +1116,165 @@ def test_gridline_enter_raise_mid_write_unwinds_the_gridline(qapp, request, pape
         "the raise came after the line, lock and bubble1 writes")
     assert snapshot(ms) == before
     assert gl.bubble1.opacity() == pytest.approx(0.4)
+
+
+# ---------------------------------------------------------------------------
+# Task 10: section / detail markers (heads) + AC6 marker head
+# ---------------------------------------------------------------------------
+
+# kind -> (builder name, paper row, colour attr, head attrs)
+_MARKER = {"cardinal": ("_marker_cardinal", "Elevation Marker", "_marker_color", ("head",)),
+           "placed": ("_marker_placed", "Section Marker", "_marker_color",
+                      ("head_a", "head_b")),
+           "detail": ("detail_marker", "Detail Marker", "_tag_color", ("bubble",))}
+
+
+def _marker(request, kind):
+    """A view marker whose heads all carry a real prior opacity 0.4 (AC6)."""
+    import tests.test_paper_pass_characterization as ch
+    builder, _row, _attr, head_attrs = _MARKER[kind]
+    ms = _scene(request)
+    m = _KINDS[builder](ms) if builder in _KINDS else getattr(ch, builder)(ms)
+    heads = [getattr(m, a) for a in head_attrs]
+    assert all(h is not None and h.isVisible() for h in heads), "setup: heads shown"
+    for h in heads:
+        h.setOpacity(0.4)
+    return ms, m, heads
+
+
+@pytest.mark.parametrize("kind", list(_MARKER))
+def test_marker_paper_category_drives_the_ladder(qapp, request, paper_env,
+                                                 real_system_library, kind):
+    """SB4d D7: a cardinal is the Elevation Marker row, a placed section the
+    Section Marker row, a detail the Detail Marker row (per instance)."""
+    _ms, m, _heads = _marker(request, kind)
+    assert m.paper_category == _MARKER[kind][1]
+    assert pd._category_for_item(m) == _MARKER[kind][1]
+
+
+@pytest.mark.parametrize("kind", list(_MARKER))
+def test_marker_heads_map_onto_the_marker(qapp, request, paper_env,
+                                          real_system_library, kind):
+    """D5: each head (a ViewMarkerHead Qt child; BoundLabelItem's parent
+    rule, no override) is entered by its marker; nothing else maps onto it."""
+    ms, m, heads = _marker(request, kind)
+    for h in heads:
+        assert h.paper_owner is m
+        assert "paper_owner" not in type(h).__dict__
+    mapped = [it for it in ms.items() if it is not m and pp._owner_of(it) is m]
+    assert {id(it) for it in mapped} == {id(h) for h in heads}
+
+
+def _marker_cat(ctx, m, kind):
+    key = _MARKER[kind][1]
+    return ctx.merge(ctx.row(key), m, key)
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+@pytest.mark.parametrize("kind", list(_MARKER))
+def test_marker_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                      kind, authored):
+    """The base marker branch: the line colour (+ the pen where the marker
+    has one), the row opacity, each head's annotation hooks at opacity 1; the
+    exit puts every one back, the heads' real prior opacity (0.4, AC6)
+    included."""
+    set_rows(paper_env, authored)
+    ms, m, heads = _marker(request, kind)
+    attr = _MARKER[kind][2]
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = _marker_cat(ctx, m, kind)
+    cat["opacity"] = 60
+    lw = ctx.lw_mm(cat)
+    tok = m.enter_paper_pass(ctx, cat)
+    assert tok is not None
+    assert m.opacity() == pytest.approx(0.6)
+    if not authored:
+        want = pd._paper_qcolor(cat["color"], m).name()
+        assert getattr(m, attr).name() == want
+        if hasattr(m, "pen"):
+            assert m.pen().color().name() == want
+    for h in heads:
+        assert h._paper_scale == pytest.approx(SCALE)
+        assert h._paper_pen_width == pytest.approx(lw / SCALE)
+        assert h.opacity() == pytest.approx(1.0)
+    assert snapshot(ms) != before, "the enter changed nothing"
+    m.exit_paper_pass(tok)
+    assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+    assert snapshot(ms) == before
+
+
+def test_marker_hidden_head_is_not_entered(qapp, request, paper_env,
+                                           real_system_library):
+    """A hidden head is skipped (base: ``if h.isVisible()``) and keeps its
+    hooks and its own opacity."""
+    set_rows(paper_env, False)
+    ms, m, (ha, hb) = _marker(request, "placed")
+    hb.setVisible(False)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    tok = m.enter_paper_pass(ctx, _marker_cat(ctx, m, "placed"))
+    assert ha._paper_scale == pytest.approx(SCALE)
+    assert hb._paper_scale is None
+    assert hb.opacity() == pytest.approx(0.4)
+    m.exit_paper_pass(tok)
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("kind", ["placed", "detail"])
+def test_marker_owner_enters_itself_through_the_driver(qapp, request, paper_env,
+                                                       real_system_library, kind):
+    """One token for the marker (its own exit, never the adapter); the hit
+    heads are entered by it, never as entries of their own. (A cardinal is
+    PAPER_EXCLUDED: the pick rule hides it.)"""
+    set_rows(paper_env, False)
+    ms, m, heads = _marker(request, kind)
+    crop = QRectF(-3000, -3000, 6000, 6000)   # the detail bubble sits ~2 m below its crop
+    hits = ms.items(crop)
+    assert any(h is heads[0] for h in hits), "setup: a head must be hit"
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is m] == [m.exit_paper_pass]
+        assert not [it for it, _fn, _tok in saved if any(it is h for h in heads)]
+        for h in heads:
+            assert h._paper_scale == pytest.approx(SCALE)
+            assert h.opacity() == pytest.approx(1.0)
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+    assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+
+
+@pytest.mark.parametrize("kind", ["placed", "detail"])
+def test_marker_enter_raise_mid_write_unwinds_the_marker(qapp, request, paper_env,
+                                                         real_system_library,
+                                                         monkeypatch, kind):
+    """D2: a raise at the last head (after the marker line and every earlier
+    head are entered) leaves the marker and its heads as they were, then
+    re-raises."""
+    set_rows(paper_env, False)
+    ms, m, heads = _marker(request, kind)
+    attr = _MARKER[kind][2]
+    before = snapshot(ms)
+    real = pp.enter_block_hooks
+    seen = []
+
+    def boom_at_last(inst, *a, **kw):
+        if inst is heads[-1]:
+            seen.append((getattr(m, attr).name(), m.opacity(),
+                         [h._paper_scale for h in heads[:-1]]))
+            raise RuntimeError("last head")
+        return real(inst, *a, **kw)
+
+    monkeypatch.setattr(pp, "enter_block_hooks", boom_at_last)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = _marker_cat(ctx, m, kind)
+    cat["opacity"] = 60
+    with pytest.raises(RuntimeError, match="last head"):
+        m.enter_paper_pass(ctx, cat)
+    want = pd._paper_qcolor(cat["color"], m).name()
+    assert seen == [(want, pytest.approx(0.6), [SCALE] * (len(heads) - 1))], (
+        "the raise came after the line and the earlier heads were entered")
+    assert snapshot(ms) == before
+    assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)

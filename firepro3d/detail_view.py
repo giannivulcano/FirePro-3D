@@ -25,7 +25,7 @@ from PyQt6.QtGui import QPen, QBrush, QColor, QPainter, QPainterPath
 from .gridline import BUBBLE_RADIUS_MM
 from .constants import DEFAULT_LEVEL, Z_ANNOT_MARKER
 from .paper_display import shows_selection
-from .view_marker_head import ViewMarkerHead
+from .view_marker_head import ViewMarkerHead, _MarkerPaperMixin
 from . import element_uid
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ _HIT_W = BUBBLE_RADIUS_MM * 1.5          # stroke width of the crop / leader hit
 _FILLET_RADIUS = BUBBLE_RADIUS_MM * 1.5  # corner radius for crop rect
 
 
-class DetailMarker(QGraphicsPathItem):
+class DetailMarker(_MarkerPaperMixin, QGraphicsPathItem):
     """Detail view crop boundary on a plan view.
 
     Visual: rounded-corner dashed rectangle + the callout head (``bubble``,
@@ -52,6 +52,9 @@ class DetailMarker(QGraphicsPathItem):
     over the sheet number, SB4d D1) connected by a bespoke leader trimmed
     at the head outline. The head is draggable (grip 8).
     """
+
+    paper_category = "Detail Marker"      # paper row (R5; SB4d D7)
+    _PAPER_COLOR_ATTR = "_tag_color"      # the paper pass's line colour (D7)
 
     def __init__(self, name: str, rect: QRectF, level_name: str = DEFAULT_LEVEL,
                  parent: QGraphicsItem | None = None):

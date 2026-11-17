@@ -780,8 +780,7 @@ def _sub_elev_head(request):
 
 @pytest.mark.parametrize("which", [
     "gridline_bubble",
-    pytest.param("marker_head", marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError, reason="AC6 - fixed in Task 10")),
+    "marker_head",
     pytest.param("elev_head", marks=pytest.mark.xfail(
         strict=True, raises=AssertionError, reason="AC6 - fixed in Task 11")),
 ])
