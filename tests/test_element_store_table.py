@@ -116,14 +116,57 @@ def test_owner_delete_takes_its_children(qapp):
     assert not wall.openings and not slab.openings
 
 
+# -- level walk parity (D5, D6 commit 7) -----------------------------------------
+# Pinned at the parent of commit 7 (old _items_on_level / leveled_items). Compared per
+# class sublist, so only the order ACROSS kinds may change (spec delta 4).
+WALK_PIN = {
+    "on": {a: [a] for a in (
+        "_draw_arcs", "_draw_circles", "_draw_ellipses", "_draw_lines", "_draw_polygons",
+        "_draw_rects", "_draw_splines", "_filled_regions", "_floor_slabs", "_gridlines",
+        "_polylines", "_roofs", "_rooms", "_walls", "design_areas")},
+    "refs": {"_block_instances": ["_block_instances"], "_gridlines": ["_gridlines"],
+             "_roofs": ["_roofs"], "_rooms": ["_rooms"],
+             "_walls": ["_walls", "_walls.openings[0]"], "design_areas": ["design_areas"]},
+}
+
+
+def _keys(ms, items, seq):
+    """Each walked element item -> a stable name: its fixture attr, or
+    "<attr>.openings[i]" for an owned child. Non-element items are skipped."""
+    name = {id(it): a for a, it in items.items()}
+    for a in ("_walls", "_floor_slabs"):
+        for i, ch in enumerate(items[a].openings):
+            name[id(ch)] = f"{a}.openings[{i}]"
+    return [name[id(it)] for it in seq if id(it) in name]
+
+
+def _by_class(keys):
+    out = {}
+    for k in keys:
+        out.setdefault(k.split(".")[0], []).append(k)
+    return {c: out[c] for c in sorted(out)}
+
+
+def test_level_walks_keep_their_members(qapp):
+    from firepro3d.level_manager import leveled_items
+    ms, items = build_every_kind()
+    lvl = items["_walls"].level
+    for a, it in items.items():                  # every kind on one level (2D, texts and
+        if a != "_floor_slabs":                  # gridlines carry no level by default)
+            it.level = lvl
+    assert items["_floor_slabs"]._top_level == lvl
+    got = {"on": _by_class(_keys(ms, items, ms._items_on_level(lvl))),
+           "refs": _by_class(_keys(ms, items, leveled_items(ms)))}
+    assert got == WALK_PIN
+    assert _keys(ms, items, ms._items_on_level("No Such Level")) == []
+
+
 # -- G5 scan guard ---------------------------------------------------------------
 ATTRS = set(ROW_ATTRS)
 # file -> reason. In-scope entries are deleted by the task named; the rest are
 # out-of-scope per-kind readers (spec "Out of scope"). Seed by running the scan
 # at commit 2 and classifying EVERY hit here.
-KNOWN = {
-    "model_space.py:_items_on_level": "T7",
-}
+KNOWN = {}
 
 
 def _attr_of(e):

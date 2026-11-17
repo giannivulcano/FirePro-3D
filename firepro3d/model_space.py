@@ -8805,17 +8805,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         for pipe in self.sprinkler_system.pipes:
             if getattr(pipe, "level", None) == level_name:
                 result.append(pipe)
-        for lst in [self._polylines, self._draw_lines,
-                    self._draw_rects, self._draw_circles, self._draw_arcs,
-                    self._draw_ellipses, self._draw_splines, self._draw_polygons,
-                    self._filled_regions, self._gridlines,
-                    self._walls, self._roofs,
-                    self._rooms, self.design_areas]:
-            for item in lst:
-                if getattr(item, "level", None) == level_name:
-                    result.append(item)
-        # A slab's own level is its Top Level (its ``level`` attr is never set).
-        result.extend(s for s in self._floor_slabs if s._top_level == level_name)
+        result.extend(element_store.items_on_level(self, level_name))
         ann = getattr(self, "annotations", None)
         if ann:
             for dim in getattr(ann, "dimensions", []):

@@ -340,3 +340,47 @@ def remove_owned(scene, item) -> bool:
         scene.removeItem(item)
         return True
     return False
+
+
+# -- the level walk (spec D5) ----------------------------------------------------
+_ON_LEVEL_LEGACY_2D = True       # D6 commit 7 only; the O2 commit deletes it
+_ON_LEVEL_SKIPS_BLOCKS = True    # D6 commit 7 only; the R5 commit deletes it
+
+
+def level_walk(scene):
+    """``(row, item)`` for every item of every row with a ``level_of`` (spec D5)."""
+    for row in KINDS:
+        if row.level_of is None:
+            continue
+        for item in getattr(scene, row.attr, []):
+            yield row, item
+
+
+def items_on_level(scene, level_name) -> list:
+    """Element items on *level_name* (Duplicate Level / Select Same Level)."""
+    out = []
+    for row in KINDS:
+        level_of = row.level_of
+        if level_of is not None:
+            if row.attr == "_block_instances" and _ON_LEVEL_SKIPS_BLOCKS:
+                continue
+        elif _ON_LEVEL_LEGACY_2D and row.file_key is None and row.attr != "_texts":
+            level_of = _item_level
+        else:
+            continue
+        out.extend(it for it in getattr(scene, row.attr, []) if level_of(it) == level_name)
+    return out
+
+
+def leveled_items(scene) -> list:
+    """Element items carrying level refs (rename / delete / open repair), owned
+    children included; floors are left out (their refs are remapped from the
+    slab list)."""
+    out = []
+    for row, item in level_walk(scene):
+        if row.attr == "_floor_slabs":
+            continue
+        out.append(item)
+        if row.children is not None:
+            out.extend(row.children(item))
+    return out
