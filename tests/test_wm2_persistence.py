@@ -82,7 +82,7 @@ def test_every_restore_caller_passes_overrides():
                 and getattr(k.value.args[0], "id", None) == var)
 
     root = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
-    sites = {("scene_io.py", "bdict"), ("element_store.py", "rec"),   # undo restore: element_store._build_block
+    sites = {("element_store.py", "rec"),   # file load + undo restore: element_store._build_block
              ("model_space.py", "obj"), ("schematic_scene.py", "d"),
              ("block_explode.py", "rec")}
     found = set()

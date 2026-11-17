@@ -237,3 +237,40 @@ def build_rows(scene, source: dict, ctx: BuildContext, *, key: str,
                 row.build(scene, rec, ctx)
         if row.attr == "_gridlines" and after_gridlines is not None:
             after_gridlines()
+
+
+# -- save / load / clear (spec D4) ----------------------------------------------
+def file_records(scene, *, constraints) -> dict:
+    """``.fpd`` records of every row with a ``file_key``, in row order; the
+    ``constraints`` key splices in after walls and ``block_definitions``
+    before blocks (spec D2)."""
+    out = {}
+    for row in KINDS:
+        if row.codec_owned or row.file_key is None:
+            continue
+        if row.attr == "_block_instances":
+            out["block_definitions"] = _definitions_record(scene)
+        out[row.file_key] = [i.to_dict() for i in getattr(scene, row.attr)]
+        if row.attr == "_walls":
+            out["constraints"] = constraints
+    return out
+
+
+def dropped_record_count(payload: dict) -> int:
+    """Records of never-filed rows (C8) a load discards, legacy keys included."""
+    return sum(len(payload.get(k, []))
+               for row in KINDS if row.file_key is None
+               for k in (row.undo_key,) + row.legacy_keys)
+
+
+_CLEAR_REMOVES = ("design_areas", "_block_instances")
+
+
+def clear_lists(scene) -> None:
+    """Clear: rebind every row's list (the scene's ``clear()`` deletes the rest)."""
+    for row in KINDS:
+        if row.attr in _CLEAR_REMOVES:
+            for item in list(getattr(scene, row.attr, [])):
+                if item.scene() is scene:
+                    scene.removeItem(item)
+        setattr(scene, row.attr, [])
