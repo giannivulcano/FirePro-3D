@@ -342,9 +342,6 @@ def remove_owned(scene, item) -> bool:
 
 
 # -- the level walk (spec D5) ----------------------------------------------------
-_ON_LEVEL_LEGACY_2D = True       # D6 commit 7 only; the O2 commit deletes it
-
-
 def level_walk(scene):
     """``(row, item)`` for every item of every row with a ``level_of`` (spec D5)."""
     for row in KINDS:
@@ -355,16 +352,9 @@ def level_walk(scene):
 
 
 def items_on_level(scene, level_name) -> list:
-    """Element items on *level_name* (Duplicate Level / Select Same Level)."""
-    out = []
-    for row in KINDS:
-        level_of = row.level_of
-        if level_of is None:
-            if not (_ON_LEVEL_LEGACY_2D and row.file_key is None and row.attr != "_texts"):
-                continue
-            level_of = _item_level
-        out.extend(it for it in getattr(scene, row.attr, []) if level_of(it) == level_name)
-    return out
+    """Element items on *level_name* (Duplicate Level / Select Same Level).
+    Level-less rows (loose 2D, texts) are left out (containment C3, O2)."""
+    return [it for row, it in level_walk(scene) if row.level_of(it) == level_name]
 
 
 def leveled_items(scene) -> list:

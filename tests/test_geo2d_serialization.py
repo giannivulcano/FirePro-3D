@@ -274,8 +274,9 @@ def test_polygon_paste(qapp):
     assert scene._draw_polygons[-1]._sides == 6
 
 
-def test_polygon_included_in_items_on_level(qapp):
-    """_items_on_level must include RegularPolygonItem entries."""
+def test_polygon_not_in_items_on_level(qapp):
+    """Loose 2D primitives are level-less (containment C3), so the level walk
+    (Duplicate Level / Select Same Level) leaves them out (element-store O2)."""
     scene = _make_scene(qapp)
     from firepro3d.geometry_2d import RegularPolygonItem
     p = RegularPolygonItem(QPointF(0, 0), sides=5, radius_mm=40.0)
@@ -283,4 +284,4 @@ def test_polygon_included_in_items_on_level(qapp):
     scene.addItem(p)
     scene._draw_polygons.append(p)
     items = scene._items_on_level("Level 1")
-    assert p in items
+    assert p not in items

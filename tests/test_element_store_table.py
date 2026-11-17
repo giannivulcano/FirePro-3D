@@ -122,9 +122,8 @@ def test_owner_delete_takes_its_children(qapp):
 WALK_PIN = {
     "on": {a: [a] for a in (
         "_block_instances",      # R5 (D6 commit 9): placed blocks join the walk
-        "_draw_arcs", "_draw_circles", "_draw_ellipses", "_draw_lines", "_draw_polygons",
-        "_draw_rects", "_draw_splines", "_filled_regions", "_floor_slabs", "_gridlines",
-        "_polylines", "_roofs", "_rooms", "_walls", "design_areas")},
+        # O2 (D6 commit 10): the nine loose 2D rows left the walk (containment C3)
+        "_floor_slabs", "_gridlines", "_roofs", "_rooms", "_walls", "design_areas")},
     "refs": {"_block_instances": ["_block_instances"], "_gridlines": ["_gridlines"],
              "_roofs": ["_roofs"], "_rooms": ["_rooms"],
              "_walls": ["_walls", "_walls.openings[0]"], "design_areas": ["design_areas"]},
