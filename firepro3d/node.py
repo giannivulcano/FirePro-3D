@@ -24,6 +24,32 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     HALO_AREA = True  # HALO: cursor inside = direct hit
     paper_category = "Node"     # paper row (paper-space.md s6.2, R5)
 
+    def enter_paper_pass(self, ctx, cat):
+        """The generic paper look, then the fitting (D9): a visible fitting
+        symbol plots under the Fitting row whenever the node is entered (its
+        symbol maps onto the node, D5). The fitting's token rides in the
+        node's (``"fitting"``); a raise mid-write unwinds both."""
+        from . import paper_pass
+        tok = self._paper_token()
+
+        def write():
+            self._paper_generic_write(ctx, cat)
+            f = self.fitting
+            if f is not None and f.symbol is not None and f.symbol.isVisible():
+                ftok = f.enter_paper_pass(ctx)
+                if ftok is not None:
+                    tok["fitting"] = (f, ftok)
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def exit_paper_pass(self, tok: dict) -> None:
+        """The fitting first, then the node's generic look."""
+        try:
+            if "fitting" in tok:
+                f, ftok = tok["fitting"]
+                f.exit_paper_pass(ftok)
+        finally:
+            super().exit_paper_pass(tok)
+
     # Class-level toggle — all nodes share the same visibility state.
     # Toggled by Model_Space.set_coverage_overlay(visible).
     _coverage_visible: bool = False

@@ -1719,3 +1719,144 @@ def test_proxy_enter_raise_mid_write_unwinds_the_proxy(qapp, request, paper_env,
     assert seen == [(True, True)], "the raise came after the proxy's own writes"
     assert "_paper_pen_width" not in vars(line)
     assert snapshot(sec) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 13: the node enters its fitting (D9)
+# ---------------------------------------------------------------------------
+
+_FIT_TINT = ("#123456", "#abcdef")
+
+
+def _fitting_node(request):
+    """A plain node whose fitting draws a symbol, canvas-tinted (the Display
+    Manager path: the wrapper's colours, re-applied to the symbol) so a missed
+    tint restore shows."""
+    from tests.test_paper_pass_characterization import _fitting_node as make
+    ms = _scene(request)
+    n = make(ms)
+    f = n.fitting
+    f._display_color, f._display_fill_color = _FIT_TINT
+    f._reapply_display_effects()
+    return ms, n
+
+
+def _svg(item):
+    from tests.test_paper_pass_characterization import _svg_identity
+    return _svg_identity(item)
+
+
+def test_fitting_symbol_maps_onto_its_node(qapp, request, paper_env, real_system_library):
+    """D5: the fitting symbol (a Qt child of the node) is entered by its node."""
+    _ms, n = _fitting_node(request)
+    sym = n.fitting.symbol
+    assert sym.paper_owner is n
+    assert pp._owner_of(sym) is n
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+def test_node_enter_exit_round_trip_with_fitting(qapp, request, paper_env,
+                                                 real_system_library, authored):
+    """The node's generic look plus its fitting under the Fitting row: row
+    off re-tints the symbol in the row colour and writes the wrapper colours;
+    the row opacity lands on the symbol; the exit re-latches the canvas tint
+    and puts the wrapper colours and the opacity back."""
+    set_rows(paper_env, authored)
+    paper_env.cats["Fitting"]["opacity"] = 60
+    ms, n = _fitting_node(request)
+    f, sym = n.fitting, n.fitting.symbol
+    svg0, op0 = _svg(sym), sym.opacity()
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    tok = n.enter_paper_pass(ctx, ctx.merge(ctx.row("Node"), n, "Node"))
+    assert tok is not None
+    assert n._paper_pen_width is not None          # the node's own generic look
+    assert sym.opacity() == pytest.approx(0.6)
+    if authored:
+        assert (f._display_color, f._display_fill_color) == _FIT_TINT
+        assert _svg(sym) == svg0, "an As Authored hex tint is left alone"
+    else:
+        row = paper_env.cats["Fitting"]
+        assert (f._display_color, f._display_fill_color) == (row["color"], row.get("fill"))
+        assert _svg(sym) != svg0, "the symbol was not re-tinted in the row colour"
+    n.exit_paper_pass(tok)
+    assert (f._display_color, f._display_fill_color) == _FIT_TINT
+    assert _svg(sym) == svg0, "the canvas tint was not re-latched"
+    assert sym.opacity() == pytest.approx(op0)
+    assert snapshot(ms) == before
+
+
+def test_fitting_row_visible_off_hides_then_restores_the_symbol(
+        qapp, request, paper_env, real_system_library):
+    """A Fitting row with Visible off hides the symbol (only) for the pass;
+    the node keeps its own look, and the exit shows the symbol again."""
+    set_rows(paper_env, False)
+    paper_env.cats["Fitting"]["visible"] = False
+    ms, n = _fitting_node(request)
+    f, sym = n.fitting, n.fitting.symbol
+    svg0 = _svg(sym)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-1500, -1500, 3000, 3000),
+                                     paper_scale=SCALE)
+    try:
+        assert n.isVisible() and not sym.isVisible()
+        assert n._paper_pen_width is not None
+        assert (f._display_color, f._display_fill_color) == _FIT_TINT
+        assert _svg(sym) == svg0
+    finally:
+        pd.restore_model_display(saved)
+    assert sym.isVisible()
+    assert snapshot(ms) == before
+
+
+def test_node_owner_enters_its_fitting_through_the_driver(qapp, request, paper_env,
+                                                          real_system_library):
+    """One token for the node (its own exit); the fitting is never an entry
+    of its own (no legacy tail entry, no symbol token)."""
+    set_rows(paper_env, False)
+    ms, n = _fitting_node(request)
+    sym = n.fitting.symbol
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-1500, -1500, 3000, 3000),
+                                     paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is n] == [n.exit_paper_pass]
+        assert not [it for it, _fn, _tok in saved if it is sym]
+        assert not [tok for _it, fn, tok in saved if fn is pd._legacy_exit
+                    and any(e.get("fitting") is not None for e in tok)]
+        assert n.fitting._display_color == paper_env.cats["Fitting"]["color"]
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_node_enter_raise_in_the_fitting_unwinds_node_and_fitting(
+        qapp, request, paper_env, real_system_library):
+    """D2 / D6: a raise at the symbol's opacity write (after the node's own
+    writes and the fitting's tint) leaves node and fitting as they were."""
+    set_rows(paper_env, False)
+    ms, n = _fitting_node(request)
+    f, sym = n.fitting, n.fitting.symbol
+    svg0 = _svg(sym)
+    before = snapshot(ms)
+    seen = []
+    real = sym.setOpacity
+
+    def boom(v):
+        if not seen:
+            seen.append((n._paper_pen_width is not None, f._display_color))
+            raise RuntimeError("opacity")
+        real(v)
+
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    sym.setOpacity = boom
+    try:
+        with pytest.raises(RuntimeError, match="opacity"):
+            n.enter_paper_pass(ctx, ctx.merge(ctx.row("Node"), n, "Node"))
+    finally:
+        del sym.setOpacity
+    assert seen == [(True, paper_env.cats["Fitting"]["color"])], \
+        "the raise came after the node's writes and the fitting's tint"
+    assert (f._display_color, f._display_fill_color) == _FIT_TINT
+    assert _svg(sym) == svg0
+    assert snapshot(ms) == before

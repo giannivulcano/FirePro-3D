@@ -268,6 +268,7 @@ def _migrated() -> tuple:
     from .wall import WallSegment
     from .wall_opening import WallOpening
     from .water_supply import WaterSupply
+    # Node enters its fitting symbol (Task 13, D9)
     return (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node,
             # construction family (Task 4)
             PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
@@ -298,7 +299,8 @@ def _owner_of(item):
     itself. Until Task 15 only a migrated owner is mapped (the Room for its
     tag; the Pipe for its label and riser; the plan or elevation gridline
     for its bubbles; a view marker for its heads; a level datum for its head;
-    a section line proxy for its pipe label) -- a child of an owner not on the protocol stays its own entry, as at
+    a section line proxy for its pipe label; a node for its fitting symbol,
+    D9) -- a child of an owner not on the protocol stays its own entry, as at
     base, so the legacy adapter never enters an owner that base did not."""
     o = getattr(item, "paper_owner", None)
     if o is None or type(o) not in _migrated():
@@ -372,8 +374,9 @@ def _enter_owner(ctx, saved, owner) -> None:
 
 def run_pass(scene, source_rect, paper_scale=1.0, viewport_data=None) -> PassTokens:
     """Enter the paper pass: the context first, then every picked owner once
-    (first-hit order), then the legacy tail (fittings, underlays). A mid-pass
-    raise unwinds everything entered so far, then re-raises (D6)."""
+    (first-hit order; a node enters its fitting, D9), then the legacy tail
+    (underlays). A mid-pass raise unwinds everything entered so far, then
+    re-raises (D6)."""
     from . import paper_display as pd
     ctx = PaperPassContext(scene, source_rect, paper_scale, viewport_data)
     saved = PassTokens()
@@ -392,7 +395,7 @@ def run_pass(scene, source_rect, paper_scale=1.0, viewport_data=None) -> PassTok
             if owner is not hit and not owner.isVisible():
                 continue
             _enter_owner(ctx, saved, owner)
-        pd._legacy_tail(ctx, saved)          # fittings + underlays until Tasks 13-14
+        pd._legacy_tail(ctx, saved)          # underlays until Task 14
     except BaseException:
         try:
             ctx.exit(scene)                    # left first, as on a normal unwind

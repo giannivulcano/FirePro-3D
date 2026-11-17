@@ -1802,60 +1802,19 @@ def _legacy_enter(ctx, item, saved: list) -> None:
 
 
 def _legacy_tail(ctx, tokens) -> None:
-    """Legacy adapter: fittings (wrappers, not QGraphicsItems) and underlay
-    groups, as one token on the scene (until Tasks 13-14)."""
+    """Legacy adapter: underlay groups, as one token on the scene (until
+    Task 14). Fittings are entered by their node (Task 13, D9)."""
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QBrush, QPen
     from PyQt6.QtWidgets import QGraphicsPathItem
     from .colour_tokens import is_token
-    from .display_manager import _set_svg_tint
 
     scene = ctx.scene
     source_rect = ctx.source_rect
     paper_scale = ctx.paper_scale
     cats = ctx.rows
-    _svg_paper_retint = ctx.svg_paper_retint
-    _svg_phase_tint = ctx.svg_phase_tint
     saved: list = []      # this tail's dict entries: one token on the scene
     try:
-        # --- Fittings (wrappers, not QGraphicsItems) ---
-        if hasattr(scene, "sprinkler_system"):
-            fitting_row = cats.get("Fitting")
-            if fitting_row is not None:
-                for node in scene.sprinkler_system.nodes:
-                    f = node.fitting
-                    if f is None or f.symbol is None or not f.symbol.isVisible():
-                        continue
-                    if not source_rect.contains(f.symbol.scenePos()):
-                        continue
-                    fitting_cat = phase_display.merge(fitting_row, f, keys=phase_display.SYMBOL_KEYS)   # PH3 D-PH13
-                    entry = {
-                        "item": f.symbol,
-                        "cat_key": "Fitting",
-                        "fitting": f,
-                        "display_color": getattr(f, "_display_color", None),
-                        "display_fill_color": getattr(f, "_display_fill_color", None),
-                        "opacity": f.symbol.opacity(),
-                        "visible": f.symbol.isVisible(),
-                        "pen": None,
-                    }
-                    saved.append(entry)
-                    if not fitting_cat.get("visible", True):
-                        f.symbol.setVisible(False)
-                        continue
-                    if not row_as_authored(fitting_cat):
-                        _set_svg_tint(f.symbol, fitting_cat["color"],
-                                      fitting_cat.get("fill"))
-                        f._display_color = fitting_cat["color"]
-                        f._display_fill_color = fitting_cat.get("fill")
-                        entry["retinted"] = True
-                    elif phase_display.forced(fitting_cat, "color"):   # DD2: fitting phase colour
-                        _svg_phase_tint(f.symbol, f, "Fitting", fitting_cat["color"])
-                        entry["retinted"] = True
-                    else:
-                        entry["retinted"] = _svg_paper_retint(f.symbol, f, "Fitting")
-                    f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
-
         # ── Underlays (§16.5) — records drive per-layer paper appearance ──
         und_row = cats.get("Underlay") or factory_paper_categories()["Underlay"]
         for record, group in getattr(scene, "underlays", []):
@@ -2118,16 +2077,6 @@ def _legacy_exit_entry(entry: dict) -> None:
             else:
                 item._paper_gap_color = prior
         item.update()
-
-    # Restore fitting wrapper attributes
-    fitting = entry.get("fitting")
-    if fitting is not None:
-        if entry.get("retinted"):
-            # Re-latch the canvas tint: the apply step re-tinted the symbol.
-            _set_svg_tint(item, entry["display_color"],
-                          entry.get("display_fill_color"))
-        fitting._display_color = entry["display_color"]
-        fitting._display_fill_color = entry.get("display_fill_color")
 
 
 def _legacy_exit(entries: list) -> None:

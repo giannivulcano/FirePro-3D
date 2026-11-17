@@ -799,7 +799,6 @@ def test_ac6_sub_item_opacity_survives(qapp, request, paper_env, real_system_lib
         paper.dispose()
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="AC8 - fixed in Task 13")
 def test_ac8_fitting_enters_when_node_hit(qapp, paper_env, real_system_library):
     from firepro3d.model_space import Model_Space
     set_rows(paper_env, False)

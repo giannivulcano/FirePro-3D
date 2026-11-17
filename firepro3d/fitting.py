@@ -14,7 +14,12 @@ _SQRT2 = math.sqrt(2)
 class _TintedSvg(QGraphicsSvgItem):
     """QGraphicsSvgItem subclass that stores ``_svg_source_path`` for
     direct SVG recolouring via ``_set_svg_tint``."""
-    pass
+
+    @property
+    def paper_owner(self):
+        """The node this symbol hangs off (D5): the node's paper pass enters
+        its fitting (paper-space.md s6.2)."""
+        return self.parentItem()
 
 
 class Fitting():
@@ -475,6 +480,72 @@ class Fitting():
         self.symbol.setOpacity(op / 100.0 if op > 1 else op)
         if not self._display_visible:
             self.symbol.setVisible(False)
+
+    # ── Paper pass (paper-space.md s6.2; entered by the owning Node, D9) ──
+
+    def enter_paper_pass(self, ctx):
+        """Plot the symbol under the Fitting row: Visible off hides it; row
+        off re-tints it in the row colour (the wrapper colours follow); a
+        phase-forced colour tints its stroke (DD2); row on re-tints a model
+        token on the paper surface (R6). Then the row opacity. Saves first;
+        a raise mid-write unwinds the fitting.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext``.
+
+        Returns:
+            The token :meth:`exit_paper_pass` takes, or None (no Fitting row).
+        """
+        from . import paper_pass
+        from . import phase_display
+        from .display_manager import _set_svg_tint
+        from .paper_display import row_as_authored
+        row = ctx.row("Fitting")
+        if row is None:
+            return None
+        sym = self.symbol
+        fitting_cat = ctx.merge(row, self, keys=phase_display.SYMBOL_KEYS)   # PH3 D-PH13
+        tok = {"symbol": sym,
+               "display_color": getattr(self, "_display_color", None),
+               "display_fill_color": getattr(self, "_display_fill_color", None),
+               "opacity": sym.opacity(),
+               "visible": sym.isVisible(),
+               "retinted": False}
+
+        def write():
+            if not fitting_cat.get("visible", True):
+                sym.setVisible(False)
+                return
+            if not row_as_authored(fitting_cat):
+                tok["retinted"] = True
+                _set_svg_tint(sym, fitting_cat["color"], fitting_cat.get("fill"))
+                self._display_color = fitting_cat["color"]
+                self._display_fill_color = fitting_cat.get("fill")
+            elif phase_display.forced(fitting_cat, "color"):   # DD2: fitting phase colour
+                tok["retinted"] = True
+                ctx.svg_phase_tint(sym, self, "Fitting", fitting_cat["color"])
+            else:
+                tok["retinted"] = ctx.svg_paper_retint(sym, self, "Fitting")
+            sym.setOpacity(fitting_cat["opacity"] / 100.0)
+        return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def exit_paper_pass(self, tok) -> None:
+        """Undo :meth:`enter_paper_pass` (the base restore of a fitting entry:
+        the symbol's visibility, opacity and colour attributes, then the
+        canvas tint re-latched when the enter re-tinted, then the wrapper)."""
+        from .display_manager import _set_svg_tint
+        sym = tok["symbol"]
+        sym.setVisible(tok["visible"])
+        sym.setOpacity(tok["opacity"])
+        sym._display_color = tok["display_color"]
+        if hasattr(sym, "_display_fill_color"):
+            sym._display_fill_color = tok["display_fill_color"]
+        sym.update()
+        if tok["retinted"]:
+            # Re-latch the canvas tint: the enter re-tinted the symbol.
+            _set_svg_tint(sym, tok["display_color"], tok["display_fill_color"])
+        self._display_color = tok["display_color"]
+        self._display_fill_color = tok["display_fill_color"]
 
     def clip_region_scene(self) -> "QPainterPath | None":
         """Return the fitting's bounding circle in scene coords for pipe clipping.
