@@ -91,7 +91,8 @@ def test_g6_hosted_block_takes_no_part_rides_its_gridline_and_drops_on_load(
     naming it is refused, it rides a gridline the solve moves (H1), and a
     saved record naming it drops on reopen (clean-drop count).
     RED: ``can_ref`` without the host check (hosted joins ``items()``);
-    load half: ``plan_ref_uids`` without ``if not b.host``."""
+    load half: ``plan_ref_uids`` without the hosted-block filter (the
+    ``not (attr == "_block_instances" and it.host)`` comprehension condition)."""
     from firepro3d.constraint_controller import INVALID_STATUS
     sc, view = pb
     msgs = []

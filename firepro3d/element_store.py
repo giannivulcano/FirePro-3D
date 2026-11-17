@@ -86,8 +86,7 @@ def _build_slab(row, scene, rec, ctx):
 
 def _build_roof(row, scene, rec, ctx):
     roof = row.cls.from_dict(rec)
-    if ctx.path == "load":          # restore omits it until the R2 commit
-        roof._scale_manager_ref = scene.scale_manager
+    roof._scale_manager_ref = scene.scale_manager
     scene.addItem(roof)
     scene._roofs.append(roof)
     return roof
