@@ -213,7 +213,8 @@ length + toggleable bubble end caps) from primitives via System Blocks.
   perf fix.
 - **D-L22 Pipes.** Pipes adopt linetypes: a pipe is a Feature whose plan block
   is one line in a piping linetype; the "Line Type" enum becomes a Linetype
-  property from System > Linetypes > Piping; Main's weight comes from its
+  property from System > Linetypes > Piping *(LT7 R3: the System series
+  `Pipe Line Types`)*; Main's weight comes from its
   linetype; the plan-block line is Linetype By Block + Weight By Linetype.
   Pipe-as-linear-Feature is its own design task. *(Amended 2026-10-05 by
   "Weight model" WM-4: the plan-block line is authored Continuous + Weight By
@@ -2277,7 +2278,7 @@ residual with LT8).
 > Feature run on `todo/p1-5f-20261117`. *What* = Phase-2 FP1 rulings R1–R6
 > (`todo_open.md` LT7 line, 2026-11-17). Split the same day: the
 > LT6-dependent entries (Fire-FP, Sprinkler-S, Grid Bubble) are LT7b.
-> **Amends** D-L12 (series folder names), LTS-5 (On screen per author),
+> **Amends** D-L12 and D-L22 (series folder names), LTS-5 (On screen per author),
 > LT3-13 (the Linetypes folder is never seeded) and D-PH20 in
 > [`project-phasing.md`](project-phasing.md) (the factory Demolition value).
 
@@ -2307,7 +2308,7 @@ residual with LT8).
 | Guard | Asserts |
 |---|---|
 | `tests/test_lt7_system_catalog.py::test_linetype_shipped_and_in_picker` / `::test_end_type_shipped_and_in_picker` | each shipped file is a System `repeat` (or `end`) block in its series and its id reaches the real picker (`linetype_choices` / `end_choices`) |
-| `tests/test_lt7_system_catalog.py::test_factory_demolition_linetype_is_the_shipped_id` | factory Demolition linetype = `system-line-types-demolition`, the shipped file's id |
+| `tests/test_lt7_system_catalog.py::test_factory_demolition_linetype_is_the_shipped_id` | factory Demolition linetype = the shipped Demolition file's id (value: D-PH20) |
 | `tests/test_lt7_system_catalog.py::test_legacy_demolition_name_loads_as_the_id` | a stored `"Demolition"` loads, saves and copies as the id |
 | `tests/test_ph2_phases_tab.py::test_cells_show_factory_rows_and_demolition_linetype` | the Phases tab cell reads "Demolition", not Missing |
 
