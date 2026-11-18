@@ -177,6 +177,7 @@
   - Details: found at the project phasing landing 2026-11-06: the `SheetViewData` block lists only plan / elevation / detail (the note above it adds schematic); `paper_space.py` `ViewResolver.resolve` also takes section.
 - [ ] [type:maint] Two open lines fail the taxonomy check: no Details line under the Display Manager group-header rows task or the `test_offset_real_mouse_move_is_fast` task [P4] [subject:Documentation]
   - Details: found at the project phasing landing 2026-11-06; `check-taxonomy-conformance.ps1` fails the same two lines on main at 258381a3, so pre-existing.
+  - +1 occurrence 2026-11-18 (LT7 Account): the same two lines still fail on main at `d2e8fe27`; the offset perf line also carries a mojibake en dash ("44â€“77").
 
 ## Hydraulic calc deliverable
 
