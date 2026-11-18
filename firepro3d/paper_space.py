@@ -1616,8 +1616,6 @@ class SheetViewport(QGraphicsObject):
                     saved = apply_paper_overrides(
                         self._source_scene, crop,
                         paper_scale=paper_scale,
-                        source_view_key=(f"{self._data.source_view_type}:"
-                                         f"{self._data.source_view_name}"),
                         viewport_data=self._data)
                 finally:
                     _end_phase_pass()

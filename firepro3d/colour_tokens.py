@@ -93,7 +93,7 @@ def _on_paper(item) -> bool:
 def _blocks_colour(item) -> QColor:
     """``token:blocks`` -- a By Category placement Colour (WM3 D3): the
     Model "Blocks" colour on the canvas; on paper, the colour cached on the
-    instance for the pass by ``paper_display._apply_block``, else
+    instance for the pass by ``paper_pass.enter_block_hooks``, else
     ``paper_display.paper_blocks_value`` of the Blocks row."""
     if not _on_paper(item):                      # canvas: the Model "Blocks" colour
         v = _pd.model_blocks_colour()

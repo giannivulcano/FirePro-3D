@@ -27,7 +27,7 @@ from .paper_display import shows_selection
 class _MarkerPaperMixin:
     """Paper pass for a view marker (paper-space.md s6.2; SB4d D1 / D7):
     ``SectionMarker`` (cardinal / placed) and ``DetailMarker``. The marker's
-    LINE takes the row colour + opacity (``paper_display._apply_marker``);
+    LINE takes the row colour + opacity (:meth:`_paper_line_write`);
     each visible head is an annotation block entered through the shared
     helper at opacity 1. Listed first in the marker's bases."""
 
@@ -69,14 +69,42 @@ class _MarkerPaperMixin:
             from . import paper_display as pd
             authored = pd.row_as_authored(cat)
             lw_mm = ctx.lw_mm(cat)
-            pd._apply_marker(self, cat, authored, lw_mm, attr,
-                             ctx.auth_tok(self, self.paper_category, authored))
+            self._paper_line_write(cat, authored,
+                                   ctx.auth_tok(self, self.paper_category, authored))
             for h in self.paper_heads():   # SB4d D1: annotative heads print at authored mm
                 if h.isVisible():
                     tok["heads"].append(paper_pass.enter_block_hooks(
                         h, ctx, cat, authored, lw_mm, opacity=1.0))
             self.prepareGeometryChange()   # the arrow / leader follow the paper k
         return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def _paper_line_write(self, cat, authored, model_token=None) -> None:
+        """The marker's LINE on paper (SB4d D7: no fill -- the heads are
+        annotation blocks): a row-off pass forces the row colour onto the
+        colour attr and the pen (where the marker has one); a row-on pass
+        keeps the authored colour, but a token latched for the canvas
+        (*model_token*) re-resolves on paper. Then the row opacity."""
+        from .paper_display import _paper_qcolor
+        attr = self._PAPER_COLOR_ATTR
+        if authored and model_token is not None:
+            # Full Colour keeps authored colours, but a token latched for the
+            # canvas must re-resolve on paper (exit puts the saved colour back).
+            from .colour_tokens import resolve_colour
+            c = resolve_colour(model_token, item=self)
+            setattr(self, attr, c)
+            if hasattr(self, "pen"):             # SectionMarker paints from fields, no pen
+                pen = self.pen()
+                pen.setColor(c)
+                self.setPen(pen)
+        if not authored:
+            _pc = _paper_qcolor(cat["color"], self)
+            setattr(self, attr, _pc)
+            if hasattr(self, "pen"):
+                pen = self.pen()
+                pen.setColor(_pc)
+                self.setPen(pen)
+        self.setOpacity(cat["opacity"] / 100.0)
+        self.update()
 
     def exit_paper_pass(self, tok: dict) -> None:
         """Undo :meth:`enter_paper_pass` (the base restore order: opacity, line
@@ -123,7 +151,7 @@ class ViewMarkerHead(OutlinedLabel):
         m = self.parentItem()
         if m is None or not shows_selection(m):
             return []
-        col = m._marker_color if hasattr(m, "_marker_color") else m._tag_color
+        col = getattr(m, m._PAPER_COLOR_ATTR)    # _marker_color / a detail's _tag_color
         pen = QPen(QColor(col).lighter(150), 2.0)
         pen.setCosmetic(True)
         return [pen]

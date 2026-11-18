@@ -117,7 +117,7 @@ class BoundLabelItem(QGraphicsItem):
         self._host = host             # the data source (== parentItem() unless *parent* / child=False)
         self._category = element_params.category_of(host) or ""
         self._rect = None             # cached local boundingRect (None = stale)
-        # Paper hooks (paper_display._apply_block; None on the model canvas).
+        # Paper hooks (paper_pass.enter_block_hooks; None on the model canvas).
         self._paper_scale_v = None
         self._paper_pen_width = None
         self._paper_pen_color = None

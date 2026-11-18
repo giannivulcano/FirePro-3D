@@ -91,7 +91,8 @@ def _generic(request, make):
     return ms, _GENERIC[make](ms)
 
 
-def test_generic_family_is_migrated_by_exact_type():
+def test_generic_family_has_enter_and_exit():
+    """Every generic owner is on the protocol (no legacy adapter remains)."""
     from firepro3d.floor_opening import FloorOpening
     from firepro3d.floor_slab import FloorSlab
     from firepro3d.node import Node
@@ -99,8 +100,9 @@ def test_generic_family_is_migrated_by_exact_type():
     from firepro3d.room import Room
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
-    assert {WallSegment, WallOpening, FloorOpening,
-            FloorSlab, RoofItem, Room, Node} <= set(pp._migrated())
+    for cls in (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node):
+        assert callable(getattr(cls, "enter_paper_pass", None)), cls
+        assert callable(getattr(cls, "exit_paper_pass", None)), cls
 
 
 @pytest.mark.parametrize("make", list(_GENERIC))
@@ -214,17 +216,13 @@ def _construction(request, make):
     return ms, item
 
 
-def test_construction_family_is_migrated_by_exact_type():
-    """Every landed family, by exact type (subclasses take the legacy path):
-    generic (Task 3), construction (Task 4), annotation blocks (Task 5, with
-    the two section BlockInstance subclasses the base ladder reached), pipe
-    (Task 6; no Pipe subclass exists), sprinkler / water supply (Task 8; no
-    subclass of either exists), plan gridline (Task 9; no GridlineItem
-    subclass exists -- the elevation ElevGridlineItem is unrelated, Task 11),
-    view markers (Task 10; no SectionMarker / DetailMarker subclass exists),
-    elevation gridline / level datum (Task 11; no subclass of either exists),
-    section proxies (Task 12: every _ColourSrcMixin class, each by exact
-    type), printed text (Task 14; no TextItem subclass exists)."""
+def test_every_category_owner_class_has_enter_and_exit():
+    """AC1: every owner class the base ladders named (generic, construction,
+    annotation blocks incl. the two section BlockInstance subclasses, pipe,
+    sprinkler / water supply, plan gridline, view markers, elevation
+    gridline / level datum, every section proxy) enters and leaves the pass
+    itself -- the driver has no adapter to fall back on; printed text has
+    its print-pass pair."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.detail_view import DetailMarker
     from firepro3d.section_marker import SectionMarker
@@ -244,20 +242,20 @@ def test_construction_family_is_migrated_by_exact_type():
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
     from firepro3d.water_supply import WaterSupply
-    assert set(pp._migrated()) == {WallSegment, WallOpening, FloorOpening,
-                                   FloorSlab, RoofItem, Room, Node,
-                                   *_construction_classes(),
-                                   BlockInstance, HydraulicNodeBadge,
-                                   _HostedBlockCopy, _SectionNoteCopy, Pipe,
-                                   Sprinkler, WaterSupply, GridlineItem,
-                                   SectionMarker, DetailMarker,
-                                   ElevGridlineItem, ElevDatumItem,
-                                   *_proxy_classes(ss), TextItem}
+    owners = {WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room,
+              Node, *_construction_classes(), BlockInstance, HydraulicNodeBadge,
+              _HostedBlockCopy, _SectionNoteCopy, Pipe, Sprinkler, WaterSupply,
+              GridlineItem, SectionMarker, DetailMarker, ElevGridlineItem,
+              ElevDatumItem, *_proxy_classes(ss)}
+    for cls in owners:
+        assert callable(getattr(cls, "enter_paper_pass", None)), cls
+        assert callable(getattr(cls, "exit_paper_pass", None)), cls
+    assert callable(TextItem.enter_print_pass) and callable(TextItem.exit_print_pass)
 
 
 def _proxy_classes(ss):
     """Every _ColourSrcMixin subclass in section_scene, read from the module
-    (so a new proxy class that is not migrated fails the exact-set test)."""
+    (so a new proxy class fails here until it is named)."""
     found = {c for c in vars(ss).values()
              if isinstance(c, type) and issubclass(c, ss._ColourSrcMixin)
              and c is not ss._ColourSrcMixin}
@@ -574,16 +572,15 @@ def test_bound_label_host_in_another_scene_is_not_its_owner(qapp, request, paper
     assert pp._owner_of(lab) is lab
 
 
-def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env,
-                                                        real_system_library):
-    """Until each owner's family lands, a hit label whose owner is not yet
-    migrated stays its own (base) entry: the room tag maps to the Room and
-    the pipe label to the Pipe (Task 6), the gridline bubble to the plan
-    gridline (Task 9), a view marker's head to its marker (Task 10), an
-    elevation gridline's bubble to its gridline (Task 11), a section pipe
-    label to its line proxy (Task 12); a level datum's head is never mapped
-    (``LevelDatumHead.paper_owner`` None, base picking: the datum enters it),
-    nor is a bubble under a parent not on the protocol."""
+def test_driver_maps_each_child_onto_its_paper_owner(qapp, request, paper_env,
+                                                     real_system_library):
+    """D5: a hit child maps onto its ``paper_owner``: the room tag to the
+    Room, the pipe label to the Pipe, the gridline bubble to the plan
+    gridline, a view marker's head to its marker, an elevation gridline's
+    bubble to its gridline, a section pipe label to its line proxy; a level
+    datum's head is never mapped (``LevelDatumHead.paper_owner`` None, base
+    picking: the datum enters it). The mapping is ``paper_owner`` alone -- a
+    bubble under any parent maps onto that parent."""
     from firepro3d.gridline import GridlineBubble
     from tests.test_paper_pass_characterization import (_gridline, _marker_placed,
                                                         _pipe_labelled)
@@ -602,11 +599,11 @@ def test_driver_maps_a_label_only_onto_a_migrated_owner(qapp, request, paper_env
     assert pp._owner_of(gl.bubble1) is gl
     assert pp._owner_of(sec.head_a) is sec and pp._owner_of(det.bubble) is det
     from PyQt6.QtWidgets import QGraphicsLineItem
-    host = QGraphicsLineItem(0, 0, 10, 0)        # stands in for a not-yet-migrated parent
+    host = QGraphicsLineItem(0, 0, 10, 0)        # any Qt parent
     ms.addItem(host)
     elev_bubble = GridlineBubble(gl, parent=host)
     assert elev_bubble.paper_owner is host
-    assert pp._owner_of(elev_bubble) is elev_bubble
+    assert pp._owner_of(elev_bubble) is host
 
 
 def test_room_enters_its_tag_through_the_shared_helper(qapp, request, paper_env,
@@ -1670,8 +1667,8 @@ def test_proxy_owner_enters_itself_through_the_driver(qapp, request, paper_env,
     try:
         assert [fn for it, fn, _tok in saved if it is line] == [line.exit_paper_pass]
         assert not [it for it, _fn, _tok in saved if it is lab]
-        assert not [it for it, fn, _tok in saved
-                    if isinstance(it, _ColourSrcMixin) and fn is pd._legacy_exit]
+        assert not [it for it, fn, _tok in saved if isinstance(it, _ColourSrcMixin)
+                    and fn not in (it.exit_paper_pass, pp._vis_exit)]
         assert lab._paper_scale == pytest.approx(SCALE)
     finally:
         pd.restore_model_display(saved)
@@ -1823,8 +1820,6 @@ def test_node_owner_enters_its_fitting_through_the_driver(qapp, request, paper_e
     try:
         assert [fn for it, fn, _tok in saved if it is n] == [n.exit_paper_pass]
         assert not [it for it, _fn, _tok in saved if it is sym]
-        assert not [tok for _it, fn, tok in saved if fn is pd._legacy_exit
-                    and any(e.get("fitting") is not None for e in tok)]
         assert n.fitting._display_color == paper_env.cats["Fitting"]["color"]
     finally:
         pd.restore_model_display(saved)
@@ -2021,7 +2016,6 @@ def test_underlay_enters_after_the_owners_through_the_driver(qapp, request, pape
     saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
     try:
         fns = [fn for _it, fn, _tok in saved]
-        assert not [fn for fn in fns if fn is pd._legacy_exit]
         assert [it for it, fn, _tok in saved
                 if fn is underlay.exit_underlay_paper_pass] == [group]
         i = fns.index(underlay.exit_underlay_paper_pass)
@@ -2074,12 +2068,11 @@ def _printed_text(request):
     return ms, _text_printed(ms)
 
 
-def test_text_item_is_migrated_and_has_no_subclass():
-    """``_migrated()`` is exact-type: every TextItem class must be listed. No
-    subclass exists today (a new one must be added to ``_migrated()``)."""
+def test_text_item_has_the_print_pass_pair():
+    """N15: printed text enters / leaves the pass through its own print-pass
+    pair (the driver calls it whenever the pass carries a print scale)."""
     from firepro3d.text_item import TextItem
-    assert TextItem in pp._migrated()
-    assert TextItem.__subclasses__() == []
+    assert callable(TextItem.enter_print_pass) and callable(TextItem.exit_print_pass)
 
 
 @pytest.mark.parametrize("prior", [None, (0.5, 0.1)], ids=["none", "set"])
@@ -2111,7 +2104,6 @@ def test_printed_text_enters_itself_through_the_driver(qapp, request, paper_env)
     saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
     try:
         assert [fn for it, fn, _tok in saved if it is t] == [t.exit_print_pass]
-        assert not [fn for _it, fn, _tok in saved if fn is pd._legacy_exit]
         assert t._print_pass == (printed_text_k(20.0, SCALE), SCALE)
     finally:
         pd.restore_model_display(saved)

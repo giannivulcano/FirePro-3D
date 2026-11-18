@@ -333,8 +333,7 @@ class TestPaperUnderlayStage:
         set_paper_mode("bw")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
         before = child.pen().color().name()
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="plan:Plan: Level 1")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02)
         assert child.pen().color().name() == "#000000"
         restore_model_display(saved)
         assert child.pen().color().name() == before
@@ -344,8 +343,7 @@ class TestPaperUnderlayStage:
             qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
         set_paper_mode("full_color")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="plan:x")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02)
         assert child.pen().color().name() == "#ff0000"
         restore_model_display(saved)
 
@@ -355,8 +353,7 @@ class TestPaperUnderlayStage:
             qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
         set_paper_mode("custom")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="plan:x")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02)
         assert child.pen().color().name() == "#ff0000"
         restore_model_display(saved)
 
@@ -366,8 +363,7 @@ class TestPaperUnderlayStage:
         set_paper_mode("bw")
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
         paper_scale = 0.02
-        saved = apply_paper_overrides(scene, rect, paper_scale=paper_scale,
-                                      source_view_key="plan:x")
+        saved = apply_paper_overrides(scene, rect, paper_scale=paper_scale)
         assert not child.pen().isCosmetic()
         assert child.pen().widthF() == pytest.approx(0.35 / paper_scale)
         restore_model_display(saved)
@@ -376,8 +372,7 @@ class TestPaperUnderlayStage:
     def test_no_weight_keeps_cosmetic_hairline(self, qapp):
         scene, rec, group, rect = _paper_scene_setup(qapp)
         child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="plan:x")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02)
         assert child.pen().isCosmetic()
         assert child.pen().widthF() == pytest.approx(UNDERLAY_LINE_WIDTH_PX)
         restore_model_display(saved)
@@ -386,8 +381,7 @@ class TestPaperUnderlayStage:
         """A group hidden by the model-side pass is left alone (§16.5)."""
         scene, rec, group, rect = _paper_scene_setup(qapp)
         group.setVisible(False)
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="plan:x")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02)
         assert not group.isVisible()
         restore_model_display(saved)
         assert not group.isVisible()
@@ -437,7 +431,7 @@ def _mock_resolver(scene):
     """Every view resolves to the same model scene + the fixed square crop.
 
     Same MagicMock(spec=ViewResolver) pattern as the gridline suite's
-    two_scale_sheet fixture — the source_view_key under test is built from
+    two_scale_sheet fixture — the view identity under test comes from
     SheetViewData (type:name), not from the resolver, so a shared crop is
     exactly what isolates the per-view exclusion path.
     """

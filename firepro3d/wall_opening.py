@@ -592,7 +592,7 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             pen_color = QColor("#888888")
 
         # Fill the gap with the correct background colour:
-        #   Paper/plot: _paper_gap_color is set by apply_paper_overrides → white,
+        #   Paper/plot: _paper_gap_color is set by _paper_generic_write → white,
         #               so the opening reads as a clean hole on white paper.
         #   Screen:     use the scene background (dark theme) so the gap blends
         #               with the canvas and the wall appears cut through.

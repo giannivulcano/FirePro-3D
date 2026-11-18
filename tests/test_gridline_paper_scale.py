@@ -291,13 +291,15 @@ class TestOverridePassExceptionSafety:
         """
         ts = two_scale_sheet
         b1_rect_before = QRectF(ts.gl.bubble1.boundingRect())
-        real_apply = pd._apply_gridline
+        gl_cls = type(ts.gl)
+        real_apply = gl_cls._paper_line_write
 
-        def apply_then_boom(*args, **kwargs):
-            real_apply(*args, **kwargs)   # gridline reaches paper mode first
+        def apply_then_boom(self, *args, **kwargs):
+            real_apply(self, *args, **kwargs)   # gridline reaches paper mode first
             raise RuntimeError("mid-pass failure")
 
-        monkeypatch.setattr(pd, "_apply_gridline", apply_then_boom)
+        # The gridline's own paper LINE write (was paper_display._apply_gridline).
+        monkeypatch.setattr(gl_cls, "_paper_line_write", apply_then_boom)
         with pytest.raises(RuntimeError):
             pd.apply_paper_overrides(ts.model, QRectF(_CROPS["V50"]),
                                      paper_scale=0.02)

@@ -209,7 +209,7 @@ class BlockInstance(QGraphicsObject):
         self._ink_ops_cache = None  # (ops list, distinct stroke rows) -- _ink_reach_px
         self._stack_seq = 0        # scene-entry order, the tie-break at equal z
         # Paper-render hooks (linetypes.md LT1-2 / H5): set only during a
-        # viewport pass by paper_display._apply_block, None on the model canvas.
+        # viewport pass by paper_pass.enter_block_hooks, None on the model canvas.
         self._paper_pen_width: Optional[float] = None
         self._paper_pen_color: Optional[QColor] = None
         # WM3 D3: the paper "Blocks" colour a By Category placement Colour

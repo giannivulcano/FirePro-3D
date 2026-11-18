@@ -21,8 +21,7 @@ def _render(scene):
     img.fill(QColor("white"))
     p = QPainter(img)
     p.scale(5, 5)
-    saved = apply_paper_overrides(scene, _CROP, paper_scale=1.0,
-                                  source_view_key="schematic:x")
+    saved = apply_paper_overrides(scene, _CROP, paper_scale=1.0)
     try:
         scene.render(p, QRectF(0, 0, 120, 120), _CROP)
     finally:

@@ -494,7 +494,7 @@ def paint_ops(painter, ops, pose, item, *, override=None, selected=False, tint=N
     D-A: one op painter for a placed instance and a ``BoundLabelItem``).
 
     *item* supplies the per-item paint state: ``_paper_pen_width``,
-    ``_paper_pen_color``, ``_paper_scale`` (paper_display._apply_block hooks),
+    ``_paper_pen_color``, ``_paper_scale`` (set by paper_pass.enter_block_hooks),
     ``_is_ghost``, ``_crisp_ops``, ``_pose_rot``, ``scene()``,
     ``sceneTransform()``. *override* is the display-manager pen colour,
     *tint* the constraint tint (stroke ops only), *selected* paints the

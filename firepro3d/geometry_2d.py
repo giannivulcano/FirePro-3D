@@ -29,7 +29,7 @@ from .block_stack import cover_over
 from .render_op import keep_frame, keep_path
 from .constants import (CHAIN_WELD_MM, CRISP_AXIS_TOL, LINETYPE_WINDOW_MIN_PERIODS,
                         STROKE_AA_PX, TOKEN_AUTO, TOKEN_ELEMENT)
-from .colour_tokens import resolve_colour
+from .colour_tokens import is_token, resolve_colour
 from .displayable_item import DisplayableItemMixin
 from .fill_layers import (EMPTY as _EMPTY_FILL, NO_LAYER, BackgroundLayer,
                           PatternLayer, alpha as _fill_alpha)
@@ -46,7 +46,7 @@ from .scale_manager import ScaleManager
 from .stroke_style import (BY_BLOCK, END_KEYWORDS, NO_ENDS, NONE,
                            apply_stroke_joins, canvas_px, stroke_pen,
                            canvas_weight_name, has_ends,
-                           is_linetype_ref, linetype_block, normalize_end,
+                           is_linetype_ref, is_named_weight, linetype_block, normalize_end,
                            open_stroke, resolve_ends, resolve_stroke,
                            toggle_mirrored)
 from .view_scale import scene_hit_width
@@ -1589,9 +1589,7 @@ class _ConstructionPaperMixin:
         weight (LT2-5 / WM-12); the category weight is the By Linetype /
         unstyled fallback.
         """
-        from .colour_tokens import is_token, resolve_colour   # circular at import time
         from .paper_display import _paper_qcolor, row_as_authored
-        from .stroke_style import apply_stroke_joins, is_named_weight   # circular at import time
         authored = row_as_authored(cat)
         if hasattr(self, "pen") and callable(getattr(self, "setPen", None)):
             pen = self.pen()
@@ -1613,6 +1611,13 @@ class _ConstructionPaperMixin:
             rs = rs_fn() if rs_fn is not None else None
             mm = (resolve_line_weight_mm(rs.weight)
                   if rs is not None and is_named_weight(rs.weight) else ctx.lw_mm(cat))
+            # Divide by paper_scale (ctx.paper_w): the pen lives in model
+            # (scene) units and is rendered through the viewport at
+            # paper_scale (paper mm per model mm), so a raw mm would plot at
+            # mm x paper_scale -- a sub-pixel hairline at architectural
+            # scales. Divided and non-cosmetic, it plots at mm on paper
+            # regardless of scale, matching the gridline / underlay
+            # convention (s9.9.1).
             pen.setWidthF(ctx.paper_w(mm))
             pen.setCosmetic(False)
             apply_stroke_joins(pen)

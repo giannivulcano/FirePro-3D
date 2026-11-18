@@ -380,7 +380,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
 
         self._display_overrides: dict = {}  # per-instance display overrides
         # Write-together unit: the three _paper_* attributes are set only by
-        # paper_display's override pass (_apply_gridline / restore) — never
+        # the paper pass (_paper_line_write / exit_paper_pass) — never
         # mutate one without the others.
         self._paper_render = False        # True during a paper override pass
         self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
@@ -393,8 +393,7 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
     paper_category = "Grid Line"      # paper row (R5)
 
     def enter_paper_pass(self, ctx, cat):
-        """The gridline's paper LINE (``paper_display._apply_gridline``:
-        colour, the ``_paper_render`` / ``_paper_line_w`` / ``_paper_line_w_mm``
+        """The gridline's paper LINE (:meth:`_paper_line_write`: colour, the ``_paper_render`` / ``_paper_line_w`` / ``_paper_line_w_mm``
         unit, the lock indicator hidden, the row opacity), then each visible
         bubble (D5: both map onto this gridline) through the shared
         annotation-block helper at opacity 1 (SB4b D12). Saves first (the
@@ -418,14 +417,34 @@ class GridlineItem(TagBlockHost, QGraphicsLineItem):
             from . import paper_display as pd
             authored = pd.row_as_authored(cat)
             lw_mm = ctx.lw_mm(cat)
-            pd._apply_gridline(self, cat, authored, lw_mm, ctx.paper_scale,
-                               ctx.auth_tok(self, self.paper_category, authored))
+            self._paper_line_write(cat, authored, lw_mm, ctx.paper_scale,
+                                   ctx.auth_tok(self, self.paper_category, authored))
             for b in (self.bubble1, self.bubble2):     # SB4b D12: annotative path
                 if b.isVisible():
                     tok["bubbles"].append(paper_pass.enter_block_hooks(
                         b, ctx, cat, authored, lw_mm, opacity=1.0))
             self.prepareGeometryChange()               # the trim moves with k
         return paper_pass.enter_guarded(self.exit_paper_pass, tok, write)
+
+    def _paper_line_write(self, cat, authored, lw_mm, paper_scale,
+                          model_token=None) -> None:
+        """The gridline's LINE on paper (s9.9.1): weight + the paper-mm dash.
+        *model_token*: the model-side token colour (Full Colour only)
+        re-resolved on the paper surface. The bubbles are entered separately
+        (annotation blocks, SB4b D12)."""
+        from .paper_display import _paper_qcolor
+        S = max(paper_scale, 1e-9)
+        self._paper_render = True          # write-together unit with the floats below
+        self._paper_line_w = lw_mm / S
+        self._paper_line_w_mm = lw_mm      # ON-PAPER mm (NOT divided by S) — dash normaliser
+        if not authored:
+            self._grid_color = _paper_qcolor(cat["color"], self)
+        elif model_token is not None:
+            from .colour_tokens import resolve_colour
+            self._grid_color = resolve_colour(model_token, item=self)
+        self._lock_indicator.setVisible(False)
+        self.setOpacity(cat["opacity"] / 100.0)
+        self.update()
 
     def exit_paper_pass(self, tok: dict) -> None:
         """Undo :meth:`enter_paper_pass` (the base restore order: opacity, line

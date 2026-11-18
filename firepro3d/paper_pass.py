@@ -5,10 +5,6 @@ Items enter and leave a sheet-viewport paper pass themselves:
 writes; ``owner.exit_paper_pass(token)`` undoes it. The driver here only
 picks items, maps each to its paper owner, merges the row once, and unwinds
 every token in reverse, each exit in its own try.
-
-Until each family migrates, an owner not in :func:`_migrated` runs through
-the legacy adapter in ``paper_display`` (today's per-entry save / apply /
-restore code, as one token per owner).
 """
 from __future__ import annotations
 
@@ -241,77 +237,16 @@ class PaperPassContext:
 # Driver
 # ---------------------------------------------------------------------------
 
-def _migrated() -> tuple:
-    """Classes whose enter / exit is on the new protocol. Each family task
-    adds its classes; Task 15 deletes this and the legacy adapter."""
-    from .block_instance import BlockInstance
-    from .filled_region import FilledRegionItem
-    from .floor_opening import FloorOpening
-    from .floor_slab import FloorSlab
-    from .geometry_2d import (ArcItem, CircleItem, EllipseItem, LineItem,
-                              PolylineItem, RectangleItem, RegularPolygonItem,
-                              SplineItem)
-    from .gridline import GridlineItem
-    from .hydraulic_node_badge import HydraulicNodeBadge
-    from .node import Node
-    from .pipe import Pipe
-    from .roof import RoofItem
-    from .detail_view import DetailMarker
-    from .room import Room
-    from .section_marker import SectionMarker
-    from .section_scene import (ElevDatumItem, ElevGridlineItem, _ElevCutEllipse,
-                                _ElevCutRect, _ElevEndOnSymbol, _ElevPipeSymbol,
-                                _ElevProxyEllipse, _ElevProxyLine, _ElevProxyRect,
-                                _HostedBlockCopy, _SectionNoteCopy, _SrcEllipse,
-                                _SrcLine, _SrcRect)
-    from .sprinkler import Sprinkler
-    from .text_item import TextItem
-    from .wall import WallSegment
-    from .wall_opening import WallOpening
-    from .water_supply import WaterSupply
-    # Node enters its fitting symbol (Task 13, D9)
-    return (WallSegment, WallOpening, FloorOpening, FloorSlab, RoofItem, Room, Node,
-            # construction family (Task 4)
-            PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
-            EllipseItem, SplineItem, RegularPolygonItem, FilledRegionItem,
-            # annotation blocks (Task 5); the section copies are the BlockInstance
-            # subclasses the base ladder reached through isinstance
-            BlockInstance, HydraulicNodeBadge, _HostedBlockCopy, _SectionNoteCopy,
-            # pipe (Task 6): enters its riser symbol and its label (D5)
-            Pipe,
-            # symbol path (Task 8): no subclass of either; nothing maps onto them
-            Sprinkler, WaterSupply,
-            # plan gridline (Task 9): enters its two bubbles (D5)
-            GridlineItem,
-            # view markers (Task 10): enter their heads (D5); no subclass of either
-            SectionMarker, DetailMarker,
-            # elevation gridline / level datum (Task 11): enter their bubbles /
-            # head (D5); no subclass of either
-            ElevGridlineItem, ElevDatumItem,
-            # section proxies (Task 12): every _ColourSrcMixin class, by exact
-            # type; the line proxy enters its section pipe label (D5)
-            _SrcRect, _SrcLine, _SrcEllipse, _ElevProxyRect, _ElevProxyLine,
-            _ElevProxyEllipse, _ElevCutRect, _ElevPipeSymbol, _ElevCutEllipse,
-            _ElevEndOnSymbol,
-            # printed text (Task 14): enter_print_pass when the pass carries a
-            # print scale; no subclass of TextItem exists (base: isinstance).
-            # Without one it has no category (None), so it takes the
-            # phase-hidden mask hide, as the legacy ladder did.
-            TextItem)
-
-
 def _owner_of(item):
     """The owner whose enter covers *item* (D5): its ``paper_owner``, else
-    itself. Until Task 15 only a migrated owner is mapped (the Room for its
-    tag; the Pipe for its label and riser; the plan or elevation gridline
-    for its bubbles; a view marker for its heads; a level datum for its head;
-    a section line proxy for its pipe label; a node for its fitting symbol,
-    D9) -- a child of an owner not on the protocol stays its own entry, as at
-    base, so the legacy adapter never enters an owner that base did not."""
+    itself. The room tag and the pipe label map to their host; the pipe's
+    riser symbol to its pipe; a plan or elevation gridline's bubbles, a view
+    marker's heads and a node's fitting symbol (D9) to their Qt parent; a
+    section pipe label to its line proxy. A level datum's head, a hydraulic
+    badge and a sheet title return None (each is its own owner); an item
+    without ``paper_owner`` is its own owner."""
     o = getattr(item, "paper_owner", None)
-    if o is None or type(o) not in _migrated():
-        return item
-    return o
+    return item if o is None else o
 
 
 def _pick(ctx, saved, item) -> bool:
@@ -348,18 +283,15 @@ def _pick(ctx, saved, item) -> bool:
 
 
 def _enter_owner(ctx, saved, owner) -> None:
+    """Enter one owner (D4 / D8): printed text its print pass when the pass
+    carries a print scale; an owner with no category takes the phase-hidden
+    mask hide; a row with Visible off hides the owner and its
+    ``paper_hidden_children``; otherwise ``owner.enter_paper_pass(ctx, cat)``.
+    Every category owner implements the protocol -- one without
+    ``enter_paper_pass`` raises ``AttributeError`` (a bug, never a fallback)."""
     from . import paper_display as pd
-    if ctx.text_scale and hasattr(owner, "enter_print_pass") \
-            and type(owner) in _migrated():
+    if ctx.text_scale and hasattr(owner, "enter_print_pass"):
         saved.push(owner, owner.exit_print_pass, owner.enter_print_pass(ctx))
-        return
-    if type(owner) not in _migrated():
-        entries: list = []
-        try:
-            pd._legacy_enter(ctx, owner, entries)
-        finally:
-            if entries:
-                saved.push(owner, pd._legacy_exit, entries)
         return
     cat_key = pd._category_for_item(owner)
     if cat_key is None:

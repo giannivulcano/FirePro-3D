@@ -94,14 +94,25 @@ def test_unit_paper_hook_is_set_for_the_pass_and_restored(qapp, shipped_hatches)
 
 def test_unit_non_blocks_apply_block_callers_never_set_the_hook(qapp):
     """M3: bound labels, marker / elevation heads, gridline bubbles and room
-    tags go through _apply_block with their OWNER's category and restore only
-    3-tuples, so the hook is set for the Blocks category branch alone (their
-    token:blocks, if any, reads the paper "Blocks" category directly)."""
+    tags go through the shared annotation-block helper
+    (``paper_pass.enter_block_hooks``, D7) with their OWNER's category and
+    restore only 3-tuples, so the hook is set for the Blocks category branch
+    alone (their token:blocks, if any, reads the paper "Blocks" category
+    directly)."""
+    from firepro3d import paper_pass
     from tests.wm2_support import scene_with, sprinkler_def
     d = sprinkler_def()
     ms, inst = scene_with([d], d.id)
-    cat = pd.load_paper_categories()["Blocks"]
-    pd._apply_block(inst, cat, True, 0.18, 0.02)
+    ctx = paper_pass.PaperPassContext(ms, _crop(0.02), paper_scale=0.02)
+    cat = ctx.row("Blocks")
+    tok = paper_pass.enter_block_hooks(inst, ctx, cat, True, 0.18)
+    try:
+        assert inst._paper_blocks_colour is None
+    finally:
+        paper_pass.exit_block_hooks(tok)
+    tok = paper_pass.enter_block_hooks(inst, ctx, cat, True, 0.18, blocks_hook=True)
+    try:
+        assert inst._paper_blocks_colour is not None
+    finally:
+        paper_pass.exit_block_hooks(tok)
     assert inst._paper_blocks_colour is None
-    pd._apply_block(inst, cat, True, 0.18, 0.02, blocks_hook=True)
-    assert inst._paper_blocks_colour is not None
