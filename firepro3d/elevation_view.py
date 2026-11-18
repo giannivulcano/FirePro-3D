@@ -16,11 +16,12 @@ from PyQt6.QtCore import Qt, QEvent, QPoint, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import QPainter, QKeyEvent, QKeySequence
 
 from . import theme as th
+from .gesture_frame_cache import GestureFrameCacheMixin
 
 _log = logging.getLogger(__name__)
 
 
-class SectionView(QGraphicsView):
+class SectionView(GestureFrameCacheMixin, QGraphicsView):
     """Display widget for a SectionScene with pan/zoom interaction."""
 
     cursorMoved = pyqtSignal(str)   # "H: … Z: …"
@@ -296,6 +297,8 @@ class SectionView(QGraphicsView):
 
     def drawForeground(self, painter, rect):
         super().drawForeground(painter, rect)
+        if self._fc_capturing:          # gesture frame capture: items only
+            return
         scene = self.scene()
         if scene is None:
             return

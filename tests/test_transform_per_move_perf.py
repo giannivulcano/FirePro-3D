@@ -18,7 +18,7 @@ import statistics
 import time
 
 import pytest
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -151,3 +151,119 @@ def test_snap_plus_ghost_per_move_within_bar(qapp, shape, tool):
                 ew._modified = False
                 win.block_editor_manager.close(ew)
             dispose_main_window(win)
+
+
+def _shape_c_scene(win, n_still=2000, n_sel=400):
+    """Model Space plan: n_still unselected lines + n_sel selected lines on screen."""
+    from firepro3d.geometry_2d import LineItem
+    s = win.scene
+    sel = []
+    for i in range(n_still + n_sel):
+        it = s._add_from_dict(LineItem(QPointF(i * 5.0, 0.0),
+                                       QPointF(i * 5.0, 300.0)).to_dict())
+        assert it is not None
+        if i >= n_still:
+            sel.append(it)
+    s.select_items(sel)             # one selectionChanged, like Ctrl+A / rubber-band
+    QApplication.processEvents()
+    return sel
+
+
+WHOLE_CASES = [
+    pytest.param("A", "rotate", id="A-valve-rotate", marks=pytest.mark.xfail(
+        strict=False, reason="snap find ~35 ms/move: todo_open 'Per-gesture cache "
+                             "of still items' snap segments'")),
+    pytest.param("A", "move", id="A-valve-move"),
+    pytest.param("B", "rotate", id="B-2000-lines-rotate"),
+    pytest.param("B", "move", id="B-2000-lines-move"),
+    pytest.param("C", "move", id="C-model-plan-move", marks=pytest.mark.xfail(
+        strict=False, reason="Qt per-move items-under-cursor walk over every item "
+                             "on the NoIndex model scene: todo_open 'HALO hover on "
+                             "huge drawings: spatial index for the model scene'")),
+    pytest.param("C", "rotate", id="C-model-plan-rotate", marks=pytest.mark.xfail(
+        strict=False, reason="snap find (todo_open 'Per-gesture cache of still items' "
+                             "snap segments') + NoIndex items-under-cursor walk "
+                             "(todo_open 'spatial index for the model scene')")),
+]
+
+
+@pytest.mark.perf
+@pytest.mark.parametrize("shape, tool", WHOLE_CASES)
+def test_whole_move_within_bar(qapp, shape, tool):
+    """G1: whole per-move wall (event + snap + ghost + flushed repaint) <= 0.1 ms/prim."""
+    import main as _main_module
+    from firepro3d.view_3d import View3D
+    _main_module.View3D = View3D
+    from main import MainWindow
+    win = MainWindow()
+    win.resize(1600, 1000)
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    try:
+        if shape == "C":
+            sel = _shape_c_scene(win)
+            n_prims = len(sel)
+            scene = win.scene
+            # The visible plan view: win.view is the vestigial, never-shown
+            # views()[0] (snapping-engine.md s14.4).
+            view = scene._visible_view()
+            assert view is not None and view is not win.view
+            view.fitInView(scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            QApplication.processEvents()
+            assert len(scene.selectedItems()) == n_prims          # scene composition
+            on_screen = scene.items(view.mapToScene(view.viewport().rect()))
+            still = [it for it in on_screen if not it.isSelected()]
+            assert len(still) >= 2000, len(still)                  # still items on screen
+            centre = QRectF()
+            for it in sel:
+                centre = centre.united(it.sceneBoundingRect())
+            c = view.mapFromScene(centre.center())
+        else:
+            d, n_prims = (_shape_a if shape == "A" else _shape_b)()
+            win.scene.register_block_definition(d)
+            w = win.block_editor_manager.edit_definition(d.id)
+            QApplication.processEvents()
+            view = w.view
+            scene = view.scene()
+            view.fitInView(scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            QApplication.processEvents()
+            QTest.keyClick(view.viewport(), Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+            QApplication.processEvents()
+            assert len(scene.selectedItems()) == n_prims          # scene composition
+            c = view.mapFromScene(scene.itemsBoundingRect().center())
+        assert scene._modify_ctl.start(tool)
+        at = view.mapToScene
+        move(view, at(c)); click(view, at(c))
+        if tool == "rotate":
+            ray = c + QPoint(RAY_PX, 0)
+            move(view, at(ray)); click(view, at(ray))
+        QApplication.processEvents()
+        pts = _gesture_points(tool, c)
+        for p in pts[:2]:                                          # warm-up (capture)
+            move(view, at(p)); QApplication.processEvents()
+        assert len(scene._move_ghost) == n_prims                   # ghost covers selection
+        first = _ghost_centers(scene)
+        per_move = []
+        for p in pts[2:]:
+            t = time.perf_counter()
+            move(view, at(p))
+            QApplication.processEvents()                           # flush the deferred repaint
+            per_move.append((time.perf_counter() - t) * 1000.0)
+        moved = sum((b - a).manhattanLength()
+                    for a, b in zip(first, _ghost_centers(scene)))
+        assert moved > n_prims                                     # the ghost really swept
+        assert view._fc_armed and view._fc_key is not None         # the frame cache captured
+        med = statistics.median(per_move)
+        line = (f"WHOLE {shape} {tool} {n_prims}: median {med:.1f} ms/move "
+                f"(bar {BAR_MS_PER_PRIM * n_prims:.1f}); raw {[round(x, 1) for x in per_move]}")
+        print(line)
+        out = os.environ.get("PERF_RAW_OUT")
+        if out:
+            with open(out, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        assert med <= BAR_MS_PER_PRIM * n_prims, line
+    finally:
+        for ew in list(win.block_editor_manager.open_editors()):
+            ew._modified = False
+            win.block_editor_manager.close(ew)
+        dispose_main_window(win)
