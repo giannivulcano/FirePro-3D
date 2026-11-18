@@ -2,6 +2,12 @@
 
 > Append-only archive of finished tasks (moved here from `todo_open.md` on completion, with their `[done:]` stamp and build notes). Not scanned for task selection.
 
+## Performance -- large block in the Block Editor: research (Fire Pump Test, 3,986 polylines) -- 2026-11-18
+
+- [x] [type:design] Large block in the Block Editor: Select All is slow, and the repaint after a committed move/rotate lags [P2] [subject:Performance] [done:2026-11-18]
+  - Details: user report 2026-11-18 on `D:\FPD Library\blocks\Sprinkler Systems\Pumps\Fire Pump Test.fpdb` (3,986 polylines, 3.9 MB). Ctrl+A in the Block Editor takes a long time; the move ghost is smooth, but the repaint once the new position is committed lags. Research run: measure and profile both in the real paths, rank causes, file one fix task per cause. Related: the 2026-11-01 Block Editor select-all fix (closed) and "Large-selection select_items cost" (85k primitives, plan).
+  - Findings (design/Small research, real window, two profiled runs at `d701947f`): open 4.1-5.5 s; Ctrl+A 2.1-2.9 s (panel ~1.9 s, Modify buttons 0.3-0.6 s, manipulator rebake ~0.5 s); Move commit ~7-9 s (per-line join-index cascade ~40%, panel built twice ~2.5 s, repaint); full redraw 0.6-1.1 s (uncached `boundingRect` ~40%). Filed: batch whole-selection rigid transform, cache stroke `boundingRect`, panel per-style memo + single build per commit (P2); per-line paint cost, large-block open time (P3); +1 on `can_start("array")`. Probe recipe: `.todo/large-block-probe.py` (main checkout, local).
+
 ## Linetypes -- LT7 ship System linetypes + end types (partial; rest LT7c) -- 2026-11-18
 
 - [x] [type:feature] LT7 — Ship System > Linetypes (General: Continuous, Hidden, Center, Phantom, Dot, Demolition; Piping: Branch, Main, Cross Main, Existing, Drain) + System > End Types (Arrow, Open Arrow, Arrow 30°, Tick, Dot, Slash, Box, None) [subject:CAD] [P1] [done:2026-11-18]
