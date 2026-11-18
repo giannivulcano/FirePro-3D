@@ -164,13 +164,7 @@ def _shape_c_scene(win, n_still=2000, n_sel=400):
         assert it is not None
         if i >= n_still:
             sel.append(it)
-    s.blockSignals(True)            # one selectionChanged (like Ctrl+A), not 400 panel rebuilds
-    try:
-        for it in sel:
-            it.setSelected(True)
-    finally:
-        s.blockSignals(False)
-    s.selectionChanged.emit()
+    s.select_items(sel)             # one selectionChanged, like Ctrl+A / rubber-band
     QApplication.processEvents()
     return sel
 
@@ -212,8 +206,8 @@ def test_whole_move_within_bar(qapp, shape, tool):
             scene = win.scene
             # The visible plan view: win.view is the vestigial, never-shown
             # views()[0] (snapping-engine.md s14.4).
-            view = next(v for v in scene.views() if v.isVisible())
-            assert view is not win.view
+            view = scene._visible_view()
+            assert view is not None and view is not win.view
             view.fitInView(scene.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
             QApplication.processEvents()
             assert len(scene.selectedItems()) == n_prims          # scene composition
@@ -258,7 +252,7 @@ def test_whole_move_within_bar(qapp, shape, tool):
         moved = sum((b - a).manhattanLength()
                     for a, b in zip(first, _ghost_centers(scene)))
         assert moved > n_prims                                     # the ghost really swept
-        assert view._fc_armed and view._fc_pixmap is not None      # the frame cache painted
+        assert view._fc_armed and view._fc_key is not None         # the frame cache captured
         med = statistics.median(per_move)
         line = (f"WHOLE {shape} {tool} {n_prims}: median {med:.1f} ms/move "
                 f"(bar {BAR_MS_PER_PRIM * n_prims:.1f}); raw {[round(x, 1) for x in per_move]}")
