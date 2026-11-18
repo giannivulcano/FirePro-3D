@@ -1542,6 +1542,9 @@ def test_marker_head_only_hit_enters_the_marker(qapp, request, paper_env,
     hits = ms.items(crop)
     assert any(h is head for h in hits), "setup: the head must be hit"
     assert not any(h is m for h in hits), "setup: the marker shape must be missed"
+    row_name = pd._paper_qcolor(paper_env.cats[_MARKER[kind][1]]["color"], m).name()
+    assert getattr(m, _MARKER[kind][2]).name() != row_name, \
+        "setup: the marker's canvas colour must differ from the row colour"
     before = snapshot(ms)
     saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
     try:
