@@ -503,7 +503,7 @@
         "colour": null,
         "fill": null,
         "weight": null,
-        "linetype": "Demolition",
+        "linetype": "system-line-types-demolition",
         "opacity": null
       },
       "include_in_calc": false

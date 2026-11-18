@@ -400,7 +400,7 @@
    "graphics": {
     "colour": null,
     "fill": null,
-    "linetype": "Demolition",
+    "linetype": "system-line-types-demolition",
     "opacity": null,
     "weight": null
    },
