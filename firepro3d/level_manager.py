@@ -280,16 +280,8 @@ def leveled_items(scene) -> list:
         return []
     items = (list(scene.sprinkler_system.nodes) +
              list(scene.sprinkler_system.pipes))
-    items += getattr(scene, "_block_instances", [])
-    items += getattr(scene, "_gridlines", [])
-    items += getattr(scene, "_roofs", [])
-    # Walls (+ their openings), rooms and design areas carry a level too; without
-    # them a rename / delete orphaned their level and undo had nothing to restore.
-    for wall in getattr(scene, "_walls", []):
-        items.append(wall)
-        items += getattr(wall, "openings", [])
-    items += getattr(scene, "_rooms", [])
-    items += getattr(scene, "design_areas", [])
+    from . import element_store
+    items += element_store.leveled_items(scene)
     ann = getattr(scene, "annotations", None)
     if ann:
         items += getattr(ann, "dimensions", [])

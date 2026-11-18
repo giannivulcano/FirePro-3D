@@ -67,6 +67,7 @@ from .block_instance import BlockInstance
 from .block_pose import reflect_pose
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from . import element_uid
+from . import element_store
 from . import hosted_dependents
 from .floor_opening import FloorOpening, drop_carried_voids
 from .feature import DEFAULT_FEATURE_FOR_TYPE, DEFAULT_FLOOR_OPENING_FEATURE
@@ -1026,27 +1027,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """
         if item is not None and item is editing_text_item(self):
             self._text_edit_ctl.abandon(item)
-        # Map each geometry type to the list that tracks it
-        type_to_list = {
-            PolylineItem:        self._polylines,
-            LineItem:            self._draw_lines,
-            RectangleItem:       self._draw_rects,
-            CircleItem:          self._draw_circles,
-            ArcItem:             self._draw_arcs,
-            EllipseItem:         self._draw_ellipses,
-            SplineItem:          self._draw_splines,
-            RegularPolygonItem:  self._draw_polygons,
-            FilledRegionItem:    self._filled_regions,
-            TextItem:            self._texts,   # containment C5 (no subclass)
-            GridlineItem:        self._gridlines,
-        }
-        for cls, lst in type_to_list.items():
-            if isinstance(item, cls):
-                if item in lst:
-                    lst.remove(item)
-                self.removeItem(item)
-                return True
-        return False
+        return element_store.remove_from_lists(self, item)
 
     def _delete_single_item(self, item):
         """Remove a single geometry/annotation item from the scene and its tracking list."""
@@ -1153,35 +1134,13 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 if self._spr_ctl._da_editing is item:
                     self._spr_ctl._da_editing = None
                 self.removeItem(item)
-            elif isinstance(item, WallSegment):
-                for op in list(item.openings):
-                    if op.scene() is self:
-                        self.removeItem(op)
-                item.openings.clear()
-                if item in self._walls:
-                    self._walls.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, FloorSlab):
-                for op in list(item.openings):   # owned voids go with their host (A2)
-                    if op.scene() is self:
-                        self.removeItem(op)
-                item.openings.clear()
-                if item in self._floor_slabs:
-                    self._floor_slabs.remove(item)
-                self.removeItem(item)
+            elif element_store.remove_owned(self, item):   # wall/slab/roof/room (A2)
+                pass
             elif isinstance(item, FloorOpening):
                 if item.host is not None:
                     item.host.remove_opening(item)
                 if item.scene() is self:          # already gone when its host went first
                     self.removeItem(item)
-            elif isinstance(item, RoofItem):
-                if item in self._roofs:
-                    self._roofs.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, Room):
-                if item in self._rooms:
-                    self._rooms.remove(item)
-                self.removeItem(item)
             elif isinstance(item, BlockInstance):
                 self.remove_block_instance(item)
             elif isinstance(item, (DoorOpening, WindowOpening)):
@@ -3885,26 +3844,8 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
             "annotations":        annotations_data,
             "water_supply":       ws_data,
             "design_areas":       da_data,
-            # ── Draw geometry ──────────────────────────────────────────────
-            "polylines":          [pl.to_dict() for pl in self._polylines],
-            "draw_lines":         [l.to_dict()  for l in self._draw_lines],
-            "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
-            "draw_circles":       [c.to_dict()  for c in self._draw_circles],
-            "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
-            "draw_ellipses":      [e.to_dict()  for e in self._draw_ellipses],
-            "draw_splines":       [s.to_dict()  for s in self._draw_splines],
-            "filled_regions":     [r.to_dict()  for r in self._filled_regions],
-            "polygons":           [p.to_dict()  for p in self._draw_polygons],
-            "texts":              [t.to_dict()  for t in self._texts],
-            "gridlines":          [gl.to_dict() for gl in self._gridlines],
-            # ── Walls & Floors ────────────────────────────────────────────
-            "walls":              [w.to_dict()  for w in self._walls],
-            "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],  # two-boundary schema via to_dict (parity w/ scene_io)
-            "roofs":              [r.to_dict()  for r in self._roofs],
-            "rooms":              [r.to_dict()  for r in self._rooms],
-            "block_definitions":  {bid: d.to_dict()
-                                   for bid, d in self._block_definitions.items()},
-            "blocks":             [inst.to_dict() for inst in self._block_instances],
+            # Element rows, in row order (docs/specs/element-store.md D4)
+            **element_store.capture_records(self),
             "constraints":        self.constraint_ctl.capture(),
             # Block Editor capability (D-A32 / LT4); None elsewhere.
             "block_capability": ([self.block_capability[0],
@@ -4081,208 +4022,27 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
                 apply_category_defaults(da)  # Class-A display tail (undo self-contained)
                 # Tiles recomputed after walls & rooms restore below
 
-            # ── Draw geometry ──────────────────────────────────────────────
-            # Remove existing items from scene and lists
-            for pl in list(self._polylines):
-                if pl.scene() is self:
-                    self.removeItem(pl)
-            self._polylines.clear()
-
-            for item in list(self._draw_lines):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_lines.clear()
-
-            for item in list(self._draw_rects):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_rects.clear()
-
-            for item in list(self._draw_circles):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_circles.clear()
-
-            for item in list(self._draw_arcs):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_arcs.clear()
-
-            for item in list(self._draw_ellipses):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_ellipses.clear()
-
-            for item in list(self._draw_splines):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_splines.clear()
-
-            for item in list(self._filled_regions):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._filled_regions.clear()
-
-            for item in list(self._draw_polygons):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._draw_polygons.clear()
-
-            for item in list(self._texts):
-                if item.scene() is self:
-                    self.removeItem(item)
-            self._texts.clear()
-
-            for gl in list(self._gridlines):
-                if gl.scene() is self:
-                    self.removeItem(gl)
-            self._gridlines.clear()
-
-            # Detach first: a wall's join pool is ``_walls``, so removing with
-            # every wall still listed rebuilds neighbours per removal (quadratic).
-            doomed_walls = list(self._walls)
-            self._walls.clear()
-            for w in doomed_walls:
-                for op in w.openings:
-                    if op.scene() is self:
-                        self.removeItem(op)
-                if w.scene() is self:
-                    self.removeItem(w)
-
-            for fs in list(self._floor_slabs):
-                for op in fs.openings:          # voids before their slab (A2)
-                    if op.scene() is self:
-                        self.removeItem(op)
-                if fs.scene() is self:
-                    self.removeItem(fs)
-            self._floor_slabs.clear()
-
-            for r in list(self._roofs):
-                if r.scene() is self:
-                    self.removeItem(r)
-            self._roofs.clear()
-
-            for rm in list(self._rooms):
-                if rm.scene() is self:
-                    self.removeItem(rm)
-            self._rooms.clear()
-
-            for inst in list(self._block_instances):
-                if inst.scene() is self:
-                    self.removeItem(inst)
-            self._block_instances.clear()
+            # ── Element rows (docs/specs/element-store.md D4) ─────────────
+            element_store.remove_for_restore(self)
             # Session-only library source files survive the rebuild (by id):
             # Save's re-file rule needs them (block-system.md "Library on disk").
             sources = {bid: d.source_path for bid, d in self._block_definitions.items()
                        if d.source_path}
             self._block_definitions.clear()
-
-            # Restore from snapshot
-            for d in state.get("polylines", []):
-                pl = PolylineItem.from_dict(d)
-                self.addItem(pl)
-                self._polylines.append(pl)
-
-            for d in state.get("draw_lines", []):
-                li = LineItem.from_dict(d)
-                self.addItem(li)
-                self._draw_lines.append(li)
-
-            # Legacy snapshot key (RG3): reference lines load as flagged
-            # LineItems (a ``reference_line`` record sets ``reference``).
-            for d in state.get("reference_lines", []):
-                rli = LineItem.from_dict(d)
-                self.addItem(rli)
-                self._draw_lines.append(rli)
-
-            for d in state.get("draw_rectangles", []):
-                ri = RectangleItem.from_dict(d)
-                self.addItem(ri)
-                self._draw_rects.append(ri)
-
-            for d in state.get("draw_circles", []):
-                ci = CircleItem.from_dict(d)
-                self.addItem(ci)
-                self._draw_circles.append(ci)
-
-            for d in state.get("draw_arcs", []):
-                ai = ArcItem.from_dict(d)
-                self.addItem(ai)
-                self._draw_arcs.append(ai)
-
-            for d in state.get("draw_ellipses", []):
-                ei = EllipseItem.from_dict(d)
-                self.addItem(ei)
-                self._draw_ellipses.append(ei)
-
-            for d in state.get("draw_splines", []):
-                si = SplineItem.from_dict(d)
-                self.addItem(si)
-                self._draw_splines.append(si)
-
-            for d in state.get("filled_regions", []):
-                fr = FilledRegionItem.from_dict(d)
-                self.addItem(fr)
-                self._filled_regions.append(fr)
-
-            for d in state.get("polygons", []):
-                pg = RegularPolygonItem.from_dict(d)
-                self.addItem(pg)
-                self._draw_polygons.append(pg)
-
-            for d in state.get("texts", []):
-                ti = TextItem.from_dict(d)
-                self.addItem(ti)
-                self._texts.append(ti)
-
-            for d in state.get("gridlines", []):
-                gl = GridlineItem.from_dict(d)
-                self.addItem(gl)
-                self._gridlines.append(gl)
-            sync_grid_counters(self._gridlines)
-            apply_duplicate_warnings(self._gridlines)
-
-            # ── Walls & Floors ────────────────────────────────────────────
-            for d in state.get("walls", []):
-                wall = WallSegment.from_dict(d)
-                self.addItem(wall)
-                self._walls.append(wall)
-                for op_data in d.get("openings", []):
-                    op = WallOpening.from_dict(op_data, wall=wall)
-                    wall.openings.append(op)
-                    self.addItem(op)
-
-            for d in state.get("floor_slabs", []):
-                slab = FloorSlab.from_dict(d)
-                self.addItem(slab)
-                self._floor_slabs.append(slab)
-                for op in slab.openings:        # owned voids (from_dict re-attached them)
-                    self.addItem(op)
-
-            for d in state.get("roofs", []):
-                roof = RoofItem.from_dict(d)
-                self.addItem(roof)
-                self._roofs.append(roof)
-
-            for d in state.get("rooms", []):
-                room = Room.from_dict(d)
-                room._scale_manager_ref = self.scale_manager
-                self.addItem(room)
-                self._rooms.append(room)
-
             from .block_definition import BlockDefinition
-            for bid, ddict in state.get("block_definitions", {}).items():
-                self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
-                self._block_definitions[bid].source_path = sources.get(bid)
-            from .block_instance import BlockInstance
-            for bdict in state.get("blocks", []):
-                _pos = bdict.get("pos", [0.0, 0.0])
-                inst = self.place_block_instance(
-                    bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
-                    **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
-                if inst is None:     # hosted on a gridline that is gone (Task 5 counts)
-                    continue
-                inst.attributes = dict(bdict.get("attributes", {}))
+
+            def _restore_definitions():
+                for bid, ddict in state.get("block_definitions", {}).items():
+                    self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+                    self._block_definitions[bid].source_path = sources.get(bid)
+
+            def _gridline_tail():
+                sync_grid_counters(self._gridlines)
+                apply_duplicate_warnings(self._gridlines)
+
+            element_store.build_rows(
+                self, state, element_store.BuildContext("restore"), key="undo_key",
+                after_gridlines=_gridline_tail, before_blocks=_restore_definitions)
             self.blockDefinitionsChanged.emit()
 
             # Recompute auto-name counters (parity with load_from_file) so the
@@ -9045,17 +8805,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         for pipe in self.sprinkler_system.pipes:
             if getattr(pipe, "level", None) == level_name:
                 result.append(pipe)
-        for lst in [self._polylines, self._draw_lines,
-                    self._draw_rects, self._draw_circles, self._draw_arcs,
-                    self._draw_ellipses, self._draw_splines, self._draw_polygons,
-                    self._filled_regions, self._gridlines,
-                    self._walls, self._roofs,
-                    self._rooms, self.design_areas]:
-            for item in lst:
-                if getattr(item, "level", None) == level_name:
-                    result.append(item)
-        # A slab's own level is its Top Level (its ``level`` attr is never set).
-        result.extend(s for s in self._floor_slabs if s._top_level == level_name)
+        result.extend(element_store.items_on_level(self, level_name))
         ann = getattr(self, "annotations", None)
         if ann:
             for dim in getattr(ann, "dimensions", []):
@@ -9127,8 +8877,15 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         self.sceneModified.emit()
 
     def duplicate_level_entities(self, source_level: str, target_level: str):
-        """Copy all entities on source_level to target_level."""
-        items = self._items_on_level(source_level)
+        """Copy all entities on source_level to target_level.
+
+        View-owned Notes and gridline-hosted blocks stay behind (element-store
+        R5 seam rulings): a Note's copy would re-key to the current view, and a
+        gridline-hosted copy would keep the level-less gridline host and its
+        absolute elevation, landing on the original.
+        """
+        items = [i for i in self._items_on_level(source_level)
+                 if not (isinstance(i, BlockInstance) and (i.note or i.host))]
         if items:
             self.copy_items_to_level(items, target_level)
 
@@ -9443,19 +9200,7 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
     # type key (to_dict()["type"]) -> (class, tracking-list attribute).
     # Keys are the REAL to_dict() discriminators (ArcItem writes "arc",
     # TextItem "text") — scene-tools.md I1.
-    _GEOM_TYPE_REGISTRY = {
-        "draw_line":      (LineItem, "_draw_lines"),
-        "reference_line": (LineItem, "_draw_lines"),   # legacy record (RG3)
-        "polyline":       (PolylineItem, "_polylines"),
-        "draw_rectangle": (RectangleItem, "_draw_rects"),
-        "draw_circle":    (CircleItem, "_draw_circles"),
-        "arc":            (ArcItem, "_draw_arcs"),
-        "draw_ellipse":   (EllipseItem, "_draw_ellipses"),
-        "draw_spline":    (SplineItem, "_draw_splines"),
-        "draw_filled_region": (FilledRegionItem, "_filled_regions"),
-        "polygon":        (RegularPolygonItem, "_draw_polygons"),
-        "text":           (TextItem, "_texts"),
-    }
+    _GEOM_TYPE_REGISTRY = element_store.geom_type_registry()
 
     def _add_from_dict(self, d: dict):
         """Deserialise one 2D-geometry/text dict, add it and register it.
@@ -9679,7 +9424,9 @@ class Model_Space(HaloSelectionMixin, SceneIOMixin, ModifyHostMixin, QGraphicsSc
         """
         from .block_instance import BlockInstance
         p = obj.get("pos", [0.0, 0.0])
-        obj = {**obj, **over}               # the remap rides the record, so place_kwargs carries it
+        # the remap rides the record, so place_kwargs carries it; a block lands on
+        # the active level like walls / rooms / slabs (R5, user ruling)
+        obj = {**obj, **over, "level": self.active_level}
         inst = self.place_block_instance(
             obj["block_id"], (p[0] + offset.x(), p[1] + offset.y()),
             **BlockInstance.place_kwargs(obj, default_level=self.active_level))

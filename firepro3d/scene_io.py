@@ -19,6 +19,7 @@ import json
 import logging
 import os
 
+from . import element_store
 from .constants import DEFAULT_LEVEL
 from .underlay import Underlay
 from .network_codec import (
@@ -122,17 +123,8 @@ class SceneIOMixin:
         )
 
         # --- Construction geometry + standalone text: forbidden loose content
-        # (containment C8) — no longer written to the payload.
-        gridlines_data = [gl.to_dict() for gl in self._gridlines]
-        walls_data = [w.to_dict() for w in self._walls]
-        floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]  # two-boundary schema via to_dict
-        roofs_data = [r.to_dict() for r in self._roofs]
-        rooms_data = [r.to_dict() for r in self._rooms]
-
-        # --- Blocks (definitions embedded; instances reference by id) ---
-        block_definitions_data = {bid: d.to_dict()
-                                  for bid, d in self._block_definitions.items()}
-        blocks_data = [inst.to_dict() for inst in self._block_instances]
+        # (containment C8) — no longer written to the payload (their rows have
+        # no ``file_key``; docs/specs/element-store.md D1).
 
         # --- Project tables (scene-io "Project tables") ---
         from . import project_tables
@@ -158,14 +150,11 @@ class SceneIOMixin:
             "underlays":           underlays_data,
             "water_supply":        ws_data,
             "design_areas":        design_areas_data,
-            "gridlines":           gridlines_data,
-            "walls":               walls_data,
-            "constraints":         self.constraint_ctl.to_records(),   # plan walls, gridlines + unhosted blocks (C8 exception)
-            "floor_slabs":         floor_slabs_data,
-            "roofs":               roofs_data,
-            "rooms":               rooms_data,
-            "block_definitions":   block_definitions_data,
-            "blocks":              blocks_data,
+            # Element rows gridlines .. blocks (docs/specs/element-store.md D2):
+            # constraints (plan walls, gridlines + unhosted blocks, C8
+            # exception) after walls; block definitions before blocks.
+            **element_store.file_records(
+                self, constraints=self.constraint_ctl.to_records()),
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
             "sections":            (self._section_manager.to_list()
@@ -227,13 +216,7 @@ class SceneIOMixin:
         from .node import Node
         from .underlay import Underlay
         from .scale_manager import ScaleManager
-        from .gridline import GridlineItem
-        from .wall import WallSegment
         from .block_definition import BlockDefinition
-        from .floor_slab import FloorSlab
-        from .roof import RoofItem
-        from .room import Room
-        from .wall_opening import WallOpening
         from . import fill_types, project_tables
         from PyQt6.QtGui import QColor
 
@@ -447,61 +430,22 @@ class SceneIOMixin:
         # loops for polylines / draw_* / legacy reference_lines / polygons / texts are
         # dropped; the single info line below reports the total dropped count.
 
-        # --- Gridlines ---
-        for entry in payload.get("gridlines", []):
-            gl = GridlineItem.from_dict(entry)
-            self.addItem(gl)
-            self._gridlines.append(gl)
+        # --- Element rows: gridlines .. blocks (docs/specs/element-store.md D4) ---
+        # Block definitions (registry) load before the instances.
+        heads = []
 
-        # --- Walls ---
-        for entry in payload.get("walls", []):
-            wall = WallSegment.from_dict(entry)
-            self.addItem(wall)
-            self._walls.append(wall)
-            for op_data in entry.get("openings", []):
-                op = WallOpening.from_dict(op_data, wall=wall)
-                wall.openings.append(op)
-                self.addItem(op)
+        def _load_definitions():
+            for bid, ddict in payload.get("block_definitions", {}).items():
+                # HF5: a name-duplicate type's id re-points to the kept one (persisted on next save).
+                fill_types.canonicalise_records(ddict.get("primitives"))
+                self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
+            heads.append(self._refresh_view_head_copies())   # SB4f D2
 
-        # --- Floor slabs ---
-        for entry in payload.get("floor_slabs", []):
-            slab = FloorSlab.from_dict(entry)
-            self.addItem(slab)
-            self._floor_slabs.append(slab)
-            for op in slab.openings:        # owned voids (from_dict re-attached them)
-                self.addItem(op)
-
-        # --- Roofs ---
-        for entry in payload.get("roofs", []):
-            roof = RoofItem.from_dict(entry)
-            roof._scale_manager_ref = self.scale_manager
-            self.addItem(roof)
-            self._roofs.append(roof)
-
-        # --- Rooms ---
-        for entry in payload.get("rooms", []):
-            room = Room.from_dict(entry)
-            room._scale_manager_ref = self.scale_manager
-            self.addItem(room)
-            self._rooms.append(room)
-
-        # --- Blocks: definitions first (registry), then instances ---
-        for bid, ddict in payload.get("block_definitions", {}).items():
-            # HF5: a name-duplicate type's id re-points to the kept one (persisted on next save).
-            fill_types.canonicalise_records(ddict.get("primitives"))
-            self._block_definitions[bid] = BlockDefinition.from_dict(ddict)
-        heads_kept = self._refresh_view_head_copies()   # SB4f D2
-        from .block_instance import BlockInstance
-        orphan_hosts = 0
-        for bdict in payload.get("blocks", []):
-            _pos = bdict.get("pos", [0.0, 0.0])
-            inst = self.place_block_instance(
-                bdict["block_id"], (_pos[0], _pos[1]), uid=bdict.get("uid"),
-                **BlockInstance.place_kwargs(bdict, default_level="Level 1"))
-            if inst is None:         # hosted on a gridline that is gone (D3)
-                orphan_hosts += 1
-                continue
-            inst.attributes = dict(bdict.get("attributes", {}))
+        ctx = element_store.BuildContext("load")
+        element_store.build_rows(self, payload, ctx, key="file_key",
+                                 before_blocks=_load_definitions)
+        heads_kept = heads[0]
+        orphan_hosts = ctx.orphan_hosts
         self.blockDefinitionsChanged.emit()
         # Nested definitions the file lacks draw as red placeholders (D12).
         missing = self._block_registry.missing_nested()
@@ -556,12 +500,7 @@ class SceneIOMixin:
 
         # --- Clean-drop log (containment C1/C8) ---
         # Report a single info line if any forbidden loose content was present.
-        _dropped = (len(payload.get("polylines", [])) + len(payload.get("draw_lines", []))
-                    + len(payload.get("reference_lines", [])) + len(payload.get("draw_rectangles", []))
-                    + len(payload.get("draw_circles", [])) + len(payload.get("draw_arcs", []))
-                    + len(payload.get("draw_ellipses", [])) + len(payload.get("draw_splines", []))
-                    + len(payload.get("filled_regions", []))
-                    + len(payload.get("polygons", [])) + len(payload.get("texts", []))
+        _dropped = (element_store.dropped_record_count(payload)   # never-filed rows + legacy reference_lines
                     + len(payload.get("hatches", []))
                     + sum(1 for a in payload.get("annotations", []) if a.get("type") in ("note", "dimension"))
                     + _cons_dropped)
@@ -656,30 +595,15 @@ class SceneIOMixin:
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None
-        for da in self.design_areas:
-            if da.scene() is self:
-                self.removeItem(da)
-        self.design_areas = []
+        # Element rows (docs/specs/element-store.md D4): design areas and block
+        # instances leave the scene; every row's list is rebound.
+        element_store.clear_lists(self)
         self.active_design_area = None
         from .materials import MATERIAL_NONE_ID
         for _tmpl in (self._wall_template, self._floor_template):
             if _tmpl is not None:     # the old project's material id is unknown to the next table
                 _tmpl.material_id = MATERIAL_NONE_ID
-        self._polylines = []
         self._polyline_active = None
-        self._draw_lines = []
-        self._draw_rects = []
-        self._draw_circles = []
-        self._draw_arcs = []
-        self._draw_ellipses = []
-        self._draw_splines = []
-        self._draw_polygons = []
-        self._filled_regions = []
-        self._texts = []
-        for inst in list(getattr(self, "_block_instances", [])):
-            if inst.scene() is self:
-                self.removeItem(inst)
-        self._block_instances = []
         self._block_definitions.clear()   # keep the registry's store identity
         # Block Editor capability (D-A32 / LT4): clear() below deletes the frame.
         self.block_capability = None
@@ -708,11 +632,6 @@ class SceneIOMixin:
         self._draw_arc_preview = None
         self._text_anchor = None
         self._text_preview = None
-        self._gridlines = []
-        self._walls = []
-        self._floor_slabs = []
-        self._roofs = []
-        self._rooms = []
         self._wall_anchor = None
         self._wall_chain_start = None
         self._wall_start_target = None

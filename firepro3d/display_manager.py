@@ -24,6 +24,7 @@ from PyQt6.QtSvg import QSvgRenderer
 
 import os
 import xml.etree.ElementTree as ET
+from . import element_store
 from . import theme as th
 from . import colour_picker
 from . import phase_registry
@@ -3040,21 +3041,11 @@ def _items_for_category_static(scene, key: str) -> list:
     elif key in ("Elevation Marker", "Section Marker", "Detail Marker"):
         return [i for i in scene.items() if _marker_dm_key(i) == key]
     elif key == "2D Geometry":
-        items = []
-        items.extend(getattr(scene, "_polylines", []))
-        items.extend(getattr(scene, "_draw_lines", []))
-        items.extend(getattr(scene, "_draw_rects", []))
-        items.extend(getattr(scene, "_draw_circles", []))
-        items.extend(getattr(scene, "_draw_arcs", []))
-        items.extend(getattr(scene, "_draw_ellipses", []))
-        items.extend(getattr(scene, "_draw_splines", []))
-        items.extend(getattr(scene, "_draw_polygons", []))
-        items.extend(getattr(scene, "_filled_regions", []))
+        items = [i for a in element_store.category_attrs("2D Geometry")
+                 for i in getattr(scene, a, [])]
         return [i for i in items if not getattr(i, "reference", False)]
     elif key == "Reference Geometry":
-        lists = ("_polylines", "_draw_lines", "_draw_rects", "_draw_circles",
-                 "_draw_arcs", "_draw_ellipses", "_draw_splines", "_draw_polygons",
-                 "_filled_regions")
+        lists = element_store.category_attrs("2D Geometry")
         return [i for a in lists for i in getattr(scene, a, [])
                 if getattr(i, "reference", False)]
     return []
