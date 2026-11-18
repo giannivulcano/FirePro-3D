@@ -44,8 +44,11 @@ def test_end_type_shipped_and_in_picker(real_system_library, series, name):
 def test_factory_demolition_linetype_is_the_shipped_id(real_system_library):
     assert PHASE_DEMOLITION_LINETYPE == DEMOLITION_ID
     assert _shipped(real_system_library, "Line Types", "Demolition")["id"] == DEMOLITION_ID
-    pr.reset_project_table()
-    assert pr.project_table().graphics_of("demolition")["linetype"] == DEMOLITION_ID
+    try:
+        pr.reset_project_table()
+        assert pr.project_table().graphics_of("demolition")["linetype"] == DEMOLITION_ID
+    finally:
+        pr.reset_project_table()
 
 
 def test_legacy_demolition_name_loads_as_the_id():
@@ -55,5 +58,7 @@ def test_legacy_demolition_name_loads_as_the_id():
         pr.load_project_phases(rows)
         assert pr.project_table().graphics_of("demolition")["linetype"] == DEMOLITION_ID
         assert pr.to_list()[2]["graphics"]["linetype"] == DEMOLITION_ID   # saves as the id
+        legacy = pr.PhaseRegistry(rows)                    # the DM working-copy constructor path
+        assert legacy.copy().graphics_of("demolition")["linetype"] == DEMOLITION_ID
     finally:
         pr.reset_project_table()
