@@ -238,7 +238,7 @@ class ModifyToolsController:
         # D11: dim the originals. After set_mode — its clear() restores any
         # previous dim first, so entering a mode never undoes its own dim.
         if tool in DIM_ORIGINAL_TOOLS and s.mode == self._TOOL_MODE[tool]:
-            from .transform_ghost import dim_items
+            from .transform_ghost import begin_gesture_frames, dim_items
             # Dim exactly what the tool acts on: Rotate turns only the
             # rotatable subset, Flip / Mirror only the reflectable one, so
             # nothing a tool leaves alone looks "in flight".
@@ -248,6 +248,7 @@ class ModifyToolsController:
                      else self._array_copyable(sel) if tool == "array"
                      else self._transformable(sel))
             s._ghost_dimmed = dim_items(acted)
+            begin_gesture_frames(s)
         if tool in ("flip", "mirror") and s.mode == tool:
             # DD3: the acted-on silhouettes, mirrored per hovered axis.
             s._move_ghost_base = self._shape_paths_for_move(
@@ -675,9 +676,10 @@ class ModifyToolsController:
         # D11: every mode change (commit, Esc, tool switch) ends in set_mode,
         # so this is the one place the dimmed originals get their exact
         # prior opacity back.
-        from .transform_ghost import restore_items
+        from .transform_ghost import end_gesture_frames, restore_items
         restore_items(getattr(s, "_ghost_dimmed", None))
         s._ghost_dimmed = []
+        end_gesture_frames(s)
         # Every tool that paints into the shared ghost (Move / Duplicate /
         # Paste, Rotate, Flip / Mirror, Scale, Array, Offset) builds it AFTER
         # its set_mode — base click, begin_paste, begin_move_from, start() —
@@ -831,8 +833,9 @@ class ModifyToolsController:
         s = self._scene
         s.set_mode("move")
         # D11: the imported geometry rides the cursor like any Move — dim it.
-        from .transform_ghost import dim_items
+        from .transform_ghost import begin_gesture_frames, dim_items
         s._ghost_dimmed = dim_items(self._transformable(s._selected_items or []))
+        begin_gesture_frames(s)
         s.pick_base_pos = QPointF(base)
         s._move_ghost_base = s._build_move_ghost_base()
         s._begin_move_handle_snap(s.pick_base_pos)

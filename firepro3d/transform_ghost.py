@@ -396,3 +396,17 @@ def restore_items(saved) -> None:
             continue
         if abs(it.opacity() - prior * TRANSFORM_GHOST_DIM_OPACITY) <= _OPACITY_TOL:
             it.setOpacity(prior)
+
+
+def begin_gesture_frames(scene) -> None:
+    """Arm every view's still-frame cache for a transform gesture (D11)."""
+    for v in scene.views():
+        if hasattr(v, "begin_gesture_frame"):
+            v.begin_gesture_frame()
+
+
+def end_gesture_frames(scene) -> None:
+    """Disarm every view's still-frame cache (gesture over)."""
+    for v in scene.views():
+        if hasattr(v, "end_gesture_frame"):
+            v.end_gesture_frame()

@@ -117,3 +117,65 @@ def test_render_reproduces_background_and_items(gesture):
     # of the item pass, so they are masked out of both frames.
     _mask_child_widgets(view, ref); _mask_child_widgets(view, got)
     assert got == ref
+
+
+def _uncached(view) -> QImage:
+    """The same frame through the normal paint path (cache disarmed)."""
+    armed = view._fc_armed
+    view._fc_armed = False
+    try:
+        return _grab(view)
+    finally:
+        view._fc_armed = armed
+
+
+@pytest.mark.parametrize("tool", ["move", "rotate"])
+def test_cached_frame_matches_uncached_paint(gesture, tool):
+    """G2: mid-gesture, the cached frame + live foreground == a full repaint."""
+    view, scene, c, at = gesture(tool)
+    for i in range(3):
+        move(view, at(c + QPoint(40 + 6 * i, 30 + 2 * i))); QApplication.processEvents()
+    assert view._fc_armed
+    got = _grab(view)
+    assert view._fc_pixmap is not None, "the cache path really painted"
+    assert got == _uncached(view)
+
+
+def test_gesture_end_releases_every_view(gesture):
+    """G3: Esc (set_mode(None) -> clear) disarms and frees every view's cache."""
+    view, scene, c, at = gesture("move")
+    move(view, at(c + QPoint(40, 30))); QApplication.processEvents()
+    _grab(view)
+    assert view._fc_pixmap is not None
+    scene.set_mode(None)
+    QApplication.processEvents()
+    for v in scene.views():
+        assert not v._fc_armed and v._fc_pixmap is None
+
+
+def test_item_change_mid_gesture_repaints(gesture):
+    """G3: an item changed mid-gesture shows at once (scene.changed drops the cache).
+
+    Someone else (display manager, level switch) resets a dimmed original's
+    opacity mid-transform — the restore_items rule's case (D11).
+    """
+    view, scene, c, at = gesture("move")
+    move(view, at(c + QPoint(40, 30))); QApplication.processEvents()
+    before = _grab(view)
+    assert view._fc_pixmap is not None, "the cache path really painted"
+    for it, _prior in scene._ghost_dimmed[:10]:
+        it.setOpacity(1.0)
+    QApplication.processEvents()
+    got = _grab(view)
+    assert got != before
+    assert got == _uncached(view)
+
+
+def test_zoom_mid_gesture_recaptures(gesture):
+    """G3: a view-transform change re-captures (no stale frame at the old zoom)."""
+    view, scene, c, at = gesture("move")
+    move(view, at(c + QPoint(40, 30))); QApplication.processEvents()
+    _grab(view)
+    view.scale(1.7, 1.7)
+    QApplication.processEvents()
+    assert _grab(view) == _uncached(view)

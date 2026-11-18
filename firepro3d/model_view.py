@@ -10,6 +10,7 @@ from . import theme as th
 from .snap_engine import paint_snap_indicator
 from .text_item import editing_text_item
 from .constants import FLOOR_SKETCH_MODES
+from .gesture_frame_cache import GestureFrameCacheMixin
 
 _DETAIL_BORDER_COLOR = "#4488cc"
 
@@ -19,7 +20,7 @@ _log = logging.getLogger(__name__)
 # Distinct from None, which explicitly clears the anchor back to cursor-relative.
 _KEEP_ANCHOR = object()
 
-class Model_View(QGraphicsView):
+class Model_View(GestureFrameCacheMixin, QGraphicsView):
     # Emitted when a PDF/DXF/DWG file is dropped onto the canvas
     drop_import_requested = pyqtSignal(str)
 
@@ -178,6 +179,7 @@ class Model_View(QGraphicsView):
         self._grid_visible = visible
         if size is not None and size > 0:
             self._grid_size = size
+        self.drop_gesture_frame()
         self.viewport().update()
 
     def drawBackground(self, painter: QPainter, rect):
@@ -237,6 +239,8 @@ class Model_View(QGraphicsView):
         ``render_overlay`` redraws its frame/handles above the mask here.
         """
         super().drawForeground(painter, rect)
+        if self._fc_capturing:          # gesture frame capture: items only
+            return
         scene = self.scene()
         if scene is None:
             return
