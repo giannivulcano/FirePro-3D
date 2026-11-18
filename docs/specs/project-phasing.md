@@ -1,7 +1,7 @@
 ---
 status: partial           # concept ratified 2026-10-20 (grill Q1-Q19 + brainstorm sections 1-5); PH1 data model built 2026-11-12 (v0.101.0); PH2 Display Manager Phases tab built 2026-11-12; PH3 sheet viewport phasing built 2026-11-16 (v0.106.0); PH4-PH8 unbuilt
-last-verified: 2026-11-16  # PH3 Account: status, D-PH8/9/10/13/17/18 as-built notes, AC4/5/7/9/12/13/14/15, Phase graphics paragraph, edge cases, applies-to; rest not re-audited; prior 2026-11-14  # project-tables Account: D-PH6 / D-PH11 pointers only, rest not re-audited; prior 2026-11-12
-verified-commit: f5bf752f  # PH3 (0.106.0; status, D-PH8/9/10/13/17/18, AC4/5/7/9/12/13/14/15, Phase graphics, edge cases only); prior b5f653ea  # project-tables refactor (pointers only); prior 1ac77114  # PH2 (merge to main; status, AC6, AC7, applies-to phases_tab.py); prior f2f0db3e  # PH1 (v0.101.0; status, D-PH4, D-PH5, AC1-AC4, AC12, edge cases); prior da92c5c4
+last-verified: 2026-11-17  # paper-pass Account: D-PH Restore bullet pointer only, rest not re-audited; prior 2026-11-16  # PH3 Account: status, D-PH8/9/10/13/17/18 as-built notes, AC4/5/7/9/12/13/14/15, Phase graphics paragraph, edge cases, applies-to; rest not re-audited; prior 2026-11-14  # project-tables Account: D-PH6 / D-PH11 pointers only, rest not re-audited; prior 2026-11-12
+verified-commit: 2ce5b3b2  # paper pass protocol (0.107.3; D-PH Restore bullet pointer only); prior f5bf752f  # PH3 (0.106.0; status, D-PH8/9/10/13/17/18, AC4/5/7/9/12/13/14/15, Phase graphics, edge cases only); prior b5f653ea  # project-tables refactor (pointers only); prior 1ac77114  # PH2 (merge to main; status, AC6, AC7, applies-to phases_tab.py); prior f2f0db3e  # PH1 (v0.101.0; status, D-PH4, D-PH5, AC1-AC4, AC12, edge cases); prior da92c5c4
 applies-to:
   - firepro3d/phase_registry.py
   - firepro3d/phases_tab.py
@@ -118,7 +118,7 @@ Build design (historical, approach and DD1-DD6): [`../superpowers/specs/2026-11-
 - **Proxy status.** A section / elevation proxy reads its source element's status; a sprinkler proxy (sourced on its node) reads the node's sprinkler; an item with only a Hide host (opening frame lines, a slab's occlusion mask) reads that host's status. A mask with no paper category hides when its host's status is hidden.
 - **Stored graphics units (PH2 + PH3 DD6).** Colour and Fill as the picker returns them; Line Wt a line-weight **name**; Linetype a block id; Opacity an **integer percent** 0-100 that replaces the row's opacity (not multiplied; ruled at the PH3 plan, R1). On install / load a non-number, bool or non-finite Opacity reads "—", others are rounded and clamped to 0-100; a non-string Colour / Fill / Line Wt / Linetype reads "—".
 - **Line Wt is a by-name weight reference.** Each status's Line Wt is a weight holder (`weight_refs`, kind `("phase", sid)`): a Line Weights rename follows it, and deleting a weight a status uses counts it and goes through the replace-then-delete dialog (rules: [`linetypes.md`](linetypes.md) LW-DC-4 / LW-DC-5). The Phases tab's working copy follows the same rename / replace, and its weight combos rebuild when the tab is shown.
-- **Restore.** Every slot PH3 writes is saved by the pass and restored by `restore_model_display` (paper-space.md §6.2), including the label opacity, the underlay group opacity and the block fill slot.
+- **Restore.** Every slot PH3 writes is saved by the pass and restored by `restore_model_display` (each owner's `exit_paper_pass`, paper-space.md §6.2.1), including the label opacity, the underlay group opacity and the block fill slot.
 
 ## Verification Checklist
 

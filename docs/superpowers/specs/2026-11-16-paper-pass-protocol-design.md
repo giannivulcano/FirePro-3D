@@ -1,6 +1,6 @@
 ---
 title: Paper pass protocol (items enter and leave the pass themselves)
-status: approved design (2026-11-16), not built
+status: Implemented 2026-11-17 (merged 2ce5b3b2, v0.107.3); as-built deviations recorded in docs/specs/paper-space.md §6.2.1 (the contract home is subsection §6.2.1 of the §6.2 named below)
 task: todo_open.md "Paper pass: each item reports its own paper category and enters / leaves the pass itself" [type:maint] Large
 branch: todo/p1-arch-20261116 (worktree .worktrees/p1-arch-20261116)
 governing-specs: docs/specs/paper-space.md (contract home, new §6.2 "Paper pass protocol"), docs/specs/linetypes.md, docs/specs/hatch-and-fill.md, docs/specs/project-phasing.md

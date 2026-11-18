@@ -1,7 +1,7 @@
 ---
 status: partial          # SB3 (room tag) BUILT 2026-10-29, checkpoint PASSED; SB3b (per-room tag style) BUILT 2026-10-30; SB4a (pipe label: top-level host-bound label + Hide when empty) BUILT 2026-11-01; SB4b (plan gridline bubble: child label per end, outline trim, Tag row) BUILT 2026-11-03; SB4c (elevation / section gridline bubbles + level datum head as System blocks) BUILT 2026-11-03; SB4d (view-marker heads: cardinal elevation head, placed-section head, detail callout) BUILT 2026-11-04; SB4f (sheet viewport view title as a System block, plus the viewport Number the section / detail heads cite) BUILT 2026-11-04; SB4e (hydraulic node badge as a System block) BUILT 2026-11-11; SB6 (placed tags on walls / doors / windows / openings, Tag tool, Note-style leaders) BUILT 2026-11-16; sheet tags (phase 7) are not built
-last-verified: 2026-11-16  # SB6 Account: new s8h (placed tags), header / banner / ownership / applies-to / source-tasks / s1 / s4 / s7 pane rows / s10 guard row / build order re-audited against d0e16589; rest not re-audited; prior 2026-11-16  # PH3 Account: s8a pipe-label paper opacity clause only, rest not re-audited; prior 2026-11-13  # SB4g Account: new s8g (symbol blocks), header / ownership / applies-to / source-tasks / s4 pointer / s10 guard row re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # PH1 Account: s8a pipe copy/paste carries the record line only, rest not re-audited; prior 2026-11-11  # SB4e Account: new s8f (hydraulic node badge), header / applies-to / s1 / s2 / s3 / s4 / s7 / s8d not-built line / s10 / build order re-audited against e991da71; rest not re-audited; prior 2026-11-05  # paper polish Account: paper hooks note only, rest not re-audited; prior 2026-11-05  # section piping Account: s8a section label note only, rest not re-audited; prior 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
-verified-commit: d0e16589  # SB6 (0.107.0); prior f5bf752f  # PH3 (0.106.0; s8a pipe-label paper opacity clause only); prior e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior f2f0db3e  # PH1 (v0.101.0; s8a pipe paste line only); prior e991da71  # SB4e (v0.100.0); prior f58a79a8  # paper polish on main (v0.92.0); prior 539eda40  # section piping on main (v0.91.0); prior dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
+last-verified: 2026-11-17  # paper-pass Account: s8 / s8a / s8b / s8c / s8d / s8f paper bullets + applies-to + test row re-pointed to paper-space.md §6.2.1 only, rest not re-audited; prior 2026-11-16  # SB6 Account: new s8h (placed tags), header / banner / ownership / applies-to / source-tasks / s1 / s4 / s7 pane rows / s10 guard row / build order re-audited against d0e16589; rest not re-audited; prior 2026-11-16  # PH3 Account: s8a pipe-label paper opacity clause only, rest not re-audited; prior 2026-11-13  # SB4g Account: new s8g (symbol blocks), header / ownership / applies-to / source-tasks / s4 pointer / s10 guard row re-audited against e5fecf6a; rest not re-audited; prior 2026-11-12  # PH1 Account: s8a pipe copy/paste carries the record line only, rest not re-audited; prior 2026-11-11  # SB4e Account: new s8f (hydraulic node badge), header / applies-to / s1 / s2 / s3 / s4 / s7 / s8d not-built line / s10 / build order re-audited against e991da71; rest not re-audited; prior 2026-11-05  # paper polish Account: paper hooks note only, rest not re-audited; prior 2026-11-05  # section piping Account: s8a section label note only, rest not re-audited; prior 2026-11-04  # SB4f Account: new s8e (sheet viewport view title), s8d reversal (heads bind Number, PAINT_WHEN_BLANK), s1 / s2 / s3 / s4 / s7 / s10 / header / applies-to re-audited against dab5a2f2; rest not re-audited; prior 2026-11-04  # SB4d Account: new s8d (view-marker heads), header / ownership / applies-to / guards table, s1 / s2 / s8 Room-tag top-level + category count; rest not re-audited; prior 2026-11-04  # text leaders Account: Note block ownership pointer only, rest not re-audited; prior 2026-11-03  # SB4c Account: s1/s2/s3/s4/s7/s8/s8b/s8c (new Elevation bubbles + level datum head section)/s10/build order re-audited against 8d95a864; prior 2026-11-03  # SB4b Account: s1/s2/s3/s4/s7/s8/s8b (new Gridline section)/s10 re-audited against 7b6e90fc; prior 2026-11-02  # text-sizing-wrap Account: s6 hug rule re-pointed at the Shrink flag (hugged_text_record seeds Wrap OFF + Shrink ON) only, rest not re-audited; prior 2026-11-01  # SB4a Account: s1/s2/s3/s4/s5a/s6a/s7/s8/s8a/s10 re-audited against 0924bcd6; prior 2026-10-30 (SB3b), 2026-10-29 (SB3 promotion from the concept)
+verified-commit: 2ce5b3b2  # paper pass protocol (0.107.3; s8 / s8a / s8b / s8c / s8d / s8f paper bullets + applies-to + test row re-pointed to paper-space.md §6.2.1 only); prior d0e16589  # SB6 (0.107.0); prior f5bf752f  # PH3 (0.106.0; s8a pipe-label paper opacity clause only); prior e5fecf6a  # SB4g (feat/sb4g-symbol-blocks head); prior f2f0db3e  # PH1 (v0.101.0; s8a pipe paste line only); prior e991da71  # SB4e (v0.100.0); prior f58a79a8  # paper polish on main (v0.92.0); prior 539eda40  # section piping on main (v0.91.0); prior dab5a2f2  # SB4f on main (v0.87.0); prior 5185b8cc  # SB4d merge on main (v0.86.0) + seed restyle; prior 820f47c8  # text leaders merge on main (v0.85.0); prior 8d95a864  # SB4c merge on main (v0.83.0); prior 7b6e90fc  # SB4b merge on main (v0.81.0); prior 6693013b  # merge feat/text-sizing-wrap (v0.80.0); prior 0924bcd6   # SB4a merge on main; prior 7e5d3b15 (SB3b), 8be9034a (SB3)
 applies-to:
   - firepro3d/bound_label.py          # BoundLabelItem, OutlinedLabel (SB4c), TagBlockHost, eligible_definition, resolve_annotation_block
   - firepro3d/section_scene.py        # SB4c: ElevGridlineItem bubbles, LevelDatumHead / ElevDatumItem, SectionScene.annotation_block + refresh_annotation_tags (the block side; the section projection is section-view-subsystem.md)
@@ -33,9 +33,9 @@ applies-to:
   - firepro3d/paper_space.py          # SB4f: PaperScene.annotation_block / refresh_annotation_tags, the viewport's ViewTitleLabel wiring (rest: paper-space.md)
   - firepro3d/settings/panes.py       # AnnotationPane
   - firepro3d/settings/template.py    # annotation_defaults in the .fpdt
-  - firepro3d/paper_display.py        # the tag through _apply_block
+  - firepro3d/paper_pass.py           # the tag and the other annotation blocks through the shared hook helper (paper-space.md §6.2.1)
   - firepro3d/block_explode.py        # explode hugs bound text before substituting; honours hide_empty
-  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `_apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1); Elevation / Section / Detail Marker rows: line-only, same shape (SB4d); Hydraulic Badge row: Visible + Opacity only (SB4e)
+  - firepro3d/display_manager.py      # Room + Pipe rows: font None; Grid Line row: fill None, no Scale, `display_manager._apply_gridline` tints the line only; Level Datum row: fill None, font None, no Scale (SB4c; the row rule is homed in grid-system.md 10.1); Elevation / Section / Detail Marker rows: line-only, same shape (SB4d); Hydraulic Badge row: Visible + Opacity only (SB4e)
 source-tasks:
   - "SB6 -- Placed tags: Tag tool, host-frame tags, Note-style leaders, wall / door / window / opening tags (todo_closed.md; design record superpowers/specs/2026-11-15-sb6-placed-tags-design.md, D1-D14)"
   - "SB4g -- Convert the sprinkler, water supply and riser symbols to System symbol blocks (todo_closed.md; design record superpowers/specs/2026-11-12-sb4g-symbol-blocks-design.md, rulings R1-R14)"
@@ -171,7 +171,7 @@ block-instance list).
   it to its host -- Subclasses, below), snaps, the level filter and the block-instance list; **never serialized** (the host owns `show_label`,
   `label_offset` and `tag_block`).
 - **Paper hooks.** `_paper_scale`, `_paper_pen_width`, `_paper_pen_color` are set by
-  `paper_display._apply_block` during a viewport pass (section 8). `ViewTitleLabel` is the exception: no
+  `paper_pass.enter_block_hooks` during a viewport pass (section 8; `paper-space.md` §6.2.1). `ViewTitleLabel` is the exception: no
   pass reaches a title, so it keeps `_paper_pen_width` and `_paper_scale` set for life (paper-space.md 5.2).
 - **Dead host.** `host_values` returns `None` for a host that is no longer live, a category
   mismatch, or a cross-scene host whose C++ object is already gone (a plan gridline deleted
@@ -394,9 +394,9 @@ through `_compute_rect`.
   C1 label-rect restriction is retired (Q13; [`selection-mode.md`](selection-mode.md)).
 - **Grip.** One move grip at the tag anchor (shown while the label is visible, the room is
   named and has a boundary) writes `label_offset` (`Room.apply_grip`); no rotate grip.
-- **Paper.** The paper walk's Room branch routes the tag through
-  `paper_display._apply_block(...)` (SB1c D6, the one annotative path), skipping a hidden
-  tag, and restores it afterwards. `ROOM_LABEL_PAPER_CAP_MM` and
+- **Paper.** `Room.enter_paper_pass` routes the tag through
+  `paper_pass.enter_block_hooks` (SB1c D6, the one annotative path; `paper-space.md` §6.2.1), skipping a hidden
+  tag, and `Room.exit_paper_pass` restores it afterwards. `ROOM_LABEL_PAPER_CAP_MM` and
   `_apply_room_label_paper_height` are retired ([`paper-space.md`](paper-space.md) 9.9).
 - **Visibility.** The Room row's visibility / opacity hide the tag with the room.
 - **Refresh hooks.** `_refresh_all_labels` (units), `annotative.reprepare_annotative`
@@ -441,10 +441,10 @@ it for the paper pass and Hide, and it is neither selectable nor framed. Which p
   Copy/paste, Duplicate and Array of a pipe carry its whole record since PH1
   (`network_codec.pipe_record` / `apply_pipe_record`, the Mark re-minted) -- `tag_block`
   included ([`project-phasing.md`](project-phasing.md) D-PH16).
-- **Paper.** The paper walk's Pipe branch routes a visible label through
-  `paper_display._apply_block(...)` with opacity 1 (the one annotative path, as Room; in a
+- **Paper.** `Pipe.enter_paper_pass` routes a visible label through
+  `paper_pass.enter_block_hooks` (`paper-space.md` §6.2.1) with opacity 1 (the one annotative path, as Room; in a
   Phasing-on viewport the host's status Opacity, saved and restored -- [`project-phasing.md`](project-phasing.md) D-PH17);
-  `restore_model_display` restores the label's paper hooks. The old forced label colour
+  `Pipe.exit_paper_pass` (at `restore_model_display`) restores the label's paper hooks. The old forced label colour
   (`pipe_label_color`) is gone ([`paper-space.md`](paper-space.md) 9.9).
 - **Retired** (guard `tests/test_sb4a_retired_strings.py`): the HTML pipe label,
   `QGraphicsTextItem` label, `Pipe.set_label_position`, the `Label Size` property (a legacy
@@ -485,9 +485,9 @@ Gridline-side behaviour (geometry, grips, lock, Properties rows, serialization) 
 - **Display Manager.** The Grid Line row has `fill: None`, is in `_NO_SCALE_CATEGORIES`, and
   `display_manager._apply_gridline` tints the **line** colour + opacity + visibility only; a
   saved Fill / Scale is ignored. The bubble keeps its authored colours.
-- **Paper.** The paper walk's Gridline branch styles the line (`paper_display._apply_gridline`:
-  weight + paper-mm dash) and routes each visible bubble through `_apply_block(...)` with
-  opacity 1; `restore_model_display` restores the block hooks. The old paper-mode geometry
+- **Paper.** `GridlineItem.enter_paper_pass` styles the line (weight + paper-mm dash) and routes
+  each visible bubble through `paper_pass.enter_block_hooks` with
+  opacity 1; `GridlineItem.exit_paper_pass` (at `restore_model_display`) restores the block hooks. The old paper-mode geometry
   swap is retired ([`paper-space.md`](paper-space.md) 9.9.1).
 - **Refresh.** `refresh_annotation_tags` walks every gridline's bubbles and re-shapes the
   gridline (`prepareGeometryChange`), because the trim moves with the block and k.
@@ -566,11 +566,12 @@ decisions D1-D6 and their as-built corrections are in
   row has `fill: None`, `font: None` and is in `_NO_SCALE_CATEGORIES`; elevation no longer reads
   the Grid Line Fill / Scale. The row rule is homed in `grid-system.md` 10.1. The heads keep
   their authored colours.
-- **Paper.** The paper walk's elevation branch (`paper_display`) calls the item's
-  `enter_paper_pass` for the line (weight + paper-mm dash; `_paper_render` on; colour in B&W /
-  Custom) and then `_apply_block` with opacity 1 on each visible head from `_elev_heads(item)`
-  (`bubble1` / `bubble2` / `head`); `restore_model_display` replays each head's three paper hooks
-  and refreshes it, then calls `exit_paper_pass`. Both items' paper hooks call
+- **Paper.** The item's `enter_paper_pass` (`paper-space.md` §6.2.1) styles the line (weight + paper-mm dash;
+  `_paper_render` on; colour in B&W /
+  Custom) and then enters each visible head from `paper_heads()` through
+  `paper_pass.enter_block_hooks` with opacity 1
+  (`bubble1` / `bubble2` / `head`); at `restore_model_display` its `exit_paper_pass` replays each head's three paper hooks
+  and refreshes it. Both items' paper hooks call
   `prepareGeometryChange()` because the trim and bounds move with the paper k. `_HAS_FILL` has no
   "Grid Line" / "Level Datum" ([`paper-space.md`](paper-space.md) 9.9.1).
 - **Refresh.** `SectionScene.refresh_annotation_tags()` calls `refresh()` on each elevation
@@ -667,8 +668,8 @@ are in [`2026-11-03-sb4d-view-marker-heads-design.md`](../superpowers/specs/2026
   on the **line only** (Colour tints the crop box / leader / cut line / arrow; `fill: None`,
   `font: None`, all three in `_NO_SCALE_CATEGORIES`); the heads keep their authored colours. The
   row rule is homed in `grid-system.md` 10.1.
-- **Paper.** The paper walk calls `_apply_block` on each visible head from
-  `paper_display._marker_heads(item)` (`head` / `head_a` / `head_b` / `bubble`), so a head prints
+- **Paper.** The marker's `enter_paper_pass` (`paper-space.md` §6.2.1) enters each visible head from
+  `paper_heads()` (`head` / `head_a` / `head_b` / `bubble`) through `paper_pass.enter_block_hooks`, so a head prints
   at its authored mm (k = 1 / S) and the marker re-fits its arrow / leader to the paper k.
   `_HAS_FILL` lists no marker. A cardinal elevation never plots (`PAPER_EXCLUDED`);
   `paper-space.md` 9.9 owns the pass.
@@ -763,7 +764,7 @@ here). This section holds the block-side contract. The rulings R1-R8 / S1-S4 wer
   dimmed (`display_manager._VIS_OPACITY_ONLY`) and it is in `_NO_SCALE_CATEGORIES`; the badge draws in the block's
   authored colours. An old file's saved colour / fill / scale for the row are kept in the file, not applied. Show
   all hidden returns a badge to its node's visibility.
-- **Paper.** The paper walk calls `_apply_block` on the badge (as authored: the block's colours; As Authored off:
+- **Paper.** `HydraulicNodeBadge.enter_paper_pass` (`paper-space.md` §6.2.1) enters the badge through the shared annotation-block hooks (as authored: the block's colours; As Authored off:
   the paper row colour, like the other annotation blocks) and re-places it at the paper k; the restore puts the
   canvas hooks back and re-places it. `paper-space.md` 9.9 owns the pass.
 - **Retired:** the SVG badge (`graphics/sprinkler_graphics/hydraulic_node.svg`, deleted), its hand-painted
@@ -1012,7 +1013,7 @@ definition resolve per paint (`BoundLabelItem._state()`).
 | SB4f load: the D2 head swap, edited-copy notice, library without the seed, stable after save / load | `test_sb4f_load.py` |
 | SB4f live refresh through `annotationLabelsChanged`; export paints / hides the title | `test_sb4f_refresh_export.py` |
 | SB4f retired title strings | `test_sb4f_retired_strings.py` |
-| SB4e node badge: keys equal the solver result, category offered to the Block Editor, seed resolves as the default, no badge before a solve, numbered nodes get a top-level bound badge and Clear removes all, stack follows the top node, fixed position survives re-solve + save / load, node panel rows (badged nodes only, hidden in a pipe's NODE sections, one undo step + modified), click with and without hover selects the node, placement-mode click acts on the pipe, DM row Visible / Opacity only + dimmed chips, paper through `_apply_block`, refresh / `blockDefinitionsChanged` re-shape, clipboard drops the rows, undo keeps / clears the solve | `test_sb4e_node_badge.py` |
+| SB4e node badge: keys equal the solver result, category offered to the Block Editor, seed resolves as the default, no badge before a solve, numbered nodes get a top-level bound badge and Clear removes all, stack follows the top node, fixed position survives re-solve + save / load, node panel rows (badged nodes only, hidden in a pipe's NODE sections, one undo step + modified), click with and without hover selects the node, placement-mode click acts on the pipe, DM row Visible / Opacity only + dimmed chips, paper through the shared annotation-block hooks, refresh / `blockDefinitionsChanged` re-shape, clipboard drops the rows, undo keeps / clears the solve | `test_sb4e_node_badge.py` |
 | SB4g symbol blocks: render-op bounds / shape / fill override (`test_sb4g_render_ops.py`); `symbol_for` sparse key + Block Editor row (`test_sb4g_symbol_for.py`); the five seeds, centre-line extents from the raw SVG (`test_sb4g_symbol_seeds.py`); resolver chain, memo, once-per-id notice, re-entry flag (`test_sb4g_symbol_resolver.py`); choice list + eligibility (`test_sb4g_symbol_choices.py`); `SymbolBlockItem` geometry, S4 owner announce, refresh (`test_sb4g_symbol_item.py`); sprinkler / water supply / riser host behaviour, node shape follows the extent, riser hit disk, snap / z (`test_sb4g_symbol_hosts.py`); tint hooks incl. the riser pipe colour, the paper row colour / fill and the paper named weight (`test_sb4g_symbol_tint.py`); Symbol row + one-undo embed (`test_sb4g_symbol_row.py`); sparse persistence, template, paste (`test_sb4g_symbol_persistence.py`); System-edit refresh (`test_sb4g_symbol_refresh.py`); VC9 fixes (`test_sb4g_vc9_fixes.py`) | `test_sb4g_*.py` |
 | SB6 placed tags: `hosted_tag` maths (pose, inverse, door anchor, normalise, tip, leader op, resolve swap drop, moves_with_host) (`test_sb6_hosted_tag.py`); shipped blocks, registries, pane rows, retarget follow (`test_sb6_tag_blocks.py`); G7 pixel lock (`test_sb6_tag_pixel_lock.py`); record sparse / normalise / save-load / undo-redo / dangling placeholder (`test_sb6_tag_record.py`); G4 Move / Rotate / grip / Delete + Undo / Mark edit / paste alone + with host / swap round-trip / pasted leader End (`test_sb6_tag_lifecycle.py`); drag = offset, no rotate / scale (`test_sb6_tag_drag.py`); Tag / Orientation / Leader rows, no Scale row (`test_sb6_tag_rows.py`); Note-style leader, knee / tip grips, per-tag End / Weight rows, no DM row, tag-box frame (`test_sb6_tag_leader.py`); Tag tool hover / place / armed / Esc, Leader toggle, hidden wall, ghost size (`test_sb6_tag_tool.py`); ribbon Tag + Leader (`test_sb6_tag_ribbon.py`); G3 sheet size, no section copy, section refuses the mode (`test_sb6_tag_views.py`) | `test_sb6_*.py` |
 | L283 `display_overrides` survive undo / `.fpd` / paste for every holder, the Room included (it rides the same mixin helper) | `test_l283_display_overrides.py` |
