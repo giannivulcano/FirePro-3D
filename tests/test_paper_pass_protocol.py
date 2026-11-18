@@ -224,7 +224,7 @@ def test_construction_family_is_migrated_by_exact_type():
     view markers (Task 10; no SectionMarker / DetailMarker subclass exists),
     elevation gridline / level datum (Task 11; no subclass of either exists),
     section proxies (Task 12: every _ColourSrcMixin class, each by exact
-    type)."""
+    type), printed text (Task 14; no TextItem subclass exists)."""
     from firepro3d.block_instance import BlockInstance
     from firepro3d.detail_view import DetailMarker
     from firepro3d.section_marker import SectionMarker
@@ -240,6 +240,7 @@ def test_construction_family_is_migrated_by_exact_type():
     from firepro3d.section_scene import _HostedBlockCopy, _SectionNoteCopy
     import firepro3d.section_scene as ss
     from firepro3d.sprinkler import Sprinkler
+    from firepro3d.text_item import TextItem
     from firepro3d.wall import WallSegment
     from firepro3d.wall_opening import WallOpening
     from firepro3d.water_supply import WaterSupply
@@ -251,7 +252,7 @@ def test_construction_family_is_migrated_by_exact_type():
                                    Sprinkler, WaterSupply, GridlineItem,
                                    SectionMarker, DetailMarker,
                                    ElevGridlineItem, ElevDatumItem,
-                                   *_proxy_classes(ss)}
+                                   *_proxy_classes(ss), TextItem}
 
 
 def _proxy_classes(ss):
@@ -1859,4 +1860,268 @@ def test_node_enter_raise_in_the_fitting_unwinds_node_and_fitting(
         "the raise came after the node's writes and the fitting's tint"
     assert (f._display_color, f._display_fill_color) == _FIT_TINT
     assert _svg(sym) == svg0
+    assert snapshot(ms) == before
+
+
+# ---------------------------------------------------------------------------
+# Task 14: underlay groups and printed text enter / exit themselves
+# ---------------------------------------------------------------------------
+
+_UND_CROP = QRectF(-1500, -1500, 3000, 3000)
+
+
+def _underlay_scene(request):
+    """A registered vector underlay: layer "A" carries a token colour and a
+    named weight (one stroke path + one NoPen text batch), layer "B" has no
+    override (one raw-width cosmetic stroke path, ``data(7)``)."""
+    from firepro3d.constants import TOKEN_AUTO
+    from firepro3d.underlay import Underlay
+    ms = _scene(request)
+    rec = Underlay(type="dxf", path="x.dxf")
+    rec.layer_overrides["A"] = {"colour": TOKEN_AUTO, "line_weight": "Thick"}
+    geoms = [{"kind": "line", "x1": -800, "y1": 0, "x2": 800, "y2": 0, "layer": "A"},
+             {"kind": "text", "text": "U", "x": 0.0, "y": 0.0, "size": 100.0,
+              "valign": 3, "halign": 0, "twidth": 80.0, "layer": "A"},
+             {"kind": "line", "x1": 0, "y1": -800, "x2": 0, "y2": 800, "layer": "B"}]
+    group, _layers = ms._build_batched_underlay_group(geoms, rec)
+    ms.underlays.append((rec, group))
+    return ms, rec, group
+
+
+def _und_children(group):
+    """``{(layer, "stroke" | "text"): child}`` for the layer path children."""
+    from PyQt6.QtCore import Qt
+    out = {}
+    for c in group.childItems():
+        if c.data(1) is None:
+            continue
+        kind = "text" if c.pen().style() == Qt.PenStyle.NoPen else "stroke"
+        out[(c.data(1), kind)] = c
+    assert set(out) == {("A", "stroke"), ("A", "text"), ("B", "stroke")}, set(out)
+    return out
+
+
+def _und_state(group):
+    from tests.test_paper_pass_characterization import _norm
+    return {k: (_norm(c.pen()), _norm(c.brush()), c._colour_src)
+            for k, c in _und_children(group).items()} | {
+        "group": (group.isVisible(), round(group.opacity(), 6))}
+
+
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+def test_underlay_enter_exit_round_trip(qapp, request, paper_env, real_system_library,
+                                        authored):
+    """s16.5: row off plots every layer in the Underlay row colour and drops a
+    token ``_colour_src`` for the pass; row on keeps each layer's effective
+    colour (a token resolves on paper: black). A named layer weight plots
+    true mm (non-cosmetic); a raw width plots at the frozen pre-MW mapping.
+    The exit puts every pen, brush and ``_colour_src`` back."""
+    from firepro3d import underlay
+    from firepro3d.constants import TOKEN_AUTO
+    set_rows(paper_env, authored)
+    ms, rec, group = _underlay_scene(request)
+    ch = _und_children(group)
+    b_width = float(ch[("B", "stroke")].data(7))
+    st0 = _und_state(group)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+    tok = underlay.enter_underlay_paper_pass(ctx, rec, group)
+    assert tok is not None
+    row_col = pd._paper_qcolor(paper_env.cats["Underlay"]["color"]).name()
+    a_col = row_col if not authored else pd._paper_qcolor(TOKEN_AUTO).name()
+    b_col = row_col if not authored else pd._paper_qcolor(
+        rec.effective_layer_colour("B")).name()
+    a, a_txt, b = ch[("A", "stroke")], ch[("A", "text")], ch[("B", "stroke")]
+    assert a.pen().color().name() == a_col
+    assert not a.pen().isCosmetic()
+    assert a.pen().widthF() == pytest.approx(pd.resolve_line_weight_mm("Thick") / SCALE)
+    assert a_txt.brush().color().name() == a_col
+    assert b.pen().color().name() == b_col
+    assert b.pen().isCosmetic()
+    assert b.pen().widthF() == pytest.approx(pd.paper_legacy_pdf_px(b_width))
+    assert a._colour_src == (TOKEN_AUTO if authored else None)
+    assert _und_state(group) != st0
+    underlay.exit_underlay_paper_pass(tok)
+    assert a._colour_src == TOKEN_AUTO
+    assert _und_state(group) == st0
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("case", ["hidden", "opacity"])
+def test_underlay_phase_status_hides_or_fades_the_group(qapp, request, paper_env,
+                                                        real_system_library, case):
+    """PH3 R5: a hidden status hides the group for the pass (children left
+    alone); a status opacity sets the group opacity. The exit puts the
+    group's visibility and opacity back."""
+    from types import SimpleNamespace
+
+    from firepro3d import phase_display, phase_registry, underlay
+    from firepro3d.constants import PHASE_EXISTING
+    set_rows(paper_env, False)
+    ms, rec, group = _underlay_scene(request)
+    rec.phase = PHASE_EXISTING
+    group.setOpacity(0.8)
+    st0 = _und_state(group)
+    before = snapshot(ms)
+    table = phase_registry.project_table()
+    prior = table.graphics_of(PHASE_EXISTING).get("opacity")
+    hidden = {PHASE_EXISTING} if case == "hidden" else set()
+    phase_display.begin_pass(SimpleNamespace(
+        phase_display=phase_display.PhaseDisplay(True, frozenset(hidden)),
+        source_view_type="plan"))
+    try:
+        assert table.set_graphic(PHASE_EXISTING, "opacity", 40)
+        ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+        tok = underlay.enter_underlay_paper_pass(ctx, rec, group)
+        if case == "hidden":
+            assert not group.isVisible()
+            assert {k: v for k, v in _und_state(group).items() if k != "group"} \
+                == {k: v for k, v in st0.items() if k != "group"}
+        else:
+            assert group.isVisible()
+            assert group.opacity() == pytest.approx(0.4)
+        underlay.exit_underlay_paper_pass(tok)
+    finally:
+        phase_display.end_pass()
+        table.set_graphic(PHASE_EXISTING, "opacity", prior)
+    assert group.isVisible() and group.opacity() == pytest.approx(0.8)
+    assert _und_state(group) == st0
+    assert snapshot(ms) == before
+
+
+def test_underlay_enter_returns_none_for_a_missing_outside_or_deleted_group(
+        qapp, request, paper_env, real_system_library):
+    """No token (and no write) for a None group, a group outside the crop, or
+    a group whose C++ object is gone (RuntimeError, e.g. a cache rebuild)."""
+    from PyQt6 import sip
+
+    from firepro3d import underlay
+    set_rows(paper_env, False)
+    ms, rec, group = _underlay_scene(request)
+    st0 = _und_state(group)
+    ctx = pp.PaperPassContext(ms, QRectF(50000, 50000, 100, 100), SCALE)
+    assert underlay.enter_underlay_paper_pass(ctx, rec, None) is None
+    assert underlay.enter_underlay_paper_pass(ctx, rec, group) is None
+    assert _und_state(group) == st0
+    ms.removeItem(group)
+    sip.delete(group)
+    ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+    assert underlay.enter_underlay_paper_pass(ctx, rec, group) is None
+
+
+def test_underlay_enters_after_the_owners_through_the_driver(qapp, request, paper_env,
+                                                             real_system_library):
+    """One token per group, its own exit, pushed after every owner token
+    (the base order: underlays after the item loop); no legacy token."""
+    from firepro3d import underlay
+    set_rows(paper_env, False)
+    ms, rec, group = _underlay_scene(request)
+    _KINDS["wall"](ms)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
+    try:
+        fns = [fn for _it, fn, _tok in saved]
+        assert not [fn for fn in fns if fn is pd._legacy_exit]
+        assert [it for it, fn, _tok in saved
+                if fn is underlay.exit_underlay_paper_pass] == [group]
+        i = fns.index(underlay.exit_underlay_paper_pass)
+        assert i == len(saved) - 2                       # last but the context's own
+        assert any(type(it).__name__ == "WallSegment" for it, _fn, _tok in saved[:i])
+        assert _und_children(group)[("B", "stroke")].pen().color().name() \
+            == pd._paper_qcolor(paper_env.cats["Underlay"]["color"]).name()
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_underlay_enter_raise_mid_write_unwinds_the_group(qapp, request, paper_env,
+                                                         real_system_library):
+    """D2 / D6: a raise at the second layer child's pen write (after the first
+    was re-pened) leaves the group and every child as they were."""
+    from firepro3d import underlay
+    set_rows(paper_env, False)
+    ms, rec, group = _underlay_scene(request)
+    st0 = _und_state(group)
+    before = snapshot(ms)
+    stroke = [c for c in group.childItems() if c.data(1) is not None
+              and c.pen().style().value != 0]
+    first, second = stroke[0], stroke[1]
+    seen = []
+    real = second.setPen
+
+    def boom(pen):
+        if not seen:
+            seen.append(_und_state(group) != st0)
+            raise RuntimeError("pen")
+        real(pen)
+
+    ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+    second.setPen = boom
+    try:
+        with pytest.raises(RuntimeError, match="pen"):
+            underlay.enter_underlay_paper_pass(ctx, rec, group)
+    finally:
+        del second.setPen
+    assert seen == [True], "the raise came after an earlier child's write"
+    assert first is not second
+    assert _und_state(group) == st0
+    assert snapshot(ms) == before
+
+
+def _printed_text(request):
+    from tests.test_paper_pass_characterization import _text_printed
+    ms = _scene(request)
+    return ms, _text_printed(ms)
+
+
+def test_text_item_is_migrated_and_has_no_subclass():
+    """``_migrated()`` is exact-type: every TextItem class must be listed. No
+    subclass exists today (a new one must be added to ``_migrated()``)."""
+    from firepro3d.text_item import TextItem
+    assert TextItem in pp._migrated()
+    assert TextItem.__subclasses__() == []
+
+
+@pytest.mark.parametrize("prior", [None, (0.5, 0.1)], ids=["none", "set"])
+def test_text_print_pass_round_trip(qapp, request, paper_env, prior):
+    """N15: the printed factor ``(k, paper_scale)`` is set for the pass (the
+    painted bounds follow); the exit puts back the prior value."""
+    from firepro3d.annotative import printed_text_k
+    ms, t = _printed_text(request)
+    t.set_print_pass(prior)
+    rect0 = t.boundingRect()
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+    tok = t.enter_print_pass(ctx)
+    assert t._print_pass == (printed_text_k(20.0, SCALE), SCALE)
+    assert t.boundingRect() != rect0
+    t.exit_print_pass(tok)
+    assert t._print_pass == prior
+    assert t.boundingRect() == rect0
+    assert snapshot(ms) == before
+
+
+def test_printed_text_enters_itself_through_the_driver(qapp, request, paper_env):
+    """A Printed schematic: one print token, the text's own exit, no legacy
+    token. Without a print scale the text takes the category path, which
+    (no paper row) leaves it alone -- as at base."""
+    from firepro3d.annotative import printed_text_k
+    ms, t = _printed_text(request)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is t] == [t.exit_print_pass]
+        assert not [fn for _it, fn, _tok in saved if fn is pd._legacy_exit]
+        assert t._print_pass == (printed_text_k(20.0, SCALE), SCALE)
+    finally:
+        pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+    ms.text_print_scale = None
+    assert pd._category_for_item(t) is None
+    saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
+    try:
+        assert not [it for it, _fn, _tok in saved if it is t]
+        assert t._print_pass is None
+    finally:
+        pd.restore_model_display(saved)
     assert snapshot(ms) == before

@@ -305,3 +305,116 @@ def apply_import_params_preserving_management(
         record.layer_overrides = {
             k: v for k, v in record.layer_overrides.items() if k in known}
         record.hidden_layers = [h for h in record.hidden_layers if h in known]
+
+
+# ---------------------------------------------------------------------------
+# Paper pass (paper-space.md s6.2 "Paper pass protocol"; s16.5). Groups are
+# not category items: ``paper_pass.run_pass`` enters them in its own loop over
+# ``scene.underlays``, after the owner loop.
+# ---------------------------------------------------------------------------
+
+def enter_underlay_paper_pass(ctx, record, group):
+    """Plot one underlay group under the Underlay row (s16.5; records drive
+    per-layer paper appearance): a model-side hidden group is left untouched;
+    a hidden status hides it (PH3 R5); a status opacity sets the group
+    opacity; each layer path child plots in the row colour (row off) or the
+    layer's effective colour (row on), a named layer weight in true paper mm,
+    an unweighted raw width at the frozen pre-MW mapping. Saves first; a
+    raise mid-write unwinds the group.
+
+    Args:
+        ctx: The pass's ``paper_pass.PaperPassContext``.
+        record: The group's ``Underlay`` record.
+        group: The record's scene group (None when not built).
+
+    Returns:
+        The token :func:`exit_underlay_paper_pass` takes, or None for a
+        missing / deleted group or one outside the crop.
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QPen
+    from PyQt6.QtWidgets import QGraphicsPathItem
+    from . import paper_display as pd
+    from . import paper_pass, phase_display
+    from .colour_tokens import is_token
+    from .constants import UNDERLAY_MASK_SLOT
+
+    if group is None:
+        return None
+    try:
+        was_visible = group.isVisible()
+    except RuntimeError:
+        return None
+    if not group.sceneBoundingRect().intersects(ctx.source_rect):
+        return None
+    und_row = ctx.row("Underlay") or pd.factory_paper_categories()["Underlay"]
+    und_cat = phase_display.merge(und_row, record, keys=phase_display.UNDERLAY_KEYS)   # PH3 R5
+    und_auth = pd.row_as_authored(und_cat)
+    und_col = phase_display.writes(und_cat, und_auth, "color")
+    tok = {"group": group, "visible": was_visible,
+           "opacity": group.opacity(), "children": []}
+
+    def write():
+        if not was_visible:
+            return                # model-side hidden: leave untouched
+        if not und_cat.get("visible", True):   # PH3 R5: a hidden status
+            group.setVisible(False)
+            return
+        if phase_display.forced(und_cat, "opacity"):
+            group.setOpacity(und_cat["opacity"] / 100.0)   # PH3 R5 opacity
+        for child in group.childItems():
+            layer = child.data(1)
+            if layer is None or not isinstance(child, QGraphicsPathItem):
+                continue
+            if child.data(UNDERLAY_MASK_SLOT):
+                continue          # a mask paints the sheet, not the layer
+            tok["children"].append({"item": child, "pen": child.pen(),
+                                    "brush": child.brush()})
+            src = getattr(child, "_colour_src", None)
+            if und_col and is_token(src):
+                # Row OFF: a token layer colour re-resolves at paint and
+                # would ignore the row colour set below; drop it for the
+                # pass (the exit puts it back). "" (No Fill) stays hidden.
+                tok["children"][-1]["colour_src"] = src
+                child._colour_src = None
+            # D6: row ON -> the layer's effective colour; OFF -> the
+            # Underlay row colour (factory Automatic = black on paper).
+            colour = (pd._paper_qcolor(und_cat["color"]) if und_col
+                      else pd._paper_qcolor(record.effective_layer_colour(layer)))
+            if child.pen().style() == Qt.PenStyle.NoPen:
+                child.setBrush(QBrush(colour))      # text batch
+                continue
+            pen = QPen(child.pen())
+            pen.setColor(colour)
+            weight_name = record.effective_layer_weight(layer)
+            if weight_name:
+                pen.setWidthF(pd.resolve_line_weight_mm(weight_name)
+                              / max(ctx.paper_scale, 1e-9))
+                pen.setCosmetic(False)  # true mm on paper (s9.9.1 pattern)
+            elif child.data(7) is not None:
+                # Unweighted raw width stays cosmetic: plot it at the
+                # frozen pre-MW mapping -- never the canvas Auto px
+                # (factor / Thin Lines dependent; MW-1 / MW-4).
+                pen.setWidthF(pd.paper_legacy_pdf_px(float(child.data(7))))
+            child.setPen(pen)
+    return paper_pass.enter_guarded(exit_underlay_paper_pass, tok, write)
+
+
+def exit_underlay_paper_pass(tok) -> None:
+    """Undo :func:`enter_underlay_paper_pass` (the base underlay restore):
+    each child's pen, brush and dropped ``_colour_src``, then the group's
+    visibility and opacity. A deleted child or group (RuntimeError) is
+    skipped; tolerates a partly-entered token."""
+    for ch in tok["children"]:
+        try:
+            ch["item"].setPen(ch["pen"])
+            ch["item"].setBrush(ch["brush"])
+            if "colour_src" in ch:
+                ch["item"]._colour_src = ch["colour_src"]
+        except RuntimeError:
+            pass
+    try:
+        tok["group"].setVisible(tok["visible"])
+        tok["group"].setOpacity(tok["opacity"])   # PH3 R5 restore
+    except RuntimeError:
+        pass

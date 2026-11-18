@@ -21,7 +21,7 @@ from .constants import (MODEL_WEIGHT_FACTOR, MODEL_WEIGHT_FACTOR_MIN,
                         MODEL_WEIGHT_FACTOR_MAX, MODEL_WEIGHT_PX_MAX,
                         MODEL_BLOCKS_FACTORY_MM, DEFAULT_LINE_WEIGHT_MM,
                         PAPER_LEGACY_PX_PER_MM, PAPER_LEGACY_SNAP_PX,
-                        UNDERLAY_LINE_WIDTH_PX, UNDERLAY_MASK_SLOT)
+                        UNDERLAY_LINE_WIDTH_PX)
 
 _log = logging.getLogger(__name__)
 
@@ -1560,23 +1560,14 @@ def _legacy_enter(ctx, item, saved: list) -> None:
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .pipe import Pipe
     from .gridline import GridlineItem
-    from .annotative import printed_text_k
-    from .text_item import TextItem
 
     cats = ctx.rows
     paper_scale = ctx.paper_scale
-    text_scale = ctx.text_scale
     _auth_tok = ctx.auth_tok
     _svg_paper_retint = ctx.svg_paper_retint
     _svg_phase_tint = ctx.svg_phase_tint
     _phase_keys = ctx.phase_keys
 
-    if text_scale and isinstance(item, TextItem):
-        # Printed text (N15): painted scaled, so it reports scaled bounds
-        # for the pass. Saved first: restore never sees a half-entered item.
-        saved.append({"print_text": item})
-        item.set_print_pass((printed_text_k(text_scale, paper_scale), paper_scale))
-        return
     cat_key = _category_for_item(item)
     if cat_key is None:
         _hide_phase_hidden_mask(item, saved)
@@ -1801,84 +1792,6 @@ def _legacy_enter(ctx, item, saved: list) -> None:
             item._tag.setOpacity(phase_display.label_opacity(lab_cat))
 
 
-def _legacy_tail(ctx, tokens) -> None:
-    """Legacy adapter: underlay groups, as one token on the scene (until
-    Task 14). Fittings are entered by their node (Task 13, D9)."""
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QBrush, QPen
-    from PyQt6.QtWidgets import QGraphicsPathItem
-    from .colour_tokens import is_token
-
-    scene = ctx.scene
-    source_rect = ctx.source_rect
-    paper_scale = ctx.paper_scale
-    cats = ctx.rows
-    saved: list = []      # this tail's dict entries: one token on the scene
-    try:
-        # ── Underlays (§16.5) — records drive per-layer paper appearance ──
-        und_row = cats.get("Underlay") or factory_paper_categories()["Underlay"]
-        for record, group in getattr(scene, "underlays", []):
-            if group is None:
-                continue
-            try:
-                was_visible = group.isVisible()
-            except RuntimeError:
-                continue
-            if not group.sceneBoundingRect().intersects(source_rect):
-                continue
-            und_cat = phase_display.merge(und_row, record, keys=phase_display.UNDERLAY_KEYS)   # PH3 R5
-            und_auth = row_as_authored(und_cat)
-            und_col = phase_display.writes(und_cat, und_auth, "color")
-            entry = {"underlay_group": group, "visible": was_visible,
-                     "opacity": group.opacity(), "children": []}
-            saved.append(entry)
-            if not was_visible:
-                continue          # model-side hidden: leave untouched
-            if not und_cat.get("visible", True):   # PH3 R5: a hidden status
-                group.setVisible(False)
-                continue
-            if phase_display.forced(und_cat, "opacity"):
-                group.setOpacity(und_cat["opacity"] / 100.0)   # PH3 R5 opacity
-            for child in group.childItems():
-                layer = child.data(1)
-                if layer is None or not isinstance(child, QGraphicsPathItem):
-                    continue
-                if child.data(UNDERLAY_MASK_SLOT):
-                    continue          # a mask paints the sheet, not the layer
-                entry["children"].append({"item": child, "pen": child.pen(),
-                                          "brush": child.brush()})
-                src = getattr(child, "_colour_src", None)
-                if und_col and is_token(src):
-                    # Row OFF: a token layer colour re-resolves at paint and
-                    # would ignore the row colour set below; drop it for the
-                    # pass (restore puts it back). "" (No Fill) stays hidden.
-                    entry["children"][-1]["colour_src"] = src
-                    child._colour_src = None
-                # D6: row ON -> the layer's effective colour; OFF -> the
-                # Underlay row colour (factory Automatic = black on paper).
-                colour = (_paper_qcolor(und_cat["color"]) if und_col
-                          else _paper_qcolor(record.effective_layer_colour(layer)))
-                if child.pen().style() == Qt.PenStyle.NoPen:
-                    child.setBrush(QBrush(colour))      # text batch
-                    continue
-                pen = QPen(child.pen())
-                pen.setColor(colour)
-                weight_name = record.effective_layer_weight(layer)
-                if weight_name:
-                    pen.setWidthF(resolve_line_weight_mm(weight_name)
-                                  / max(paper_scale, 1e-9))
-                    pen.setCosmetic(False)  # true mm on paper (§9.9.1 pattern)
-                elif child.data(7) is not None:
-                    # Unweighted raw width stays cosmetic: plot it at the
-                    # frozen pre-MW mapping -- never the canvas Auto px
-                    # (factor / Thin Lines dependent; MW-1 / MW-4).
-                    pen.setWidthF(paper_legacy_pdf_px(float(child.data(7))))
-                child.setPen(pen)
-    finally:
-        if saved:
-            tokens.push(scene, _legacy_exit, saved)
-
-
 def _legacy_exit_entry(entry: dict) -> None:
     """Legacy adapter: restore one dict entry."""
     from .display_manager import _set_svg_tint
@@ -1889,27 +1802,6 @@ def _legacy_exit_entry(entry: dict) -> None:
     from .gridline import GridlineItem
     from .annotative import is_annotative as _is_annot
     from PyQt6.QtGui import QColor, QBrush, QPen
-
-    if "print_text" in entry:
-        entry["print_text"].set_print_pass(None)
-        return
-    if "underlay_group" in entry:
-        # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
-        for ch in entry["children"]:
-            try:
-                ch["item"].setPen(ch["pen"])
-                ch["item"].setBrush(ch["brush"])
-                if "colour_src" in ch:
-                    ch["item"]._colour_src = ch["colour_src"]
-            except RuntimeError:
-                pass
-        try:
-            entry["underlay_group"].setVisible(entry["visible"])
-            if "opacity" in entry:
-                entry["underlay_group"].setOpacity(entry["opacity"])   # PH3 R5 restore
-        except RuntimeError:
-            pass
-        return
 
     item = entry["item"]
     cat_key = entry.get("cat_key")

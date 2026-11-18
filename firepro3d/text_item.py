@@ -784,6 +784,30 @@ class TextItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsTextItem):
         self._print_pass = value
         self.update()
 
+    def enter_print_pass(self, ctx):
+        """Enter a Printed schematic's viewport pass (N15; paper-space.md s6.2
+        "Paper pass protocol"): painted scaled, so it reports scaled bounds
+        for the pass. Saves first; a raise mid-write puts the prior value back.
+
+        Args:
+            ctx: The pass's ``paper_pass.PaperPassContext`` (its
+                ``text_scale`` set).
+
+        Returns:
+            The prior ``_print_pass`` value, the token :meth:`exit_print_pass`
+            takes.
+        """
+        from . import paper_pass
+        from .annotative import printed_text_k
+        return paper_pass.enter_guarded(
+            self.exit_print_pass, self._print_pass,
+            lambda: self.set_print_pass((printed_text_k(ctx.text_scale, ctx.paper_scale),
+                                         ctx.paper_scale)))
+
+    def exit_print_pass(self, prev) -> None:
+        """Undo :meth:`enter_print_pass`: the prior value back (normally None)."""
+        self.set_print_pass(prev)
+
     def _print_anchor_local(self) -> QPointF:
         """The point a printed box scales about, LOCAL unscaled (N16): the knee
         with a leader, else the box's ``align`` x ``valign`` point."""

@@ -265,6 +265,7 @@ def _migrated() -> tuple:
                                 _HostedBlockCopy, _SectionNoteCopy, _SrcEllipse,
                                 _SrcLine, _SrcRect)
     from .sprinkler import Sprinkler
+    from .text_item import TextItem
     from .wall import WallSegment
     from .wall_opening import WallOpening
     from .water_supply import WaterSupply
@@ -291,7 +292,12 @@ def _migrated() -> tuple:
             # type; the line proxy enters its section pipe label (D5)
             _SrcRect, _SrcLine, _SrcEllipse, _ElevProxyRect, _ElevProxyLine,
             _ElevProxyEllipse, _ElevCutRect, _ElevPipeSymbol, _ElevCutEllipse,
-            _ElevEndOnSymbol)
+            _ElevEndOnSymbol,
+            # printed text (Task 14): enter_print_pass when the pass carries a
+            # print scale; no subclass of TextItem exists (base: isinstance).
+            # Without one it has no category (None), so it takes the
+            # phase-hidden mask hide, as the legacy ladder did.
+            TextItem)
 
 
 def _owner_of(item):
@@ -374,10 +380,9 @@ def _enter_owner(ctx, saved, owner) -> None:
 
 def run_pass(scene, source_rect, paper_scale=1.0, viewport_data=None) -> PassTokens:
     """Enter the paper pass: the context first, then every picked owner once
-    (first-hit order; a node enters its fitting, D9), then the legacy tail
-    (underlays). A mid-pass raise unwinds everything entered so far, then
-    re-raises (D6)."""
-    from . import paper_display as pd
+    (first-hit order; a node enters its fitting, D9; printed text its print
+    pass), then every underlay group (s16.5; groups are not category items).
+    A mid-pass raise unwinds everything entered so far, then re-raises (D6)."""
     ctx = PaperPassContext(scene, source_rect, paper_scale, viewport_data)
     saved = PassTokens()
     saved.push(scene, ctx.exit, ctx.enter())
@@ -395,7 +400,11 @@ def run_pass(scene, source_rect, paper_scale=1.0, viewport_data=None) -> PassTok
             if owner is not hit and not owner.isVisible():
                 continue
             _enter_owner(ctx, saved, owner)
-        pd._legacy_tail(ctx, saved)          # underlays until Task 14
+        from . import underlay
+        for record, group in getattr(scene, "underlays", []):
+            tok = underlay.enter_underlay_paper_pass(ctx, record, group)
+            if tok is not None:
+                saved.push(group, underlay.exit_underlay_paper_pass, tok)
     except BaseException:
         try:
             ctx.exit(scene)                    # left first, as on a normal unwind
