@@ -170,7 +170,8 @@ def _paper_scene(section_scene_for):
 
 
 def test_pipe_row_prints_the_label_and_restores(qapp, section_scene_for):
-    """AC6: the row reaches the label through _apply_block, then restore."""
+    """AC6: the row reaches the label through paper_pass.enter_block_hooks
+    (paper-pass protocol D7; was paper_display._apply_block), then restore."""
     from firepro3d import paper_display as pd
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
     from tests.paper_mode_shim import set_paper_mode

@@ -430,7 +430,8 @@ def test_dm_svg_tint_fill_token_and_no_fill(qapp, force_theme, tmp_path):
 def _paper_pass_colours(scene, gl):
     """(grid colour, bubble ink colour) a gridline really draws with during a
     paper pass; the bubble is an annotation block, so its ink is the
-    ``_apply_block`` pen-colour hook (SB4b D12)."""
+    ``_paper_pen_color`` hook written by ``paper_pass.enter_block_hooks``
+    (SB4b D12; paper-pass protocol D7; was paper_display._apply_block)."""
     from firepro3d.paper_display import apply_paper_overrides, restore_model_display
     saved = apply_paper_overrides(scene, QRectF(-5000, -5000, 10000, 10000))
     try:

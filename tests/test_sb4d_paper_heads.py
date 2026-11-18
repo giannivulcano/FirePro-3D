@@ -1,5 +1,6 @@
 """SB4d guard 4 (paper): a placed-section head and the detail callout head
-print at authored mm through paper_display._apply_block -- radius HEAD_R / S
+print at authored mm through paper_pass.enter_block_hooks (paper-pass protocol
+D7; was paper_display._apply_block) -- radius HEAD_R / S
 scene mm (= HEAD_R mm on paper) at paper scale S -- and the canvas size
 comes back after the pass."""
 import pytest

@@ -177,8 +177,9 @@ def test_g4_riser_takes_the_pipe_paper_row(qapp, real_system_library):
 
 
 def test_pipe_paper_pass_and_restore_schedule_a_riser_repaint(qapp, real_system_library):
-    """T10 review: the pipe's _display_color changes in _apply_pipe and again
-    in the restore; the riser pulls it at paint, so each must schedule a riser
+    """T10 review: the pipe's _display_color changes in Pipe._paper_pipe_write
+    (paper-pass protocol; was paper_display._apply_pipe) and again in
+    Pipe.exit_paper_pass; the riser pulls it at paint, so each must schedule a riser
     repaint (a mid-pass canvas repaint would otherwise show a stale colour)."""
     ms, _nodes, p = riser_scene()
     calls = []

@@ -247,7 +247,8 @@ def test_g9_per_end_visibility_grips_and_lock_carry_over(qapp):
 
 
 # ---------------------------------------------------------------------------
-# Task 5 -- paper pass through _apply_block
+# Task 5 -- paper pass through paper_pass.enter_block_hooks
+# (paper-pass protocol D7; was paper_display._apply_block)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("scale", [0.02, 0.005])          # 1:50, 1:200

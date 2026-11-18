@@ -7,7 +7,8 @@ from PyQt6.QtCore import QPointF, QRectF
 
 import firepro3d.paper_display as pd
 from firepro3d import paper_pass as pp
-from tests.test_paper_pass_characterization import (_KINDS, _room_tagged,   # noqa: F401
+from tests.test_paper_pass_characterization import (_KINDS, _ROW_BLUE,   # noqa: F401
+                                                    _ROW_RED, _room_tagged,
                                                     paper_env, set_rows, snapshot)
 
 
@@ -372,6 +373,46 @@ def test_construction_enter_raise_mid_write_unwinds_the_item(
         del item.update
     assert calls[0] == pytest.approx((0.6, ctx.lw_mm(cat) / SCALE)), (
         "the raise came after the pen and opacity writes")
+    assert snapshot(ms) == before
+
+
+def test_construction_authored_token_re_resolves_on_paper_with_joins(
+        qapp, request, paper_env, real_system_library):
+    """T4 review: an As Authored row keeps the authored colour, but a token
+    colour latched on the pen for the canvas re-resolves on the paper surface
+    (``token:auto`` -> black), and the paper pen takes the stroke joins
+    (``apply_stroke_joins``: flat cap, miter join at the PDF-4 limit). The
+    exit puts the canvas pen back (colour, cap and join)."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QColor
+    from firepro3d.constants import STROKE_MITER_LIMIT, TOKEN_AUTO
+    set_rows(paper_env, True)
+    ms, item = _construction(request, "line")
+    item._display_color = TOKEN_AUTO                 # the authored token colour
+    pen0 = item.pen()
+    pen0.setColor(QColor("#123456"))                 # the canvas-latched ink
+    pen0.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen0.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    item.setPen(pen0)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    scene_tok = ctx.enter()                          # the paper surface is live
+    try:
+        cat = ctx.merge(ctx.row("Construction"), item, "Construction")
+        assert pd.row_as_authored(cat)
+        tok = item.enter_paper_pass(ctx, cat)
+        pen = item.pen()
+        assert pen.color().name() == "#000000", "the token did not re-resolve on paper"
+        assert pen.capStyle() == Qt.PenCapStyle.FlatCap
+        assert pen.joinStyle() == Qt.PenJoinStyle.MiterJoin
+        assert pen.miterLimit() == pytest.approx(STROKE_MITER_LIMIT / 2.0)
+        item.exit_paper_pass(tok)
+    finally:
+        ctx.exit(scene_tok)
+    pen = item.pen()
+    assert pen.color().name() == "#123456"
+    assert pen.capStyle() == Qt.PenCapStyle.RoundCap
+    assert pen.joinStyle() == Qt.PenJoinStyle.RoundJoin
     assert snapshot(ms) == before
 
 
@@ -788,6 +829,33 @@ def test_pipe_enter_raise_mid_write_unwinds_the_pipe(qapp, request, paper_env,
     assert snapshot(ms) == before
 
 
+@pytest.mark.parametrize("authored", [True, False], ids=["authored", "row_off"])
+def test_pipe_round_trip_restores_label_pen_colour_and_authored_colour(
+        qapp, request, paper_env, real_system_library, authored):
+    """T6/7 review: the label's ``_paper_pen_color`` hook (the row colour
+    while row off, None while As Authored) and the pipe's authored
+    ``_display_color`` (the row colour while row off, kept while As
+    Authored) both come back unchanged after the enter / exit round trip."""
+    set_rows(paper_env, authored)
+    ms, p = _pipe_kind(request, "labelled")
+    p._display_color = "#123456"                     # the authored (canvas) colour
+    lab = p.label
+    assert lab.isVisible() and lab._paper_pen_color is None
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    cat = ctx.merge(ctx.row("Pipe"), p, "Pipe")
+    assert cat["color"] != "#123456"
+    tok = p.enter_paper_pass(ctx, cat)
+    if authored:
+        assert p._display_color == "#123456"
+        assert lab._paper_pen_color is None
+    else:
+        assert p._display_color == cat["color"]
+        assert lab._paper_pen_color.name() == pd._paper_qcolor(cat["color"], lab).name()
+    p.exit_paper_pass(tok)
+    assert p._display_color == "#123456"
+    assert lab._paper_pen_color is None
+
+
 # ---------------------------------------------------------------------------
 # Task 7: a label / tag inside the crop enters through its owner (D5, AC4)
 # ---------------------------------------------------------------------------
@@ -854,6 +922,51 @@ def test_room_with_body_and_tag_in_crop_enters_once(qapp, request, paper_env,
         assert tag._paper_scale == pytest.approx(SCALE)
     finally:
         pd.restore_model_display(saved)
+    assert snapshot(ms) == before
+
+
+def test_room_owner_outside_crop_is_entered_once_with_its_own_look(
+        qapp, request, paper_env, real_system_library, monkeypatch):
+    """T5 review (ratified ruling 2026-11-17): only the tag is hit, the room
+    outside the crop -- ``Room.enter_paper_pass`` runs exactly once, and the
+    room itself (not only its tag) takes its paper look for the pass: the
+    row colour, the paper pen width and the no-fill flag; all back after."""
+    from firepro3d.room import Room
+    set_rows(paper_env, False)
+    paper_env.cats["Room"]["color"] = "#ff0000"
+    ms = _scene(request)
+    room = Room(boundary=[QPointF(3000, 3000), QPointF(5000, 3000),
+                          QPointF(5000, 5000), QPointF(3000, 5000)])
+    ms.addItem(room)
+    room.set_property("Room Name", "R1")
+    room._update_label()
+    room.apply_grip(0, QPointF(0.0, 0.0))     # the tag grip drags it into the crop
+    crop = QRectF(-1500, -1500, 3000, 3000)
+    hits = ms.items(crop)
+    assert any(h is room._tag for h in hits) and not any(h is room for h in hits), (
+        "setup: the tag alone must be hit")
+    calls = []
+    real = Room.enter_paper_pass
+
+    def spy(self, ctx, cat):
+        calls.append(self)
+        return real(self, ctx, cat)
+
+    monkeypatch.setattr(Room, "enter_paper_pass", spy)
+    color0 = room._display_color
+    assert color0 != "#ff0000", "setup: the room's own colour is the row colour"
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert len(calls) == 1 and calls[0] is room, calls
+        lw = pd.resolve_line_weight_mm(paper_env.cats["Room"]["line_weight"])
+        assert room._display_color == "#ff0000"
+        assert room._paper_pen_width == pytest.approx(lw / SCALE)
+        assert room.__dict__.get("_paper_no_fill") is True
+    finally:
+        pd.restore_model_display(saved)
+    assert room._display_color == color0
+    assert "_paper_no_fill" not in vars(room)
     assert snapshot(ms) == before
 
 
@@ -1000,6 +1113,42 @@ def test_nothing_maps_onto_a_symbol_owner(qapp, request, paper_env,
     assert not [it for it in ms.items() if it is not item and pp._owner_of(it) is item]
 
 
+@pytest.mark.parametrize("model", ["hex", "token"])
+@pytest.mark.parametrize("make", list(_SYMBOL_KEY))
+def test_symbol_authored_round_trip_tints_only_a_model_token(
+        qapp, request, paper_env, real_system_library, make, model):
+    """T8 review: an As Authored row takes the ``svg_paper_retint`` branch.
+    A hex Model colour + fill leaves the canvas tint alone for the pass; a
+    token Model colour re-tints the stroke with that token (it resolves on
+    the paper surface: ``token:auto`` -> black) and keeps the canvas fill.
+    The exit puts the canvas tint back."""
+    from firepro3d.constants import TOKEN_AUTO
+    set_rows(paper_env, True)
+    ms, item = _symbol(request, make)
+    key = _SYMBOL_KEY[make]
+    item._display_overrides = ({"color": "#654321", "fill": "#765432"} if model == "hex"
+                               else {"color": TOKEN_AUTO, "fill": "#765432"})
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    scene_tok = ctx.enter()                          # the paper surface is live
+    try:
+        cat = ctx.merge(ctx.row(key), item, key)
+        assert pd.row_as_authored(cat)
+        tok = item.enter_paper_pass(ctx, cat)
+        if model == "hex":
+            assert (item._display_color, item._display_fill_color) == _CANVAS_TINT
+            assert item.stroke_tint().name() == _CANVAS_TINT[0]
+        else:
+            assert (item._display_color, item._display_fill_color) == (
+                TOKEN_AUTO, _CANVAS_TINT[1])
+            assert item.stroke_tint().name() == "#000000"
+        item.exit_paper_pass(tok)
+    finally:
+        ctx.exit(scene_tok)
+    assert (item._display_color, item._display_fill_color) == _CANVAS_TINT
+    assert snapshot(ms) == before
+
+
 # ---------------------------------------------------------------------------
 # Task 9: plan gridline (bubbles, lock indicator) + AC6 gridline bubble
 # ---------------------------------------------------------------------------
@@ -1140,6 +1289,34 @@ def test_gridline_enter_raise_mid_write_unwinds_the_gridline(qapp, request, pape
         "the raise came after the line, lock and bubble1 writes")
     assert snapshot(ms) == before
     assert gl.bubble1.opacity() == pytest.approx(0.4)
+
+
+def test_gridline_authored_token_re_resolves_through_auth_tok(
+        qapp, request, paper_env, real_system_library):
+    """T9 review: the ``ctx.auth_tok`` path. An As Authored Grid Line row
+    keeps the authored colour, but a token row colour (the gridline's Model
+    colour override) latched on ``_grid_color`` for the canvas re-resolves on
+    the paper surface (``token:auto`` -> black); the exit puts the canvas
+    colour back."""
+    from PyQt6.QtGui import QColor
+    from firepro3d.constants import TOKEN_AUTO
+    set_rows(paper_env, True)
+    ms, gl = _plan_gridline(request)
+    gl._display_overrides["color"] = TOKEN_AUTO
+    gl._grid_color = QColor("#123456")               # the canvas-latched ink
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+    scene_tok = ctx.enter()                          # the paper surface is live
+    try:
+        cat = ctx.merge(ctx.row("Grid Line"), gl, "Grid Line")
+        assert pd.row_as_authored(cat)
+        tok = gl.enter_paper_pass(ctx, cat)
+        assert gl._grid_color.name() == "#000000", "the token did not re-resolve on paper"
+        gl.exit_paper_pass(tok)
+    finally:
+        ctx.exit(scene_tok)
+    assert gl._grid_color.name() == "#123456"
+    assert snapshot(ms) == before
 
 
 # ---------------------------------------------------------------------------
@@ -1304,6 +1481,81 @@ def test_marker_enter_raise_mid_write_unwinds_the_marker(qapp, request, paper_en
     assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
 
 
+@pytest.mark.parametrize("kind", ["placed", "detail"])
+def test_marker_row_visible_off_hides_marker_and_heads(qapp, request, paper_env,
+                                                       real_system_library, kind):
+    """T10a review: a marker row with Visible off hides the marker -- and so
+    its heads (Qt children) -- for the pass, with a visibility token and no
+    paper writes; the exit shows marker and heads again."""
+    set_rows(paper_env, False)
+    paper_env.cats[_MARKER[kind][1]]["visible"] = False
+    ms, m, heads = _marker(request, kind)
+    crop = QRectF(-3000, -3000, 6000, 6000)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert not m.isVisible()
+        assert not any(h.isVisible() for h in heads)
+        assert [fn for it, fn, _tok in saved if it is m] == [pp._vis_exit]
+        assert all(h._paper_scale is None for h in heads)
+    finally:
+        pd.restore_model_display(saved)
+    assert m.isVisible() and all(h.isVisible() for h in heads)
+    assert snapshot(ms) == before
+
+
+def test_marker_hidden_head_stays_hidden_through_the_driver(qapp, request, paper_env,
+                                                            real_system_library):
+    """T10a review: a placed section with one head hidden -- the pass enters
+    the marker and its shown head, the hidden head stays hidden for the pass
+    and after the exit."""
+    set_rows(paper_env, False)
+    ms, m, (ha, hb) = _marker(request, "placed")
+    hb.setVisible(False)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-3000, -3000, 6000, 6000),
+                                     paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is m] == [m.exit_paper_pass]
+        assert ha._paper_scale == pytest.approx(SCALE)
+        assert not hb.isVisible() and hb._paper_scale is None
+    finally:
+        pd.restore_model_display(saved)
+    assert not hb.isVisible(), "the exit showed the hidden head"
+    assert ha.isVisible()
+    assert snapshot(ms) == before
+
+
+@pytest.mark.parametrize("kind", ["placed", "detail"])
+def test_marker_head_only_hit_enters_the_marker(qapp, request, paper_env,
+                                                real_system_library, kind):
+    """T10a review (current D5 behaviour): a crop that hits only one head --
+    a corner of its box, clear of the marker's own shape (line, crop box,
+    leader) -- maps the hit onto the marker, which enters once (row colour
+    on its line) and enters the head."""
+    set_rows(paper_env, False)
+    ms, m, heads = _marker(request, kind)
+    head = heads[0]
+    r = head.sceneBoundingRect()
+    crop = QRectF(r.left() + 0.1 * r.width() - 5.0, r.top() + 0.1 * r.height() - 5.0,
+                  10.0, 10.0)
+    hits = ms.items(crop)
+    assert any(h is head for h in hits), "setup: the head must be hit"
+    assert not any(h is m for h in hits), "setup: the marker shape must be missed"
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, crop, paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is m] == [m.exit_paper_pass]
+        assert not [it for it, _fn, _tok in saved if any(it is h for h in heads)]
+        assert head._paper_scale == pytest.approx(SCALE)
+        assert getattr(m, _MARKER[kind][2]).name() == pd._paper_qcolor(
+            paper_env.cats[_MARKER[kind][1]]["color"], m).name()
+    finally:
+        pd.restore_model_display(saved)
+    assert head.opacity() == pytest.approx(0.4)
+    assert snapshot(ms) == before
+
+
 # ---------------------------------------------------------------------------
 # Task 11: elevation gridline / level datum (bubbles, head) + AC6 elevation head
 # ---------------------------------------------------------------------------
@@ -1327,6 +1579,7 @@ def _elev_items(request):
 _ELEV = {"gridline": ("Grid Line", "_grid_src", ("bubble1", "bubble2")),
          "datum": ("Level Datum", "_color_src", ("head",))}
 _ELEV_CROP = QRectF(-7000.0, -4000.0, 10500.0, 5000.0)   # _sec_elevation's crop
+_ELEV_ROW_COLOR = "#2468ac"     # a row colour no elevation model source carries
 
 
 def _elev(request, kind):
@@ -1408,9 +1661,11 @@ def test_elev_enter_exit_round_trip(qapp, request, paper_env, real_system_librar
     at opacity 1; the exit puts every one back, the heads' real prior opacity
     (0.4, AC6) included."""
     set_rows(paper_env, authored)
+    paper_env.cats[_ELEV[kind][0]]["color"] = _ELEV_ROW_COLOR
     sec, item, heads = _elev(request, kind)
     attr = _ELEV[kind][1]
     src_before = getattr(item, attr)
+    assert src_before != _ELEV_ROW_COLOR, "setup: the row colour is the model source"
     before = snapshot(sec)
     ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
     cat = _elev_cat(ctx, item, kind)
@@ -1503,6 +1758,30 @@ def test_elev_enter_raise_mid_write_unwinds_the_owner(qapp, request, paper_env,
         "the raise came after the line, the opacity and the earlier bubbles")
     assert snapshot(sec) == before
     assert [h.opacity() for h in heads] == [pytest.approx(0.4)] * len(heads)
+
+
+@pytest.mark.parametrize("kind", list(_ELEV))
+def test_elev_row_visible_off_hides_owner_and_heads(qapp, request, paper_env,
+                                                    real_system_library, kind):
+    """T11 review: a Grid Line / Level Datum row with Visible off hides the
+    elevation gridline / level datum -- and so its bubbles / head (Qt
+    children) -- for the pass, with no paper writes; the exit shows them
+    again."""
+    set_rows(paper_env, False)
+    paper_env.cats[_ELEV[kind][0]]["visible"] = False
+    sec, item, heads = _elev(request, kind)
+    before = snapshot(sec)
+    saved = pd.apply_paper_overrides(sec, _ELEV_CROP, paper_scale=SCALE)
+    try:
+        assert not item.isVisible()
+        assert not any(h.isVisible() for h in heads)
+        assert item._paper_render is False
+        assert all(h._paper_scale is None for h in heads)
+        assert [fn for it, fn, _tok in saved if it is item] == [pp._vis_exit]
+    finally:
+        pd.restore_model_display(saved)
+    assert item.isVisible() and all(h.isVisible() for h in heads)
+    assert snapshot(sec) == before
 
 
 # ---------------------------------------------------------------------------
@@ -1719,6 +1998,42 @@ def test_proxy_enter_raise_mid_write_unwinds_the_proxy(qapp, request, paper_env,
     assert snapshot(sec) == before
 
 
+# proxy class -> {source attr: the value the row-off pass writes} (set_rows
+# values): the cut wall's section body takes the Wall row Section colour; the
+# cut pipe's brush source goes "" (no body: the S shows); the sprinkler proxy
+# is built with no brush source (``_project_sprinklers``: QBrush(), source
+# None), so the body branch never runs -- it keeps NO body (the row Fill does
+# not reach it, as at base) while its pen source takes the row Colour.
+_PROXY_BODY = {"_ElevCutRect": {"_section_src": _ROW_BLUE},
+               "_ElevCutEllipse": {"_brush_src": ""},
+               "_ElevProxyEllipse": {"_pen_src": _ROW_RED, "_brush_src": None}}
+
+
+@pytest.mark.parametrize("cls_name", list(_PROXY_BODY))
+def test_proxy_row_off_body_write_per_class(qapp, request, paper_env,
+                                            real_system_library, cls_name):
+    """T12 review: the row-off proxy source writes per class (see
+    ``_PROXY_BODY``); the exit puts each prior source back."""
+    from PyQt6.QtCore import Qt
+    set_rows(paper_env, False)
+    sec, _line, _lab = _proxy_scene(request)
+    it = _proxy_of(sec, cls_name)
+    wants = _PROXY_BODY[cls_name]
+    priors = {a: getattr(it, a) for a in wants}
+    ctx = pp.PaperPassContext(sec, QRectF(), SCALE)
+    cat = _proxy_cat(ctx, it)
+    assert any(priors[a] != w for a, w in wants.items()), (
+        f"setup: {cls_name} already holds the row values")
+    before = snapshot(sec)
+    tok = it.enter_paper_pass(ctx, cat)
+    assert {a: getattr(it, a) for a in wants} == wants
+    if cls_name == "_ElevProxyEllipse":
+        assert it.resolved_pen_brush()[1].style() == Qt.BrushStyle.NoBrush
+    it.exit_paper_pass(tok)
+    assert {a: getattr(it, a) for a in wants} == priors
+    assert snapshot(sec) == before
+
+
 # ---------------------------------------------------------------------------
 # Task 13: the node enters its fitting (D9)
 # ---------------------------------------------------------------------------
@@ -1855,6 +2170,66 @@ def test_node_enter_raise_in_the_fitting_unwinds_node_and_fitting(
         "the raise came after the node's writes and the fitting's tint"
     assert (f._display_color, f._display_fill_color) == _FIT_TINT
     assert _svg(sym) == svg0
+    assert snapshot(ms) == before
+
+
+def test_fitting_phase_forced_colour_tints_then_restores(qapp, request, paper_env,
+                                                        real_system_library):
+    """T13 review (DD2): on an As Authored Fitting row, a phase status that
+    forces the colour tints the fitting symbol's stroke in the phase colour
+    for the pass (the wrapper colours untouched); the exit re-latches the
+    canvas tint."""
+    from types import SimpleNamespace
+
+    from firepro3d import phase_display, phase_registry
+    from firepro3d.constants import PHASE_EXISTING
+    set_rows(paper_env, True)
+    ms, n = _fitting_node(request)
+    f, sym = n.fitting, n.fitting.symbol
+    f.phase_override = PHASE_EXISTING
+    svg0 = _svg(sym)
+    before = snapshot(ms)
+    table = phase_registry.project_table()
+    prior = table.graphics_of(PHASE_EXISTING).get("colour")
+    phase_display.begin_pass(SimpleNamespace(
+        phase_display=phase_display.PhaseDisplay(True, frozenset()),
+        source_view_type="plan"))
+    try:
+        assert table.set_graphic(PHASE_EXISTING, "colour", "#00ff00")
+        ctx = pp.PaperPassContext(ms, QRectF(), SCALE)
+        tok = n.enter_paper_pass(ctx, ctx.merge(ctx.row("Node"), n, "Node"))
+        assert sym._display_color == "#00ff00", "the phase colour did not tint the symbol"
+        assert _svg(sym) != svg0
+        assert (f._display_color, f._display_fill_color) == _FIT_TINT
+        n.exit_paper_pass(tok)
+    finally:
+        phase_display.end_pass()
+        table.set_graphic(PHASE_EXISTING, "colour", prior)
+    assert _svg(sym) == svg0, "the canvas tint was not re-latched"
+    assert (f._display_color, f._display_fill_color) == _FIT_TINT
+    assert snapshot(ms) == before
+
+
+def test_fitting_row_missing_skips_the_fitting(qapp, request, paper_env,
+                                               real_system_library):
+    """T13 review: no Fitting row in the paper categories -- the node still
+    enters (one token, its own exit) and the fitting is skipped without an
+    error: the symbol keeps its canvas tint, opacity and wrapper colours."""
+    set_rows(paper_env, False)
+    del paper_env.cats["Fitting"]
+    ms, n = _fitting_node(request)
+    f, sym = n.fitting, n.fitting.symbol
+    svg0, op0 = _svg(sym), sym.opacity()
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(-1500, -1500, 3000, 3000),
+                                     paper_scale=SCALE)
+    try:
+        assert [fn for it, fn, _tok in saved if it is n] == [n.exit_paper_pass]
+        assert n._paper_pen_width is not None
+        assert _svg(sym) == svg0 and sym.opacity() == pytest.approx(op0)
+        assert (f._display_color, f._display_fill_color) == _FIT_TINT
+    finally:
+        pd.restore_model_display(saved)
     assert snapshot(ms) == before
 
 
@@ -2059,6 +2434,153 @@ def test_underlay_enter_raise_mid_write_unwinds_the_group(qapp, request, paper_e
     assert seen == [True], "the raise came after an earlier child's write"
     assert first is not second
     assert _und_state(group) == st0
+    assert snapshot(ms) == before
+
+
+def _child_look(c):
+    from tests.test_paper_pass_characterization import _norm
+    return (_norm(c.pen()), _norm(c.brush()), getattr(c, "_colour_src", None))
+
+
+def test_underlay_mask_child_is_skipped(qapp, request, paper_env, real_system_library):
+    """T14 review: a mask batch (``UNDERLAY_MASK_SLOT``) paints the sheet, not
+    its layer -- a row-off pass leaves its brush and token source alone while
+    the layer's stroke takes the row colour."""
+    from firepro3d import underlay
+    from firepro3d.constants import UNDERLAY_MASK_SLOT
+    from firepro3d.underlay import Underlay
+    from tests.test_hf7_underlay_render import _mask
+    set_rows(paper_env, False)
+    ms = _scene(request)
+    rec = Underlay(type="dxf", path="x.dxf")
+    geoms = [{"kind": "line", "x1": -800, "y1": 0, "x2": 800, "y2": 0, "layer": "A"},
+             _mask(-500, -500, 500, 500, layer="A")]
+    group, _layers = ms._build_batched_underlay_group(geoms, rec)
+    ms.underlays.append((rec, group))
+    (mask,) = [c for c in group.childItems() if c.data(UNDERLAY_MASK_SLOT)]
+    (line,) = [c for c in group.childItems()
+               if c.data(1) is not None and not c.data(UNDERLAY_MASK_SLOT)]
+    mask0 = _child_look(mask)
+    row_col = pd._paper_qcolor(paper_env.cats["Underlay"]["color"]).name()
+    assert mask.brush().color().name() != row_col, "setup: the mask is the row colour"
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+    tok = underlay.enter_underlay_paper_pass(ctx, rec, group)
+    assert line.pen().color().name() == row_col
+    assert _child_look(mask) == mask0, "the pass re-pened the mask"
+    underlay.exit_underlay_paper_pass(tok)
+    assert snapshot(ms) == before
+
+
+def test_underlay_layerless_child_is_skipped(qapp, request, paper_env,
+                                             real_system_library):
+    """T14 review: a group child with no layer (``data(1)`` None) is not a
+    layer path: the pass leaves its pen and brush alone."""
+    from PyQt6.QtGui import QColor, QPainterPath, QPen
+    from PyQt6.QtWidgets import QGraphicsPathItem
+    from firepro3d import underlay
+    set_rows(paper_env, False)
+    ms, rec, group = _underlay_scene(request)
+    path = QPainterPath(QPointF(-300, 300))
+    path.lineTo(QPointF(300, 300))
+    bare = QGraphicsPathItem(path, group)
+    bare.setPen(QPen(QColor("#123456"), 0.0))
+    assert bare.data(1) is None
+    bare0 = _child_look(bare)
+    before = snapshot(ms)
+    ctx = pp.PaperPassContext(ms, QRectF(_UND_CROP), SCALE)
+    tok = underlay.enter_underlay_paper_pass(ctx, rec, group)
+    assert _und_children(group)[("B", "stroke")].pen().color().name() \
+        == pd._paper_qcolor(paper_env.cats["Underlay"]["color"]).name()
+    assert _child_look(bare) == bare0, "the pass re-pened a layer-less child"
+    underlay.exit_underlay_paper_pass(tok)
+    assert snapshot(ms) == before
+
+
+def test_underlay_model_hidden_group_stays_hidden(qapp, request, paper_env,
+                                                  real_system_library):
+    """T14 review: a group hidden on the model side is left untouched by the
+    pass (no child re-pened) and is still hidden after the exit."""
+    set_rows(paper_env, False)
+    ms, rec, group = _underlay_scene(request)
+    group.setVisible(False)
+    st0 = _und_state(group)
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
+    try:
+        assert not group.isVisible()
+        assert _und_state(group) == st0, "the pass wrote a model-hidden group"
+    finally:
+        pd.restore_model_display(saved)
+    assert not group.isVisible()
+    assert _und_state(group) == st0
+    assert snapshot(ms) == before
+
+
+def test_underlay_groups_enter_in_order_and_exit_in_reverse(qapp, request, paper_env,
+                                                            real_system_library,
+                                                            monkeypatch):
+    """T14 review: two underlay groups enter in ``scene.underlays`` order and
+    exit in reverse (the driver's unwind); both come back."""
+    from firepro3d import underlay
+    from firepro3d.underlay import Underlay
+    set_rows(paper_env, False)
+    ms, rec1, g1 = _underlay_scene(request)
+    rec2 = Underlay(type="dxf", path="y.dxf")
+    g2, _layers = ms._build_batched_underlay_group(
+        [{"kind": "line", "x1": -800, "y1": 400, "x2": 800, "y2": 400, "layer": "C"}],
+        rec2)
+    ms.underlays.append((rec2, g2))
+    order = []
+    real_exit = underlay.exit_underlay_paper_pass
+
+    def spy_exit(tok):
+        order.append(tok["group"])
+        return real_exit(tok)
+
+    monkeypatch.setattr(underlay, "exit_underlay_paper_pass", spy_exit)
+    st1, st2 = _und_state(g1), _child_look(g2.childItems()[0])
+    before = snapshot(ms)
+    saved = pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
+    assert [it for it, fn, _tok in saved if fn is spy_exit] == [g1, g2]
+    pd.restore_model_display(saved)
+    assert order == [g2, g1], "the groups did not exit in reverse"
+    assert _und_state(g1) == st1 and _child_look(g2.childItems()[0]) == st2
+    assert snapshot(ms) == before
+
+
+def test_print_pass_raise_mid_write_unwinds_the_pass(qapp, request, paper_env,
+                                                     real_system_library,
+                                                     monkeypatch):
+    """T14 review (AC5 style): ``enter_print_pass`` raising after its write
+    unwinds the text itself (its prior ``_print_pass`` back), and the driver
+    unwinds every owner entered before it; the error re-raises."""
+    monkeypatch.setattr(pd, "_THIN_SUSPEND", 0)       # a failed unwind must not leak
+    set_rows(paper_env, False)
+    ms, t = _printed_text(request)
+    wall = _KINDS["wall"](ms)
+    wall.setZValue(1000.0)                    # stacking order: the wall enters first
+    t.setZValue(-1000.0)
+    before = snapshot(ms)
+    seen = []
+    real = t.set_print_pass
+
+    def boom(value):
+        real(value)
+        if not seen:
+            seen.append((t._print_pass, "_paper_fill_opaque" in vars(wall)))
+            raise RuntimeError("print")
+
+    t.set_print_pass = boom
+    try:
+        with pytest.raises(RuntimeError, match="print"):
+            pd.apply_paper_overrides(ms, QRectF(_UND_CROP), paper_scale=SCALE)
+    finally:
+        del t.set_print_pass
+    assert seen and seen[0][0] is not None and seen[0][1], (
+        "the raise came after the text's write and the wall's enter")
+    assert t._print_pass is None
+    assert "_paper_fill_opaque" not in vars(wall)
     assert snapshot(ms) == before
 
 

@@ -74,7 +74,9 @@ def test_set_block_scale_rejects_non_positive(qapp):
 
 def _paper_ink_thickness(ms, inst, scale):
     """Painted thickness (px = scene mm) of a horizontal leg on a real paper
-    pass (``paper_display.apply_paper_overrides`` -> ``_apply_block``)."""
+    pass (``paper_display.apply_paper_overrides`` -> ``BlockInstance.enter_paper_pass``
+    -> ``paper_pass.enter_block_hooks``; paper-pass protocol D7; was
+    paper_display._apply_block)."""
     inst.set_block_scale(scale)
     saved = pd.apply_paper_overrides(ms, QRectF(-1e5, -1e5, 2e5, 2e5),
                                      paper_scale=0.05)

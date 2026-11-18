@@ -36,7 +36,8 @@ def _viewport_hlines(pdf):
 
 def _blocks_mm():
     """The paper Blocks category weight in mm, read the way
-    paper_display.apply_paper_overrides feeds _apply_block."""
+    BlockInstance.enter_paper_pass feeds paper_pass.enter_block_hooks
+    (paper-pass protocol D7; was paper_display._apply_block)."""
     return pd.resolve_line_weight_mm(pd.load_paper_categories()["Blocks"]["line_weight"])
 
 

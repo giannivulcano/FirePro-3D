@@ -451,7 +451,8 @@ def test_id_detail_marker_token_full_colour_paper_then_canvas(qapp, force_theme)
 
 def test_id_elevation_marker_never_plots_on_paper(qapp, force_theme):
     """A cardinal SectionMarker is PAPER_EXCLUDED (hidden for the pass), so its
-    ``_apply_marker`` token branch is unreachable; pin that and the restore."""
+    token branch (``_MarkerPaperMixin._paper_line_write``; paper-pass protocol;
+    was paper_display._apply_marker) is unreachable; pin that and the restore."""
     from PyQt6.QtCore import QRectF
     from tests.paper_mode_shim import BW, FULL_COLOR, set_paper_mode
     from firepro3d.section_marker import SectionMarker

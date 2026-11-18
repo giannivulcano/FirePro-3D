@@ -339,8 +339,10 @@ def _hexagon_colours(b):
     return {img.pixelColor(x, y).name() for x in range(0, 200, 4) for y in range(0, 200, 4)}
 
 
-def test_g7_paper_pass_draws_the_badge_through_apply_block(tree):
-    """AC9: the paper pass reaches the badge as an annotation block -- As
+def test_g7_paper_pass_draws_the_badge_through_the_block_hooks(tree):
+    """AC9: the paper pass reaches the badge as an annotation block
+    (``paper_pass.enter_block_hooks``; paper-pass protocol D7; was
+    paper_display._apply_block) -- As
     Authored ON keeps the seed's colours, OFF forces the row colour onto it --
     re-placed at the paper k and restored after."""
     from PyQt6.QtCore import QRectF

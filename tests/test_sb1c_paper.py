@@ -124,7 +124,8 @@ from PyQt6.QtWidgets import QGraphicsScene
 
 def test_g_dm_stale_bubble_height_ignored(qapp):
     """SB1c D11 / SB4b D12: a stale stored ``bubble_label_height_mm`` is never read; the
-    gridline bubble plots through the annotative _apply_block path (k = 1 / S)."""
+    gridline bubble plots through the annotative paper_pass.enter_block_hooks path
+    (k = 1 / S; paper-pass protocol D7; was paper_display._apply_block)."""
     from firepro3d import paper_display as pd
     from firepro3d.bound_label import PEN_MARGIN
     from firepro3d.gridline import GridlineItem
@@ -151,7 +152,8 @@ def test_g_dm_stale_bubble_height_ignored(qapp):
 
 def test_g_room_stale_label_height_ignored(qapp):
     """SB1c D12 / SB3: a stale stored Room label_height_mm is never read; the
-    room tag plots through the annotative _apply_block path (k = 1 / S)."""
+    room tag plots through the annotative paper_pass.enter_block_hooks path
+    (k = 1 / S; paper-pass protocol D7; was paper_display._apply_block)."""
     from firepro3d import paper_display as pd
     from firepro3d.block_attributes import normalise_attr
     from firepro3d.bound_label import PEN_MARGIN

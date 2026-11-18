@@ -276,7 +276,8 @@ class TestApplyRestore:
 
     def test_pipe_label_recolored_for_paper_and_restored(self, scene_with_pipe):
         # SB4a D10: the label is an annotation block (BoundLabelItem); the
-        # paper pass routes it through _apply_block (paper hooks set) and
+        # paper pass routes it through paper_pass.enter_block_hooks (paper
+        # hooks set; paper-pass protocol D7; was paper_display._apply_block) and
         # restore_model_display puts the model values (None) back.
         scene, pipe = scene_with_pipe
         lab = pipe.label
