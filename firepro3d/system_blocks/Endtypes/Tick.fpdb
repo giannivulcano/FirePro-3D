@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "id": "system-endtypes-tick",
+  "version": 4,
+  "name": "Tick",
+  "library": "System",
+  "series": "Endtypes",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        1.060660486049362,
+        -1.0606604860493622
+      ],
+      "pt2": [
+        -1.0606598575102804,
+        1.0606598575102806
+      ],
+      "uid": "ac0eb004a49a4bb198c91c933e841168",
+      "style": {
+        "linetype": "continuous",
+        "weight": "Medium",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "235a99b799d94cd19e2e15acaeda9130",
+      "type": "dim_angle",
+      "refs": [
+        {
+          "uid": "ac0eb004a49a4bb198c91c933e841168",
+          "h": "edge"
+        },
+        {
+          "ref": "x_axis"
+        }
+      ],
+      "value": 45.00000000000001,
+      "driving": true,
+      "enabled": true,
+      "helper": {
+        "dirs": [
+          -1,
+          1
+        ],
+        "sign": 1
+      },
+      "label": {
+        "radius": 1.0210083081381425
+      }
+    },
+    {
+      "id": "49864b9c1b2d4727b1ef7337cf40cc80",
+      "type": "dim_distance",
+      "refs": [
+        {
+          "uid": "ac0eb004a49a4bb198c91c933e841168",
+          "h": "edge"
+        }
+      ],
+      "value": 3.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "offset": 0.36780890261627874
+      }
+    },
+    {
+      "id": "581e7859e98b4eebb9ea5714a07c424e",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "ac0eb004a49a4bb198c91c933e841168",
+          "h": "mid"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "end": {
+    "trim": 0.0
+  },
+  "base_version": 4,
+  "colour_tokens": 1,
+  "weights": {
+    "Medium": 0.35
+  },
+  "weight_model_px": {
+    "Medium": 2
+  }
+}

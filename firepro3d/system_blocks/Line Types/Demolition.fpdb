@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "id": "system-line-types-demolition",
+  "version": 4,
+  "name": "Demolition",
+  "library": "System",
+  "series": "Line Types",
+  "scale_mode": "real_size",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "primitives": [
+    {
+      "type": "draw_line",
+      "pt1": [
+        0.0,
+        0.0
+      ],
+      "pt2": [
+        100.0,
+        0.0
+      ],
+      "uid": "39300afbccb5408db62daa992941ee77",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "#ffffff"
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [],
+  "tile": null,
+  "repeat": {
+    "length": 200.0,
+    "size": "model",
+    "screen": "fixed"
+  },
+  "base_version": 4
+}

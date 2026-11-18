@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "id": "system-endtypes-dot",
+  "version": 5,
+  "name": "Dot",
+  "library": "System",
+  "series": "Endtypes",
+  "scale_mode": "annotative",
+  "origin": [
+    0.0,
+    0.0
+  ],
+  "attributes": [],
+  "host_category": "",
+  "primitives": [
+    {
+      "type": "draw_circle",
+      "cx": 0.0,
+      "cy": 0.0,
+      "radius": 1.0,
+      "uid": "fea6f424dcde4832812533ba5d1692ea",
+      "style": {
+        "linetype": "continuous",
+        "weight": "by_linetype",
+        "start": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "finish": {
+          "end": "by_linetype",
+          "visible": true
+        },
+        "colour": "token:auto"
+      },
+      "fill": {
+        "background": {
+          "color": "token:auto",
+          "opacity": 1.0
+        }
+      }
+    }
+  ],
+  "render_mode": "default",
+  "constraints": [
+    {
+      "id": "e0e3be5363dc47048fdfc4b1d597f93a",
+      "type": "coincident",
+      "refs": [
+        {
+          "uid": "fea6f424dcde4832812533ba5d1692ea",
+          "h": "center"
+        },
+        {
+          "ref": "origin"
+        }
+      ],
+      "value": null,
+      "driving": true,
+      "enabled": true,
+      "helper": {}
+    },
+    {
+      "id": "cfb51a6160ed45c78de298d21928be0d",
+      "type": "dim_diameter",
+      "refs": [
+        {
+          "uid": "fea6f424dcde4832812533ba5d1692ea",
+          "h": "curve"
+        }
+      ],
+      "value": 2.0,
+      "driving": true,
+      "enabled": true,
+      "helper": {},
+      "label": {
+        "angle": 49.21702192566228
+      }
+    }
+  ],
+  "tile": null,
+  "repeat": null,
+  "end": {
+    "trim": 0.0,
+    "model_scale": 25.0
+  },
+  "base_version": 5,
+  "colour_tokens": 1
+}
