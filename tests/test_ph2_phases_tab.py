@@ -134,9 +134,8 @@ def test_reset_and_default_enabled_on_phases_tab(main_window):
     dlg.reject()
 
 
-def test_cells_show_factory_and_missing_linetype(main_window):
-    """AC6 + D-PH20: factory rows; Demolition's linetype shows the missing state until LT7."""
-    from firepro3d.linetype_choices import missing_label
+def test_cells_show_factory_rows_and_demolition_linetype(main_window, real_system_library):
+    """AC6 + D-PH20 + LT7 R5: factory rows; Demolition's linetype is the shipped System block."""
     dlg = main_window._make_display_manager("model")
     t = _tab(dlg)
     names = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
@@ -146,7 +145,7 @@ def test_cells_show_factory_and_missing_linetype(main_window):
     assert t.cell_text("new", "colour") == "\u2014"
     assert t.cell_text("new", "weight") == "\u2014"
     assert t.cell_text("new", "opacity") == "\u2014"
-    assert t.cell_text("demolition", "linetype") == missing_label("Demolition")
+    assert t.cell_text("demolition", "linetype") == "Demolition"
     dlg.reject()
 
 
@@ -227,7 +226,7 @@ def test_combo_and_opacity_cells_reach_the_registry_on_ok(main_window):
     t = _tab(dlg)
     weight = t.cell("existing", "weight")
     weight.setCurrentIndex(weight.findText(name))         # the real combo
-    linetype = t.cell("demolition", "linetype")           # factory "Demolition" (D-PH10)
+    linetype = t.cell("demolition", "linetype")           # factory Demolition linetype (LT7 R5)
     assert linetype.currentIndex() != 0
     linetype.setCurrentIndex(0)                           # the leading "—" entry
     spin = t.cell("demolition", "opacity")
@@ -237,7 +236,7 @@ def test_combo_and_opacity_cells_reach_the_registry_on_ok(main_window):
     g_existing = pr.project_table().graphics_of("existing")
     g_demo = pr.project_table().graphics_of("demolition")
     assert g_existing["weight"] == name                   # factory None -> a real name
-    assert g_demo["linetype"] is None                     # factory "Demolition" -> "—"
+    assert g_demo["linetype"] is None                     # factory Demolition linetype -> "—"
     assert g_demo["opacity"] is None
 
 

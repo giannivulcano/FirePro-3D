@@ -3,7 +3,8 @@
 Raw sources: concept PD1 (built-in ids "new"/"existing"/"demolition"; record
 fields id/name/builtin/graphics{colour, fill, weight, linetype, opacity}/
 include_in_calc); project-phasing.md D-PH10 (New no override; Existing grey
-lines + light-grey fill; Demolition linetype "Demolition", colour unchanged),
+lines + light-grey fill; Demolition linetype = the shipped System block
+"system-line-types-demolition" per LT7 R5, colour unchanged),
 D-PH14 (hydraulics exclude Demolition), D-PH19 (built-ins always present).
 """
 import logging
@@ -34,7 +35,7 @@ def test_factory_graphics_follow_d_ph10():
     g = existing["graphics"]
     assert _grey(g["colour"]) and _grey(g["fill"])                          # grey lines + fill
     assert QColor(g["fill"]).lightness() > QColor(g["colour"]).lightness()  # light-grey fill
-    assert demo["graphics"]["linetype"] == "Demolition"
+    assert demo["graphics"]["linetype"] == "system-line-types-demolition"  # LT7 R5: shipped id
     assert demo["graphics"]["colour"] is None                              # colour unchanged
     assert [r["include_in_calc"] for r in (new, existing, demo)] == [True, True, False]
 

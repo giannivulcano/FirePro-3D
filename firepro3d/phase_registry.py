@@ -13,7 +13,8 @@ import copy
 import logging
 import math
 
-from .constants import (PHASE_DEMOLITION, PHASE_DEMOLITION_LINETYPE, PHASE_EXISTING,
+from .constants import (PHASE_DEMOLITION, PHASE_DEMOLITION_LINETYPE,
+                        PHASE_DEMOLITION_LINETYPE_LEGACY, PHASE_EXISTING,
                         PHASE_EXISTING_COLOUR, PHASE_EXISTING_FILL, PHASE_NEW)
 
 log = logging.getLogger(__name__)
@@ -54,7 +55,8 @@ def _norm_graphic(key: str, value):
 
     Opacity is an integer percent clamped 0-100 (a bool, a non-number or a
     non-finite number reads None); every other slot (colour, fill, weight,
-    linetype) is a string or None.
+    linetype) is a string or None. The pre-LT7 factory linetype name
+    ``"Demolition"`` reads as the shipped System id (LT7 R5).
     """
     if value is None:
         return None
@@ -64,6 +66,8 @@ def _norm_graphic(key: str, value):
         if not math.isfinite(value):
             return None
         return max(0, min(100, int(round(value))))
+    if key == "linetype" and value == PHASE_DEMOLITION_LINETYPE_LEGACY:
+        return PHASE_DEMOLITION_LINETYPE          # LT7 R5: the pre-LT7 factory name
     return value if isinstance(value, str) else None
 
 
