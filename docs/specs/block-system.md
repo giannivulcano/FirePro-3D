@@ -15,7 +15,7 @@ applies-to:
   - firepro3d/symbol_block.py       # SB4g: SymbolBlockItem, the item that draws a real-size System symbol block (contract: system-blocks.md 8g)
   - firepro3d/block_library.py      # .fpdb I/O, disk walk (no index since 2026-10-10), divergence; SB1b: multi-root (System tier first), write guard, status values
   - firepro3d/system_library.py     # SB1b (2026-10-23) — startup migration into the System tier model (seeded-hatch clean-up, System/ → Styles/)
-  - firepro3d/system_blocks/        # SB1b (2026-10-23) — the read-only shipped tier (<Series>/*.fpdb; ships Hatches and Endtypes (Arrow); SB4g adds Symbols)
+  - firepro3d/system_blocks/        # SB1b (2026-10-23) — the read-only shipped tier (<Series>/*.fpdb; the shipped series are listed under "System library tier (SB1b)")
   - firepro3d/system_promote.py     # 2026-10-28 -- Promote to System: plan_promote / promote; Demote / Check out: plan_demote / demote / plan_checkout / checkout (source-checkout gated; "Authoring path (2026-10-28)")
   - firepro3d/capability_folder.py  # read_meta / owns_name / sanitize -- the shared per-file parse (library walk + capability scan)
   - firepro3d/block_manager.py      # new — Manager dialog (MVC + frameless shell)
@@ -653,7 +653,7 @@ concept: `2026-09-29-system-blocks-concept-design.md`). Other specs link here.
 
 - **The tier.** Shipped blocks live read-only under `firepro3d/system_blocks/<Series>/*.fpdb`
   (`block_library.system_root()`; tests override it with `set_system_root`). `system_blocks/` ships **Hatches** (SB1b),
-  **Endtypes** (Arrow, promoted 2026-10-28), **Tags** (RoomTag, SB3 2026-10-29; intrinsic labels resolve through [`system-blocks.md`](system-blocks.md)) and **Symbols** (Sprinkler0 / Sprinkler1 / Sprinkler2 / Water Supply / Riser, SB4g 2026-11-13; real-size element symbols resolved through `Model_Space.symbol_block`, [`system-blocks.md`](system-blocks.md) 8g) — no empty series folders. A System entry reads Library `"System"` (`SYSTEM_LIBRARY`) and Series = its
+  **Endtypes** (Arrow, promoted 2026-10-28; Dot, Tick, LT7 2026-11-18), **Line Types** (Dash; Hidden, Demolition, LT7 2026-11-18; the LT7 catalog is [`linetypes.md`](linetypes.md) "LT7"), **Annotations** (Note, [`system-blocks.md`](system-blocks.md)), **Pipe Label** (Pipe Label), **Tags** (RoomTag, SB3 2026-10-29; intrinsic labels resolve through [`system-blocks.md`](system-blocks.md)) and **Symbols** (Sprinkler0 / Sprinkler1 / Sprinkler2 / Water Supply / Riser, SB4g 2026-11-13; real-size element symbols resolved through `Model_Space.symbol_block`, [`system-blocks.md`](system-blocks.md) 8g) — no empty series folders. A System entry reads Library `"System"` (`SYSTEM_LIBRARY`) and Series = its
   first folder.
 - **Multi-root library.** `block_library._roots` walks the System root first, then the user root
   (`_iter_entries`; entries carry `tier` = `system` | `user`). Callers keep the `root=` idiom;

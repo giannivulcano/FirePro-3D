@@ -1,5 +1,5 @@
 ---
-status: partial          # ET1 BUILT 2026-10-10 (end sizing: Fixed only, per-end Scale, On screen, Model scale + line override, editors at the drawing scale, zoom hook, tooltip wrap -- see "ET1"); LT5 BUILT 2026-10-08 (end capability: end types as blocks, per-line + linetype-default ends, Fixed / Line weight sizing, trim, mirror, closing clears ends, End type mode, End Types folder, integrity); WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); WM3 BUILT 2026-11-11 (placement / nested-record Colour override, By Category token:blocks, keep_colour box fill, Explode bake, panel Colour row, DM Model Blocks colour -- see "WM3"); LT6–LT8 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
+status: partial          # ET1 BUILT 2026-10-10 (end sizing: Fixed only, per-end Scale, On screen, Model scale + line override, editors at the drawing scale, zoom hook, tooltip wrap -- see "ET1"); LT5 BUILT 2026-10-08 (end capability: end types as blocks, per-line + linetype-default ends, Fixed / Line weight sizing, trim, mirror, closing clears ends, End type mode, End Types folder, integrity); WM2 BUILT 2026-10-07 (placement Weight / Linetype overrides, derived op list, nested outer-wins, Explode bake, integrity, panel rows); LT1 BUILT 2026-10-04 (project weights, Blocks paper category, canvas mapping, Thin Lines); LT2 BUILT 2026-10-04 (style record, copy_style, per-op weights, Model Blocks row, rename aliases); LT3 BUILT 2026-10-05 (linetype renderer, `repeat` data, integrity set, picker, Linetypes folder); WM1 BUILT 2026-10-05 (By Block retired on primitives, the current); LT4 BUILT 2026-10-06 (repeat authoring: capability slot, repeat frame, Pattern list, preview swatch, Continuous lock, badges, ribbon toggle); WM3 BUILT 2026-11-11 (placement / nested-record Colour override, By Category token:blocks, keep_colour box fill, Explode bake, panel Colour row, DM Model Blocks colour -- see "WM3"); LT7 PARTIAL 2026-11-18 (System Line Types Hidden / Demolition + Endtypes Dot / Tick shipped, factory Demolition phase linetype = the shipped id, rest of the catalog deferred -- see "LT7"); LT6 / LT8 unbuilt; LTS BUILT 2026-10-06 (per-linetype Fixed on-screen size: shared length_factor, short-line rule, visible-window expansion, straight-segment fast path, On screen row). D-L1–D-L23 ratified in the 2026-10-02 concept grill (Q1–Q23); how = docs/superpowers/specs/2026-10-02-linetypes-concept-design.md (LD1–LD7); MW BUILT 2026-10-07 on feat/mw-model-weights, verified 736cf5e3 (Model weights: System factor + per-row Model px, new factory Thinnest..Thickest, crisp H/V axis-split, D39 tint as paint-time colour — L561 + L523)
 last-verified: 2026-11-17  # paper-pass Account: LT1-2 / H5 / LT1-8 paper hook citations re-pointed to paper-space.md §6.2.1 only, rest not re-audited; prior 2026-11-16  # PH3 Account: LW-DC-11 (phase weights built), WM3 `_paper_pen_color` clause + applies-to weight_refs.py only, rest not re-audited; prior 2026-11-14  # project-tables Account: LW-DC header built + open-order pointers only, rest not re-audited; prior 2026-11-12  # LW-DC Account (LW-DC-2 D2 rounding, LW-DC-5 D1 delete alias); prior 2026-11-11 paper-as-authored Account: D-L19 note, WM-7 cascade note, WM3 D3 paper clause + token:blocks resolution, LT1-2 Blocks row colour sentence re-audited against the per-row model; rest not re-audited (the LT1 "Out of scope" Full Color white-on-white line and the T2 test list are dated history, not rewritten); prior 2026-11-11  # WM3 Account: WM3 section as built (what / how / guards), header, WM3 applies-to notes, cross-spec WM3 bullet; rest not re-audited; prior 2026-11-03  # DM chrome revision Account: H-e Blocks row superseded pointer only; prior 2026-11-03  # stroke-corner-joins Account: pointer subsection only, rest not re-audited; prior 2026-10-28  # system-block authoring Account: LT3-12 / LT5-9 / LT5-13 picker + retarget pointers only, rest not re-audited; prior 2026-10-26  # Editor/Build slice 1 Account: ribbon tab / context-function names in the Linetype-toggle and capability-sync bullets only, rest not re-audited; prior 2026-10-24  # SB2a Account: block text-box border now compiled (WM-12 / WM2 as-built; rest not re-audited); prior SB1b Account: default Linetypes / End types folders now under Styles/ (pointer only; rest not re-audited); prior 2026-10-18 HF1 Account: stroke_style _hex / normalize_style keeps tokens and "" (pointer only; rest not re-audited); prior CS4b Account (pointer only: end_render.paint_end_at -> parametric D61); prior reference geometry Account (LT2-1 / copy_style / paint notes: reference-flagged shapes replace ReferenceLineItem; LT4-4 readers + lock + users_in skip reference items, RG15); prior 2026-10-12 block mirror/scale Account: H3-a map_piece maps any similarity (radii × √|det|, reflection negates the sweep, direction kept; signed-sweep point_at / split / tangent_at); LT5 how: ends under a reflecting RenderOp.mapped toggle mirrored, no swap; WM2 row order (Rotation, Mirrored, Scale, then Linetype / Weight); LT3 guard list; prior placement batch Account: LT1 H5 + LT3-6 placement-ghost pointers to block-system Decision 8; prior disk-scan Account: H3-g / H3-i / LT4-10 pointers to block-system "Library on disk" (flags read from each file; capability_folder.read_meta); prior ET1 Account (ET1 section as built: ET1-1..10, how, guards, residuals; LT5-4 / D-L8b / LTS-9f / LTS-7 amendment pointers; applies-to ET1 seams); prior LT5 Account (LT5 section as built: LT5-1..15, how, guards; D-L7 / D-L8b / D-L23e / LTS-9f amendment pointers; applies-to LT5 seams); prior WM2 Account (WM2 as-built subsection; Weight-model header; reserved names; applies-to WM2 seams); prior MW Account (MW section as built: names, MW-6 pickers/current, crisp as built + seeded underlays + LineItem fast path, paper parity, tint as built, MW-13 result, guards); prior LTS Account (LTS section as built: H-LTS-a–f, guards, LTS-8 bars re-pinned report-only; applies-to LTS seams); prior LTS design (Fixed on-screen size section added, LTS-1–LTS-9 + planned guards; LT3-4 amendment pointer; unbuilt); prior LT4 Account (LT4 section reconciled to as-built: header, H4-a–H4-g, LT4-4/11e/11f/12 + A6 amendments, guards; applies-to + cross-spec pointers); prior WM1 Account (WM section: WM1 as-built subsection, WM-10 amendment, LT2-7/LT3-8/LT3-12 pointers, applies-to); prior Weight model design (WM-1–WM-12 section added; D-L4 weight half/D-L5/D-L6/D-L17/LT2-9 superseded; D-L18/D-L19/D-L22 amended; unbuilt); prior LT3 Account (LT3 section reconciled to as-built: 0° arc restart, option-A badge, perf memo, seam rulings A/B/D/E, guards; D-L9b amendment pointer; D-L4/5/17 weight rows flagged under redesign); prior 2026-10-04 paper-outline-weight audit (paper_display.py touched; no linetypes claim changed); prior LT2 Account (LT2 section reconciled to as-built: H-a/H-b/H-c/H-e/H-g refinements, guards); prior LT1 Account d031637
 verified-commit: 2ce5b3b2  # paper pass protocol (0.107.3; LT1-2 / H5 / LT1-8 paper hook citations re-pointed to paper-space.md §6.2.1 only); prior f5bf752f  # PH3 (0.106.0; LW-DC-11, WM3 _paper_pen_color clause + applies-to weight_refs.py only); prior b5f653ea  # project-tables refactor (pointers only); prior 05a778a1   # LW-DC Account (ff merge to main); prior e2d57467   # paper-as-authored Account (0.99.0; paper colour clauses only); prior 84286791   # WM3 Account (feature/block-colour-override, ff to main); prior 6c03cd1c   # DM chrome revision Account: H-e Blocks row superseded pointer only (ff to main); prior b2d45275   # stroke-corner-joins Account (branch head; merge to main pending); prior d6d7a78c   # system-block authoring (ff to main); prior c23c1610   # Editor/Build slice 1 Account (ribbon names only); prior a6122a0e   # SB2a Account (pointer only); prior 91513a00   # SB1b System library tier (ff merge feat/sb1b-system-library; pointer only); prior 084b43e0 HF1 Account (pointer only); prior f866ff39 CS4b Account (feat/cs4b-dim-witness-lines merge); prior bfef1e34 reference geometry Account; prior fb928260 block mirror/scale Account (feat/block-instance-mirror-scale); prior e0ed656b placement batch Account (feat/block-placement-paste-ghost); pointers only; prior 73d16e2b disk-scan Account (feat/block-library-disk-scan: index.json retired; pointers only); prior e221ca0e ET1 Account (feat/et1-end-sizing); prior 220b5b55 LT5 Account (feat/lt5-end-capability); prior a65daf67 WM2 Account (feat/wm2-placement-overrides); prior 736cf5e3 MW Account (feat/mw-model-weights); prior 0b8bf68 LTS Account (feat/lts-fixed-onscreen); prior b7b8e87 LTS design (docs only); prior b9b1094 LT4 Account (feat/lt4-repeat-authoring); prior 123ead7 WM1 Account (feat/wm1-weight-model-primitive); prior 489dcc2 Weight model design; prior be7c88a LT3 Account (feat/lt3-linetype-renderer); prior 4c799ee audit only; prior 0056b5c
 applies-to:               # LT1 + LT2 + LT3 + WM1 + LT4 seams (built); MW seams (built)
@@ -111,7 +111,9 @@ length + toggleable bubble end caps) from primitives via System Blocks.
 - **D-L12 Library.** Linetypes and end types are ordinary blocks with a
   capability (`repeat` / `end`; no kind field — hatch D-A9 / System Blocks F3).
   Project registry + libraries; System > Linetypes and System > End Types
-  series (read-only, customise by Duplicate); `.fpdb` bundles them with
+  series (read-only, customise by Duplicate) *(LT7 R2/R3, 2026-11-17: the
+  shipped series folders are `Line Types` and `Pipe Line Types` for
+  linetypes and `Endtypes` for end types; see "LT7")*; `.fpdb` bundles them with
   dependents; delete refused while used ("used by N"); pickers list only
   capable blocks; capable blocks are not placeable as symbols.
 - **D-L20 Authoring.** Draw inside a repeat frame (frame length = period) in
@@ -660,8 +662,9 @@ pre-existing crash blocks model text in viewports — filed) · T7
   pieces, ends or fill, the record untouched so a flip back restores it
   (`2d-geometry.md` §1; `ReferenceLineItem` is retired).
   - `linetype` = `"continuous"` (reserved keyword — never a block, never
-    "missing") | `"by_block"` | a linetype block id (LT4+). LT7's shipped
-    "Continuous" entry is a picker label for the keyword.
+    "missing") | `"by_block"` | a linetype block id (LT4+). The pickers'
+    "Continuous" entry is a label for the keyword; LT7 ships no Continuous
+    block (R6).
   - `weight` = a named weight | `"by_linetype"` | `"by_block"`.
   - `start` / `finish` = `{end: "by_linetype" | "by_block" | <id>, visible: bool}`
     — stored and preserved from LT2, rendered from LT5.
@@ -990,7 +993,8 @@ a snapshot leaves the snapshot unchanged).
   `.../System/Linetypes`; the move is owned by
   [block-system.md "System library tier (SB1b)"](block-system.md#system-library-tier-sb1b-2026-10-23)); key and precedence
   owned by [`settings-dialog.md`](settings-dialog.md) §4.5b beside the Hatch
-  patterns folder. No seeding until LT7.
+  patterns folder. Never seeded: LT7 ships its linetypes in the read-only
+  System tier instead (see "LT7").
 
 ### How (H3-a–H3-i) — as built
 
@@ -1549,8 +1553,9 @@ editor-only roster gains "Linetype") and `test_icon_theming.py`
   along the line** (accepted).
 - **LTS-5 Defaults** (Q6). Turning Linetype on seeds On screen = **Fixed**
   (LT4-6 gains the row). A stored linetype without the property loads as
-  **Scale with zoom** (unchanged look; additive key, no format bump). LT7's
-  shipped System linetypes ship Fixed.
+  **Scale with zoom** (unchanged look; additive key, no format bump). On
+  screen is the author's choice per shipped System linetype (LT7 R4,
+  2026-11-17; sheets print at paper mm either way).
 - **LTS-6 Authoring surfaces** (Q7). Unchanged: the repeat frame and its 35 %
   ring stay real geometry (they are the unit, LT4-1, and must stay aligned
   with the frame); the panel swatch keeps fitting periods to its width. On
@@ -2267,6 +2272,45 @@ residual with LT8).
   (Wall "Thin" 0.35 still prints 0.35); library {Thin: 0.35} draws 0.35;
   picker order.
 
+## LT7 — Shipped System linetypes + end types (ratified 2026-11-17; PARTIAL 2026-11-18)
+
+> Feature run on `todo/p1-5f-20261117`. *What* = Phase-2 FP1 rulings R1–R6
+> (`todo_open.md` LT7 line, 2026-11-17). Split the same day: the
+> LT6-dependent entries (Fire-FP, Sprinkler-S, Grid Bubble) are LT7b.
+> **Amends** D-L12 (series folder names), LTS-5 (On screen per author),
+> LT3-13 (the Linetypes folder is never seeded) and D-PH20 in
+> [`project-phasing.md`](project-phasing.md) (the factory Demolition value).
+
+- **LT7-1 Authoring (R1).** Each System entry is drawn in the Workbench and
+  promoted with Promote to System
+  ([`block-system.md` "Authoring path (2026-10-28)"](block-system.md)); no
+  generator script. Ids are `system-<slug(series)>-<slug(name)>`.
+- **LT7-2 Series (R2/R3).** General linetypes ship in `Line Types` (beside
+  Dash), piping linetypes in `Pipe Line Types`, end types in `Endtypes`
+  (beside Arrow). The pickers list them by capability; no picker code
+  changed.
+- **LT7-3 On screen (R4).** The author picks On screen per shipped linetype;
+  Dash keeps its stored value.
+- **LT7-4 Keywords (R6).** Continuous and None stay keywords, never blocks.
+- **LT7-5 Factory Demolition (R5).** The Demolition phase's factory linetype is
+  the shipped block id; a stored legacy name maps to it on load. The one
+  home is [`project-phasing.md`](project-phasing.md) D-PH20.
+- **LT7-6 Catalog — shipped so far.** Line Types: Dash, Hidden, Demolition.
+  Endtypes: Arrow, Dot, Tick. **Deferred (user, 2026-11-18)** until drawn and
+  promoted: Line Types Center, Phantom, Dot; Pipe Line Types Branch, Main,
+  Cross Main, Existing, Drain; Endtypes Open Arrow, Arrow 30°, Slash, Box.
+  `Pipe Line Types` does not exist until its first entry ships (no empty
+  series folders).
+
+### LT7 guards (VC3) — as built
+
+| Guard | Asserts |
+|---|---|
+| `tests/test_lt7_system_catalog.py::test_linetype_shipped_and_in_picker` / `::test_end_type_shipped_and_in_picker` | each shipped file is a System `repeat` (or `end`) block in its series and its id reaches the real picker (`linetype_choices` / `end_choices`) |
+| `tests/test_lt7_system_catalog.py::test_factory_demolition_linetype_is_the_shipped_id` | factory Demolition linetype = `system-line-types-demolition`, the shipped file's id |
+| `tests/test_lt7_system_catalog.py::test_legacy_demolition_name_loads_as_the_id` | a stored `"Demolition"` loads, saves and copies as the id |
+| `tests/test_ph2_phases_tab.py::test_cells_show_factory_rows_and_demolition_linetype` | the Phases tab cell reads "Demolition", not Missing |
+
 ## Acceptance Criteria
 
 - [x] Collinear lines sharing a linetype are indistinguishable from one line (D-L9) — LT3 G1 (`tests/test_lt3_primitive_paint.py`), 2026-10-05.
@@ -2283,6 +2327,11 @@ residual with LT8).
 - [ ] Cross-spec reconciliation below applied when each slice lands.
 
 ## Cross-spec reconciliation (to amend when the build lands — Rule A)
+
+- **LT7 (applied 2026-11-18, LT7 Account):** `project-phasing.md` D-PH10 /
+  D-PH20 / AC6 — the factory Demolition linetype is the shipped id (one home
+  D-PH20); `block-system.md` "System library tier (SB1b)" — the shipped
+  series list gains Line Types and the new Endtypes entries.
 
 - `block-system.md` — `repeat` / `end` capabilities; placement + nested-record `style` slot; `referenced_ids`; StrokeOp compile; Blocks category weight. *(LT3 part — `repeat`, linetype refs in `referenced_ids`, stroke-op pieces — applied 2026-10-05: "Linetype capability (LT3)" pointer.)*
 - `2d-geometry.md` §1 — `style` record replaces px `lineweight`; current-style defaults; §1.2 "lineweights never scale" stays. *(LT3 pointer — `stroke_pieces()` + paint routing — applied 2026-10-05.)*
