@@ -179,3 +179,38 @@ def test_zoom_mid_gesture_recaptures(gesture):
     view.scale(1.7, 1.7)
     QApplication.processEvents()
     assert _grab(view) == _uncached(view)
+
+
+def test_grid_toggle_mid_gesture_recaptures(gesture):
+    """G3: the dot grid is view-only state (no scene.changed): set_grid drops the frame."""
+    view, scene, c, at = gesture("move")
+    move(view, at(c + QPoint(40, 30))); QApplication.processEvents()
+    before = _grab(view)
+    assert view._fc_pixmap is not None, "the cache path really painted"
+    view.set_grid(not view._grid_visible)
+    QApplication.processEvents()
+    got = _grab(view)
+    assert got != before, "the grid toggle is visible"
+    assert got == _uncached(view)
+
+
+def test_rearm_on_new_scene_listens_to_it(qapp):
+    """M1: a view re-armed after setScene drops its frame on the NEW scene's changes."""
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView
+    from firepro3d.gesture_frame_cache import GestureFrameCacheMixin
+
+    class V(GestureFrameCacheMixin, QGraphicsView):
+        pass
+
+    a, b = QGraphicsScene(), QGraphicsScene()
+    v = V(a)
+    v.begin_gesture_frame()
+    v.setScene(b)
+    v.begin_gesture_frame()
+    v._fc_pixmap = QPixmap(4, 4)
+    a.changed.emit([QRectF(0, 0, 1, 1)])
+    assert v._fc_pixmap is not None, "the old scene no longer drops the frame"
+    b.changed.emit([QRectF(0, 0, 1, 1)])
+    assert v._fc_pixmap is None, "the new scene drops the frame"
+    v.end_gesture_frame()
+    v.deleteLater()

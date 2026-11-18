@@ -17,7 +17,9 @@ class GestureFrameCacheMixin:
 
     The view's ``drawForeground`` must return right after its
     ``super().drawForeground`` call while ``_fc_capturing`` is set, so the
-    captured frame holds background + items only.
+    captured frame holds background + items + the *scene's* own foreground
+    (``QGraphicsScene.drawForeground``, e.g. SectionScene datum lines); only
+    the view's overlays after that return stay live per paint.
     """
 
     _fc_armed = False
@@ -29,10 +31,20 @@ class GestureFrameCacheMixin:
     def begin_gesture_frame(self) -> None:
         """Arm the cache; the next paint captures the still frame."""
         self._fc_pixmap = None
-        if self._fc_scene is None and self.scene() is not None:
-            self._fc_scene = self.scene()
-            self._fc_scene.changed.connect(self.drop_gesture_frame)
+        if self._fc_scene is not self.scene():
+            self._fc_disconnect()
+            if self.scene() is not None:
+                self._fc_scene = self.scene()
+                self._fc_scene.changed.connect(self.drop_gesture_frame)
         self._fc_armed = True
+
+    def _fc_disconnect(self) -> None:
+        if self._fc_scene is not None:
+            try:
+                self._fc_scene.changed.disconnect(self.drop_gesture_frame)
+            except TypeError:
+                pass
+            self._fc_scene = None
 
     def end_gesture_frame(self) -> None:
         """Disarm, free the pixmap and repaint normally."""
@@ -40,12 +52,7 @@ class GestureFrameCacheMixin:
         self._fc_armed = False
         self._fc_pixmap = None
         self._fc_key = None
-        if self._fc_scene is not None:
-            try:
-                self._fc_scene.changed.disconnect(self.drop_gesture_frame)
-            except TypeError:
-                pass
-            self._fc_scene = None
+        self._fc_disconnect()
         if was:
             self.viewport().update()
 
