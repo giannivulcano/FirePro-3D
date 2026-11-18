@@ -60,7 +60,7 @@ Docs exist to keep the AI grounded in the *intended* architecture — they are a
 
 ## Task workflow
 
-- Context reset threshold: 200k
+- Context reset threshold: 400k
 - **Standing rule — isolated worktree for every `/todo` run:** every new `/todo` session cuts a git worktree off main under `.worktrees/` before its first write, at every tier and type, whether or not a concurrency signal fires.
 - **Standing rule — opus, never fable:** wherever the model-tier table would pick `fable` (a chain's main loop, e.g. Large or design/Medium; the `final-reviewer` / `spec-architect` roles), use `opus` instead — `track { op: "override", role, tier: "opus" }` per fable role at run start, and keep the main loop on opus.
 
