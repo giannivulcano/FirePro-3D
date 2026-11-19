@@ -175,9 +175,6 @@
   - Details: project phasing landing 2026-11-06 (D-PH13 ruling). Fittings are `_TintedSvg` SVG symbols (`fitting.py`), plain types hidden today by `SHOW_PLAIN_SYMBOLS`, and SB4g does not cover them, so they take colour / opacity only until converted; after that they dash through the PH4 block path. Depends PH4. Coordinate with "Bring plain fitting symbols back".
 - [ ] [type:maint] paper-space.md 5.2 `source_view_type` comment omits section [P4] [subject:Documentation]
   - Details: found at the project phasing landing 2026-11-06: the `SheetViewData` block lists only plan / elevation / detail (the note above it adds schematic); `paper_space.py` `ViewResolver.resolve` also takes section.
-- [ ] [type:maint] Two open lines fail the taxonomy check: no Details line under the Display Manager group-header rows task or the `test_offset_real_mouse_move_is_fast` task [P4] [subject:Documentation]
-  - Details: found at the project phasing landing 2026-11-06; `check-taxonomy-conformance.ps1` fails the same two lines on main at 258381a3, so pre-existing.
-  - +1 occurrence 2026-11-18 (LT7 Account): the same two lines still fail on main at `d2e8fe27`; the offset perf line also carries a mojibake en dash ("44â€“77").
 
 ## Hydraulic calc deliverable
 
@@ -325,8 +322,8 @@
 - [ ] [type:feature] Display Manager category fills accept hatches (colour + hatch picker, like the property-panel `FillSwatch`) [P3] [subject:CAD]
   - Details: user, 2026-11-03 (DM chrome revision Phase 2, filed not absorbed). DM category fill was deliberately made solid-only (`display_manager.py` "fill is now solid-only"; `_parse_fill_value` strips the legacy `hatch:` prefix) when HF5 moved hatches to the Section / Fill Types column. Needs its own grill: which categories (room, floor, design area, roof, water supply, ...), paper behaviour, overlap with Fill Types, and each category's apply path rendering a hatch fill. Depends the DM chrome revision. `display_manager.py`, `fill_layers.py`, `ui_kit.FillSwatch`, item apply paths.
 - [ ] [type:bug] Display Manager group-header rows keep the default row height beside 28 px category rows [P4] [subject:UX]
-  - Note 2026-11-03: the Model "Blocks" row is gone (moved to the Line Weights tab's "Model blocks weight" picker, DM smoke round 2); only group headers remain.
   - Details: found by the DM chrome-revision seam review (2026-11-03, M3). `M.DM_ROW_H` is applied (every column) only to category / instance rows in `display_manager.py`; group headers and the Model "Blocks" combo row stay at Qt's default, so spacing is uneven. Decide whether headers take `DM_ROW_H` or a header token.
+  - Note 2026-11-03: the Model "Blocks" row is gone (moved to the Line Weights tab's "Model blocks weight" picker, DM smoke round 2); only group headers remain.
 - [ ] [type:bug] Kit `Swatch` chip (`ui_kit._Chip`) fires on any mouse button on press and takes no keyboard focus [P3] [subject:UX]
   - Details: found by the DM chrome-revision seam review (2026-11-03, M4). `_Chip.mousePressEvent` opens the picker (or emits `clicked`) for right/middle click too, and the chip is not focusable, so keyboard users cannot pick a colour. Kit-wide: every `Swatch` consumer (property panel, fill types tab, Display Manager). Fix in the kit: left button on release, `Qt.FocusPolicy.StrongFocus` + Space/Enter activation.
 - [ ] [type:bug] Kit `FillSwatch` shows its parentless label as a top-level window on every build [P3] [subject:UX]
@@ -2017,8 +2014,8 @@ One constraint type per session, in order (spec §12). Every session: §11 guard
 - [ ] [type:bug] Tiny Scale factors scale non-uniformly (Circle floors at 1 mm, Arc 0.01 mm, Ellipse 0.5×0.5) [P4] [subject:CAD]
   - Details: found 2026-10-01 (scene-tools P1 Slice 3/6 reviews). Refuse up front when any item would hit its floor, or document. `geometry_2d.py` radius floors, `modify_tools_controller.py` Scale.
 - [ ] [type:maint] Perf guard `test_offset_real_mouse_move_is_fast` fails intermittently under load (open40 44–77 ms vs 30 ms bar) [P3] [subject:Testing]
-  - +1 occurrence 2026-11-01 (scene-tool polish Fillet plan dry run, 25-file keep-green): `[open40_far]` failed in the batch, passed alone at base fa63ff5f and HEAD.
   - Details: found 2026-10-01 (proven at 890e43e and 004f575); passed in the quiet VC6 perf run at c8ff4f4. Quote the LineItem baseline next to the verdict, or make the bar relative. `tests/test_modify_tools_offset.py`.
+  - +1 occurrence 2026-11-01 (scene-tool polish Fillet plan dry run, 25-file keep-green): `[open40_far]` failed in the batch, passed alone at base fa63ff5f and HEAD.
   - +1 occurrence 2026-10-13: reference-geometry VC6 m-chunk (open40_far, closed39_out, closed39_in); fails at base 1d088c55 too in alternating runs.
   - +1 occurrence 2026-10-15 (CS10 VC6): `open40_far` failed in-chunk; base `d60fe0de` failed it again in its own chunk run (with `open40_near`) and in 2 alternating isolated pairs (2-4 params each side).
   - +1 occurrence 2026-10-20 (HF3 Phase 6 keep-green, 2.5 GB free, a reviewer's pytest running concurrently): `open40_far` 32.2 ms in the 25-file set and again alone right after; passed 2/2 at base `ea4172ec` and 2/2 at HEAD `ff041f50` in alternating isolated runs once the host was idle (VC7).
